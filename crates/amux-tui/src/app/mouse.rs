@@ -237,6 +237,14 @@ impl TuiModel {
                             return;
                         }
                     } else if matches!(self.main_pane_view, MainPaneView::Conversation) {
+                        if self
+                            .conversation_participant_summary_area()
+                            .is_some_and(|rect| contains_mouse(rect, mouse))
+                        {
+                            self.open_thread_participants_modal();
+                            self.input.set_mode(input::InputMode::Insert);
+                            return;
+                        }
                         let pos = Position::new(mouse.column, mouse.row);
                         if pos.x
                             == chat_area

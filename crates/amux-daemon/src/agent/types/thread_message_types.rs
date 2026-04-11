@@ -31,12 +31,72 @@ pub struct LatestSkillDiscoveryState {
     pub recommended_skill: Option<String>,
     pub recommended_action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_next_step: Option<crate::agent::skill_mesh::types::SkillMeshNextStep>,
+    #[serde(default)]
+    pub mesh_requires_approval: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_approval_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_skill_identifier: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_rationale: Option<String>,
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    pub discovery_pending: bool,
+    #[serde(default)]
+    pub skill_read_completed: bool,
     #[serde(default)]
     pub compliant: bool,
     pub updated_at: u64,
+}
+
+fn bool_is_false(value: &bool) -> bool {
+    !*value
+}
+
+impl LatestSkillDiscoveryState {
+    pub fn is_discovery_pending(&self) -> bool {
+        self.discovery_pending || self.confidence_tier.eq_ignore_ascii_case("pending")
+    }
+
+    pub fn effective_mesh_next_step(
+        &self,
+    ) -> crate::agent::skill_mesh::types::SkillMeshNextStep {
+        if self.is_discovery_pending() {
+            return crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip;
+        }
+        self.mesh_next_step
+            .unwrap_or_else(|| self.legacy_mesh_next_step())
+    }
+
+    pub fn requires_skill_read_before_progress(&self) -> bool {
+        !self.is_discovery_pending()
+            && matches!(
+            self.effective_mesh_next_step(),
+            crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill
+        )
+    }
+
+    pub fn has_advisory_skill_read(&self) -> bool {
+        !self.is_discovery_pending()
+            && matches!(
+            self.effective_mesh_next_step(),
+            crate::agent::skill_mesh::types::SkillMeshNextStep::ChooseOrBypass
+        )
+    }
+
+    fn legacy_mesh_next_step(&self) -> crate::agent::skill_mesh::types::SkillMeshNextStep {
+        if self.confidence_tier.eq_ignore_ascii_case("strong") {
+            crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill
+        } else if self
+            .recommended_action
+            .trim()
+            .starts_with(crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill.as_str())
+        {
+            crate::agent::skill_mesh::types::SkillMeshNextStep::ChooseOrBypass
+        } else {
+            crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +134,10 @@ pub struct AgentMessage {
     pub upstream_message: Option<CompletionUpstreamMessage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_final_result: Option<CompletionProviderFinalResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_agent_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
     #[serde(default)]
@@ -82,6 +146,10 @@ pub struct AgentMessage {
     pub compaction_strategy: Option<CompactionStrategy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction_payload: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offloaded_payload_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub structural_refs: Vec<String>,
     pub timestamp: u64,
 }
 
@@ -109,10 +177,14 @@ impl AgentMessage {
             response_id: None,
             upstream_message: None,
             provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
             reasoning: None,
             message_kind: AgentMessageKind::Normal,
             compaction_strategy: None,
             compaction_payload: None,
+            offloaded_payload_id: None,
+            structural_refs: Vec::new(),
             timestamp: now,
         }
     }

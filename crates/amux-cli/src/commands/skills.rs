@@ -181,10 +181,25 @@ fn render_skill_discovery(result: &amux_protocol::SkillDiscoveryResultPublic) ->
     let mut lines = vec![
         format!("Confidence: {}", display_or_none(&result.confidence_tier)),
         format!(
+            "Normalized intent: {}",
+            display_or_none(&result.normalized_intent)
+        ),
+        format!(
             "Next action: {}",
             display_or_none(&result.recommended_action)
         ),
+        format!("Mesh state: {}", display_or_none(&result.mesh_state)),
     ];
+
+    if !result.rationale.is_empty() {
+        lines.push(format!("Rationale: {}", result.rationale.join(", ")));
+    }
+    if !result.capability_family.is_empty() {
+        lines.push(format!(
+            "Capability family: {}",
+            result.capability_family.join(" / ")
+        ));
+    }
 
     if result.candidates.is_empty() {
         lines.push("No matching skills found.".to_string());
@@ -205,6 +220,17 @@ fn render_skill_discovery(result: &amux_protocol::SkillDiscoveryResultPublic) ->
             candidate.reasons.join(", ")
         };
         lines.push(format!("   reasons: {reasons}"));
+        if !candidate.matched_intents.is_empty() {
+            lines.push(format!(
+                "   matched intents: {}",
+                candidate.matched_intents.join(", ")
+            ));
+        }
+        lines.push(format!(
+            "   trust/risk: {} / {}",
+            display_or_none(&candidate.trust_tier),
+            display_or_none(&candidate.risk_level)
+        ));
     }
 
     if let Some(next_cursor) = result.next_cursor.as_deref() {
@@ -276,9 +302,14 @@ mod tests {
     fn render_skill_discovery_formats_ranked_candidates() {
         let rendered = render_skill_discovery(&amux_protocol::SkillDiscoveryResultPublic {
             query: "debug panic".to_string(),
+            normalized_intent: "debug panic root cause".to_string(),
             required: true,
             confidence_tier: "strong".to_string(),
             recommended_action: "read_skill systematic-debugging".to_string(),
+            requires_approval: false,
+            mesh_state: "fresh".to_string(),
+            rationale: vec!["matched debug intent".to_string()],
+            capability_family: vec!["development".to_string(), "debugging".to_string()],
             explicit_rationale_required: false,
             workspace_tags: vec!["rust".to_string()],
             next_cursor: Some("cursor:skill-2".to_string()),
@@ -295,7 +326,13 @@ mod tests {
                     "workspace rust".to_string(),
                     "14/16 successful uses".to_string(),
                 ],
+                matched_intents: vec!["debug panic root cause".to_string()],
+                matched_trigger_phrases: vec!["panic".to_string()],
                 context_tags: vec!["rust".to_string()],
+                risk_level: "low".to_string(),
+                trust_tier: "trusted_builtin".to_string(),
+                source_kind: "builtin".to_string(),
+                recommended_action: "read_skill systematic-debugging".to_string(),
                 use_count: 16,
                 success_count: 14,
                 failure_count: 2,
@@ -303,9 +340,15 @@ mod tests {
         });
 
         assert!(rendered.contains("Confidence: strong"));
+        assert!(rendered.contains("Normalized intent: debug panic root cause"));
         assert!(rendered.contains("Next action: read_skill systematic-debugging"));
+        assert!(rendered.contains("Mesh state: fresh"));
+        assert!(rendered.contains("Rationale: matched debug intent"));
+        assert!(rendered.contains("Capability family: development / debugging"));
         assert!(rendered.contains("1. systematic-debugging [active] score=93"));
         assert!(rendered.contains("reasons: matched debug, workspace rust, 14/16 successful uses"));
+        assert!(rendered.contains("matched intents: debug panic root cause"));
+        assert!(rendered.contains("trust/risk: trusted_builtin / low"));
         assert!(rendered.contains("Next cursor: cursor:skill-2"));
     }
 

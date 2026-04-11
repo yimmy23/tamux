@@ -392,6 +392,21 @@ impl AgentEngine {
         };
 
         self.persist_tasks().await;
+        if matches!(
+            decision,
+            amux_protocol::ApprovalDecision::ApproveOnce
+                | amux_protocol::ApprovalDecision::ApproveSession
+        ) {
+            if let Some(thread_id) = updated.thread_id.as_deref() {
+                let _ = self
+                    .record_thread_skill_approval_resolution(thread_id, approval_id)
+                    .await;
+            }
+        } else if let Some(thread_id) = updated.thread_id.as_deref() {
+            let _ = self
+                .record_thread_skill_approval_denial(thread_id, approval_id)
+                .await;
+        }
         self.emit_task_update(&updated, Some(status_message(&updated).into()));
         self.record_provenance_event(
             match decision {

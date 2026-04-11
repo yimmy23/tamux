@@ -507,6 +507,7 @@ mod gateway_state;
 mod goal_runs;
 mod governance;
 mod integrity_helpers;
+mod offloaded_payloads;
 mod operator_profile;
 mod provenance;
 mod row_mapping;
@@ -523,14 +524,17 @@ mod skill_tagging;
 mod skill_variants;
 mod task_enums;
 mod tasks;
+mod thread_structural_memory;
 mod threads;
 
 use integrity_helpers::*;
+pub use offloaded_payloads::OffloadedPayloadMetadataRow;
 use row_mapping::*;
 use schema_helpers::*;
 use skill_metadata::*;
 use skill_tagging::*;
 use task_enums::*;
+pub use thread_structural_memory::ThreadStructuralMemoryRow;
 
 pub(crate) fn now_ts() -> u64 {
     integrity_helpers::now_ts()

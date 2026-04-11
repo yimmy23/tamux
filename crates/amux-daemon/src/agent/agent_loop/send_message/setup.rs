@@ -18,10 +18,10 @@ fn build_direct_thread_responder_config(
     config: &AgentConfig,
     agent_scope_id: &str,
     sub_agents: &[SubAgentDefinition],
-) -> Option<DirectThreadResponderConfig> {
+) -> Result<Option<DirectThreadResponderConfig>> {
     let canonical_scope = canonical_agent_id(agent_scope_id);
     if canonical_scope == MAIN_AGENT_ID {
-        return None;
+        return Ok(None);
     }
     if canonical_scope == CONCIERGE_AGENT_ID {
         let provider_id = config
@@ -30,8 +30,12 @@ fn build_direct_thread_responder_config(
             .as_deref()
             .unwrap_or(&config.provider)
             .to_string();
-        let provider_config = crate::agent::concierge::resolve_concierge_provider(config).ok()?;
-        return Some(DirectThreadResponderConfig {
+        let Some(provider_config) =
+            crate::agent::concierge::resolve_concierge_provider(config).ok()
+        else {
+            return Ok(None);
+        };
+        return Ok(Some(DirectThreadResponderConfig {
             agent_name: CONCIERGE_AGENT_NAME.to_string(),
             provider_id,
             model: Some(provider_config.model.clone()),
@@ -39,7 +43,7 @@ fn build_direct_thread_responder_config(
             system_prompt: crate::agent::concierge::concierge_system_prompt(),
             persona_prompt: String::new(),
             tool_filter: None,
-        });
+        }));
     }
     let matched_def = if canonical_scope == crate::agent::agent_identity::WELES_AGENT_ID {
         sub_agents
@@ -49,6 +53,12 @@ fn build_direct_thread_responder_config(
     } else {
         None
     };
+    let builtin_persona_overrides = builtin_persona_overrides(config, canonical_scope);
+    if is_explicit_builtin_persona_scope(canonical_scope)
+        && builtin_persona_requires_setup(config, canonical_scope)
+    {
+        return Err(builtin_persona_setup_error(canonical_scope));
+    }
     let persona_prompt = if canonical_scope == crate::agent::agent_identity::WELES_AGENT_ID {
         crate::agent::agent_identity::build_weles_persona_prompt(
             crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
@@ -56,21 +66,36 @@ fn build_direct_thread_responder_config(
     } else {
         build_spawned_persona_prompt(canonical_scope)
     };
-    Some(DirectThreadResponderConfig {
+    Ok(Some(DirectThreadResponderConfig {
         agent_name: canonical_agent_name(canonical_scope).to_string(),
         provider_id: matched_def
             .as_ref()
             .map(|def| def.provider.clone())
             .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                builtin_persona_overrides
+                    .and_then(|overrides| overrides.provider.clone())
+                    .filter(|value| !value.trim().is_empty())
+            })
             .unwrap_or_else(|| config.provider.clone()),
         model: matched_def
             .as_ref()
             .map(|def| def.model.clone())
-            .filter(|value| !value.trim().is_empty()),
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                builtin_persona_overrides
+                    .and_then(|overrides| overrides.model.clone())
+                    .filter(|value| !value.trim().is_empty())
+            }),
         reasoning_effort: matched_def
             .as_ref()
             .and_then(|def| def.reasoning_effort.clone())
-            .filter(|value| !value.trim().is_empty()),
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                builtin_persona_overrides
+                    .and_then(|overrides| overrides.reasoning_effort.clone())
+                    .filter(|value| !value.trim().is_empty())
+            }),
         system_prompt: matched_def
             .as_ref()
             .and_then(|def| def.system_prompt.clone())
@@ -88,7 +113,7 @@ fn build_direct_thread_responder_config(
                 None
             }
         }),
-    })
+    }))
 }
 
 fn spawn_background_community_scout(
@@ -239,6 +264,7 @@ impl<'a> SendMessageRunner<'a> {
         let direct_thread_responder = task_id
             .is_none()
             .then(|| build_direct_thread_responder_config(&config, &agent_scope_id, &sub_agents))
+            .transpose()?
             .flatten();
         let active_provider_id = task_provider_override
             .as_ref()
@@ -316,11 +342,85 @@ impl<'a> SendMessageRunner<'a> {
         let preferred_session_id =
             resolve_preferred_session_id(&engine.session_manager, preferred_session_hint).await;
         let skill_preflight = engine
-            .build_skill_preflight_context(stored_user_content, preferred_session_id.clone())
+            .build_skill_preflight_context(&tid, stored_user_content, preferred_session_id.clone())
             .await?;
-        if let Some(skill_preflight) = skill_preflight.as_ref() {
+        let mut skill_preflight = match skill_preflight {
+            Some(context) => Some(context),
+            None => engine
+                .get_thread_skill_discovery_state(&tid)
+                .await
+                .filter(|state| !state.compliant)
+                .map(|state| super::skill_preflight::SkillPreflightContext {
+                    prompt_context: super::skill_preflight::build_skill_gate_override_prompt(
+                        &state,
+                    ),
+                    workflow_message: super::skill_preflight::skill_preflight_workflow_message(
+                        &state,
+                    ),
+                    workflow_details: serde_json::to_string(&state).ok(),
+                    state,
+                }),
+        };
+        if let Some(skill_preflight) = skill_preflight.as_mut() {
+            let mut next_state = skill_preflight.state.clone();
+            if let Some(previous_state) = engine.get_thread_skill_discovery_state(&tid).await {
+                let should_preserve_prior_state = if next_state.is_discovery_pending() {
+                    false
+                } else if previous_state.mesh_requires_approval {
+                    !previous_state.compliant
+                } else {
+                    !previous_state.compliant
+                        && previous_state.recommended_skill == next_state.recommended_skill
+                        && (previous_state.mesh_next_step != next_state.mesh_next_step
+                            || previous_state.mesh_requires_approval
+                                != next_state.mesh_requires_approval
+                            || previous_state.recommended_action != next_state.recommended_action)
+                };
+
+                if should_preserve_prior_state {
+                    if previous_state.mesh_requires_approval {
+                        next_state.recommended_skill = previous_state.recommended_skill.clone();
+                    }
+                    next_state.confidence_tier = previous_state.confidence_tier.clone();
+                    next_state.mesh_requires_approval = previous_state.mesh_requires_approval;
+                    next_state.mesh_approval_id = previous_state.mesh_approval_id.clone();
+                    next_state.mesh_next_step = previous_state.mesh_next_step;
+                    next_state.read_skill_identifier = previous_state
+                        .read_skill_identifier
+                        .clone()
+                        .or(next_state.read_skill_identifier);
+                    next_state.skill_read_completed = previous_state.skill_read_completed;
+                    next_state.recommended_action = if next_state.mesh_requires_approval {
+                        previous_state.recommended_action.clone()
+                    } else {
+                        match next_state
+                            .mesh_next_step
+                            .unwrap_or(crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip)
+                        {
+                            crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill
+                            | crate::agent::skill_mesh::types::SkillMeshNextStep::ChooseOrBypass => {
+                                next_state
+                                    .recommended_skill
+                                    .as_deref()
+                                    .map(|skill| format!("read_skill {skill}"))
+                                    .unwrap_or_else(|| "justify_skill_skip".to_string())
+                            }
+                            crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip => {
+                                "justify_skill_skip".to_string()
+                            }
+                        }
+                    };
+                    next_state.compliant = false;
+                    skill_preflight.workflow_message =
+                        super::skill_preflight::skill_preflight_workflow_message(&next_state);
+                    skill_preflight.workflow_details = serde_json::to_string(&next_state).ok();
+                    skill_preflight.prompt_context =
+                        super::skill_preflight::build_skill_gate_override_prompt(&next_state);
+                }
+            }
+            skill_preflight.state = next_state.clone();
             engine
-                .set_thread_skill_discovery_state(&tid, skill_preflight.state.clone())
+                .set_thread_skill_discovery_state(&tid, next_state)
                 .await;
         }
         let memory = engine.current_memory_snapshot().await;

@@ -6,6 +6,144 @@ use std::path::{Path, PathBuf};
 mod goal_targets;
 
 impl TuiModel {
+    pub(super) fn known_agent_directive_aliases(&self) -> Vec<String> {
+        let mut aliases = vec![
+            "main".to_string(),
+            "svarog".to_string(),
+            "swarog".to_string(),
+            "weles".to_string(),
+            amux_protocol::AGENT_ID_RAROG.to_string(),
+            amux_protocol::AGENT_NAME_RAROG.to_string(),
+            "swarozyc".to_string(),
+            "Swarozyc".to_string(),
+            "radogost".to_string(),
+            "Radogost".to_string(),
+            "domowoj".to_string(),
+            "Domowoj".to_string(),
+            "swietowit".to_string(),
+            "Swietowit".to_string(),
+        ];
+        for entry in &self.subagents.entries {
+            aliases.push(entry.id.clone());
+            aliases.push(entry.name.clone());
+        }
+        aliases.sort();
+        aliases.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        aliases
+    }
+
+    fn participant_display_name(&self, agent_alias: &str) -> String {
+        if agent_alias.eq_ignore_ascii_case(amux_protocol::AGENT_ID_RAROG)
+            || agent_alias.eq_ignore_ascii_case(amux_protocol::AGENT_NAME_RAROG)
+        {
+            return amux_protocol::AGENT_NAME_RAROG.to_string();
+        }
+        if agent_alias.eq_ignore_ascii_case("weles") {
+            return "Weles".to_string();
+        }
+        if agent_alias.eq_ignore_ascii_case("swarozyc") {
+            return "Swarozyc".to_string();
+        }
+        if agent_alias.eq_ignore_ascii_case("radogost") {
+            return "Radogost".to_string();
+        }
+        if agent_alias.eq_ignore_ascii_case("domowoj") {
+            return "Domowoj".to_string();
+        }
+        if agent_alias.eq_ignore_ascii_case("swietowit") {
+            return "Swietowit".to_string();
+        }
+        if let Some(entry) = self.subagents.entries.iter().find(|entry| {
+            entry.id.eq_ignore_ascii_case(agent_alias)
+                || entry.name.eq_ignore_ascii_case(agent_alias)
+        }) {
+            return entry.name.clone();
+        }
+        agent_alias.to_string()
+    }
+
+    fn builtin_persona_configured(&self, agent_alias: &str) -> bool {
+        let Some(raw) = self.config.agent_config_raw.as_ref() else {
+            return false;
+        };
+        let key = match agent_alias.to_ascii_lowercase().as_str() {
+            "swarozyc" => "swarozyc",
+            "radogost" => "radogost",
+            "domowoj" => "domowoj",
+            "swietowit" => "swietowit",
+            _ => return true,
+        };
+        let Some(entry) = raw
+            .get("builtin_sub_agents")
+            .and_then(|value| value.get(key))
+            .and_then(|value| value.as_object())
+        else {
+            return false;
+        };
+        let provider = entry
+            .get("provider")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let model = entry
+            .get("model")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        provider.is_some() && model.is_some()
+    }
+
+    fn open_builtin_persona_setup_flow(&mut self, agent_alias: &str, prompt: String) {
+        let target_agent_id = agent_alias.trim().to_ascii_lowercase();
+        let target_agent_name = self.participant_display_name(agent_alias);
+        let config_snapshot = BuiltinPersonaSetupConfigSnapshot {
+            provider: self.config.provider.clone(),
+            base_url: self.config.base_url.clone(),
+            model: self.config.model.clone(),
+            custom_model_name: self.config.custom_model_name.clone(),
+            api_key: self.config.api_key.clone(),
+            assistant_id: self.config.assistant_id.clone(),
+            auth_source: self.config.auth_source.clone(),
+            api_transport: self.config.api_transport.clone(),
+            custom_context_window_tokens: self.config.custom_context_window_tokens,
+            context_window_tokens: self.config.context_window_tokens,
+            fetched_models: self.config.fetched_models().to_vec(),
+        };
+        self.pending_builtin_persona_setup = Some(PendingBuiltinPersonaSetup {
+            target_agent_id,
+            target_agent_name: target_agent_name.clone(),
+            prompt,
+            config_snapshot,
+        });
+        self.settings_picker_target = Some(SettingsPickerTarget::BuiltinPersonaProvider);
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+        self.modal.set_picker_item_count(
+            widgets::provider_picker::available_provider_defs(&self.auth).len(),
+        );
+        self.status_line = format!("Configure {} provider", target_agent_name);
+    }
+
+    pub(super) fn restore_builtin_persona_setup_config_snapshot(&mut self) {
+        let Some(setup) = self.pending_builtin_persona_setup.as_ref() else {
+            return;
+        };
+        let snapshot = &setup.config_snapshot;
+        self.config.provider = snapshot.provider.clone();
+        self.config.base_url = snapshot.base_url.clone();
+        self.config.model = snapshot.model.clone();
+        self.config.custom_model_name = snapshot.custom_model_name.clone();
+        self.config.api_key = snapshot.api_key.clone();
+        self.config.assistant_id = snapshot.assistant_id.clone();
+        self.config.auth_source = snapshot.auth_source.clone();
+        self.config.api_transport = snapshot.api_transport.clone();
+        self.config.custom_context_window_tokens = snapshot.custom_context_window_tokens;
+        self.config.context_window_tokens = snapshot.context_window_tokens;
+        self.config.reduce(config::ConfigAction::ModelsFetched(
+            snapshot.fetched_models.clone(),
+        ));
+    }
+
     fn resolve_preview_path(path: &str) -> PathBuf {
         let raw = PathBuf::from(path);
         if raw.is_absolute() {
@@ -191,6 +329,27 @@ impl TuiModel {
         self.sync_queued_prompt_modal_state();
     }
 
+    pub(super) fn queue_participant_suggestion(
+        &mut self,
+        thread_id: String,
+        suggestion_id: String,
+        target_agent_id: String,
+        target_agent_name: String,
+        prompt: String,
+        force_send: bool,
+    ) {
+        self.queued_prompts.push(QueuedPrompt::new_with_agent(
+            prompt,
+            thread_id,
+            suggestion_id,
+            target_agent_id,
+            target_agent_name,
+            force_send,
+        ));
+        self.status_line = format!("QUEUED ({})", self.queued_prompts.len());
+        self.sync_queued_prompt_modal_state();
+    }
+
     fn pop_next_queued_prompt(&mut self) -> Option<QueuedPrompt> {
         if self.queued_prompts.is_empty() {
             return None;
@@ -237,10 +396,19 @@ impl TuiModel {
                 let Some(prompt) = self.remove_queued_prompt_at(index) else {
                     return;
                 };
-                if self.assistant_busy() {
+                if self.assistant_busy() && prompt.force_send {
                     self.interrupt_current_stream();
                 }
-                self.submit_prompt(prompt.text);
+                if let (Some(thread_id), Some(suggestion_id)) =
+                    (prompt.thread_id.clone(), prompt.suggestion_id.clone())
+                {
+                    self.send_daemon_command(DaemonCommand::SendParticipantSuggestion {
+                        thread_id,
+                        suggestion_id,
+                    });
+                } else {
+                    self.submit_prompt(prompt.text);
+                }
             }
             QueuedPromptAction::Copy => {
                 let Some(prompt) = self.queued_prompts.get_mut(index) else {
@@ -251,7 +419,15 @@ impl TuiModel {
                 self.status_line = "Copied queued message".to_string();
             }
             QueuedPromptAction::Delete => {
-                if self.remove_queued_prompt_at(index).is_some() {
+                if let Some(prompt) = self.remove_queued_prompt_at(index) {
+                    if let (Some(thread_id), Some(suggestion_id)) =
+                        (prompt.thread_id, prompt.suggestion_id)
+                    {
+                        self.send_daemon_command(DaemonCommand::DismissParticipantSuggestion {
+                            thread_id,
+                            suggestion_id,
+                        });
+                    }
                     self.status_line = "Removed queued message".to_string();
                 }
             }
@@ -298,6 +474,7 @@ impl TuiModel {
                 | "settings"
                 | "view"
                 | "status"
+                | "participants"
                 | "quit"
                 | "prompt"
                 | "goal"
@@ -389,6 +566,10 @@ impl TuiModel {
                 self.open_status_modal_loading();
                 self.send_daemon_command(DaemonCommand::RequestAgentStatus);
                 self.status_line = "Requesting tamux status...".to_string();
+            }
+            "participants" => {
+                self.open_thread_participants_modal();
+                self.status_line = "Viewing thread participants".to_string();
             }
             "quit" => self.pending_quit = true,
             "prompt" => {
@@ -482,6 +663,115 @@ impl TuiModel {
             parts.join("\n\n")
         };
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let known_agent_aliases = self.known_agent_directive_aliases();
+        if let Some(directive) = input_refs::parse_leading_agent_directive(
+            &content_with_attachments,
+            &known_agent_aliases,
+        ) {
+            if matches!(
+                directive.agent_alias.to_ascii_lowercase().as_str(),
+                "swarozyc" | "radogost" | "domowoj" | "swietowit"
+            ) && !self.builtin_persona_configured(&directive.agent_alias)
+            {
+                self.open_builtin_persona_setup_flow(
+                    &directive.agent_alias,
+                    content_with_attachments.clone(),
+                );
+                return;
+            }
+            let directive_content =
+                input_refs::append_referenced_files_footer(&directive.body, &cwd);
+            match directive.kind {
+                input_refs::LeadingAgentDirectiveKind::InternalDelegate => {
+                    self.send_daemon_command(DaemonCommand::InternalDelegate {
+                        thread_id: self.chat.active_thread_id().map(String::from),
+                        target_agent_id: directive.agent_alias.clone(),
+                        content: directive_content,
+                        session_id: None,
+                    });
+                    self.main_pane_view = MainPaneView::Conversation;
+                    self.focus = FocusArea::Chat;
+                    self.input.set_mode(input::InputMode::Insert);
+                    self.status_line = format!("Delegated internally to {}", directive.agent_alias);
+                    self.agent_activity = None;
+                    self.error_active = false;
+                    return;
+                }
+                input_refs::LeadingAgentDirectiveKind::ParticipantUpsert => {
+                    let participant_name = self.participant_display_name(&directive.agent_alias);
+                    let Some(thread_id) = self.chat.active_thread_id().map(String::from) else {
+                        self.status_line =
+                            "Participant commands require an active thread".to_string();
+                        self.show_input_notice(
+                            format!(
+                                "Open a thread before adding {participant_name} as a participant"
+                            ),
+                            InputNoticeKind::Warning,
+                            120,
+                            false,
+                        );
+                        return;
+                    };
+                    self.send_daemon_command(DaemonCommand::ThreadParticipantCommand {
+                        thread_id,
+                        target_agent_id: directive.agent_alias.clone(),
+                        action: "upsert".to_string(),
+                        instruction: Some(directive_content),
+                        session_id: None,
+                    });
+                    self.main_pane_view = MainPaneView::Conversation;
+                    self.focus = FocusArea::Chat;
+                    self.input.set_mode(input::InputMode::Insert);
+                    self.status_line = format!("Participant {} updated", directive.agent_alias);
+                    self.show_input_notice(
+                        format!("Participant {participant_name} updated for this thread"),
+                        InputNoticeKind::Success,
+                        120,
+                        false,
+                    );
+                    self.agent_activity = None;
+                    self.error_active = false;
+                    return;
+                }
+                input_refs::LeadingAgentDirectiveKind::ParticipantDeactivate => {
+                    let participant_name = self.participant_display_name(&directive.agent_alias);
+                    let Some(thread_id) = self.chat.active_thread_id().map(String::from) else {
+                        self.status_line =
+                            "Participant commands require an active thread".to_string();
+                        self.show_input_notice(
+                            format!(
+                                "Open a thread before removing {participant_name} as a participant"
+                            ),
+                            InputNoticeKind::Warning,
+                            120,
+                            false,
+                        );
+                        return;
+                    };
+                    self.send_daemon_command(DaemonCommand::ThreadParticipantCommand {
+                        thread_id,
+                        target_agent_id: directive.agent_alias.clone(),
+                        action: "deactivate".to_string(),
+                        instruction: None,
+                        session_id: None,
+                    });
+                    self.main_pane_view = MainPaneView::Conversation;
+                    self.focus = FocusArea::Chat;
+                    self.input.set_mode(input::InputMode::Insert);
+                    self.status_line = format!("Participant {} stopped", directive.agent_alias);
+                    self.show_input_notice(
+                        format!("Participant {participant_name} removed from this thread"),
+                        InputNoticeKind::Success,
+                        120,
+                        false,
+                    );
+                    self.agent_activity = None;
+                    self.error_active = false;
+                    return;
+                }
+            }
+        }
+
         let final_content =
             input_refs::append_referenced_files_footer(&content_with_attachments, &cwd);
 

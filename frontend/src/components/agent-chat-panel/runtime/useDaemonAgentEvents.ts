@@ -281,6 +281,17 @@ export function useDaemonAgentEvents({
           }
           break;
         }
+        case "participant_suggestion": {
+          const reloadThreadId = typeof event.thread_id === "string" ? event.thread_id : null;
+          if (reloadThreadId) {
+            void reloadDaemonThreadIntoLocalState({
+              daemonThreadId: reloadThreadId,
+              setThreadTodos,
+              setDaemonTodosByThread,
+            });
+          }
+          break;
+        }
         case "task_update":
           handleTaskUpdateEvent({ event, activePaneId, activeWorkspace, addNotification });
           break;

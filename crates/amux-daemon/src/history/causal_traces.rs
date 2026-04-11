@@ -47,6 +47,7 @@ impl HistoryStore {
     pub async fn insert_execution_trace(
         &self,
         id: &str,
+        thread_id: Option<&str>,
         goal_run_id: Option<&str>,
         task_id: Option<&str>,
         task_type: &str,
@@ -56,19 +57,24 @@ impl HistoryStore {
         metrics_json: &str,
         duration_ms: u64,
         tokens_used: u32,
+        agent_id: &str,
+        started_at_ms: u64,
+        completed_at_ms: u64,
         created_at: u64,
     ) -> Result<()> {
         let id = id.to_string();
+        let thread_id = thread_id.map(str::to_string);
         let goal_run_id = goal_run_id.map(str::to_string);
         let task_id = task_id.map(str::to_string);
         let task_type = task_type.to_string();
         let outcome = outcome.to_string();
         let tool_sequence_json = tool_sequence_json.to_string();
         let metrics_json = metrics_json.to_string();
+        let agent_id = agent_id.to_string();
         self.conn.call(move |conn| {
         conn.execute(
-            "INSERT OR REPLACE INTO execution_traces (id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms, tokens_used, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms as i64, tokens_used as i64, created_at as i64],
+            "INSERT OR REPLACE INTO execution_traces (id, thread_id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms, tokens_used, created_at, agent_id, started_at_ms, completed_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![id, thread_id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms as i64, tokens_used as i64, created_at as i64, agent_id, started_at_ms as i64, completed_at_ms as i64],
         )?;
         Ok(())
         }).await.map_err(|e| anyhow::anyhow!("{e}"))

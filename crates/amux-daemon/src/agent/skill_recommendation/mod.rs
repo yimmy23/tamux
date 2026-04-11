@@ -14,7 +14,8 @@ use types::SkillCandidateInput;
 
 pub(crate) use metadata::extract_skill_metadata;
 pub(crate) use types::{
-    SkillDiscoveryResult, SkillRecommendationAction, SkillRecommendationConfidence,
+    SkillDiscoveryResult, SkillDocumentMetadata, SkillRecommendation, SkillRecommendationAction,
+    SkillRecommendationConfidence,
 };
 
 const MAX_SKILL_EXCERPT_LINES: usize = 40;
@@ -349,9 +350,18 @@ pub(super) fn page_public_discovery_result(
 
     Ok(amux_protocol::SkillDiscoveryResultPublic {
         query: query.to_string(),
+        normalized_intent: query.to_string(),
         required: !matches!(result.recommended_action, SkillRecommendationAction::None),
         confidence_tier: confidence_label(result.confidence).to_string(),
         recommended_action: recommended_action_label(result.recommended_action, top_skill_name),
+        requires_approval: false,
+        mesh_state: "fresh".to_string(),
+        rationale: result
+            .recommendations
+            .first()
+            .map(|recommendation| split_reasons(&recommendation.reason))
+            .unwrap_or_default(),
+        capability_family: context_tags.to_vec(),
         explicit_rationale_required: false,
         workspace_tags: context_tags.to_vec(),
         candidates: page
@@ -367,7 +377,28 @@ pub(super) fn page_public_discovery_result(
                     confidence_tier: candidate_confidence_label(recommendation.score, cfg)
                         .to_string(),
                     reasons: split_reasons(&recommendation.reason),
+                    matched_intents: vec![query.to_string()],
+                    matched_trigger_phrases: recommendation.metadata.triggers.clone(),
                     context_tags: recommendation.record.context_tags.clone(),
+                    risk_level: if recommendation.metadata.built_in {
+                        "low".to_string()
+                    } else {
+                        "medium".to_string()
+                    },
+                    trust_tier: if recommendation.metadata.built_in {
+                        "trusted_builtin".to_string()
+                    } else {
+                        "trusted_local".to_string()
+                    },
+                    source_kind: if recommendation.record.relative_path.contains("generated/") {
+                        "generated".to_string()
+                    } else {
+                        "builtin".to_string()
+                    },
+                    recommended_action: recommended_action_label(
+                        result.recommended_action,
+                        Some(recommendation.record.skill_name.as_str()),
+                    ),
                     use_count: recommendation.record.use_count,
                     success_count: recommendation.record.success_count,
                     failure_count: recommendation.record.failure_count,

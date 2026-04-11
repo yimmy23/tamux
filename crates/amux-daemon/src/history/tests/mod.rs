@@ -8,6 +8,7 @@ async fn make_test_store() -> Result<(HistoryStore, PathBuf)> {
     Ok((store, root))
 }
 
+mod elastic_context;
 mod goal_runs;
 mod governance;
 mod misc;

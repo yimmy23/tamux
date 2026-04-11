@@ -271,6 +271,46 @@ fn daemon_message_roundtrips_agent_divergent_session_started_with_operation_id()
 }
 
 #[test]
+fn client_message_supports_participant_suggestion_send() {
+    let msg = ClientMessage::AgentSendParticipantSuggestion {
+        thread_id: "thread-1".to_string(),
+        suggestion_id: "sugg-1".to_string(),
+        session_id: None,
+        client_surface: None,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    assert!(matches!(
+        decoded,
+        ClientMessage::AgentSendParticipantSuggestion {
+            thread_id,
+            suggestion_id,
+            ..
+        } if thread_id == "thread-1" && suggestion_id == "sugg-1"
+    ));
+}
+
+#[test]
+fn client_message_supports_participant_suggestion_dismiss() {
+    let msg = ClientMessage::AgentDismissParticipantSuggestion {
+        thread_id: "thread-1".to_string(),
+        suggestion_id: "sugg-1".to_string(),
+        session_id: None,
+        client_surface: None,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    assert!(matches!(
+        decoded,
+        ClientMessage::AgentDismissParticipantSuggestion {
+            thread_id,
+            suggestion_id,
+            ..
+        } if thread_id == "thread-1" && suggestion_id == "sugg-1"
+    ));
+}
+
+#[test]
 fn client_message_roundtrips_agent_semantic_query() {
     let msg = ClientMessage::AgentSemanticQuery {
         args_json: serde_json::json!({
@@ -812,7 +852,13 @@ fn sample_skill_discovery_candidate() -> SkillDiscoveryCandidatePublic {
         score: 0.94,
         confidence_tier: "strong".to_string(),
         reasons: vec!["matches git rebase workflow".to_string()],
+        matched_intents: vec!["git rebase workflow".to_string()],
+        matched_trigger_phrases: vec!["rebase".to_string()],
         context_tags: vec!["git".to_string(), "rebase".to_string()],
+        risk_level: "low".to_string(),
+        trust_tier: "trusted_builtin".to_string(),
+        source_kind: "builtin".to_string(),
+        recommended_action: "read_skill git_rebase_workflow".to_string(),
         use_count: 12,
         success_count: 10,
         failure_count: 2,
@@ -822,9 +868,14 @@ fn sample_skill_discovery_candidate() -> SkillDiscoveryCandidatePublic {
 fn sample_skill_discovery_result() -> SkillDiscoveryResultPublic {
     SkillDiscoveryResultPublic {
         query: "git rebase workflow".to_string(),
+        normalized_intent: "git rebase workflow".to_string(),
         required: true,
         confidence_tier: "strong".to_string(),
         recommended_action: "read_skill git_rebase_workflow".to_string(),
+        requires_approval: false,
+        mesh_state: "fresh".to_string(),
+        rationale: vec!["matched git rebase workflow".to_string()],
+        capability_family: vec!["development".to_string(), "git".to_string()],
         explicit_rationale_required: false,
         workspace_tags: vec!["git".to_string(), "rebase".to_string()],
         candidates: vec![sample_skill_discovery_candidate()],
@@ -836,21 +887,40 @@ fn sample_skill_discovery_result() -> SkillDiscoveryResultPublic {
 fn minimal_skill_discovery_result_deserializes_with_defaults() {
     let result_json = serde_json::json!({
         "query": "debug panic",
+        "normalized_intent": "debug panic",
         "confidence_tier": "strong",
         "recommended_action": "read_skill",
+        "requires_approval": false,
+        "mesh_state": "fresh",
+        "rationale": ["matched debug intent"],
+        "capability_family": ["development", "debugging"],
         "candidates": [{
             "skill_name": "systematic-debugging",
             "score": 93.0,
-            "reasons": ["matched debug", "workspace rust", "active variant"]
+            "reasons": ["matched debug", "workspace rust", "active variant"],
+            "matched_intents": ["debug panic"],
+            "matched_trigger_phrases": ["panic"],
+            "risk_level": "low",
+            "trust_tier": "trusted_builtin",
+            "source_kind": "builtin",
+            "recommended_action": "read_skill systematic-debugging"
         }]
     })
     .to_string();
 
     let result: SkillDiscoveryResultPublic = serde_json::from_str(&result_json).unwrap();
     assert_eq!(result.query, "debug panic");
+    assert_eq!(result.normalized_intent, "debug panic");
     assert!(!result.required);
     assert_eq!(result.confidence_tier, "strong");
     assert_eq!(result.recommended_action, "read_skill");
+    assert!(!result.requires_approval);
+    assert_eq!(result.mesh_state, "fresh");
+    assert_eq!(result.rationale, vec!["matched debug intent".to_string()]);
+    assert_eq!(
+        result.capability_family,
+        vec!["development".to_string(), "debugging".to_string()]
+    );
     assert!(!result.explicit_rationale_required);
     assert!(result.workspace_tags.is_empty());
     assert_eq!(result.candidates.len(), 1);
@@ -871,6 +941,15 @@ fn minimal_skill_discovery_result_deserializes_with_defaults() {
         ]
     );
     assert!(candidate.context_tags.is_empty());
+    assert_eq!(candidate.matched_intents, vec!["debug panic".to_string()]);
+    assert_eq!(candidate.matched_trigger_phrases, vec!["panic".to_string()]);
+    assert_eq!(candidate.risk_level, "low");
+    assert_eq!(candidate.trust_tier, "trusted_builtin");
+    assert_eq!(candidate.source_kind, "builtin");
+    assert_eq!(
+        candidate.recommended_action,
+        "read_skill systematic-debugging"
+    );
     assert_eq!(candidate.use_count, 0);
     assert_eq!(candidate.success_count, 0);
     assert_eq!(candidate.failure_count, 0);
@@ -1060,9 +1139,20 @@ fn skill_discover_result_round_trip() {
         DaemonMessage::SkillDiscoverResult { result_json } => {
             let result: SkillDiscoveryResultPublic = serde_json::from_str(&result_json).unwrap();
             assert_eq!(result.query, "git rebase workflow");
+            assert_eq!(result.normalized_intent, "git rebase workflow");
             assert!(result.required);
             assert_eq!(result.confidence_tier, "strong");
             assert_eq!(result.recommended_action, "read_skill git_rebase_workflow");
+            assert!(!result.requires_approval);
+            assert_eq!(result.mesh_state, "fresh");
+            assert_eq!(
+                result.rationale,
+                vec!["matched git rebase workflow".to_string()]
+            );
+            assert_eq!(
+                result.capability_family,
+                vec!["development".to_string(), "git".to_string()]
+            );
             assert!(!result.explicit_rationale_required);
             assert_eq!(result.workspace_tags, vec!["git", "rebase"]);
             assert_eq!(result.candidates.len(), 1);
@@ -1084,7 +1174,22 @@ fn skill_discover_result_round_trip() {
                 result.candidates[0].reasons,
                 vec!["matches git rebase workflow".to_string()]
             );
+            assert_eq!(
+                result.candidates[0].matched_intents,
+                vec!["git rebase workflow".to_string()]
+            );
+            assert_eq!(
+                result.candidates[0].matched_trigger_phrases,
+                vec!["rebase".to_string()]
+            );
             assert_eq!(result.candidates[0].context_tags, vec!["git", "rebase"]);
+            assert_eq!(result.candidates[0].risk_level, "low");
+            assert_eq!(result.candidates[0].trust_tier, "trusted_builtin");
+            assert_eq!(result.candidates[0].source_kind, "builtin");
+            assert_eq!(
+                result.candidates[0].recommended_action,
+                "read_skill git_rebase_workflow"
+            );
             assert_eq!(result.candidates[0].use_count, 12);
             assert_eq!(result.candidates[0].success_count, 10);
             assert_eq!(result.candidates[0].failure_count, 2);

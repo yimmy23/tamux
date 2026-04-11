@@ -1,10 +1,19 @@
 use super::*;
 use crate::agent::engine::AgentEngine;
-use crate::agent::types::{AgentConfig, ApiTransport, AuthSource, ProviderConfig};
+use crate::agent::types::{
+    AgentConfig, ApiTransport, AuthSource, LatestSkillDiscoveryState, ProviderConfig,
+};
 use crate::session_manager::SessionManager;
 use amux_protocol::DaemonMessage;
 use std::sync::Arc;
 use tempfile::TempDir;
+
+fn now_millis_local() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_millis() as u64
+}
 
 async fn make_test_engine(config: AgentConfig) -> (Arc<AgentEngine>, TempDir) {
     let temp_dir = TempDir::new().expect("temp dir");
@@ -233,7 +242,29 @@ async fn status_snapshot_includes_outage_metadata_for_open_provider() {
 
 #[tokio::test]
 async fn status_snapshot_includes_aline_diagnostics() {
-    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let mut config = AgentConfig::default();
+    config.skill_recommendation.discovery_backend = "mesh".to_string();
+    let (engine, _temp_dir) = make_test_engine(config).await;
+    engine
+        .set_thread_skill_discovery_state(
+            "thread-1",
+            LatestSkillDiscoveryState {
+                query: "debug panic".to_string(),
+                confidence_tier: "strong".to_string(),
+                recommended_skill: Some("systematic-debugging".to_string()),
+                recommended_action: "request_approval systematic-debugging".to_string(),
+                mesh_next_step: Some(crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill),
+                mesh_requires_approval: true,
+                mesh_approval_id: Some("approval-1".to_string()),
+                read_skill_identifier: Some("systematic-debugging".to_string()),
+                skip_rationale: None,
+                discovery_pending: false,
+                skill_read_completed: true,
+                compliant: false,
+                updated_at: now_millis_local(),
+            },
+        )
+        .await;
     engine.set_aline_startup_test_availability(true);
     engine
         .record_aline_startup_summary_for_tests(crate::agent::aline_startup::AlineStartupSummary {
@@ -267,6 +298,12 @@ async fn status_snapshot_includes_aline_diagnostics() {
     let aline = diagnostics
         .get("aline")
         .expect("aline diagnostics should exist");
+    let skill_mesh = diagnostics
+        .get("skill_mesh")
+        .expect("skill mesh diagnostics should exist");
+    let active_gate = skill_mesh
+        .get("active_gate")
+        .expect("active gate diagnostics should exist");
     assert_eq!(
         aline.get("available").and_then(|value| value.as_bool()),
         Some(true)
@@ -284,5 +321,47 @@ async fn status_snapshot_includes_aline_diagnostics() {
     assert_eq!(
         aline.get("imported_count").and_then(|value| value.as_u64()),
         Some(1)
+    );
+    assert_eq!(
+        skill_mesh.get("backend").and_then(|value| value.as_str()),
+        Some("mesh")
+    );
+    assert_eq!(
+        skill_mesh.get("state").and_then(|value| value.as_str()),
+        Some("fresh")
+    );
+    assert_eq!(
+        active_gate
+            .get("recommended_skill")
+            .and_then(|value| value.as_str()),
+        Some("systematic-debugging")
+    );
+    assert_eq!(
+        active_gate
+            .get("recommended_action")
+            .and_then(|value| value.as_str()),
+        Some("request_approval systematic-debugging")
+    );
+    assert_eq!(
+        active_gate
+            .get("requires_approval")
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        active_gate
+            .get("rationale")
+            .and_then(|value| value.as_array())
+            .and_then(|items| items.first())
+            .and_then(|value| value.as_str()),
+        Some("matched debug panic")
+    );
+    assert_eq!(
+        active_gate
+            .get("capability_family")
+            .and_then(|value| value.as_array())
+            .and_then(|items| items.first())
+            .and_then(|value| value.as_str()),
+        Some("development")
     );
 }

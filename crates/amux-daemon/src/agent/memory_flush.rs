@@ -187,6 +187,12 @@ impl AgentEngine {
         config: &AgentConfig,
         provider_config: &ProviderConfig,
     ) -> Option<(Vec<AgentMessage>, usize)> {
+        if crate::agent::agent_identity::is_internal_dm_thread(thread_id)
+            || super::thread_handoffs::is_internal_handoff_thread(thread_id)
+        {
+            return None;
+        }
+
         let threads = self.threads.read().await;
         let thread = threads.get(thread_id)?;
         let (window_start, _) = active_compaction_window(&thread.messages);
@@ -287,6 +293,34 @@ fn memory_flush_signature(messages: &[AgentMessage]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_manager::SessionManager;
+    use tempfile::tempdir;
+
+    fn sample_provider_config() -> ProviderConfig {
+        ProviderConfig {
+            base_url: "https://example.invalid".to_string(),
+            model: "test-model".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: "low".to_string(),
+            context_window_tokens: 128_000,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        }
+    }
 
     fn sample_message(content: &str) -> AgentMessage {
         AgentMessage::user(content, 1)
@@ -313,5 +347,51 @@ mod tests {
             api_messages.last().map(|msg| msg.role.as_str()),
             Some("user")
         );
+    }
+
+    #[tokio::test]
+    async fn internal_dm_thread_skips_pre_compaction_memory_flush_input() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.auto_compact_context = true;
+        config.max_context_messages = 2;
+        config.keep_recent_on_compact = 1;
+        let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+        let provider = sample_provider_config();
+        let thread_id = crate::agent::agent_identity::internal_dm_thread_id(
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+            crate::agent::agent_identity::WELES_AGENT_ID,
+        );
+
+        engine.threads.write().await.insert(
+            thread_id.clone(),
+            AgentThread {
+                id: thread_id.clone(),
+                agent_name: None,
+                title: "Internal DM".to_string(),
+                messages: vec![
+                    AgentMessage::user("one", 1),
+                    AgentMessage::user("two", 2),
+                    AgentMessage::user("three", 3),
+                ],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                created_at: 1,
+                updated_at: 3,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+            },
+        );
+
+        let input = engine
+            .pre_compaction_memory_flush_input(&thread_id, &config, &provider)
+            .await;
+
+        assert!(input.is_none());
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use serde_yaml::Value;
 
 #[derive(Debug)]
 pub(crate) struct DerivedSkillMetadata {
@@ -48,6 +49,10 @@ pub(crate) fn derive_skill_metadata(relative_path: &str, content: &str) -> Deriv
         variant_name = "canonical".to_string();
     }
 
+    if let Some(explicit_name) = extract_skill_frontmatter_name(content) {
+        skill_name = explicit_name;
+    }
+
     let skill_name = normalize_skill_lookup(&skill_name);
     let mut tags = BTreeSet::new();
     infer_skill_tags(&normalized_path, content, &mut tags);
@@ -61,6 +66,20 @@ pub(crate) fn derive_skill_metadata(relative_path: &str, content: &str) -> Deriv
         variant_name,
         context_tags: tags.into_iter().collect(),
     }
+}
+
+fn extract_skill_frontmatter_name(content: &str) -> Option<String> {
+    let rest = content.strip_prefix("---\n")?;
+    let split_at = rest.find("\n---\n")?;
+    let yaml = &rest[..split_at];
+    let frontmatter = serde_yaml::from_str::<Value>(yaml).ok()?;
+    frontmatter
+        .as_mapping()
+        .and_then(|mapping| mapping.get(Value::String("name".to_string())))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 pub(super) fn excerpt_on_char_boundary(input: &str, max_bytes: usize) -> &str {

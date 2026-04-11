@@ -315,7 +315,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         id: PROVIDER_ID_ALIBABA_CODING_PLAN,
         name: "Alibaba Coding Plan",
         default_base_url: "https://coding-intl.dashscope.aliyuncs.com/v1",
-        default_model: "qwen3.5-plus",
+        default_model: "qwen3.6-plus",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: ALIBABA_CODING_MODELS,

@@ -55,6 +55,7 @@ pub enum StreamProgressKind {
 
 pub struct ThreadRepoWatcher {
     pub repo_root: String,
+    pub thread_ids: Arc<std::sync::Mutex<HashSet<String>>>,
     pub watcher: RecommendedWatcher,
 }
 
@@ -102,8 +103,12 @@ pub struct AgentEngine {
     pub history: HistoryStore,
     pub threads: RwLock<HashMap<String, AgentThread>>,
     pub thread_handoff_states: RwLock<HashMap<String, ThreadHandoffState>>,
+    pub thread_participants: RwLock<HashMap<String, Vec<ThreadParticipantState>>>,
+    pub thread_participant_suggestions: RwLock<HashMap<String, Vec<ThreadParticipantSuggestion>>>,
     pub thread_client_surfaces: RwLock<HashMap<String, amux_protocol::ClientSurface>>,
     pub thread_skill_discovery_states: RwLock<HashMap<String, LatestSkillDiscoveryState>>,
+    pub thread_structural_memories:
+        RwLock<HashMap<String, crate::agent::context::structural_memory::ThreadStructuralMemory>>,
     pub thread_todos: RwLock<HashMap<String, Vec<TodoItem>>>,
     pub thread_work_contexts: RwLock<HashMap<String, ThreadWorkContext>>,
     pub tasks: Mutex<VecDeque<AgentTask>>,
@@ -161,6 +166,11 @@ pub struct AgentEngine {
     pub repo_watchers: Mutex<HashMap<String, ThreadRepoWatcher>>,
     pub watcher_refresh_tx: mpsc::UnboundedSender<String>,
     pub watcher_refresh_rx: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
+    pub(super) skill_discovery_result_tx:
+        mpsc::UnboundedSender<super::skill_preflight::AsyncSkillDiscoveryCompletion>,
+    #[cfg(test)]
+    pub(super) skill_discovery_test_runner:
+        std::sync::OnceLock<Arc<dyn super::skill_preflight::SkillDiscoveryTestRunner>>,
     pub(super) aline_startup_reconcile_started: std::sync::atomic::AtomicBool,
     pub(super) aline_startup_test_completion: std::sync::OnceLock<tokio::sync::watch::Sender<bool>>,
     #[cfg(test)]
@@ -234,7 +244,7 @@ impl AgentEngine {
         )
     }
 
-    fn new_with_storage_and_http_client(
+    pub(crate) fn new_with_storage_and_http_client(
         session_manager: Arc<SessionManager>,
         config: AgentConfig,
         history: HistoryStore,
@@ -243,6 +253,7 @@ impl AgentEngine {
     ) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(config.agent_event_channel_capacity);
         let (watcher_refresh_tx, watcher_refresh_rx) = mpsc::unbounded_channel();
+        let (skill_discovery_result_tx, skill_discovery_result_rx) = mpsc::unbounded_channel();
 
         // Pre-initialize external agent runners for discovery
         let mut runners = HashMap::new();
@@ -274,7 +285,7 @@ impl AgentEngine {
             circuit_breakers.clone(),
         ));
 
-        Arc::new(Self {
+        let engine = Arc::new(Self {
             started_at_ms: now_millis(),
             config,
             http_client,
@@ -283,8 +294,11 @@ impl AgentEngine {
             history,
             threads: RwLock::new(HashMap::new()),
             thread_handoff_states: RwLock::new(HashMap::new()),
+            thread_participants: RwLock::new(HashMap::new()),
+            thread_participant_suggestions: RwLock::new(HashMap::new()),
             thread_client_surfaces: RwLock::new(HashMap::new()),
             thread_skill_discovery_states: RwLock::new(HashMap::new()),
+            thread_structural_memories: RwLock::new(HashMap::new()),
             thread_todos: RwLock::new(HashMap::new()),
             thread_work_contexts: RwLock::new(HashMap::new()),
             tasks: Mutex::new(VecDeque::new()),
@@ -334,6 +348,9 @@ impl AgentEngine {
             repo_watchers: Mutex::new(HashMap::new()),
             watcher_refresh_tx,
             watcher_refresh_rx: Mutex::new(Some(watcher_refresh_rx)),
+            skill_discovery_result_tx,
+            #[cfg(test)]
+            skill_discovery_test_runner: std::sync::OnceLock::new(),
             aline_startup_reconcile_started: std::sync::atomic::AtomicBool::new(false),
             aline_startup_test_completion: std::sync::OnceLock::new(),
             #[cfg(test)]
@@ -359,7 +376,14 @@ impl AgentEngine {
             handoff_broker: RwLock::new(super::handoff::HandoffBroker::default()),
             divergent_sessions: RwLock::new(HashMap::new()),
             cost_trackers: Mutex::new(HashMap::new()),
-        })
+        });
+
+        super::skill_preflight::spawn_skill_discovery_result_applier(
+            engine.clone(),
+            skill_discovery_result_rx,
+        );
+
+        engine
     }
 
     // ── Circuit breaker helpers ──────────────────────────────────────────
@@ -496,6 +520,14 @@ impl AgentEngine {
         Self::new_with_storage(session_manager, config, history, data_dir)
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_skill_discovery_test_runner(
+        &self,
+        runner: Arc<dyn super::skill_preflight::SkillDiscoveryTestRunner>,
+    ) {
+        let _ = self.skill_discovery_test_runner.set(runner);
+    }
+
     /// Subscribe to agent events (for IPC forwarding to frontend).
     pub fn subscribe(&self) -> broadcast::Receiver<AgentEvent> {
         self.event_tx.subscribe()
@@ -526,36 +558,12 @@ impl AgentEngine {
         }
 
         let runner = self.aline_startup_command_runner();
-        let mut persisted_state =
-            super::aline_startup::load_persisted_aline_startup_state(&self.data_dir).await;
-        let summary = super::aline_startup::reconcile_startup_sessions(
+        let summary = super::aline_startup::run_aline_startup_reconciliation_for_data_dir(
             runner.as_ref(),
             &repo_root,
-            chrono::Utc::now(),
-            super::aline_startup::StartupSelectionPolicy::default(),
-            &persisted_state.recent_session_ids(
-                chrono::Utc::now(),
-                super::aline_startup::StartupSelectionPolicy::default().recency_window,
-            ),
+            &self.data_dir,
         )
         .await?;
-
-        if summary.failure_stage.is_none() {
-            persisted_state.record_recently_imported(
-                &summary.recently_imported_session_ids,
-                chrono::Utc::now(),
-            );
-            if let Err(error) =
-                super::aline_startup::persist_aline_startup_state(&self.data_dir, &persisted_state)
-                    .await
-            {
-                tracing::warn!(
-                    path = %super::aline_startup::aline_startup_state_path(&self.data_dir).display(),
-                    %error,
-                    "failed to persist Aline startup dedupe state"
-                );
-            }
-        }
 
         self.record_aline_startup_summary(summary.clone()).await;
         log_aline_startup_summary(&repo_root, &summary);

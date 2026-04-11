@@ -132,6 +132,12 @@ export function StatusBar() {
             status="warning"
           />
         )}
+        {diagnostics.skillMeshBackend === "mesh" && (
+          <StatusIndicator
+            label={`mesh ${diagnostics.skillMeshState}`}
+            status={diagnostics.skillMeshState === "fresh" ? "success" : "warning"}
+          />
+        )}
 
         {sandboxEnabled && (
           <StatusIndicator label="sandbox" status="success" />

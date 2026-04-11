@@ -188,10 +188,18 @@ impl InputState {
     }
 
     pub fn complete_active_at_token(&mut self) -> input_refs::TabCompletionOutcome {
+        self.complete_active_at_token_with_agents(&[])
+    }
+
+    pub fn complete_active_at_token_with_agents(
+        &mut self,
+        agent_aliases: &[String],
+    ) -> input_refs::TabCompletionOutcome {
         let cursor = self.cursor_pos();
         let buffer = self.buffer_cache.clone();
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let outcome = input_refs::complete_active_at_token(&buffer, cursor, &cwd);
+        let outcome =
+            input_refs::complete_active_at_token_with_agents(&buffer, cursor, &cwd, agent_aliases);
 
         if let Some(replacement) = &outcome.replacement {
             let mut updated = buffer;

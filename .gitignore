@@ -7,7 +7,7 @@
 /dist-release/
 crates/amux-daemon/target/
 .history
-docs/superpowers/
+/docs/superpowers/
 tmp
 .claude
 .superpowers

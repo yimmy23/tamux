@@ -76,24 +76,26 @@ impl AgentEngine {
             .settle_skill_variant_usage(thread_id, task_id, goal_run_id, outcome)
             .await
         {
-            Ok(count) => {
+            Ok((count, skill_names)) => {
                 let _ = self
                     .settle_skill_selection_causal_traces(thread_id, task_id, goal_run_id, outcome)
                     .await;
                 if count > 0 {
                     if let Some(thread_id) = thread_id {
+                        let notice_message =
+                            format_skill_settlement_notice(count, outcome, &skill_names);
+                        let settled_skills = skill_names.iter().cloned().collect::<Vec<_>>();
                         self.emit_workflow_notice(
                             thread_id,
                             "skill-evolution",
-                            format!(
-                                "Settled {count} skill consultation(s) with outcome={outcome}."
-                            ),
+                            notice_message,
                             Some(
                                 serde_json::json!({
                                     "task_id": task_id,
                                     "goal_run_id": goal_run_id,
                                     "outcome": outcome,
                                     "count": count,
+                                    "skills": settled_skills,
                                 })
                                 .to_string(),
                             ),
@@ -196,5 +198,44 @@ impl AgentEngine {
         self.announce_skill_promotion(&variant.skill_name, current, next, variant.success_count);
 
         Some(next.to_string())
+    }
+}
+
+fn format_skill_settlement_notice(count: usize, outcome: &str, skill_names: &[String]) -> String {
+    if skill_names.is_empty() {
+        return format!("Settled {count} skill consultation(s) with outcome={outcome}.");
+    }
+    format!(
+        "Settled {count} skill consultation(s) with outcome={outcome} for {}.",
+        skill_names.join(", ")
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_skill_settlement_notice;
+
+    #[test]
+    fn skill_settlement_notice_mentions_skill_names_when_available() {
+        let skills = vec![
+            "systematic-debugging".to_string(),
+            "debugging-playbook".to_string(),
+        ];
+
+        let notice = format_skill_settlement_notice(2, "success", &skills);
+
+        assert!(notice.contains("outcome=success"));
+        assert!(notice.contains("systematic-debugging"));
+        assert!(notice.contains("debugging-playbook"));
+    }
+
+    #[test]
+    fn skill_settlement_notice_omits_skill_list_when_unknown() {
+        let notice = format_skill_settlement_notice(1, "failure", &[]);
+
+        assert_eq!(
+            notice,
+            "Settled 1 skill consultation(s) with outcome=failure."
+        );
     }
 }

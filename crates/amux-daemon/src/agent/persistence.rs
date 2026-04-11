@@ -159,8 +159,11 @@ impl AgentEngine {
             Ok(thread_rows) if !thread_rows.is_empty() => {
                 let mut threads = HashMap::new();
                 let mut handoff_states = HashMap::new();
+                let mut thread_participants = HashMap::new();
+                let mut thread_participant_suggestions = HashMap::new();
                 let mut thread_client_surfaces = HashMap::new();
                 let mut thread_skill_discovery_states = HashMap::new();
+                let mut thread_structural_memories = HashMap::new();
                 for thread_row in thread_rows {
                     let thread_id = thread_row.id.clone();
                     let thread_title = thread_row.title.clone();
@@ -174,6 +177,18 @@ impl AgentEngine {
                     {
                         thread_skill_discovery_states
                             .insert(thread_id.clone(), latest_skill_discovery_state);
+                    }
+                    if !thread_metadata.thread_participants.is_empty() {
+                        thread_participants.insert(
+                            thread_id.clone(),
+                            thread_metadata.thread_participants.clone(),
+                        );
+                    }
+                    if !thread_metadata.thread_participant_suggestions.is_empty() {
+                        thread_participant_suggestions.insert(
+                            thread_id.clone(),
+                            thread_metadata.thread_participant_suggestions.clone(),
+                        );
                     }
                     let handoff_state = normalized_thread_handoff_state(
                         &thread_id,
@@ -215,10 +230,14 @@ impl AgentEngine {
                                 response_id: metadata.response_id,
                                 upstream_message: metadata.upstream_message,
                                 provider_final_result: metadata.provider_final_result,
+                                author_agent_id: metadata.author_agent_id,
+                                author_agent_name: metadata.author_agent_name,
                                 reasoning: message.reasoning,
                                 message_kind: metadata.message_kind,
                                 compaction_strategy: metadata.compaction_strategy,
                                 compaction_payload: metadata.compaction_payload,
+                                offloaded_payload_id: metadata.offloaded_payload_id,
+                                structural_refs: metadata.structural_refs,
                                 timestamp: message.created_at as u64,
                             }
                         })
@@ -254,12 +273,30 @@ impl AgentEngine {
                             total_output_tokens,
                         },
                     );
+                    match self
+                        .history
+                        .get_thread_structural_memory_state::<
+                            crate::agent::context::structural_memory::ThreadStructuralMemory,
+                        >(&thread_id)
+                        .await
+                    {
+                        Ok(Some(state)) => {
+                            thread_structural_memories.insert(thread_id.clone(), state);
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            tracing::warn!(thread_id = %thread_id, %error, "failed to hydrate thread structural memory");
+                        }
+                    }
                     handoff_states.insert(thread_id, handoff_state);
                 }
                 *self.threads.write().await = threads;
                 *self.thread_handoff_states.write().await = handoff_states;
+                *self.thread_participants.write().await = thread_participants;
+                *self.thread_participant_suggestions.write().await = thread_participant_suggestions;
                 *self.thread_client_surfaces.write().await = thread_client_surfaces;
                 *self.thread_skill_discovery_states.write().await = thread_skill_discovery_states;
+                *self.thread_structural_memories.write().await = thread_structural_memories;
             }
             Ok(_) => {}
             Err(e) => tracing::warn!("failed to load agent threads from sqlite: {e}"),
@@ -713,14 +750,9 @@ impl AgentEngine {
                 })
                 .collect::<Vec<_>>()
         };
-        for (thread_id, repo_root) in repo_watches {
-            self.ensure_repo_watcher(&thread_id, &repo_root).await;
-        }
+        self.schedule_repo_watcher_restore(repo_watches);
 
         let startup_repo_roots = self.collect_aline_startup_repo_roots().await;
-        if startup_repo_roots.len() != 1 {
-            self.ensure_aline_watcher_running_during_hydrate().await;
-        }
         match startup_repo_roots.as_slice() {
             [repo_root] => self.schedule_aline_startup_reconciliation(repo_root.clone()),
             [] => {
@@ -735,6 +767,7 @@ impl AgentEngine {
                     repo_root_count = 0,
                     "skipping Aline startup reconciliation because no repo root was resolved during hydrate"
                 );
+                self.schedule_aline_watcher_bootstrap();
             }
             repo_roots => {
                 let mut summary = super::aline_startup::AlineStartupSummary::skipped(
@@ -748,6 +781,7 @@ impl AgentEngine {
                     repo_root_count = repo_roots.len(),
                     "skipping Aline startup reconciliation because multiple repo roots were resolved during hydrate"
                 );
+                self.schedule_aline_watcher_bootstrap();
             }
         }
 
@@ -757,51 +791,6 @@ impl AgentEngine {
         self.maybe_spawn_gateway().await;
 
         Ok(())
-    }
-
-    async fn ensure_aline_watcher_running_during_hydrate(&self) {
-        if !self.aline_startup_is_available() {
-            return;
-        }
-
-        let runner = self.aline_startup_command_runner();
-        let status_output = match runner
-            .run(super::aline_startup::build_watcher_status_command())
-            .await
-        {
-            Ok(output) => output,
-            Err(error) => {
-                tracing::warn!(%error, "failed to query Aline watcher status during hydrate");
-                return;
-            }
-        };
-        if let Err(error) =
-            super::aline_startup::ensure_success_exit(&status_output, "aline watcher status")
-        {
-            tracing::warn!(%error, "Aline watcher status command failed during hydrate");
-            return;
-        }
-
-        let watcher_status = super::aline_startup::parse_watcher_status(&status_output.stdout);
-        if watcher_status.state != super::aline_startup::WatcherState::Stopped {
-            return;
-        }
-
-        let start_output = match runner
-            .run(super::aline_startup::build_watcher_start_command())
-            .await
-        {
-            Ok(output) => output,
-            Err(error) => {
-                tracing::warn!(%error, "failed to start Aline watcher during hydrate");
-                return;
-            }
-        };
-        if let Err(error) =
-            super::aline_startup::ensure_success_exit(&start_output, "aline watcher start")
-        {
-            tracing::warn!(%error, "Aline watcher start command failed during hydrate");
-        }
     }
 
     async fn collect_aline_startup_repo_roots(&self) -> Vec<String> {
@@ -900,12 +889,56 @@ impl AgentEngine {
 
         let engine = Arc::clone(self);
         tokio::spawn(async move {
-            if let Err(error) = engine
-                .run_aline_startup_reconciliation(PathBuf::from(&repo_root))
-                .await
-            {
-                tracing::warn!(repo_root = %repo_root, %error, "Aline startup reconciliation failed");
+            #[cfg(test)]
+            if engine.aline_startup_test_runner.get().is_some() {
+                if let Err(error) = engine
+                    .run_aline_startup_reconciliation(PathBuf::from(&repo_root))
+                    .await
+                {
+                    tracing::warn!(repo_root = %repo_root, %error, "Aline startup reconciliation failed");
+                }
+                engine.notify_aline_startup_reconciliation_finished_for_tests();
+                return;
             }
+
+            let completion = match super::aline_startup::run_aline_startup_subprocess(
+                super::aline_startup::AsyncAlineStartupRequest {
+                    repo_root: repo_root.clone(),
+                    data_dir: engine.data_dir.clone(),
+                },
+            )
+            .await
+            {
+                Ok(completion) => completion,
+                Err(error) => {
+                    tracing::warn!(repo_root = %repo_root, %error, "Aline startup reconciliation worker failed");
+                    engine.notify_aline_startup_reconciliation_finished_for_tests();
+                    return;
+                }
+            };
+
+            if let Some(summary) = completion.summary {
+                engine.record_aline_startup_summary(summary.clone()).await;
+                super::log_aline_startup_summary(
+                    std::path::Path::new(&completion.repo_root),
+                    &summary,
+                );
+            } else if let Some(error) = completion.error {
+                tracing::warn!(repo_root = %completion.repo_root, %error, "Aline startup reconciliation worker returned an error");
+            }
+            engine.notify_aline_startup_reconciliation_finished_for_tests();
+        });
+    }
+
+    fn schedule_aline_watcher_bootstrap(self: &Arc<Self>) {
+        if !self.aline_startup_is_available() {
+            return;
+        }
+
+        let engine = Arc::clone(self);
+        tokio::spawn(async move {
+            let runner = engine.aline_startup_command_runner();
+            let _ = super::aline_startup::ensure_watcher_running(runner.as_ref()).await;
             engine.notify_aline_startup_reconciliation_finished_for_tests();
         });
     }

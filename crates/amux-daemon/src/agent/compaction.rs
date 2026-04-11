@@ -2,6 +2,7 @@
 
 use super::llm_client::messages_to_api_format;
 use super::*;
+use crate::agent::context::structural_memory::{StructuralContextEntry, ThreadStructuralMemory};
 use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
 const HEURISTIC_COMPACTION_VISIBLE_TEXT: &str = "rule based";
@@ -9,6 +10,9 @@ const COMPACTION_NOTICE_KIND: &str = "auto-compaction";
 const COMPACTION_EXACT_MESSAGE_MAX: usize = 24;
 const COMPACTION_MODEL_RECENT_CONTENT_MESSAGES: usize = 6;
 const COMPACTION_MODEL_REQUEST_HEADROOM_TOKENS: usize = 8_192;
+const COMPACTION_RECENT_SIGNAL_MESSAGES: usize = 8;
+const CODING_COMPACTION_STRUCTURAL_ENTRY_LIMIT: usize = 6;
+const CODING_COMPACTION_OFFLOAD_REFERENCE_LIMIT: usize = 4;
 const COMPACTION_MESSAGE_TRUNCATION_NOTICE: &str =
     "\n\n[Older compaction input truncated to fit the model budget.]";
 const COMPACTION_MODEL_SYSTEM_PROMPT: &str = "You compress older conversation context into a deterministic execution checkpoint for future continuity. Follow the mandatory thread compaction protocol exactly. Preserve goals, constraints, decisions, tool outcomes, unresolved issues, failed paths, and the immediate next step. Return exactly one markdown block matching the required schema. Do not add commentary outside the schema.";
@@ -48,6 +52,8 @@ const COMPACTION_NO_FILES_CAPTURED: &str =
 const COMPACTION_NO_READONLY_CAPTURED: &str =
     "* `none` - (No explicit reference files were captured in the compacted slice.)\n";
 const COMPACTION_NO_DEAD_ENDS_CAPTURED: &str = "* **Failed:** No earlier failed path was preserved in this compacted slice.\n    * *Resolution:* Continue from the retained recent context instead of re-expanding discarded history.\n";
+const CODING_COMPACTION_FALLBACK_NOTICE: &str =
+    "Structured coding compaction failed; fell back to checkpoint summary.";
 
 pub(super) struct PreparedLlmRequest {
     pub messages: Vec<ApiMessage>,
@@ -61,6 +67,18 @@ pub(super) struct PreparedLlmRequest {
 pub(super) struct CompactionCandidate {
     pub split_at: usize,
     pub target_tokens: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuleBasedCompactionMode {
+    Conversational,
+    Coding,
+}
+
+struct RuleBasedCompactionPayload {
+    payload: String,
+    structural_refs: Vec<String>,
+    fallback_notice: Option<String>,
 }
 
 pub(super) fn message_is_compaction_summary(message: &AgentMessage) -> bool {
@@ -272,10 +290,14 @@ pub(super) fn compact_messages_for_request(
                 response_id: None,
                 upstream_message: None,
                 provider_final_result: None,
+                author_agent_id: None,
+                author_agent_name: None,
                 reasoning: None,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,
                 compaction_payload: None,
+                offloaded_payload_id: None,
+                structural_refs: Vec::new(),
                 timestamp: messages[split_at - 1].timestamp,
             });
         }
@@ -424,6 +446,258 @@ pub(super) fn estimate_single_message_tokens(message: &AgentMessage) -> usize {
         .unwrap_or(0);
 
     chars.div_ceil(APPROX_CHARS_PER_TOKEN) + 12
+}
+
+fn build_checkpoint_compaction_payload(messages: &[AgentMessage], target_tokens: usize) -> String {
+    let summary = build_compaction_summary(messages, target_tokens);
+    if summary.trim().is_empty() {
+        "Older context compacted for continuity.".to_string()
+    } else {
+        summary
+    }
+}
+
+fn determine_rule_based_compaction_mode(
+    structural_memory: Option<&ThreadStructuralMemory>,
+    messages: &[AgentMessage],
+) -> RuleBasedCompactionMode {
+    if structural_memory.is_none_or(|memory| !memory.has_structural_nodes()) {
+        return RuleBasedCompactionMode::Conversational;
+    }
+
+    let recent_messages = messages
+        .iter()
+        .rev()
+        .take(COMPACTION_RECENT_SIGNAL_MESSAGES);
+    for message in recent_messages {
+        if message_uses_coding_tool(message) || message_contains_coding_signal(message) {
+            return RuleBasedCompactionMode::Coding;
+        }
+    }
+
+    RuleBasedCompactionMode::Conversational
+}
+
+fn message_uses_coding_tool(message: &AgentMessage) -> bool {
+    message
+        .tool_name
+        .as_deref()
+        .is_some_and(is_coding_tool_name)
+        || message.tool_calls.as_ref().is_some_and(|tool_calls| {
+            tool_calls
+                .iter()
+                .any(|call| is_coding_tool_name(call.function.name.as_str()))
+        })
+}
+
+fn is_coding_tool_name(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "read_file"
+            | "replace_in_file"
+            | "apply_patch"
+            | "create_file"
+            | "list_files"
+            | "list_dir"
+            | "write_file"
+            | "append_to_file"
+            | "apply_file_patch"
+    )
+}
+
+fn message_contains_coding_signal(message: &AgentMessage) -> bool {
+    text_contains_coding_signal(compaction_runtime_content(message))
+        || message
+            .tool_arguments
+            .as_deref()
+            .is_some_and(text_contains_coding_signal)
+}
+
+fn text_contains_coding_signal(text: &str) -> bool {
+    let lowered = text.to_ascii_lowercase();
+    if text.contains("```")
+        || text.contains("*** Begin Patch")
+        || text.contains("diff --git")
+        || text.contains("\n@@")
+        || text
+            .lines()
+            .any(|line| line.starts_with("+++ ") || line.starts_with("--- "))
+    {
+        return true;
+    }
+
+    if [
+        "error[",
+        "test result:",
+        "assertion failed",
+        "failures:",
+        "cargo test",
+        "cargo check",
+        "npm test",
+        "build failed",
+        "compiling ",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle))
+    {
+        return true;
+    }
+
+    contains_path_like_token(text)
+}
+
+fn contains_path_like_token(text: &str) -> bool {
+    const CODE_EXTENSIONS: &[&str] = &[
+        ".rs", ".toml", ".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".md", ".yaml", ".yml",
+        ".cjs", ".mjs",
+    ];
+
+    text.split_whitespace().any(|token| {
+        let token = token.trim_matches(|ch: char| {
+            matches!(
+                ch,
+                '`' | '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';' | ':'
+            )
+        });
+        if token.starts_with('/') && token.len() > 1 {
+            return true;
+        }
+        token.contains('/')
+            && CODE_EXTENSIONS
+                .iter()
+                .any(|extension| token.contains(extension))
+    })
+}
+
+fn coding_execution_map(messages: &[AgentMessage]) -> String {
+    let active_directory = checkpoint_active_directory(messages)
+        .unwrap_or_else(|| COMPACTION_UNKNOWN_DIRECTORY.to_string());
+    format!(
+        "- Completed: {}\n- Current: {}\n- Pending: {}\n- Active directory: `{}`",
+        checkpoint_completed_phase(messages),
+        checkpoint_current_phase(messages),
+        checkpoint_pending_phases(messages),
+        active_directory,
+    )
+}
+
+fn collect_message_structural_refs(messages: &[AgentMessage]) -> Vec<String> {
+    let mut refs = Vec::new();
+    for message in messages {
+        for structural_ref in &message.structural_refs {
+            if !refs.iter().any(|existing| existing == structural_ref) {
+                refs.push(structural_ref.clone());
+            }
+        }
+    }
+    refs
+}
+
+fn render_structural_context(entries: &[StructuralContextEntry]) -> String {
+    if entries.is_empty() {
+        return "- none (No structural nodes were available for this compacted slice.)\n"
+            .to_string();
+    }
+
+    entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "- `{}` - {}\n",
+                entry.node_id,
+                super::goal_parsing::summarize_text(entry.summary.as_str(), 220)
+            )
+        })
+        .collect()
+}
+
+fn collect_referenced_offloaded_payload_ids(messages: &[AgentMessage]) -> Vec<String> {
+    let mut payload_ids = Vec::new();
+    for message in messages {
+        let Some(payload_id) = message.offloaded_payload_id.as_deref() else {
+            continue;
+        };
+        if !payload_ids.iter().any(|existing| existing == payload_id) {
+            payload_ids.push(payload_id.to_string());
+        }
+    }
+    payload_ids
+}
+
+fn summarize_offloaded_metadata_summary(summary: &str) -> String {
+    let normalized = summary.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        "summary unavailable".to_string()
+    } else {
+        super::goal_parsing::summarize_text(normalized.as_str(), 220)
+    }
+}
+
+fn render_offloaded_payload_references(
+    metadata_rows: &[crate::history::OffloadedPayloadMetadataRow],
+) -> String {
+    let mut rendered = String::new();
+
+    for metadata in metadata_rows {
+        rendered.push_str(&format!(
+            "- `{}` (`{}`, {} bytes) - {}\n",
+            metadata.payload_id,
+            metadata.tool_name,
+            metadata.byte_size,
+            summarize_offloaded_metadata_summary(metadata.summary.as_str())
+        ));
+    }
+
+    if rendered.is_empty() {
+        "- none (No referenced offloaded payload metadata was available for this compacted slice.)\n"
+            .to_string()
+    } else {
+        rendered
+    }
+}
+
+async fn load_referenced_offloaded_payload_metadata(
+    history: &crate::history::HistoryStore,
+    thread_id: &str,
+    messages: &[AgentMessage],
+) -> Result<Vec<crate::history::OffloadedPayloadMetadataRow>> {
+    let mut rows = Vec::new();
+
+    for payload_id in collect_referenced_offloaded_payload_ids(messages)
+        .into_iter()
+        .take(CODING_COMPACTION_OFFLOAD_REFERENCE_LIMIT)
+    {
+        let Some(metadata) = history
+            .get_offloaded_payload_metadata(payload_id.as_str())
+            .await?
+        else {
+            continue;
+        };
+        if metadata.thread_id == thread_id {
+            rows.push(metadata);
+        }
+    }
+
+    Ok(rows)
+}
+
+fn coding_compaction_payload_max_chars(target_tokens: usize) -> usize {
+    (target_tokens / 4)
+        .saturating_mul(APPROX_CHARS_PER_TOKEN)
+        .clamp(4096, 8192)
+}
+
+fn merge_compaction_fallback_notice(
+    primary: Option<String>,
+    secondary: Option<String>,
+) -> Option<String> {
+    match (primary, secondary) {
+        (Some(primary), Some(secondary)) if primary == secondary => Some(primary),
+        (Some(primary), Some(secondary)) => Some(format!("{primary} {secondary}")),
+        (Some(primary), None) => Some(primary),
+        (None, Some(secondary)) => Some(secondary),
+        (None, None) => None,
+    }
 }
 
 pub(super) fn build_compaction_summary(messages: &[AgentMessage], target_tokens: usize) -> String {
@@ -1094,9 +1368,16 @@ impl AgentEngine {
         let split_at = window_start + candidate.split_at;
         let source_messages = thread.messages[window_start..split_at].to_vec();
         let message_count = thread.messages.len();
+        let structural_memory = self.get_thread_structural_memory(thread_id).await;
 
         let (artifact, strategy_used, fallback_notice) = self
-            .build_compaction_artifact(&source_messages, candidate.target_tokens, config)
+            .build_compaction_artifact(
+                thread_id,
+                &source_messages,
+                candidate.target_tokens,
+                config,
+                structural_memory.as_ref(),
+            )
             .await?;
 
         {
@@ -1169,21 +1450,29 @@ impl AgentEngine {
 
     async fn build_compaction_artifact(
         &self,
+        thread_id: &str,
         messages: &[AgentMessage],
         target_tokens: usize,
         config: &AgentConfig,
+        structural_memory: Option<&ThreadStructuralMemory>,
     ) -> Result<(AgentMessage, CompactionStrategy, Option<String>)> {
-        let heuristic_payload = build_compaction_summary(messages, target_tokens);
-        let heuristic_payload = if heuristic_payload.trim().is_empty() {
-            "Older context compacted for continuity.".to_string()
-        } else {
-            heuristic_payload
-        };
-
         let mut strategy_used = config.compaction.strategy;
         let mut fallback_notice = None;
+        let mut structural_refs = Vec::new();
         let payload = match strategy_used {
-            CompactionStrategy::Heuristic => heuristic_payload.clone(),
+            CompactionStrategy::Heuristic => {
+                let rule_based = self
+                    .build_rule_based_compaction_payload(
+                        thread_id,
+                        messages,
+                        target_tokens,
+                        structural_memory,
+                    )
+                    .await;
+                structural_refs = rule_based.structural_refs;
+                fallback_notice = rule_based.fallback_notice;
+                rule_based.payload
+            }
             CompactionStrategy::Weles => {
                 let (provider_id, provider_config) =
                     self.resolve_weles_compaction_provider(config)?;
@@ -1194,11 +1483,23 @@ impl AgentEngine {
                     Ok(payload) if !payload.trim().is_empty() => payload,
                     Ok(_) | Err(_) => {
                         strategy_used = CompactionStrategy::Heuristic;
-                        fallback_notice = Some(
-                            "WELES compaction failed; fell back to rule based compaction."
-                                .to_string(),
+                        let rule_based = self
+                            .build_rule_based_compaction_payload(
+                                thread_id,
+                                messages,
+                                target_tokens,
+                                structural_memory,
+                            )
+                            .await;
+                        structural_refs = rule_based.structural_refs;
+                        fallback_notice = merge_compaction_fallback_notice(
+                            rule_based.fallback_notice,
+                            Some(
+                                "WELES compaction failed; fell back to rule based compaction."
+                                    .to_string(),
+                            ),
                         );
-                        heuristic_payload.clone()
+                        rule_based.payload
                     }
                 }
             }
@@ -1212,11 +1513,23 @@ impl AgentEngine {
                     Ok(payload) if !payload.trim().is_empty() => payload,
                     Ok(_) | Err(_) => {
                         strategy_used = CompactionStrategy::Heuristic;
-                        fallback_notice = Some(
-                            "Custom-model compaction failed; fell back to rule based compaction."
-                                .to_string(),
+                        let rule_based = self
+                            .build_rule_based_compaction_payload(
+                                thread_id,
+                                messages,
+                                target_tokens,
+                                structural_memory,
+                            )
+                            .await;
+                        structural_refs = rule_based.structural_refs;
+                        fallback_notice = merge_compaction_fallback_notice(
+                            rule_based.fallback_notice,
+                            Some(
+                                "Custom-model compaction failed; fell back to rule based compaction."
+                                    .to_string(),
+                            ),
                         );
-                        heuristic_payload.clone()
+                        rule_based.payload
                     }
                 }
             }
@@ -1246,10 +1559,14 @@ impl AgentEngine {
                 response_id: None,
                 upstream_message: None,
                 provider_final_result: None,
+                author_agent_id: None,
+                author_agent_name: None,
                 reasoning: None,
                 message_kind: AgentMessageKind::CompactionArtifact,
                 compaction_strategy: Some(strategy_used),
                 compaction_payload: Some(payload),
+                offloaded_payload_id: None,
+                structural_refs,
                 timestamp: messages
                     .last()
                     .map(|message| message.timestamp)
@@ -1258,6 +1575,105 @@ impl AgentEngine {
             strategy_used,
             fallback_notice,
         ))
+    }
+
+    async fn build_rule_based_compaction_payload(
+        &self,
+        thread_id: &str,
+        messages: &[AgentMessage],
+        target_tokens: usize,
+        structural_memory: Option<&ThreadStructuralMemory>,
+    ) -> RuleBasedCompactionPayload {
+        let checkpoint_payload = build_checkpoint_compaction_payload(messages, target_tokens);
+
+        if crate::agent::agent_identity::is_internal_dm_thread(thread_id)
+            || super::thread_handoffs::is_internal_handoff_thread(thread_id)
+        {
+            return RuleBasedCompactionPayload {
+                payload: checkpoint_payload,
+                structural_refs: Vec::new(),
+                fallback_notice: None,
+            };
+        }
+
+        match determine_rule_based_compaction_mode(structural_memory, messages) {
+            RuleBasedCompactionMode::Conversational => RuleBasedCompactionPayload {
+                payload: checkpoint_payload,
+                structural_refs: Vec::new(),
+                fallback_notice: None,
+            },
+            RuleBasedCompactionMode::Coding => {
+                let Some(structural_memory) = structural_memory else {
+                    return RuleBasedCompactionPayload {
+                        payload: checkpoint_payload,
+                        structural_refs: Vec::new(),
+                        fallback_notice: None,
+                    };
+                };
+
+                match self
+                    .build_coding_compaction_payload(
+                        thread_id,
+                        messages,
+                        target_tokens,
+                        structural_memory,
+                    )
+                    .await
+                {
+                    Ok((payload, structural_refs)) => RuleBasedCompactionPayload {
+                        payload,
+                        structural_refs,
+                        fallback_notice: None,
+                    },
+                    Err(error) => {
+                        tracing::warn!(
+                            thread_id = %thread_id,
+                            %error,
+                            "structured coding compaction assembly failed"
+                        );
+                        RuleBasedCompactionPayload {
+                            payload: checkpoint_payload,
+                            structural_refs: Vec::new(),
+                            fallback_notice: Some(CODING_COMPACTION_FALLBACK_NOTICE.to_string()),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn build_coding_compaction_payload(
+        &self,
+        thread_id: &str,
+        messages: &[AgentMessage],
+        target_tokens: usize,
+        structural_memory: &ThreadStructuralMemory,
+    ) -> Result<(String, Vec<String>)> {
+        let structural_entries = structural_memory.concise_context_entries(
+            &collect_message_structural_refs(messages),
+            CODING_COMPACTION_STRUCTURAL_ENTRY_LIMIT,
+        );
+        if structural_entries.is_empty() {
+            anyhow::bail!("no structural context entries available for coding compaction");
+        }
+
+        let offloaded_metadata =
+            load_referenced_offloaded_payload_metadata(&self.history, thread_id, messages).await?;
+        let structural_refs = structural_entries
+            .iter()
+            .map(|entry| entry.node_id.clone())
+            .collect::<Vec<_>>();
+        let mut payload = format!(
+            "## Primary Objective\n{}\n\n## Execution Map\n{}\n\n## Structural Context\n{}\n\n## Offloaded Payload References\n{}\n\n## Immediate Next Step\n{}\n",
+            checkpoint_primary_objective(messages),
+            coding_execution_map(messages),
+            render_structural_context(&structural_entries),
+            render_offloaded_payload_references(&offloaded_metadata),
+            checkpoint_immediate_next_step(messages),
+        );
+        payload.truncate(coding_compaction_payload_max_chars(target_tokens));
+
+        Ok((payload, structural_refs))
     }
 
     async fn run_llm_compaction(

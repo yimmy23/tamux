@@ -179,6 +179,18 @@ pub(super) fn set_provider_model_dedup_key(
     )
 }
 
+pub(super) fn set_target_agent_provider_model_dedup_key(
+    agent: &Arc<crate::agent::AgentEngine>,
+    target_agent_id: &str,
+    provider_id: &str,
+    model: &str,
+) -> String {
+    format!(
+        "{OPERATION_KIND_SET_PROVIDER_MODEL}:{target_agent_id}:{provider_id}:{model}:{:p}",
+        Arc::as_ptr(agent)
+    )
+}
+
 pub(super) fn set_sub_agent_dedup_key(
     agent: &Arc<crate::agent::AgentEngine>,
     sub_agent_id: &str,

@@ -257,6 +257,7 @@ impl<'a> SendMessageRunner<'a> {
                 crate::agent::learning::traces::TraceOutcome::Success
             };
             let final_success_rate = self.trace_collector.success_rate();
+            let trace_started_at_ms = self.trace_collector.started_at_ms();
             let trace = self.trace_collector.finalize(
                 trace_outcome,
                 None,
@@ -266,12 +267,27 @@ impl<'a> SendMessageRunner<'a> {
             );
             if self.policy_aborted_retry || !trace.steps.is_empty() {
                 let tool_seq = crate::agent::learning::traces::extract_tool_sequence(&trace);
+                let tool_fallbacks = trace
+                    .steps
+                    .windows(2)
+                    .filter(|pair| pair[0].tool_name != pair[1].tool_name && !pair[0].succeeded)
+                    .count() as u64;
+                let synthetic_exit_code = match &trace.outcome {
+                    crate::agent::learning::traces::TraceOutcome::Success => Some(0_i64),
+                    crate::agent::learning::traces::TraceOutcome::Failure { .. } => Some(1_i64),
+                    crate::agent::learning::traces::TraceOutcome::Partial { .. } => Some(2_i64),
+                    crate::agent::learning::traces::TraceOutcome::Cancelled => Some(130_i64),
+                };
                 let tool_seq_json = serde_json::to_string(&tool_seq).unwrap_or_default();
                 let metrics_json = serde_json::to_string(&serde_json::json!({
                     "total_duration_ms": trace.total_duration_ms,
                     "total_tokens_used": trace.total_tokens_used,
                     "step_count": trace.steps.len(),
                     "success_rate": final_success_rate,
+                    "tool_fallbacks": tool_fallbacks,
+                    "operator_revisions": 0,
+                    "fast_denials": 0,
+                    "exit_code": synthetic_exit_code,
                 }))
                 .unwrap_or_default();
                 let outcome_str = match &trace.outcome {
@@ -285,6 +301,7 @@ impl<'a> SendMessageRunner<'a> {
                     .history
                     .insert_execution_trace(
                         &trace.trace_id,
+                        Some(&self.tid),
                         None,
                         self.task_id,
                         &trace.task_type,
@@ -294,6 +311,9 @@ impl<'a> SendMessageRunner<'a> {
                         &metrics_json,
                         trace.total_duration_ms,
                         trace.total_tokens_used,
+                        &self.agent_scope_id,
+                        trace_started_at_ms,
+                        trace.created_at,
                         trace.created_at,
                     )
                     .await

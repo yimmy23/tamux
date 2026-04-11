@@ -8,7 +8,7 @@ mod loop_core;
 mod prompt;
 mod setup;
 mod tool_calls;
-mod tool_results;
+pub(crate) mod tool_results;
 mod types;
 
 use types::{

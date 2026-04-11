@@ -135,7 +135,19 @@ pub struct SkillDiscoveryCandidatePublic {
     #[serde(default)]
     pub reasons: Vec<String>,
     #[serde(default)]
+    pub matched_intents: Vec<String>,
+    #[serde(default)]
+    pub matched_trigger_phrases: Vec<String>,
+    #[serde(default)]
     pub context_tags: Vec<String>,
+    #[serde(default)]
+    pub risk_level: String,
+    #[serde(default)]
+    pub trust_tier: String,
+    #[serde(default)]
+    pub source_kind: String,
+    #[serde(default)]
+    pub recommended_action: String,
     #[serde(default)]
     pub use_count: u32,
     #[serde(default)]
@@ -148,11 +160,21 @@ pub struct SkillDiscoveryCandidatePublic {
 pub struct SkillDiscoveryResultPublic {
     pub query: String,
     #[serde(default)]
+    pub normalized_intent: String,
+    #[serde(default)]
     pub required: bool,
     #[serde(default)]
     pub confidence_tier: String,
     #[serde(default)]
     pub recommended_action: String,
+    #[serde(default)]
+    pub requires_approval: bool,
+    #[serde(default)]
+    pub mesh_state: String,
+    #[serde(default)]
+    pub rationale: Vec<String>,
+    #[serde(default)]
+    pub capability_family: Vec<String>,
     #[serde(default)]
     pub explicit_rationale_required: bool,
     #[serde(default)]

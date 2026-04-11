@@ -32,6 +32,8 @@ interface StatusDiagnostics {
     operatorProfileSyncState: string;
     operatorProfileSyncDirty: boolean;
     operatorProfileSchedulerFallback: boolean;
+    skillMeshBackend: string;
+    skillMeshState: string;
 }
 
 interface StatusState {
@@ -59,6 +61,8 @@ export const useStatusStore = create<StatusState>((set) => ({
         operatorProfileSyncState: "clean",
         operatorProfileSyncDirty: false,
         operatorProfileSchedulerFallback: false,
+        skillMeshBackend: "legacy",
+        skillMeshState: "legacy",
     },
     lastUpdated: 0,
     updateStatus: (data) => set({ ...data, lastUpdated: Date.now() }),
@@ -136,6 +140,16 @@ async function pollStatus(): Promise<void> {
                 diagnosticsRaw.operator_profile_sync_dirty === true,
             operatorProfileSchedulerFallback:
                 diagnosticsRaw.operator_profile_scheduler_fallback === true,
+            skillMeshBackend:
+                diagnosticsRaw.skill_mesh && typeof diagnosticsRaw.skill_mesh === "object"
+                && typeof (diagnosticsRaw.skill_mesh as Record<string, unknown>).backend === "string"
+                    ? ((diagnosticsRaw.skill_mesh as Record<string, unknown>).backend as string)
+                    : "legacy",
+            skillMeshState:
+                diagnosticsRaw.skill_mesh && typeof diagnosticsRaw.skill_mesh === "object"
+                && typeof (diagnosticsRaw.skill_mesh as Record<string, unknown>).state === "string"
+                    ? ((diagnosticsRaw.skill_mesh as Record<string, unknown>).state as string)
+                    : "legacy",
         };
 
         updateStatus({

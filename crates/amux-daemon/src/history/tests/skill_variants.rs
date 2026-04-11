@@ -65,6 +65,25 @@ async fn register_skill_document_reads_nested_tamux_context_tags() -> Result<()>
 }
 
 #[tokio::test]
+async fn register_skill_document_prefers_explicit_frontmatter_name() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let skill_path = root.join("skills/development/superpowers/alias-dir/SKILL.md");
+    fs::create_dir_all(skill_path.parent().expect("skill directory"))?;
+    fs::write(
+        &skill_path,
+        "---\nname: subagent-driven-development\ndescription: Execute implementation work through subagents.\n---\n# Alias Dir\n",
+    )?;
+
+    let record = store.register_skill_document(&skill_path).await?;
+
+    assert_eq!(record.skill_name, "subagent-driven-development");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn resolve_skill_variant_prefers_context_overlap_and_tracks_usage() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;
@@ -126,7 +145,8 @@ async fn skill_variant_consultation_settlement_updates_outcomes_once() -> Result
     let pending = store
         .settle_skill_variant_usage(Some("thread-1"), Some("task-1"), Some("goal-1"), "success")
         .await?;
-    assert_eq!(pending, 1);
+    assert_eq!(pending.0, 1);
+    assert_eq!(pending.1, vec!["build-pipeline".to_string()]);
     assert_eq!(
         store
             .settle_skill_variant_usage(
@@ -135,7 +155,8 @@ async fn skill_variant_consultation_settlement_updates_outcomes_once() -> Result
                 Some("goal-1"),
                 "success",
             )
-            .await?,
+            .await?
+            .0,
         0
     );
 

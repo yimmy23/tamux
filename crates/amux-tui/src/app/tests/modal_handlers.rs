@@ -181,6 +181,82 @@ fn slash_prompt_weles_requests_explicit_agent_prompt() {
 }
 
 #[test]
+fn slash_participants_opens_modal_with_thread_participant_sections() {
+    let (mut model, _daemon_rx) = make_model();
+    model.connected = true;
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-1".to_string(),
+        title: "Participant Thread".to_string(),
+        agent_name: Some("Svarog".to_string()),
+        thread_participants: vec![
+            crate::wire::ThreadParticipantState {
+                agent_id: "weles".to_string(),
+                agent_name: "Weles".to_string(),
+                instruction: "verify claims".to_string(),
+                status: "active".to_string(),
+                created_at: 1,
+                updated_at: 2,
+                deactivated_at: None,
+                last_contribution_at: Some(3),
+            },
+            crate::wire::ThreadParticipantState {
+                agent_id: "rarog".to_string(),
+                agent_name: "Rarog".to_string(),
+                instruction: "watch approvals".to_string(),
+                status: "inactive".to_string(),
+                created_at: 1,
+                updated_at: 2,
+                deactivated_at: Some(4),
+                last_contribution_at: None,
+            },
+        ],
+        queued_participant_suggestions: vec![crate::wire::ThreadParticipantSuggestion {
+            id: "sugg-1".to_string(),
+            target_agent_id: "weles".to_string(),
+            target_agent_name: "Weles".to_string(),
+            instruction: "check the final answer".to_string(),
+            force_send: false,
+            status: "queued".to_string(),
+            created_at: 5,
+            updated_at: 5,
+            error: None,
+        }],
+        ..Default::default()
+    })));
+    model.input.set_text("/participants");
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!quit);
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::ThreadParticipants)
+    );
+    let body = model.thread_participants_modal_body();
+    assert!(
+        body.contains("Active Participants"),
+        "missing active section: {body}"
+    );
+    assert!(body.contains("Weles"), "missing active participant: {body}");
+    assert!(
+        body.contains("Inactive Participants"),
+        "missing inactive section: {body}"
+    );
+    assert!(
+        body.contains("Rarog"),
+        "missing inactive participant: {body}"
+    );
+    assert!(
+        body.contains("Queued Suggestions"),
+        "missing suggestion section: {body}"
+    );
+    assert!(
+        body.contains("check the final answer"),
+        "missing queued suggestion: {body}"
+    );
+}
+
+#[test]
 fn prompt_viewer_down_scrolls_prompt_body() {
     let (mut model, _daemon_rx) = make_model();
     model.prompt_modal_snapshot = Some(crate::client::AgentPromptInspectionVm {
@@ -737,7 +813,7 @@ fn model_command_skips_remote_fetch_for_static_provider_catalogs() {
     let (mut model, mut daemon_rx) = make_model();
     model.config.provider = PROVIDER_ID_ALIBABA_CODING_PLAN.to_string();
     model.config.base_url = "https://coding-intl.dashscope.aliyuncs.com/v1".to_string();
-    model.config.model = "qwen3.5-plus".to_string();
+    model.config.model = "qwen3.6-plus".to_string();
     model.config.auth_source = "api_key".to_string();
     model.config.api_key = "dashscope-key".to_string();
 
@@ -759,7 +835,7 @@ fn provider_picker_skips_remote_fetch_for_static_provider_catalogs() {
         provider_name: "Alibaba Coding Plan".to_string(),
         authenticated: true,
         auth_source: "api_key".to_string(),
-        model: "qwen3.5-plus".to_string(),
+        model: "qwen3.6-plus".to_string(),
     }];
 
     let alibaba_index = widgets::provider_picker::available_provider_defs(&model.auth)
@@ -812,7 +888,7 @@ fn selecting_compaction_weles_provider_updates_provider_and_opens_model_picker()
             provider_name: "Alibaba Coding Plan".to_string(),
             authenticated: true,
             auth_source: "api_key".to_string(),
-            model: "qwen3.5-plus".to_string(),
+            model: "qwen3.6-plus".to_string(),
         },
     ];
 
@@ -904,7 +980,7 @@ fn selecting_compaction_custom_provider_updates_provider_and_opens_model_picker(
             provider_name: "Alibaba Coding Plan".to_string(),
             authenticated: true,
             auth_source: "api_key".to_string(),
-            model: "qwen3.5-plus".to_string(),
+            model: "qwen3.6-plus".to_string(),
         },
     ];
 
@@ -1501,6 +1577,45 @@ fn clicking_footer_queue_indicator_opens_queued_prompts_modal() {
     });
 
     assert_eq!(model.modal.top(), Some(modal::ModalKind::QueuedPrompts));
+}
+
+#[test]
+fn clicking_participant_summary_opens_thread_participants_modal() {
+    let (mut model, _daemon_rx) = make_model();
+    model.width = 120;
+    model.height = 40;
+    model.connected = true;
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-1".to_string(),
+        title: "Participant Thread".to_string(),
+        agent_name: Some("Svarog".to_string()),
+        thread_participants: vec![crate::wire::ThreadParticipantState {
+            agent_id: "weles".to_string(),
+            agent_name: "Weles".to_string(),
+            instruction: "verify claims".to_string(),
+            status: "active".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            deactivated_at: None,
+            last_contribution_at: Some(3),
+        }],
+        ..Default::default()
+    })));
+
+    let chat_area = model.pane_layout().chat;
+    let click = Position::new(chat_area.x.saturating_add(2), chat_area.y.saturating_add(1));
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::ThreadParticipants)
+    );
 }
 
 #[test]

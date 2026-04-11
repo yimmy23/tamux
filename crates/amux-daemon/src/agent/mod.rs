@@ -13,7 +13,7 @@ pub mod llm_client;
 pub mod tool_executor;
 pub mod types;
 
-mod agent_identity;
+pub(crate) mod agent_identity;
 mod agent_loop;
 mod aline_startup;
 mod anticipatory;
@@ -35,6 +35,7 @@ mod engine_runtime;
 mod explainability;
 mod explanation;
 mod external_messaging;
+mod forge;
 mod gateway_health;
 mod gateway_loop;
 mod goal_llm;
@@ -44,6 +45,7 @@ mod heartbeat;
 mod heartbeat_checks;
 mod honcho;
 mod memory;
+mod memory_distillation;
 mod memory_flush;
 mod messaging;
 mod metadata;
@@ -65,7 +67,8 @@ mod session_recall;
 pub(crate) mod skill_community;
 mod skill_discovery;
 mod skill_evolution;
-mod skill_preflight;
+pub(crate) mod skill_mesh;
+pub(crate) mod skill_preflight;
 mod skill_recommendation;
 pub(crate) mod skill_registry;
 mod skill_security;
@@ -76,6 +79,8 @@ mod task_prompt;
 mod task_scheduler;
 mod thread_crud;
 mod thread_handoffs;
+mod thread_participant_runner;
+pub(crate) mod thread_participants;
 mod tool_synthesis;
 pub(crate) mod weles_governance;
 mod weles_health;
@@ -108,6 +113,7 @@ use aline_startup::{
     WatcherState, WatcherStatus, IMPORT_TIMEOUT, RECONCILIATION_BUDGET, TRACKED_POLL_INTERVAL,
     TRACKED_POLL_MAX_ATTEMPTS, WATCHER_COMMAND_TIMEOUT,
 };
+pub(crate) use aline_startup::{run_aline_startup_worker_from_stdio, ALINE_STARTUP_WORKER_ARG};
 use anticipatory::*;
 use anticipatory_support::*;
 pub(crate) use authorship::AuthorshipTag;
@@ -133,6 +139,7 @@ use system_prompt::*;
 use task_prompt::*;
 use task_scheduler::*;
 use thread_handoffs::*;
+pub(crate) use thread_participants::*;
 
 // Imports needed by child modules via `use super::*;`.
 use std::collections::{HashMap, HashSet, VecDeque};

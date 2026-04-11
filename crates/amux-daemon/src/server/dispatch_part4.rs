@@ -22,6 +22,7 @@ if matches!(
         ClientMessage::AgentGetEffectiveConfigState |
         ClientMessage::AgentSetConfigItem{ .. } |
         ClientMessage::AgentSetProviderModel{ .. } |
+        ClientMessage::AgentSetTargetAgentProviderModel{ .. } |
         ClientMessage::AgentFetchModels{ .. } |
         ClientMessage::AgentHeartbeatGetItems |
         ClientMessage::AgentHeartbeatSetItems{ .. } |
@@ -72,8 +73,7 @@ if matches!(
 
                 ClientMessage::AgentGetThread { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
-                    let thread = agent.get_thread(&thread_id).await;
-                    let json = serde_json::to_string(&thread).unwrap_or_default();
+                    let json = agent.agent_thread_detail_json(&thread_id).await;
                     if thread_detail_fits_single_ipc_frame(&json) {
                         framed
                             .send(DaemonMessage::AgentThreadDetail { thread_json: json })
@@ -471,12 +471,7 @@ if matches!(
                             );
                         }
                         Err(e) => {
-                            tracing::warn!(
-                                error = %e,
-                                provider_id,
-                                model,
-                                "server: AgentSetProviderModel rejected"
-                            );
+                            tracing::warn!(error = %e, provider_id, model, "server: AgentSetProviderModel rejected");
                             framed
                                 .send(DaemonMessage::Error {
                                     message: format!("Invalid provider/model selection: {e}"),
@@ -485,6 +480,86 @@ if matches!(
                         }
                     }
                 }
+
+                ClientMessage::AgentSetTargetAgentProviderModel {
+                    target_agent_id,
+                    provider_id,
+                    model,
+                } => {
+                    match agent
+                        .prepare_agent_provider_model_json(&target_agent_id, &provider_id, &model)
+                        .await
+                    {
+                        Ok(merged) => {
+                            if !background_daemon_pending
+                                .has_capacity(BackgroundSubsystem::ConfigReconcile)
+                            {
+                                background_daemon_pending
+                                    .note_rejection(BackgroundSubsystem::ConfigReconcile);
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: "config_reconcile background queue is full"
+                                            .to_string(),
+                                    })
+                                    .await?;
+                                continue;
+                            }
+
+                            agent.persist_prepared_provider_model_json(merged).await;
+
+                            let operation = operation_registry().accept_operation(
+                                OPERATION_KIND_SET_PROVIDER_MODEL,
+                                Some(set_target_agent_provider_model_dedup_key(
+                                    &agent,
+                                    &target_agent_id,
+                                    &provider_id,
+                                    &model,
+                                )),
+                            );
+
+                            framed
+                                .send(DaemonMessage::OperationAccepted {
+                                    operation_id: operation.operation_id.clone(),
+                                    kind: operation.kind.clone(),
+                                    dedup: operation.dedup.clone(),
+                                    revision: operation.revision,
+                                })
+                                .await?;
+
+                            let agent = agent.clone();
+                            let background_daemon_tx = background_daemon_queues
+                                .sender(BackgroundSubsystem::ConfigReconcile);
+                            spawn_background_side_effect(
+                                BackgroundSubsystem::ConfigReconcile,
+                                Some(operation.operation_id.clone()),
+                                background_daemon_tx,
+                                &mut background_daemon_pending,
+                                async move {
+                                    match agent.reconcile_config_runtime_after_commit().await {
+                                        Ok(()) => BackgroundSideEffectOutcome::Completed,
+                                        Err(_) => BackgroundSideEffectOutcome::Failed,
+                                    }
+                                },
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                target_agent_id,
+                                provider_id,
+                                model,
+                                "server: AgentSetTargetAgentProviderModel rejected"
+                            );
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!(
+                                        "Invalid target agent provider/model selection: {e}"
+                                    ),
+                                })
+                                .await?;
+                        }
+                    }
+                },
 
                 ClientMessage::AgentFetchModels {
                     provider_id,

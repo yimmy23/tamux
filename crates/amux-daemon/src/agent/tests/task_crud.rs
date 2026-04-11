@@ -127,6 +127,308 @@ async fn sample_awaiting_task(
 }
 
 #[tokio::test]
+async fn approval_resolution_clears_thread_skill_gate_when_task_is_approved() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let approval_id = "managed-approval-1";
+    let thread_id = "thread-approval-resolution";
+
+    engine
+        .set_thread_skill_discovery_state(
+            thread_id,
+            LatestSkillDiscoveryState {
+                query: "debug panic".to_string(),
+                confidence_tier: "strong".to_string(),
+                recommended_skill: Some("systematic-debugging".to_string()),
+                recommended_action: "request_approval systematic-debugging".to_string(),
+                mesh_next_step: Some(crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill),
+                mesh_requires_approval: true,
+                mesh_approval_id: Some(approval_id.to_string()),
+                read_skill_identifier: Some("systematic-debugging".to_string()),
+                skip_rationale: None,
+                discovery_pending: false,
+                skill_read_completed: true,
+                compliant: false,
+                updated_at: now_millis(),
+            },
+        )
+        .await;
+
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.to_string()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    assert!(
+        engine
+            .handle_task_approval_resolution(
+                approval_id,
+                amux_protocol::ApprovalDecision::ApproveOnce
+            )
+            .await
+    );
+
+    let state = engine
+        .get_thread_skill_discovery_state(thread_id)
+        .await
+        .expect("thread skill state should remain present");
+    assert!(state.compliant);
+    assert!(!state.mesh_requires_approval);
+}
+
+#[tokio::test]
+async fn unrelated_task_approval_does_not_clear_thread_skill_gate() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-unrelated-approval";
+
+    engine
+        .set_thread_skill_discovery_state(
+            thread_id,
+            LatestSkillDiscoveryState {
+                query: "debug panic".to_string(),
+                confidence_tier: "strong".to_string(),
+                recommended_skill: Some("systematic-debugging".to_string()),
+                recommended_action: "request_approval systematic-debugging".to_string(),
+                mesh_next_step: Some(crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill),
+                mesh_requires_approval: true,
+                mesh_approval_id: Some("mesh-approval-id".to_string()),
+                read_skill_identifier: Some("systematic-debugging".to_string()),
+                skip_rationale: None,
+                discovery_pending: false,
+                skill_read_completed: true,
+                compliant: false,
+                updated_at: now_millis(),
+            },
+        )
+        .await;
+
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-unrelated".to_string(),
+        title: "approval task unrelated".to_string(),
+        description: "awaiting unrelated approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.to_string()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some("different-approval-id".to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    assert!(
+        engine
+            .handle_task_approval_resolution(
+                "different-approval-id",
+                amux_protocol::ApprovalDecision::ApproveOnce
+            )
+            .await
+    );
+
+    let state = engine
+        .get_thread_skill_discovery_state(thread_id)
+        .await
+        .expect("thread skill state should remain present");
+    assert!(!state.compliant);
+    assert!(state.mesh_requires_approval);
+    assert_eq!(state.mesh_approval_id.as_deref(), Some("mesh-approval-id"));
+}
+
+#[tokio::test]
+async fn denied_task_approval_converts_thread_skill_gate_to_bypassable_state() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let approval_id = "managed-approval-deny";
+    let thread_id = "thread-approval-denied";
+
+    engine
+        .set_thread_skill_discovery_state(
+            thread_id,
+            LatestSkillDiscoveryState {
+                query: "debug panic".to_string(),
+                confidence_tier: "strong".to_string(),
+                recommended_skill: Some("systematic-debugging".to_string()),
+                recommended_action: "request_approval systematic-debugging".to_string(),
+                mesh_next_step: Some(crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill),
+                mesh_requires_approval: true,
+                mesh_approval_id: Some(approval_id.to_string()),
+                read_skill_identifier: Some("systematic-debugging".to_string()),
+                skip_rationale: None,
+                discovery_pending: false,
+                skill_read_completed: true,
+                compliant: false,
+                updated_at: now_millis(),
+            },
+        )
+        .await;
+
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-denied".to_string(),
+        title: "approval task denied".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.to_string()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    assert!(
+        engine
+            .handle_task_approval_resolution(approval_id, amux_protocol::ApprovalDecision::Deny)
+            .await
+    );
+
+    let state = engine
+        .get_thread_skill_discovery_state(thread_id)
+        .await
+        .expect("thread skill state should remain present");
+    assert!(!state.mesh_requires_approval);
+    assert_eq!(state.recommended_action, "justify_skill_skip");
+    assert_eq!(
+        state.mesh_next_step,
+        Some(crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip)
+    );
+    assert!(!state.compliant);
+}
+
+#[tokio::test]
 async fn resume_does_not_clear_supervised_awaiting_approval_gate() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

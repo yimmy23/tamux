@@ -1,5 +1,50 @@
 use super::*;
 
+const OFFLOAD_SUMMARY_KEY_FINDING_LINES: usize = 3;
+const OFFLOAD_SUMMARY_LINE_CHAR_LIMIT: usize = 160;
+
+fn summarize_offloaded_tool_result(
+    result: &ToolResult,
+    byte_size: usize,
+    payload_id: &str,
+) -> String {
+    let status = if result.is_error { "error" } else { "done" };
+    let key_findings = extract_offload_key_findings(&result.content);
+    let findings_block = key_findings
+        .into_iter()
+        .map(|line| format!("  - {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "Tool result offloaded\n- tool: {}\n- status: {}\n- bytes: {}\n- payload_id: {}\n- key findings:\n{}",
+        result.name, status, byte_size, payload_id, findings_block
+    )
+}
+
+fn extract_offload_key_findings(raw_payload: &str) -> Vec<String> {
+    let findings = raw_payload
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let truncated: String = line.chars().take(OFFLOAD_SUMMARY_LINE_CHAR_LIMIT).collect();
+            if line.chars().count() > OFFLOAD_SUMMARY_LINE_CHAR_LIMIT {
+                format!("{truncated}...")
+            } else {
+                truncated
+            }
+        })
+        .take(OFFLOAD_SUMMARY_KEY_FINDING_LINES)
+        .collect::<Vec<_>>();
+
+    if findings.is_empty() {
+        vec!["(no non-empty lines)".to_string()]
+    } else {
+        findings
+    }
+}
+
 fn build_handoff_restart_user_message(
     previous_agent_name: &str,
     next_agent_name: &str,
@@ -33,6 +78,94 @@ fn build_handoff_restart_user_message(
     Some(format!(
         "{intro}\nHandoff reason: {reason}\nConversation summary from the previous responder: {summary}\nLatest operator request to answer now: {original_user_message}"
     ))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PreparedToolResultThreadMessage {
+    pub content: String,
+    pub offloaded_payload_id: Option<String>,
+}
+
+pub(crate) async fn prepare_tool_result_thread_message(
+    engine: &AgentEngine,
+    thread_id: &str,
+    result: &ToolResult,
+    created_at: u64,
+) -> PreparedToolResultThreadMessage {
+    let threshold_bytes = {
+        engine
+            .config
+            .read()
+            .await
+            .offload_tool_result_threshold_bytes
+    };
+    let raw_payload = result.content.clone();
+    let byte_size = raw_payload.as_bytes().len();
+
+    if thread_id.trim().is_empty()
+        || threshold_bytes == 0
+        || byte_size <= threshold_bytes
+        || result.name == "read_offloaded_payload"
+    {
+        return PreparedToolResultThreadMessage {
+            content: raw_payload,
+            offloaded_payload_id: None,
+        };
+    }
+
+    let payload_id = uuid::Uuid::new_v4().to_string();
+    let summary = summarize_offloaded_tool_result(result, byte_size, &payload_id);
+    let payload_path = engine
+        .history
+        .offloaded_payload_path(thread_id, &payload_id);
+    let persist_result: Result<()> = async {
+        let parent = payload_path
+            .parent()
+            .context("offloaded payload path missing parent directory")?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("create offloaded payload directory {}", parent.display()))?;
+        tokio::fs::write(&payload_path, raw_payload.as_bytes())
+            .await
+            .with_context(|| format!("write offloaded payload file {}", payload_path.display()))?;
+        if let Err(error) = engine
+            .history
+            .upsert_offloaded_payload_metadata(
+                &payload_id,
+                thread_id,
+                &result.name,
+                Some(result.tool_call_id.as_str()),
+                "text/plain",
+                byte_size as u64,
+                &summary,
+                created_at,
+            )
+            .await
+        {
+            let _ = tokio::fs::remove_file(&payload_path).await;
+            return Err(error).context("persist offloaded payload metadata");
+        }
+        Ok(())
+    }
+    .await;
+
+    if let Err(error) = persist_result {
+        tracing::warn!(
+            thread_id = %thread_id,
+            tool_name = %result.name,
+            %error,
+            "failed to offload tool result payload; keeping inline content"
+        );
+        return PreparedToolResultThreadMessage {
+            content: raw_payload,
+            offloaded_payload_id: None,
+        };
+    }
+
+    PreparedToolResultThreadMessage {
+        content: summary,
+        offloaded_payload_id: Some(payload_id),
+    }
 }
 
 impl<'a> SendMessageRunner<'a> {
@@ -117,7 +250,22 @@ impl<'a> SendMessageRunner<'a> {
             }
         }
 
-        let tool_result_content = result.content.clone();
+        let prepared_tool_result =
+            prepare_tool_result_thread_message(self.engine, &self.tid, result, now_epoch_secs)
+                .await;
+        let structural_refs = if result.is_error {
+            Vec::new()
+        } else {
+            self.engine
+                .enrich_thread_structural_memory_from_tool_result(
+                    &self.tid,
+                    &tc.function.name,
+                    &tc.function.arguments,
+                    Some(result.content.as_str()),
+                )
+                .await
+        };
+        let tool_result_content = prepared_tool_result.content.clone();
         let tool_result_name = result.name.clone();
         let tool_result_id = result.tool_call_id.clone();
         let tool_status = if result.is_error { "error" } else { "done" };
@@ -153,10 +301,14 @@ impl<'a> SendMessageRunner<'a> {
                     response_id: None,
                     upstream_message: None,
                     provider_final_result: None,
+                    author_agent_id: None,
+                    author_agent_name: None,
                     reasoning: None,
                     message_kind: AgentMessageKind::Normal,
                     compaction_strategy: None,
                     compaction_payload: None,
+                    offloaded_payload_id: prepared_tool_result.offloaded_payload_id.clone(),
+                    structural_refs,
                     timestamp: now_millis(),
                 });
             }

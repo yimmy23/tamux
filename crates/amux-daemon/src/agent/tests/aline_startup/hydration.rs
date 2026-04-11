@@ -21,7 +21,7 @@ async fn hydrate_skips_aline_reconciliation_when_cli_is_unavailable() {
 
 #[tokio::test]
 async fn hydrate_skips_aline_reconciliation_when_no_repo_root_is_resolved() {
-    let harness =
+    let mut harness =
         make_aline_startup_harness_with_runner(true, vec![watcher_status_output("Running")]).await;
 
     harness
@@ -29,7 +29,7 @@ async fn hydrate_skips_aline_reconciliation_when_no_repo_root_is_resolved() {
         .hydrate()
         .await
         .expect("hydrate should succeed");
-    tokio::task::yield_now().await;
+    harness.wait_for_reconciliation().await;
 
     assert!(!harness
         .engine
@@ -52,7 +52,7 @@ async fn hydrate_skips_aline_reconciliation_when_no_repo_root_is_resolved() {
 
 #[tokio::test]
 async fn hydrate_starts_watcher_even_when_no_repo_root_is_resolved() {
-    let harness = make_aline_startup_harness_with_runner(
+    let mut harness = make_aline_startup_harness_with_runner(
         true,
         vec![
             watcher_status_output("Stopped"),
@@ -66,7 +66,7 @@ async fn hydrate_starts_watcher_even_when_no_repo_root_is_resolved() {
         .hydrate()
         .await
         .expect("hydrate should succeed without repo roots");
-    tokio::task::yield_now().await;
+    harness.wait_for_reconciliation().await;
 
     assert!(!harness
         .engine
@@ -90,8 +90,34 @@ async fn hydrate_starts_watcher_even_when_no_repo_root_is_resolved() {
 }
 
 #[tokio::test]
+async fn hydrate_does_not_wait_for_aline_watcher_bootstrap_when_no_repo_root_is_resolved() {
+    let harness = make_aline_startup_harness_with_responses(
+        true,
+        vec![
+            delayed_output(
+                watcher_status_output("Stopped"),
+                std::time::Duration::from_millis(200),
+            ),
+            delayed_output(
+                command_output("Watcher started\n"),
+                std::time::Duration::from_millis(200),
+            ),
+        ],
+    )
+    .await;
+
+    tokio::time::timeout(
+        std::time::Duration::from_millis(50),
+        harness.engine.hydrate(),
+    )
+    .await
+    .expect("hydrate should not wait on delayed Aline startup work")
+    .expect("hydrate should still succeed while Aline startup continues in the background");
+}
+
+#[tokio::test]
 async fn hydrate_skips_aline_reconciliation_when_multiple_repo_roots_are_resolved() {
-    let harness =
+    let mut harness =
         make_aline_startup_harness_with_runner(true, vec![watcher_status_output("Running")]).await;
     let repo_root_a = harness.create_git_repo("multi-root-a");
     let repo_root_b = harness.create_git_repo("multi-root-b");
@@ -107,7 +133,7 @@ async fn hydrate_skips_aline_reconciliation_when_multiple_repo_roots_are_resolve
         .hydrate()
         .await
         .expect("hydrate should succeed");
-    tokio::task::yield_now().await;
+    harness.wait_for_reconciliation().await;
 
     assert!(!harness
         .engine
@@ -130,7 +156,7 @@ async fn hydrate_skips_aline_reconciliation_when_multiple_repo_roots_are_resolve
 
 #[tokio::test]
 async fn hydrate_starts_watcher_even_when_multiple_repo_roots_are_resolved() {
-    let harness = make_aline_startup_harness_with_runner(
+    let mut harness = make_aline_startup_harness_with_runner(
         true,
         vec![
             watcher_status_output("Stopped"),
@@ -152,7 +178,7 @@ async fn hydrate_starts_watcher_even_when_multiple_repo_roots_are_resolved() {
         .hydrate()
         .await
         .expect("hydrate should still start the watcher for multi-root state");
-    tokio::task::yield_now().await;
+    harness.wait_for_reconciliation().await;
 
     assert_eq!(
         harness.recorded_commands(),

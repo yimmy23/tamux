@@ -8,9 +8,36 @@ pub struct AgentThread {
     pub messages: Vec<AgentMessage>,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
+    pub thread_participants: Vec<ThreadParticipantState>,
+    pub queued_participant_suggestions: Vec<ThreadParticipantSuggestionVm>,
     pub runtime_provider: Option<String>,
     pub runtime_model: Option<String>,
     pub runtime_reasoning_effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ThreadParticipantState {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub instruction: String,
+    pub status: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub deactivated_at: Option<u64>,
+    pub last_contribution_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ThreadParticipantSuggestionVm {
+    pub id: String,
+    pub target_agent_id: String,
+    pub target_agent_name: String,
+    pub instruction: String,
+    pub force_send: bool,
+    pub status: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

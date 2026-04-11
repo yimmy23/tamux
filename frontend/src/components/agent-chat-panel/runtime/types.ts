@@ -6,7 +6,7 @@ import type { useAgentMissionStore } from "@/lib/agentMissionStore";
 import type { useSnippetStore } from "@/lib/snippetStore";
 import type { useTranscriptStore } from "@/lib/transcriptStore";
 import type { useWorkspaceStore } from "@/lib/workspaceStore";
-import type { WelesHealthState } from "@/lib/agentStore/types";
+import type { AgentProviderId, WelesHealthState } from "@/lib/agentStore/types";
 
 export type AgentChatPanelView =
   | "threads"
@@ -73,6 +73,8 @@ export type AgentChatPanelRuntimeValue = {
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   sendMessage: (text: string) => void;
+  sendParticipantSuggestion: (threadId: string, suggestionId: string, forceSend?: boolean) => Promise<void>;
+  dismissParticipantSuggestion: (threadId: string, suggestionId: string) => Promise<void>;
   deleteMessage: (threadId: string, messageId: string) => void;
   stopStreaming: (threadId?: string | null) => void;
   handleSend: () => void;
@@ -81,6 +83,17 @@ export type AgentChatPanelRuntimeValue = {
   startGoalRunFromPrompt: (text: string) => Promise<boolean>;
   tabItems: Array<{ id: AgentChatPanelView; label: string; count: number | null }>;
   welesHealth: WelesHealthState | null;
+  builtinAgentSetup: BuiltinAgentSetupState | null;
+  submitBuiltinAgentSetup: (providerId: AgentProviderId, model: string) => Promise<void>;
+  cancelBuiltinAgentSetup: () => void;
+};
+
+export type BuiltinAgentSetupState = {
+  targetAgentId: string;
+  targetAgentName: string;
+  providerId: AgentProviderId;
+  model: string;
+  error: string | null;
 };
 
 export type NormalizeBridgePayload = (payload: any) => any;

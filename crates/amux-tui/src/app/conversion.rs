@@ -16,6 +16,35 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         messages: t.messages.into_iter().map(convert_message).collect(),
         total_input_tokens: t.total_input_tokens,
         total_output_tokens: t.total_output_tokens,
+        thread_participants: t
+            .thread_participants
+            .into_iter()
+            .map(|participant| chat::ThreadParticipantState {
+                agent_id: participant.agent_id,
+                agent_name: participant.agent_name,
+                instruction: participant.instruction,
+                status: participant.status,
+                created_at: participant.created_at,
+                updated_at: participant.updated_at,
+                deactivated_at: participant.deactivated_at,
+                last_contribution_at: participant.last_contribution_at,
+            })
+            .collect(),
+        queued_participant_suggestions: t
+            .queued_participant_suggestions
+            .into_iter()
+            .map(|suggestion| chat::ThreadParticipantSuggestionVm {
+                id: suggestion.id,
+                target_agent_id: suggestion.target_agent_id,
+                target_agent_name: suggestion.target_agent_name,
+                instruction: suggestion.instruction,
+                force_send: suggestion.force_send,
+                status: suggestion.status,
+                created_at: suggestion.created_at,
+                updated_at: suggestion.updated_at,
+                error: suggestion.error,
+            })
+            .collect(),
         runtime_provider: None,
         runtime_model: None,
         runtime_reasoning_effort: None,

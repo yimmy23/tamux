@@ -189,6 +189,11 @@ impl TraceCollector {
         }
     }
 
+    /// Start timestamp of the active trace in milliseconds since epoch.
+    pub fn started_at_ms(&self) -> u64 {
+        self.started_at
+    }
+
     /// Number of steps recorded so far.
     pub fn step_count(&self) -> usize {
         self.current_steps.len()

@@ -67,6 +67,7 @@ async fn list_recent_successful_traces_with_watermark() -> Result<()> {
         .insert_execution_trace(
             "tr-1",
             None,
+            None,
             Some("task-1"),
             "research",
             "success",
@@ -75,12 +76,16 @@ async fn list_recent_successful_traces_with_watermark() -> Result<()> {
             "{}",
             100,
             50,
+            "svarog",
+            1000,
+            1000,
             1000,
         )
         .await?;
     store
         .insert_execution_trace(
             "tr-2",
+            None,
             None,
             Some("task-2"),
             "coding",
@@ -90,12 +95,16 @@ async fn list_recent_successful_traces_with_watermark() -> Result<()> {
             "{}",
             200,
             80,
+            "svarog",
+            2000,
+            2000,
             2000,
         )
         .await?;
     store
         .insert_execution_trace(
             "tr-3",
+            None,
             None,
             Some("task-3"),
             "research",
@@ -105,6 +114,9 @@ async fn list_recent_successful_traces_with_watermark() -> Result<()> {
             "{}",
             150,
             60,
+            "svarog",
+            3000,
+            3000,
             3000,
         )
         .await?;

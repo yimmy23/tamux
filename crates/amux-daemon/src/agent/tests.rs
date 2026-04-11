@@ -296,6 +296,9 @@ fn collect_plan_issues_catches_empty_summary() {
     assert!(!collect_plan_issues(&plan).is_empty());
 }
 
+include!("tests/skill_mesh.rs");
+include!("tests/skill_mesh_compiler.rs");
+
 #[test]
 fn retry_goal_run_step_resets_selected_step() {
     let mut goal_run = sample_goal_run();

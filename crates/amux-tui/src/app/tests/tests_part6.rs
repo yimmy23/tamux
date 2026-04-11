@@ -299,6 +299,69 @@ fn tab_inside_unmatched_file_reference_keeps_input_focus() {
     );
 }
 
+#[test]
+fn leading_agent_directive_supports_internal_delegate() {
+    let known = vec!["weles".to_string()];
+    let directive = crate::state::input_refs::parse_leading_agent_directive("!weles check X", &known)
+        .expect("directive should parse");
+
+    assert_eq!(
+        directive.kind,
+        crate::state::input_refs::LeadingAgentDirectiveKind::InternalDelegate
+    );
+}
+
+#[test]
+fn leading_agent_directive_supports_deactivate_phrases() {
+    let known = vec!["weles".to_string()];
+
+    for phrase in ["stop", "leave", "done", "return"] {
+        let directive = crate::state::input_refs::parse_leading_agent_directive(
+            &format!("@weles {phrase}"),
+            &known,
+        )
+        .expect("directive should parse");
+
+        assert_eq!(
+            directive.kind,
+            crate::state::input_refs::LeadingAgentDirectiveKind::ParticipantDeactivate
+        );
+    }
+}
+
+#[test]
+fn leading_agent_directive_is_case_insensitive() {
+    let known = vec!["weles".to_string()];
+    let directive = crate::state::input_refs::parse_leading_agent_directive("!WeLeS check X", &known)
+        .expect("directive should parse");
+
+    assert_eq!(
+        directive.kind,
+        crate::state::input_refs::LeadingAgentDirectiveKind::InternalDelegate
+    );
+}
+
+#[test]
+fn leading_agent_directive_unknown_alias_falls_back() {
+    let known = vec!["weles".to_string()];
+    let directive =
+        crate::state::input_refs::parse_leading_agent_directive("@unknown inspect @foo", &known);
+
+    assert!(directive.is_none());
+}
+
+#[test]
+fn leading_agent_directive_preserves_file_refs() {
+    let known = vec!["weles".to_string()];
+    let directive = crate::state::input_refs::parse_leading_agent_directive(
+        "@weles inspect @foo/bar",
+        &known,
+    )
+    .expect("directive should parse");
+
+    assert_eq!(directive.body, "inspect @foo/bar");
+}
+
 fn sample_collaboration_sessions() -> Vec<crate::state::CollaborationSessionVm> {
     vec![crate::state::CollaborationSessionVm {
         id: "session-1".to_string(),

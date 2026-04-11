@@ -605,6 +605,7 @@ fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str
         | AgentEvent::Error { thread_id, .. }
         | AgentEvent::ThreadCreated { thread_id, .. }
         | AgentEvent::ThreadReloadRequired { thread_id, .. }
+        | AgentEvent::ParticipantSuggestion { thread_id, .. }
         | AgentEvent::TodoUpdate { thread_id, .. }
         | AgentEvent::WorkContextUpdate { thread_id, .. }
         | AgentEvent::RetryStatus { thread_id, .. }

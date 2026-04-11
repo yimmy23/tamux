@@ -2,6 +2,51 @@
 
 use super::*;
 
+fn repo_watcher_contains_thread(entry: &ThreadRepoWatcher, thread_id: &str) -> bool {
+    match entry.thread_ids.lock() {
+        Ok(thread_ids) => thread_ids.contains(thread_id),
+        Err(error) => {
+            tracing::warn!(
+                repo_root = %entry.repo_root,
+                "repo watcher membership lock poisoned while checking thread membership: {error}"
+            );
+            false
+        }
+    }
+}
+
+fn repo_watcher_insert_thread(entry: &ThreadRepoWatcher, thread_id: &str) -> bool {
+    match entry.thread_ids.lock() {
+        Ok(mut thread_ids) => {
+            thread_ids.insert(thread_id.to_string());
+            true
+        }
+        Err(error) => {
+            tracing::warn!(
+                repo_root = %entry.repo_root,
+                "repo watcher membership lock poisoned while adding thread membership: {error}"
+            );
+            false
+        }
+    }
+}
+
+fn repo_watcher_remove_thread(entry: &ThreadRepoWatcher, thread_id: &str) -> Option<bool> {
+    match entry.thread_ids.lock() {
+        Ok(mut thread_ids) => {
+            thread_ids.remove(thread_id);
+            Some(thread_ids.is_empty())
+        }
+        Err(error) => {
+            tracing::warn!(
+                repo_root = %entry.repo_root,
+                "repo watcher membership lock poisoned while removing thread membership: {error}"
+            );
+            None
+        }
+    }
+}
+
 impl AgentEngine {
     pub(super) async fn ensure_subagent_runtime(&self, task: &AgentTask, thread_id: Option<&str>) {
         if !should_track_subagent(task) {
@@ -380,51 +425,125 @@ impl AgentEngine {
         }
     }
 
+    pub(super) fn schedule_repo_watcher_restore(
+        self: &Arc<Self>,
+        repo_watches: Vec<(String, String)>,
+    ) {
+        if repo_watches.is_empty() {
+            return;
+        }
+
+        let engine = Arc::clone(self);
+        tokio::spawn(async move {
+            for (thread_id, repo_root) in repo_watches {
+                engine.ensure_repo_watcher(&thread_id, &repo_root).await;
+            }
+        });
+    }
+
     pub(super) async fn ensure_repo_watcher(&self, thread_id: &str, repo_root: &str) {
         let normalized_root = std::fs::canonicalize(repo_root)
             .unwrap_or_else(|_| std::path::PathBuf::from(repo_root))
             .to_string_lossy()
             .to_string();
 
-        let mut watchers = self.repo_watchers.lock().await;
-        if watchers
-            .get(thread_id)
-            .map(|entry| entry.repo_root == normalized_root)
-            .unwrap_or(false)
-        {
+        let previous_root = {
+            let watchers = self.repo_watchers.lock().await;
+            watchers.iter().find_map(|(repo_root_key, entry)| {
+                if repo_watcher_contains_thread(entry, thread_id) {
+                    Some(repo_root_key.clone())
+                } else {
+                    None
+                }
+            })
+        };
+
+        if previous_root.as_deref() == Some(normalized_root.as_str()) {
             return;
         }
 
-        watchers.remove(thread_id);
+        let removed_previous = {
+            let mut watchers = self.repo_watchers.lock().await;
+
+            if let Some(previous_root) = previous_root.as_ref() {
+                let should_remove = watchers
+                    .get(previous_root)
+                    .and_then(|entry| repo_watcher_remove_thread(entry, thread_id))
+                    .unwrap_or(false);
+
+                if should_remove {
+                    watchers.remove(previous_root)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        if let Some(entry) = removed_previous {
+            tracing::info!(
+                thread_id = %thread_id,
+                repo_root = %entry.repo_root,
+                "filesystem watcher removed"
+            );
+            drop(entry.watcher);
+        }
+
+        {
+            let watchers = self.repo_watchers.lock().await;
+            if let Some(existing) = watchers.get(&normalized_root) {
+                if repo_watcher_insert_thread(existing, thread_id) {
+                    return;
+                }
+            }
+        }
 
         let refresh_tx = self.watcher_refresh_tx.clone();
-        let callback_thread_id = thread_id.to_string();
         let callback_repo_root = normalized_root.clone();
-        let mut watcher =
-            match notify::recommended_watcher(move |result: notify::Result<Event>| match result {
+        let callback_thread_ids =
+            Arc::new(std::sync::Mutex::new(HashSet::from(
+                [thread_id.to_string()],
+            )));
+        let watcher_thread_ids = callback_thread_ids.clone();
+        let mut watcher = match notify::recommended_watcher(move |result: notify::Result<Event>| {
+            match result {
                 Ok(event) => {
                     if file_watch_event_is_relevant(&event) {
-                        let _ = refresh_tx.send(callback_thread_id.clone());
+                        let thread_ids = match callback_thread_ids.lock() {
+                            Ok(thread_ids) => thread_ids.iter().cloned().collect::<Vec<_>>(),
+                            Err(error) => {
+                                tracing::warn!(
+                                    repo_root = %callback_repo_root,
+                                    "filesystem watcher membership lock poisoned in callback: {error}"
+                                );
+                                Vec::new()
+                            }
+                        };
+
+                        for thread_id in thread_ids {
+                            let _ = refresh_tx.send(thread_id);
+                        }
                     }
                 }
                 Err(error) => {
                     tracing::warn!(
-                        thread_id = %callback_thread_id,
                         repo_root = %callback_repo_root,
                         "filesystem watcher error: {error}"
                     );
                 }
-            }) {
-                Ok(watcher) => watcher,
-                Err(error) => {
-                    tracing::warn!(
-                        thread_id = %thread_id,
-                        repo_root = %normalized_root,
-                        "failed to create filesystem watcher: {error}"
-                    );
-                    return;
-                }
-            };
+            }
+        }) {
+            Ok(watcher) => watcher,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    repo_root = %normalized_root,
+                    "failed to create filesystem watcher: {error}"
+                );
+                return;
+            }
+        };
 
         if let Err(error) = watcher.watch(
             std::path::Path::new(&normalized_root),
@@ -443,17 +562,58 @@ impl AgentEngine {
             repo_root = %normalized_root,
             "filesystem watcher attached"
         );
-        watchers.insert(
-            thread_id.to_string(),
-            ThreadRepoWatcher {
-                repo_root: normalized_root,
-                watcher,
-            },
-        );
+
+        let replaced = {
+            let mut watchers = self.repo_watchers.lock().await;
+            if let Some(existing) = watchers.get(&normalized_root) {
+                if repo_watcher_insert_thread(existing, thread_id) {
+                    true
+                } else {
+                    false
+                }
+            } else {
+                watchers.insert(
+                    normalized_root.clone(),
+                    ThreadRepoWatcher {
+                        repo_root: normalized_root,
+                        thread_ids: watcher_thread_ids,
+                        watcher,
+                    },
+                );
+                return;
+            }
+        };
+
+        if replaced {
+            drop(watcher);
+        }
     }
 
     pub(super) async fn remove_repo_watcher(&self, thread_id: &str) {
-        let removed = self.repo_watchers.lock().await.remove(thread_id);
+        let removed = {
+            let mut watchers = self.repo_watchers.lock().await;
+            let repo_root = watchers.iter().find_map(|(repo_root_key, entry)| {
+                if repo_watcher_contains_thread(entry, thread_id) {
+                    Some(repo_root_key.clone())
+                } else {
+                    None
+                }
+            });
+
+            repo_root.and_then(|repo_root| {
+                let should_remove = watchers
+                    .get(&repo_root)
+                    .and_then(|entry| repo_watcher_remove_thread(entry, thread_id))
+                    .unwrap_or(false);
+
+                if should_remove {
+                    watchers.remove(&repo_root)
+                } else {
+                    None
+                }
+            })
+        };
+
         if let Some(entry) = removed {
             tracing::info!(
                 thread_id = %thread_id,
@@ -516,8 +676,7 @@ impl AgentEngine {
             return None;
         }
 
-        let query = trimmed
-            .to_string();
+        let query = trimmed.to_string();
 
         let Some(query) = super::tool_executor::prepare_onecontext_search_query(
             &query,

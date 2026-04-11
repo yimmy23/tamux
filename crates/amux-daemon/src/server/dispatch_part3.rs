@@ -21,7 +21,11 @@ if matches!(
         ClientMessage::VerifyTelemetryIntegrity |
         ClientMessage::AgentSendMessage{ .. } |
         ClientMessage::AgentDirectMessage{ .. } |
-        ClientMessage::AgentStopStream{ .. }
+        ClientMessage::AgentStopStream{ .. } |
+        ClientMessage::AgentInternalDelegate{ .. } |
+        ClientMessage::AgentThreadParticipantCommand{ .. } |
+        ClientMessage::AgentSendParticipantSuggestion{ .. } |
+        ClientMessage::AgentDismissParticipantSuggestion{ .. }
     ) {
         match msg {
                 ClientMessage::ListAgentMessages { thread_id, limit } => {
@@ -393,6 +397,24 @@ if matches!(
                     agent.mark_operator_present("send_message").await;
                     let effective_thread_id =
                         thread_id.or_else(|| Some(format!("thread_{}", uuid::Uuid::new_v4())));
+                    if let (Some(thread_id), Some(client_surface)) =
+                        (effective_thread_id.as_deref(), client_surface)
+                    {
+                        if let Some(expected_surface) =
+                            agent.get_thread_client_surface(thread_id).await
+                        {
+                            if expected_surface != client_surface {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: format!(
+                                            "unauthorized operator write for thread {thread_id}"
+                                        ),
+                                    })
+                                    .await?;
+                                continue;
+                            }
+                        }
+                    }
                     if let Some(thread_id) = effective_thread_id.as_ref() {
                         client_agent_threads.insert(thread_id.clone());
                     }
@@ -483,6 +505,141 @@ if matches!(
                 ClientMessage::AgentStopStream { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
                     let _ = agent.stop_stream(&thread_id).await;
+                }
+                ClientMessage::AgentInternalDelegate {
+                    thread_id,
+                    target_agent_id,
+                    content,
+                    session_id,
+                    ..
+                } => {
+                    agent.mark_operator_present("internal_delegate").await;
+                    let agent = agent.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = agent
+                            .send_internal_delegate_message(
+                                thread_id.as_deref(),
+                                &target_agent_id,
+                                session_id.as_deref(),
+                                &content,
+                            )
+                            .await
+                        {
+                            tracing::warn!(error = %error, "agent internal delegation failed");
+                        }
+                    });
+                }
+                ClientMessage::AgentThreadParticipantCommand {
+                    thread_id,
+                    target_agent_id,
+                    action,
+                    instruction,
+                    client_surface,
+                    ..
+                } => {
+                    if let Some(client_surface) = client_surface {
+                        if let Some(expected_surface) =
+                            agent.get_thread_client_surface(&thread_id).await
+                        {
+                            if expected_surface != client_surface {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: format!(
+                                            "unauthorized operator write for thread {thread_id}"
+                                        ),
+                                    })
+                                    .await?;
+                                continue;
+                            }
+                        }
+                    }
+                    agent.mark_operator_present("thread_participant_command").await;
+                    let agent = agent.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = agent
+                            .apply_thread_participant_command(
+                                &thread_id,
+                                &target_agent_id,
+                                &action,
+                                instruction.as_deref(),
+                            )
+                            .await
+                        {
+                            tracing::warn!(error = %error, "thread participant command failed");
+                        }
+                    });
+                }
+                ClientMessage::AgentSendParticipantSuggestion {
+                    thread_id,
+                    suggestion_id,
+                    client_surface,
+                    ..
+                } => {
+                    if let Some(client_surface) = client_surface {
+                        if let Some(expected_surface) =
+                            agent.get_thread_client_surface(&thread_id).await
+                        {
+                            if expected_surface != client_surface {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: format!(
+                                            "unauthorized operator write for thread {thread_id}"
+                                        ),
+                                    })
+                                    .await?;
+                                continue;
+                            }
+                        }
+                    }
+                    agent.mark_operator_present("send_participant_suggestion").await;
+                    let agent = agent.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = agent
+                            .send_thread_participant_suggestion(&thread_id, &suggestion_id, None)
+                            .await
+                        {
+                            tracing::warn!(
+                                error = %error,
+                                "thread participant suggestion send failed"
+                            );
+                        }
+                    });
+                }
+                ClientMessage::AgentDismissParticipantSuggestion {
+                    thread_id,
+                    suggestion_id,
+                    client_surface,
+                    ..
+                } => {
+                    if let Some(client_surface) = client_surface {
+                        if let Some(expected_surface) =
+                            agent.get_thread_client_surface(&thread_id).await
+                        {
+                            if expected_surface != client_surface {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: format!(
+                                            "unauthorized operator write for thread {thread_id}"
+                                        ),
+                                    })
+                                    .await?;
+                                continue;
+                            }
+                        }
+                    }
+                    agent.mark_operator_present("dismiss_participant_suggestion").await;
+                    let agent = agent.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = agent
+                            .dismiss_thread_participant_suggestion(&thread_id, &suggestion_id)
+                            .await
+                        {
+                            tracing::warn!(
+                                error = %error,
+                                "thread participant suggestion dismissal failed"
+                            );
+                        }
+                    });
                 }
                 ClientMessage::AgentRetryStreamNow { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());

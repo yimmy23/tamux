@@ -41,22 +41,22 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
                 None
             }
         })?;
-    let label = if matches!(tool_name, "read_file" | "apply_file_patch") {
-        Path::new(&path)
-            .file_name()
-            .and_then(|value| value.to_str())
-            .filter(|value| !value.is_empty())
-            .unwrap_or(path.as_str())
-            .to_string()
-    } else {
-        path.clone()
-    };
+    let label = file_name_label(&path);
 
     Some(ToolFileChip {
         path,
         label,
         tool_name: tool_name.to_string(),
     })
+}
+
+fn file_name_label(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(path)
+        .to_string()
 }
 
 pub(crate) fn append_tool_file_chip(

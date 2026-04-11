@@ -84,6 +84,8 @@ enum MainPaneView {
 enum SettingsPickerTarget {
     Provider,
     Model,
+    BuiltinPersonaProvider,
+    BuiltinPersonaModel,
     CompactionWelesProvider,
     CompactionWelesModel,
     CompactionCustomProvider,
@@ -119,6 +121,29 @@ enum PendingChatActionKind {
 }
 
 #[derive(Clone, Debug)]
+struct BuiltinPersonaSetupConfigSnapshot {
+    provider: String,
+    base_url: String,
+    model: String,
+    custom_model_name: String,
+    api_key: String,
+    assistant_id: String,
+    auth_source: String,
+    api_transport: String,
+    custom_context_window_tokens: Option<u32>,
+    context_window_tokens: u32,
+    fetched_models: Vec<config::FetchedModel>,
+}
+
+#[derive(Clone, Debug)]
+struct PendingBuiltinPersonaSetup {
+    target_agent_id: String,
+    target_agent_name: String,
+    prompt: String,
+    config_snapshot: BuiltinPersonaSetupConfigSnapshot,
+}
+
+#[derive(Clone, Debug)]
 struct PendingChatActionConfirm {
     message_index: usize,
     action: PendingChatActionKind,
@@ -127,6 +152,11 @@ struct PendingChatActionConfirm {
 #[derive(Clone, Debug)]
 pub(crate) struct QueuedPrompt {
     pub(crate) text: String,
+    pub(crate) thread_id: Option<String>,
+    pub(crate) suggestion_id: Option<String>,
+    pub(crate) participant_agent_id: Option<String>,
+    pub(crate) participant_agent_name: Option<String>,
+    pub(crate) force_send: bool,
     copied_until_tick: Option<u64>,
 }
 
@@ -134,6 +164,30 @@ impl QueuedPrompt {
     pub(crate) fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
+            thread_id: None,
+            suggestion_id: None,
+            participant_agent_id: None,
+            participant_agent_name: None,
+            force_send: false,
+            copied_until_tick: None,
+        }
+    }
+
+    pub(crate) fn new_with_agent(
+        text: impl Into<String>,
+        thread_id: impl Into<String>,
+        suggestion_id: impl Into<String>,
+        participant_agent_id: impl Into<String>,
+        participant_agent_name: impl Into<String>,
+        force_send: bool,
+    ) -> Self {
+        Self {
+            text: text.into(),
+            thread_id: Some(thread_id.into()),
+            suggestion_id: Some(suggestion_id.into()),
+            participant_agent_id: Some(participant_agent_id.into()),
+            participant_agent_name: Some(participant_agent_name.into()),
+            force_send,
             copied_until_tick: None,
         }
     }
@@ -153,6 +207,13 @@ impl QueuedPrompt {
             .is_some_and(|expires_at| current_tick >= expires_at)
         {
             self.copied_until_tick = None;
+        }
+    }
+
+    pub(crate) fn display_text(&self) -> String {
+        match self.participant_agent_name.as_deref() {
+            Some(agent_name) => format!("{agent_name}: {}", self.text),
+            None => self.text.clone(),
         }
     }
 }
@@ -299,6 +360,9 @@ pub struct TuiModel {
     // Selected target agent for the next brand-new thread started from the thread picker.
     pending_new_thread_target_agent: Option<String>,
 
+    // Builtin persona setup flow launched from @agent / !agent commands.
+    pending_builtin_persona_setup: Option<PendingBuiltinPersonaSetup>,
+
     // Thread currently awaiting full detail from the daemon.
     thread_loading_id: Option<String>,
 
@@ -321,6 +385,7 @@ pub struct TuiModel {
     prompt_modal_loading: bool,
     prompt_modal_error: Option<String>,
     prompt_modal_scroll: usize,
+    thread_participants_modal_scroll: usize,
 
     // Active mouse drag selection in the chat pane
     chat_drag_anchor: Option<Position>,

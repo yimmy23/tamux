@@ -145,6 +145,39 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         }
                         return;
                     }
+                    SettingsPickerTarget::BuiltinPersonaProvider => {
+                        model.apply_provider_selection_without_sync(def.id);
+                        model.close_top_modal();
+                        if model.config.provider == PROVIDER_ID_CUSTOM {
+                            model.status_line =
+                                "Custom provider setup for builtin personas is not supported here"
+                                    .to_string();
+                            model.restore_builtin_persona_setup_config_snapshot();
+                            model.pending_builtin_persona_setup = None;
+                            model.settings_picker_target = None;
+                            return;
+                        }
+                        if providers::supports_model_fetch_for(&model.config.provider) {
+                            model.send_daemon_command(DaemonCommand::FetchModels {
+                                provider_id: model.config.provider.clone(),
+                                base_url: model.config.base_url.clone(),
+                                api_key: model.config.api_key.clone(),
+                            });
+                        }
+                        let count =
+                            widgets::model_picker::available_models(&model.config).len() + 1;
+                        model.settings_picker_target =
+                            Some(SettingsPickerTarget::BuiltinPersonaModel);
+                        model
+                            .modal
+                            .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+                        model.modal.set_picker_item_count(count);
+                        if let Some(setup) = model.pending_builtin_persona_setup.as_ref() {
+                            model.status_line =
+                                format!("Configure {} model", setup.target_agent_name);
+                        }
+                        return;
+                    }
                     SettingsPickerTarget::CompactionWelesProvider => {
                         let (_, _, auth_source) = model.provider_auth_snapshot(def.id);
                         model.config.compaction_weles_provider = def.id.to_string();
@@ -211,6 +244,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.status_line = format!("Rarog provider: {}", def.name);
                     }
                     SettingsPickerTarget::Model
+                    | SettingsPickerTarget::BuiltinPersonaModel
                     | SettingsPickerTarget::CompactionWelesModel
                     | SettingsPickerTarget::CompactionCustomModel
                     | SettingsPickerTarget::SubAgentModel
@@ -234,6 +268,12 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 model.settings_picker_target = None;
                 model.close_top_modal();
                 match picker_target {
+                    Some(SettingsPickerTarget::BuiltinPersonaModel) => {
+                        model.status_line =
+                            "Custom model entry is not available for builtin persona setup"
+                                .to_string();
+                        return;
+                    }
                     Some(SettingsPickerTarget::CompactionWelesModel) => {
                         model.settings.start_editing(
                             "compaction_weles_model",
@@ -304,6 +344,43 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         }
                         model.save_settings();
                     }
+                    SettingsPickerTarget::BuiltinPersonaModel => {
+                        let Some(setup) = model.pending_builtin_persona_setup.clone() else {
+                            model.status_line = "No builtin persona setup is active".to_string();
+                            model.settings_picker_target = None;
+                            model.close_top_modal();
+                            return;
+                        };
+                        let selected_provider = model.config.provider.clone();
+                        model.send_daemon_command(DaemonCommand::SetTargetAgentProviderModel {
+                            target_agent_id: setup.target_agent_id.clone(),
+                            provider_id: selected_provider.clone(),
+                            model: model_id.clone(),
+                        });
+                        let mut raw = model
+                            .config
+                            .agent_config_raw
+                            .clone()
+                            .unwrap_or_else(|| serde_json::json!({}));
+                        if raw.get("builtin_sub_agents").is_none() {
+                            raw["builtin_sub_agents"] = serde_json::json!({});
+                        }
+                        raw["builtin_sub_agents"][setup.target_agent_id.as_str()]["provider"] =
+                            serde_json::Value::String(selected_provider.clone());
+                        raw["builtin_sub_agents"][setup.target_agent_id.as_str()]["model"] =
+                            serde_json::Value::String(model_id.clone());
+                        model.config.agent_config_raw = Some(raw);
+                        model.restore_builtin_persona_setup_config_snapshot();
+                        model.pending_builtin_persona_setup = None;
+                        model.status_line = format!(
+                            "{} configured with {} / {}",
+                            setup.target_agent_name, selected_provider, model_id
+                        );
+                        model.settings_picker_target = None;
+                        model.close_top_modal();
+                        model.submit_prompt(setup.prompt);
+                        return;
+                    }
                     SettingsPickerTarget::CompactionWelesModel => {
                         model.config.compaction_weles_model = model_id.clone();
                         model.status_line = format!("Compaction WELES model: {}", model_id);
@@ -330,6 +407,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.status_line = format!("Rarog model: {}", model_id);
                     }
                     SettingsPickerTarget::Provider
+                    | SettingsPickerTarget::BuiltinPersonaProvider
                     | SettingsPickerTarget::CompactionWelesProvider
                     | SettingsPickerTarget::CompactionCustomProvider
                     | SettingsPickerTarget::SubAgentProvider

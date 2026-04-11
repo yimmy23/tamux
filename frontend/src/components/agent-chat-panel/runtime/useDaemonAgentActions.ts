@@ -1,10 +1,35 @@
-import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { useAgentStore } from "@/lib/agentStore";
+import { getProviderDefinition } from "@/lib/agentStore/providers";
+import type { AgentProviderId } from "@/lib/agentStore/types";
 import { getAgentBridge, shouldUseDaemonRuntime } from "@/lib/agentDaemonConfig";
 import { provisionAgentWorkspaceTerminals, provisionTerminalPaneInWorkspace, resolvePaneSessionId } from "@/lib/agentWorkspace";
 import { startGoalRun, goalRunSupportAvailable, type GoalRun } from "@/lib/goalRuns";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
 import { appendDaemonSystemMessage, normalizeBridgePayload } from "./daemonHelpers";
+import { parseLeadingAgentDirective, type AgentDirective } from "./agentDirective";
+import type { BuiltinAgentSetupState } from "./types";
+
+const BUILTIN_PERSONA_ALIASES = ["swarozyc", "radogost", "domowoj", "swietowit"] as const;
+
+type PendingBuiltinAgentSetup = BuiltinAgentSetupState & {
+  directive: AgentDirective;
+  threadId: string | null;
+};
+
+function isBuiltinPersonaAlias(agentAlias: string): boolean {
+  return BUILTIN_PERSONA_ALIASES.includes(agentAlias.trim().toLowerCase() as (typeof BUILTIN_PERSONA_ALIASES)[number]);
+}
+
+function isBuiltinPersonaSetupError(error: string | undefined, targetAgentId: string): boolean {
+  const normalizedError = (error ?? "").toLowerCase();
+  return normalizedError.includes(`builtin agent '${targetAgentId.toLowerCase()}' is not configured`);
+}
+
+function builtinPersonaDisplayName(agentAlias: string): string {
+  const normalized = agentAlias.trim().toLowerCase();
+  return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : agentAlias;
+}
 
 export function useDaemonAgentActions({
   activePaneId,
@@ -39,6 +64,129 @@ export function useDaemonAgentActions({
   setLatestDivergentSessionId: Dispatch<SetStateAction<string | null>>;
   setView: Dispatch<SetStateAction<import("./types").AgentChatPanelView>>;
 }) {
+  const [pendingBuiltinAgentSetup, setPendingBuiltinAgentSetup] = useState<PendingBuiltinAgentSetup | null>(null);
+
+  const runDirective = useCallback(async (
+    directive: AgentDirective,
+    currentThreadId: string | null,
+    promptForSetup = true,
+  ) => {
+    const amux = getAgentBridge();
+    const daemonThreadId = daemonThreadIdRef.current;
+    const targetAgentId = directive.agentAlias.trim().toLowerCase();
+    const defaultProviderId = agentSettings.active_provider;
+    const defaultProviderConfig = agentSettings[defaultProviderId] as { model?: string } | undefined;
+    const defaultModel = defaultProviderConfig?.model?.trim()
+      || getProviderDefinition(defaultProviderId)?.defaultModel
+      || "";
+
+    if (directive.kind === "internal_delegate") {
+      if (!amux?.agentInternalDelegate) {
+        appendDaemonSystemMessage("Internal delegation is not available in this runtime.", currentThreadId);
+        return true;
+      }
+      const response = await amux.agentInternalDelegate(
+        daemonThreadId ?? null,
+        directive.agentAlias,
+        directive.body,
+        null,
+      );
+      const payload = normalizeBridgePayload(response);
+      if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaAlias(targetAgentId) && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+        setPendingBuiltinAgentSetup({
+          targetAgentId,
+          targetAgentName: builtinPersonaDisplayName(directive.agentAlias),
+          providerId: defaultProviderId,
+          model: defaultModel,
+          error: null,
+          directive,
+          threadId: daemonThreadId ?? currentThreadId ?? null,
+        });
+        return true;
+      }
+      appendDaemonSystemMessage(
+        payload?.ok === false && typeof payload?.error === "string"
+          ? `Failed to delegate to ${directive.agentAlias}: ${payload.error}`
+          : `Delegated internally to ${directive.agentAlias}.`,
+        currentThreadId,
+      );
+      return true;
+    }
+
+    if (!daemonThreadId) {
+      appendDaemonSystemMessage(
+        "Participant commands require a daemon-linked thread.",
+        currentThreadId,
+      );
+      return true;
+    }
+    if (!amux?.agentThreadParticipantCommand) {
+      appendDaemonSystemMessage("Thread participants are not available in this runtime.", currentThreadId);
+      return true;
+    }
+    const response = await amux.agentThreadParticipantCommand({
+      threadId: daemonThreadId,
+      targetAgentId: directive.agentAlias,
+      action: directive.kind === "participant_deactivate" ? "deactivate" : "upsert",
+      instruction: directive.kind === "participant_upsert" ? directive.body : null,
+      sessionId: null,
+    });
+    const payload = normalizeBridgePayload(response);
+    if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaAlias(targetAgentId) && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+      setPendingBuiltinAgentSetup({
+        targetAgentId,
+        targetAgentName: builtinPersonaDisplayName(directive.agentAlias),
+        providerId: defaultProviderId,
+        model: defaultModel,
+        error: null,
+        directive,
+        threadId: daemonThreadId,
+      });
+      return true;
+    }
+    appendDaemonSystemMessage(
+      payload?.ok === false && typeof payload?.error === "string"
+        ? `Failed to update participant ${directive.agentAlias}: ${payload.error}`
+        : directive.kind === "participant_deactivate"
+          ? `Participant ${directive.agentAlias} stopped.`
+          : `Participant ${directive.agentAlias} updated.`,
+      currentThreadId,
+    );
+    return true;
+  }, [
+    agentSettings,
+    daemonThreadIdRef,
+  ]);
+
+  const submitBuiltinAgentSetup = useCallback(async (providerId: AgentProviderId, model: string) => {
+    const amux = getAgentBridge();
+    const pending = pendingBuiltinAgentSetup;
+    if (!pending || !amux?.agentSetTargetAgentProviderModel) {
+      return;
+    }
+    const response = await amux.agentSetTargetAgentProviderModel(
+      pending.targetAgentId,
+      providerId,
+      model,
+    );
+    const payload = normalizeBridgePayload(response);
+    if (payload?.ok === false && typeof payload?.error === "string") {
+      setPendingBuiltinAgentSetup({
+        ...pending,
+        providerId,
+        model,
+        error: payload.error,
+      });
+      return;
+    }
+    setPendingBuiltinAgentSetup(null);
+    await runDirective(pending.directive, pending.threadId, false);
+  }, [pendingBuiltinAgentSetup, runDirective]);
+
+  const cancelBuiltinAgentSetup = useCallback(() => {
+    setPendingBuiltinAgentSetup(null);
+  }, []);
+
   const sendDaemonMessage = useCallback((text: string) => {
     const amux = getAgentBridge();
     if (!amux?.agentSendMessage) {
@@ -118,6 +266,24 @@ export function useDaemonAgentActions({
             currentThreadId,
           );
         }
+        return;
+      }
+
+      const knownAgentAliases = [
+        "main",
+        "svarog",
+        "swarog",
+        "weles",
+        "rarog",
+        "swarozyc",
+        "radogost",
+        "domowoj",
+        "swietowit",
+        ...useAgentStore.getState().subAgents.flatMap((agent) => [agent.id, agent.name]),
+      ].filter(Boolean);
+      const directive = parseLeadingAgentDirective(text, knownAgentAliases);
+      if (directive) {
+        await runDirective(directive, currentThreadId);
         return;
       }
 
@@ -233,6 +399,7 @@ export function useDaemonAgentActions({
     setActiveThread,
     setLatestDivergentSessionId,
     setView,
+    runDirective,
   ]);
 
   const startGoalRunFromPrompt = useCallback(async (text: string) => {
@@ -329,8 +496,11 @@ export function useDaemonAgentActions({
   ]);
 
   return {
+    builtinAgentSetup: pendingBuiltinAgentSetup,
     canStartGoalRun: shouldUseDaemonRuntime(agentSettings.agent_backend) && goalRunSupportAvailable(),
+    cancelBuiltinAgentSetup,
     sendDaemonMessage,
     startGoalRunFromPrompt,
+    submitBuiltinAgentSetup,
   };
 }

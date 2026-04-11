@@ -94,11 +94,7 @@ async fn execute_create_file(args: &serde_json::Value) -> Result<String> {
         .get("overwrite")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let cwd = args
-        .get("cwd")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let cwd = get_explicit_cwd_arg(args);
 
     let target = resolve_tool_path(raw_path, cwd.map(Path::new));
     if target.exists() && !overwrite {
@@ -217,7 +213,7 @@ enum HarnessPatchAction {
     },
 }
 
-pub(super) fn extract_apply_patch_paths(input: &str) -> Result<Vec<String>> {
+pub(crate) fn extract_apply_patch_paths(input: &str) -> Result<Vec<String>> {
     let mut paths = Vec::new();
     for action in parse_harness_patch_actions(input)? {
         let path = match action {
@@ -534,12 +530,7 @@ async fn resolve_tool_cwd(
     session_manager: &Arc<SessionManager>,
     preferred_session_id: Option<SessionId>,
 ) -> Result<Option<PathBuf>> {
-    if let Some(cwd) = args
-        .get("cwd")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(cwd) = get_explicit_cwd_arg(args) {
         return Ok(Some(PathBuf::from(cwd)));
     }
 
@@ -568,7 +559,7 @@ async fn resolve_tool_cwd(
     Ok(resolved.cwd.map(PathBuf::from))
 }
 
-fn resolve_tool_path(path: &str, base_dir: Option<&Path>) -> PathBuf {
+pub(crate) fn resolve_tool_path(path: &str, base_dir: Option<&Path>) -> PathBuf {
     let path = PathBuf::from(path);
     if path.is_absolute() {
         path

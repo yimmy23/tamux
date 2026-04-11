@@ -566,3 +566,61 @@ async fn get_thread_filtered_hides_internal_threads_unless_requested() {
     assert_eq!(detail.thread.id, "weles-hidden");
     assert!(!detail.messages_truncated);
 }
+
+#[tokio::test]
+async fn thread_persistence_round_trips_offload_and_structural_refs() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-offload-refs";
+
+    let mut message = AgentMessage::user("persist me", 1_000);
+    message.offloaded_payload_id = Some("payload-123".to_string());
+    message.structural_refs = vec![
+        "artifact://summary/1".to_string(),
+        "skill://brainstorming".to_string(),
+    ];
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Thread offload refs",
+            false,
+            1_000,
+            1_000,
+            vec![message],
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let thread = rehydrated
+        .get_thread(thread_id)
+        .await
+        .expect("thread should be restored after hydrate");
+    let restored = thread
+        .messages
+        .first()
+        .expect("thread should restore first message");
+
+    assert_eq!(
+        restored.offloaded_payload_id.as_deref(),
+        Some("payload-123")
+    );
+    assert_eq!(
+        restored.structural_refs,
+        vec![
+            "artifact://summary/1".to_string(),
+            "skill://brainstorming".to_string(),
+        ]
+    );
+}

@@ -1,6 +1,29 @@
 import type { ToolCall, WelesReviewMeta } from "../agentTools";
 import type { PaneId, SurfaceId, WorkspaceId } from "../types";
 
+export interface ThreadParticipantState {
+  agentId: string;
+  agentName: string;
+  instruction: string;
+  status: "active" | "inactive";
+  createdAt: number;
+  updatedAt: number;
+  deactivatedAt?: number | null;
+  lastContributionAt?: number | null;
+}
+
+export interface ThreadParticipantSuggestion {
+  id: string;
+  targetAgentId: string;
+  targetAgentName: string;
+  instruction: string;
+  forceSend?: boolean;
+  status: "queued" | "failed";
+  createdAt: number;
+  updatedAt: number;
+  error?: string | null;
+}
+
 export interface AgentThread {
   id: string;
   daemonThreadId?: string | null;
@@ -22,6 +45,8 @@ export interface AgentThread {
   upstreamProvider?: AgentProviderId | null;
   upstreamModel?: string | null;
   upstreamAssistantId?: string | null;
+  threadParticipants?: ThreadParticipantState[];
+  queuedParticipantSuggestions?: ThreadParticipantSuggestion[];
 }
 
 export type AgentRole = "user" | "assistant" | "system" | "tool";
@@ -163,6 +188,8 @@ export interface AgentMessage {
   createdAt: number;
   role: AgentRole;
   content: string;
+  authorAgentId?: string;
+  authorAgentName?: string;
   provider?: string;
   model?: string;
   api_transport?: ApiTransportMode;

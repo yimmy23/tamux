@@ -6,7 +6,7 @@ import globals from "globals";
 
 export default tseslint.config(
   {
-    ignores: ["dist", "release", "node_modules", "electron/main.cjs"],
+    ignores: ["dist", "release", "node_modules", "electron/main.cjs", "src/**/*.test.ts", "src/**/*.test.tsx"],
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],

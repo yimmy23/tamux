@@ -176,6 +176,43 @@
     }
 
     #[test]
+    fn participant_suggestion_events_forward_for_subscribed_thread() {
+        let event = AgentEvent::ParticipantSuggestion {
+            thread_id: "thread-1".to_string(),
+            suggestion: crate::agent::ThreadParticipantSuggestion {
+                id: "suggestion-1".to_string(),
+                target_agent_id: "weles".to_string(),
+                target_agent_name: "Weles".to_string(),
+                instruction: "Check claim".to_string(),
+                force_send: false,
+                status: crate::agent::ThreadParticipantSuggestionStatus::Queued,
+                created_at: 10,
+                updated_at: 10,
+                error: None,
+            },
+        };
+        let client_threads = HashSet::from(["thread-1".to_string()]);
+        assert!(super::should_forward_agent_event(&event, &client_threads));
+
+        let (event_json, truncated) =
+            super::cap_agent_event_for_ipc(&event).expect("participant suggestion should fit IPC");
+        assert!(!truncated);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&event_json).expect("parse participant suggestion event json");
+        assert_eq!(
+            parsed.get("type").and_then(|value| value.as_str()),
+            Some("participant_suggestion")
+        );
+        assert_eq!(
+            parsed.get("thread_id").and_then(|value| value.as_str()),
+            Some("thread-1")
+        );
+        assert!(amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentEvent {
+            event_json,
+        }));
+    }
+
+    #[test]
     fn build_session_end_episode_payload_generates_summary_and_tags() {
         let session_id = uuid::Uuid::nil();
         let info = SessionInfo {

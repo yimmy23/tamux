@@ -233,7 +233,7 @@ fn collaboration_sessions_event_surfaces_escalation_notice() {
             .collaboration
             .selected_session()
             .and_then(|session| session.escalation.as_ref())
-        .is_some(),
+            .is_some(),
         "session should carry escalation summary for workspace rendering"
     );
 }
@@ -263,15 +263,24 @@ fn operator_question_event_appends_inline_message_and_actions_without_modal() {
         1,
         "operator question should append an inline transcript message"
     );
-    let message = thread.messages.last().expect("question message should exist");
+    let message = thread
+        .messages
+        .last()
+        .expect("question message should exist");
     assert!(message.is_operator_question);
     assert_eq!(message.operator_question_id.as_deref(), Some("oq-1"));
-    assert_eq!(message.content, "Approve this slice?\nA - proceed\nB - revise");
+    assert_eq!(
+        message.content,
+        "Approve this slice?\nA - proceed\nB - revise"
+    );
     assert_eq!(message.actions.len(), 2);
     assert_eq!(message.actions[0].label, "A");
     assert_eq!(message.actions[1].label, "B");
     assert_eq!(model.modal.top(), None);
-    assert_ne!(model.modal.top(), Some(modal::ModalKind::OperatorQuestionOverlay));
+    assert_ne!(
+        model.modal.top(),
+        Some(modal::ModalKind::OperatorQuestionOverlay)
+    );
 }
 
 #[test]
@@ -307,7 +316,10 @@ fn operator_question_resolved_event_marks_message_answered_and_clears_actions() 
 
     let thread = model.chat.active_thread().expect("thread should exist");
     assert_eq!(thread.messages.len(), 1);
-    let message = thread.messages.last().expect("question message should exist");
+    let message = thread
+        .messages
+        .last()
+        .expect("question message should exist");
     assert_eq!(message.operator_question_answer.as_deref(), Some("A"));
     assert!(message.actions.is_empty());
 }
@@ -340,17 +352,26 @@ fn operator_question_event_does_not_replace_existing_modal() {
         1,
         "operator question should append an inline transcript message"
     );
-    let message = thread.messages.last().expect("question message should exist");
+    let message = thread
+        .messages
+        .last()
+        .expect("question message should exist");
     assert!(message.is_operator_question);
     assert_eq!(message.operator_question_id.as_deref(), Some("oq-1"));
-    assert_eq!(message.content, "Approve this slice?\nA - proceed\nB - revise");
+    assert_eq!(
+        message.content,
+        "Approve this slice?\nA - proceed\nB - revise"
+    );
     assert_eq!(message.actions.len(), 2);
     assert_eq!(message.actions[0].label, "A");
     assert_eq!(message.actions[1].label, "B");
     assert_eq!(model.modal.top(), Some(modal::ModalKind::CommandPalette));
     model.modal.reduce(modal::ModalAction::Pop);
     assert_eq!(model.modal.top(), None);
-    assert_ne!(model.modal.top(), Some(modal::ModalKind::OperatorQuestionOverlay));
+    assert_ne!(
+        model.modal.top(),
+        Some(modal::ModalKind::OperatorQuestionOverlay)
+    );
 }
 
 #[test]
@@ -390,6 +411,21 @@ fn status_diagnostics_warning_mentions_sync_state() {
             .as_deref()
             .is_some_and(|diagnostics| diagnostics.contains("\"aline\"")),
         "status diagnostics should retain the raw payload for the status modal"
+    );
+}
+
+#[test]
+fn status_diagnostics_warning_mentions_mesh_state() {
+    let mut model = make_model();
+    model.handle_client_event(ClientEvent::StatusDiagnostics {
+        operator_profile_sync_state: "clean".to_string(),
+        operator_profile_sync_dirty: false,
+        operator_profile_scheduler_fallback: false,
+        diagnostics_json: r#"{"skill_mesh":{"backend":"mesh","state":"degraded"}}"#.to_string(),
+    });
+    assert!(
+        model.status_line.contains("skill mesh: degraded"),
+        "status line should expose degraded mesh diagnostics"
     );
 }
 
@@ -903,7 +939,7 @@ fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
 fn header_uses_rarog_daemon_runtime_metadata_after_first_reply() {
     let mut model = make_model();
     model.concierge.provider = Some("alibaba-coding-plan".to_string());
-    model.concierge.model = Some("qwen3.5-plus".to_string());
+    model.concierge.model = Some("qwen3.6-plus".to_string());
     model.concierge.reasoning_effort = Some("none".to_string());
 
     model.handle_client_event(ClientEvent::ThreadCreated {
@@ -937,6 +973,119 @@ fn header_uses_rarog_daemon_runtime_metadata_after_first_reply() {
     assert_eq!(profile.provider, "alibaba-coding-plan");
     assert_eq!(profile.model, "MiniMax-M2.5");
     assert_eq!(profile.reasoning_effort.as_deref(), Some("low"));
+}
+
+#[test]
+fn header_usage_summary_uses_runtime_model_context_window_for_rarog() {
+    let mut model = make_model();
+    model.concierge.provider = Some("alibaba-coding-plan".to_string());
+    model.concierge.model = Some("qwen3.6-plus".to_string());
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-rarog-usage".to_string(),
+        title: "Rarog Thread".to_string(),
+        agent_name: Some("Rarog".to_string()),
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-rarog-usage".to_string(),
+    ));
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-rarog-usage".to_string(),
+        content: "Runtime answer".to_string(),
+    });
+    model.handle_client_event(ClientEvent::Done {
+        thread_id: "thread-rarog-usage".to_string(),
+        input_tokens: 10,
+        output_tokens: 20,
+        cost: Some(0.25),
+        provider: Some("alibaba-coding-plan".to_string()),
+        model: Some("MiniMax-M2.5".to_string()),
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+        provider_final_result_json: None,
+    });
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(usage.max_tokens, 205_000);
+    let total_cost = usage
+        .total_cost_usd
+        .expect("header should expose total cost");
+    assert!(
+        (total_cost - 0.25).abs() < 1e-9,
+        "expected summed total cost to be 0.25, got {total_cost}"
+    );
+    assert!(usage.current_tokens > 0);
+    assert!(usage.utilization_pct <= 100);
+}
+
+#[test]
+fn header_usage_summary_resets_active_window_after_compaction_artifact() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-compaction".to_string(),
+        title: "Compaction".to_string(),
+        agent_name: Some("Swarog".to_string()),
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-compaction".to_string(),
+    ));
+
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-compaction".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::User,
+            content: "A".repeat(4_000),
+            ..Default::default()
+        },
+    });
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-compaction".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "B".repeat(4_000),
+            cost: Some(0.10),
+            ..Default::default()
+        },
+    });
+
+    let before = model.current_header_usage_summary();
+
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-compaction".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "rule based".to_string(),
+            message_kind: "compaction_artifact".to_string(),
+            compaction_payload: Some("Older context compacted for continuity".to_string()),
+            ..Default::default()
+        },
+    });
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-compaction".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "short follow-up".to_string(),
+            cost: Some(0.15),
+            ..Default::default()
+        },
+    });
+
+    let after = model.current_header_usage_summary();
+    assert!(
+        after.current_tokens < before.current_tokens,
+        "active context usage should drop after compaction: before={} after={}",
+        before.current_tokens,
+        after.current_tokens
+    );
+    let total_cost = after
+        .total_cost_usd
+        .expect("header should include summed total cost after compaction");
+    assert!(
+        (total_cost - 0.25).abs() < 1e-9,
+        "expected summed total cost to stay at 0.25, got {total_cost}"
+    );
 }
 
 #[test]
@@ -1397,6 +1546,72 @@ fn prompt_during_text_stream_without_running_tools_waits_for_done() {
 }
 
 #[test]
+fn participant_suggestion_event_queues_prompt_with_agent_name() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::ParticipantSuggestion {
+        thread_id: "thread-1".to_string(),
+        suggestion: crate::wire::ThreadParticipantSuggestion {
+            id: "sugg-1".to_string(),
+            target_agent_id: "weles".to_string(),
+            target_agent_name: "Weles".to_string(),
+            instruction: "check claim".to_string(),
+            force_send: false,
+            status: "queued".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            error: None,
+        },
+    });
+
+    assert_eq!(model.queued_prompts.len(), 1);
+    assert_eq!(
+        model.queued_prompts[0].participant_agent_name.as_deref(),
+        Some("Weles")
+    );
+    assert_eq!(model.queued_prompts[0].display_text(), "Weles: check claim");
+}
+
+#[test]
+fn queued_participant_send_now_stops_stream_and_sends_participant_command() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-1".to_string(),
+        content: "streaming".to_string(),
+    });
+    model.queue_participant_suggestion(
+        "thread-1".to_string(),
+        "sugg-1".to_string(),
+        "weles".to_string(),
+        "Weles".to_string(),
+        "urgent fix".to_string(),
+        true,
+    );
+    model.open_queued_prompts_modal();
+
+    model.execute_selected_queued_prompt_action();
+
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::StopStream { thread_id }) if thread_id == "thread-1"
+    ));
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::SendParticipantSuggestion { thread_id, suggestion_id })
+            if thread_id == "thread-1" && suggestion_id == "sugg-1"
+    ));
+}
+
+#[test]
 fn follow_up_prompt_after_cancel_keeps_processing_new_events_on_same_thread() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
@@ -1438,6 +1653,203 @@ fn follow_up_prompt_after_cancel_keeps_processing_new_events_on_same_thread() {
         "Visible answer",
         "new stream chunks on the same thread should not be dropped after a cancelled turn"
     );
+}
+
+#[test]
+fn leading_internal_delegate_prompt_routes_to_internal_command() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.submit_prompt("!weles verify the auth regression".to_string());
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::InternalDelegate {
+            thread_id,
+            target_agent_id,
+            content,
+            ..
+        }) => {
+            assert_eq!(thread_id.as_deref(), Some("thread-1"));
+            assert_eq!(target_agent_id, "weles");
+            assert_eq!(content, "verify the auth regression");
+        }
+        other => panic!("expected internal delegate command, got {:?}", other),
+    }
+    assert!(
+        model
+            .chat
+            .active_thread()
+            .expect("thread should remain selected")
+            .messages
+            .is_empty(),
+        "internal delegation should not append a visible user turn"
+    );
+}
+
+#[test]
+fn leading_participant_prompt_routes_to_participant_command() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.submit_prompt("@weles verify claims before answering".to_string());
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::ThreadParticipantCommand {
+            thread_id,
+            target_agent_id,
+            action,
+            instruction,
+            ..
+        }) => {
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(target_agent_id, "weles");
+            assert_eq!(action, "upsert");
+            assert_eq!(
+                instruction.as_deref(),
+                Some("verify claims before answering")
+            );
+        }
+        other => panic!("expected participant command, got {:?}", other),
+    }
+    assert!(
+        model
+            .chat
+            .active_thread()
+            .expect("thread should remain selected")
+            .messages
+            .is_empty(),
+        "participant registration should not append a visible user turn"
+    );
+    let (notice, _) = model
+        .input_notice_style()
+        .expect("participant command should surface a visible notice");
+    assert!(
+        notice.contains("Weles"),
+        "expected agent name in notice, got: {notice}"
+    );
+    assert!(
+        notice.contains("joined") || notice.contains("updated"),
+        "expected participant update wording in notice, got: {notice}"
+    );
+}
+
+#[test]
+fn unconfigured_builtin_participant_prompt_opens_setup_and_retries_after_model_selection() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN.to_string(),
+        provider_name: "Alibaba Coding Plan".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "qwen3.6-plus".to_string(),
+    }];
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.submit_prompt("@swarozyc verify claims before answering".to_string());
+
+    assert_eq!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::ProviderPicker)
+    );
+    assert!(
+        daemon_rx.try_recv().is_err(),
+        "setup should happen before any daemon command is emitted"
+    );
+
+    let provider_index = widgets::provider_picker::available_provider_defs(&model.auth)
+        .iter()
+        .position(|provider| provider.id == amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN)
+        .expect("provider to exist");
+    if provider_index > 0 {
+        model
+            .modal
+            .reduce(crate::state::modal::ModalAction::Navigate(
+                provider_index as i32,
+            ));
+    }
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        crate::state::modal::ModalKind::ProviderPicker,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::ModelPicker)
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        crate::state::modal::ModalKind::ModelPicker,
+    );
+    assert!(!quit);
+
+    match daemon_rx
+        .try_recv()
+        .expect("expected targeted builtin persona config command")
+    {
+        DaemonCommand::SetTargetAgentProviderModel {
+            target_agent_id,
+            provider_id,
+            model,
+        } => {
+            assert_eq!(target_agent_id, "swarozyc");
+            assert_eq!(
+                provider_id,
+                amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN
+            );
+            assert_eq!(model, "qwen3.6-plus");
+        }
+        other => panic!("expected builtin persona provider/model command, got {other:?}"),
+    }
+
+    match daemon_rx
+        .try_recv()
+        .expect("expected retried participant command after setup")
+    {
+        DaemonCommand::ThreadParticipantCommand {
+            thread_id,
+            target_agent_id,
+            action,
+            instruction,
+            ..
+        } => {
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(target_agent_id, "swarozyc");
+            assert_eq!(action, "upsert");
+            assert_eq!(
+                instruction.as_deref(),
+                Some("verify claims before answering")
+            );
+        }
+        other => panic!("expected participant command, got {other:?}"),
+    }
 }
 
 #[test]

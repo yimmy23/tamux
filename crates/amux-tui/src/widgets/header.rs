@@ -3,7 +3,6 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::state::chat::ChatState;
 use crate::theme::ThemeTokens;
 use crate::widgets::token_format::format_token_count;
 
@@ -13,13 +12,22 @@ pub enum HeaderHitTarget {
     NotificationBell,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct HeaderUsageDisplay {
+    pub(crate) total_thread_tokens: u64,
+    pub(crate) current_tokens: u64,
+    pub(crate) max_tokens: u64,
+    pub(crate) utilization_pct: u8,
+    pub(crate) total_cost_usd: Option<f64>,
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
-    chat: &ChatState,
     provider: &str,
     model: &str,
     reasoning_effort: Option<&str>,
+    usage: &HeaderUsageDisplay,
     theme: &ThemeTokens,
     pending_approvals: usize,
     approvals_open: bool,
@@ -60,15 +68,7 @@ pub fn render(
     let approval_area = badge_sections[0];
     let bell_area = badge_sections[2];
 
-    let (in_tok, out_tok) = if let Some(thread) = chat.active_thread() {
-        (thread.total_input_tokens, thread.total_output_tokens)
-    } else {
-        (0, 0)
-    };
-    let total_tok = in_tok + out_tok;
-    let usage = format_token_count(total_tok);
-
-    let mut spans = vec![
+    let mut top_spans = vec![
         Span::styled(
             "\u{2591}\u{2592}\u{2593}",
             Style::default().fg(Color::Indexed(24)),
@@ -81,36 +81,47 @@ pub fn render(
     ];
 
     if !provider.is_empty() {
-        spans.push(Span::raw(provider));
-        spans.push(Span::raw(" "));
+        top_spans.push(Span::raw(provider));
+        top_spans.push(Span::raw(" "));
     }
 
-    spans.push(Span::styled(model, theme.fg_active));
+    top_spans.push(Span::styled(model, theme.fg_active));
 
     if let Some(reasoning_effort) = reasoning_effort.filter(|value| !value.is_empty()) {
-        spans.push(Span::raw(" ["));
-        spans.push(Span::styled(reasoning_effort, theme.accent_secondary));
-        spans.push(Span::raw("]"));
+        top_spans.push(Span::raw(" ["));
+        top_spans.push(Span::styled(reasoning_effort, theme.accent_secondary));
+        top_spans.push(Span::raw("]"));
     }
 
-    spans.push(Span::raw("  "));
-    spans.push(Span::styled(usage, theme.fg_dim));
+    top_spans.push(Span::raw("  "));
+    top_spans.push(Span::styled(build_total_usage_label(usage), theme.fg_dim));
 
-    let header_text = Line::from(spans).alignment(Alignment::Center);
-    let text_area = if title_area.height >= 2 {
-        Rect::new(
-            title_area.x,
-            title_area.y + title_area.height.saturating_sub(1) / 2,
-            title_area.width,
-            1,
-        )
+    let (top_line_area, bottom_line_area) = if title_area.height >= 2 {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1)])
+            .split(title_area);
+        (rows[0], Some(rows[1]))
     } else {
-        title_area
+        (title_area, None)
     };
     frame.render_widget(
-        Paragraph::new(header_text).alignment(Alignment::Center),
-        text_area,
+        Paragraph::new(Line::from(top_spans)).alignment(Alignment::Center),
+        top_line_area,
     );
+    if let Some(bottom_line_area) = bottom_line_area {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                build_context_usage_label(usage),
+                theme.fg_dim,
+            )))
+            .alignment(Alignment::Center),
+            bottom_line_area,
+        );
+    }
+
+    let approval_render_area = Rect::new(approval_area.x, approval_area.y, approval_area.width, 1);
+    let bell_render_area = Rect::new(bell_area.x, bell_area.y, bell_area.width, 1);
 
     let approval_style = if approvals_open {
         theme.accent_primary
@@ -127,7 +138,7 @@ pub fn render(
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(approval_text, approval_style)))
             .alignment(Alignment::Right),
-        approval_area,
+        approval_render_area,
     );
 
     let bell_style = if notifications_open {
@@ -144,8 +155,29 @@ pub fn render(
     };
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(bell_text, bell_style))).alignment(Alignment::Right),
-        bell_area,
+        bell_render_area,
     );
+}
+
+fn build_total_usage_label(usage: &HeaderUsageDisplay) -> String {
+    let mut label = format_token_count(usage.total_thread_tokens);
+    if let Some(total_cost_usd) = usage.total_cost_usd {
+        label.push(' ');
+        label.push_str(&format!("${total_cost_usd:.4}"));
+    }
+    label
+}
+
+fn build_context_usage_label(usage: &HeaderUsageDisplay) -> String {
+    let clamped_pct = usage.utilization_pct.min(100);
+    let filled = ((clamped_pct as usize) * 10 / 100).min(10);
+    let bar = format!(
+        "[{}{}]",
+        "=".repeat(filled),
+        "-".repeat(10usize.saturating_sub(filled))
+    );
+    let max_tokens = format_token_count(usage.max_tokens.max(1));
+    format!("ctx {bar} {clamped_pct}% [{max_tokens}]")
 }
 
 pub fn hit_test(
@@ -200,6 +232,74 @@ fn bell_area_width(unread_notifications: usize) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn total_usage_label_includes_thread_tokens_and_cost() {
+        let label = build_total_usage_label(&HeaderUsageDisplay {
+            total_thread_tokens: 21_000_000,
+            current_tokens: 64_000,
+            max_tokens: 128_000,
+            utilization_pct: 50,
+            total_cost_usd: Some(1.25),
+        });
+
+        assert!(
+            label.contains("21.0M tok"),
+            "label should include cumulative thread tokens: {label}"
+        );
+        assert!(
+            label.contains("$1.2500"),
+            "label should include total cost: {label}"
+        );
+    }
+
+    #[test]
+    fn context_usage_label_includes_progress_percent_and_max_tokens() {
+        let label = build_context_usage_label(&HeaderUsageDisplay {
+            total_thread_tokens: 21_000_000,
+            current_tokens: 64_000,
+            max_tokens: 128_000,
+            utilization_pct: 50,
+            total_cost_usd: Some(1.25),
+        });
+
+        assert!(
+            label.contains("ctx"),
+            "label should identify context usage: {label}"
+        );
+        assert!(
+            label.contains("50%"),
+            "label should include utilization percent: {label}"
+        );
+        assert!(
+            label.contains("[128.0k tok]"),
+            "label should include max context window tokens: {label}"
+        );
+        assert!(
+            label.contains("="),
+            "label should include a visible progress fill: {label}"
+        );
+    }
+
+    #[test]
+    fn context_usage_label_clamps_overflowing_progress_to_full_bar() {
+        let label = build_context_usage_label(&HeaderUsageDisplay {
+            total_thread_tokens: 21_000_000,
+            current_tokens: 300_000,
+            max_tokens: 128_000,
+            utilization_pct: 100,
+            total_cost_usd: None,
+        });
+
+        assert!(
+            label.contains("100%"),
+            "overflow should clamp to 100 percent: {label}"
+        );
+        assert!(
+            label.contains("[==========]"),
+            "overflow should render as a full progress bar: {label}"
+        );
+    }
 
     #[test]
     fn bell_hit_test_detects_click_inside_bell_area() {

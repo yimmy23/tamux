@@ -54,10 +54,14 @@ fn assistant_message(content: &str, timestamp: u64) -> AgentMessage {
         response_id: None,
         upstream_message: None,
         provider_final_result: None,
+        author_agent_id: None,
+        author_agent_name: None,
         reasoning: None,
         message_kind: AgentMessageKind::Normal,
         compaction_strategy: None,
         compaction_payload: None,
+        offloaded_payload_id: None,
+        structural_refs: Vec::new(),
         timestamp,
     }
 }

@@ -61,6 +61,10 @@ async fn maybe_bootstrap_todo_plan_for_background_tool(
     true
 }
 
+fn should_scrub_successful_tool_result(tool_name: &str) -> bool {
+    !matches!(tool_name, "read_offloaded_payload")
+}
+
 pub fn execute_tool<'a>(
     tool_call: &'a ToolCall,
     agent: &'a AgentEngine,
@@ -393,6 +397,7 @@ pub fn execute_tool<'a>(
         }
         "list_threads" => execute_list_threads(&args, agent).await,
         "get_thread" => execute_get_thread(&args, agent).await,
+        "read_offloaded_payload" => execute_read_offloaded_payload(&args, agent, thread_id).await,
         "enqueue_task" => execute_enqueue_task(&args, agent).await,
         "list_tasks" => execute_list_tasks(&args, agent).await,
         "get_todos" => execute_get_todos(&args, agent, task_id).await,
@@ -671,7 +676,11 @@ pub fn execute_tool<'a>(
 
     match result {
         Ok(content) => {
-            let content = scrub_sensitive(&content);
+            let content = if should_scrub_successful_tool_result(dispatch_tool_name.as_str()) {
+                scrub_sensitive(&content)
+            } else {
+                content
+            };
             emit_workflow_notice_for_tool(
                 event_tx,
                 thread_id,

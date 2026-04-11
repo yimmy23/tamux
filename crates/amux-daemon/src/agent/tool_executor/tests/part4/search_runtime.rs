@@ -349,12 +349,9 @@ async fn onecontext_search_normalizes_simple_query_before_runner() {
 
 #[test]
 fn prepare_onecontext_search_query_preserves_explicit_regex_queries() {
-    let prepared = prepare_onecontext_search_query(
-        "JustifySkip|explicit_rationale_required",
-        false,
-        300,
-    )
-    .expect("explicit regex query should be preserved");
+    let prepared =
+        prepare_onecontext_search_query("JustifySkip|explicit_rationale_required", false, 300)
+            .expect("explicit regex query should be preserved");
 
     assert_eq!(prepared, "JustifySkip|explicit_rationale_required");
 }

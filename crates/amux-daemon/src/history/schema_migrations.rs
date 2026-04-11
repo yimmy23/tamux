@@ -1,5 +1,153 @@
-use super::schema_helpers::ensure_column;
-use rusqlite::Connection;
+use super::schema_helpers::{ensure_column, table_has_column};
+use rusqlite::{Connection, OptionalExtension};
+use std::path::Path;
+
+const OFFLOADED_PAYLOADS_TABLE_SQL: &str = "CREATE TABLE offloaded_payloads (
+    payload_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    tool_call_id TEXT,
+    storage_path TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+)";
+
+const OFFLOADED_PAYLOADS_TABLE_IF_MISSING_SQL: &str =
+    "CREATE TABLE IF NOT EXISTS offloaded_payloads (
+    payload_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    tool_call_id TEXT,
+    storage_path TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+)";
+
+const OFFLOADED_PAYLOADS_INDEX_SQL: &str = "CREATE INDEX IF NOT EXISTS idx_offloaded_payloads_thread_created ON offloaded_payloads(thread_id, created_at DESC)";
+
+fn offloaded_payloads_summary_is_required(connection: &Connection) -> rusqlite::Result<bool> {
+    let summary_notnull = connection
+        .query_row(
+            "SELECT \"notnull\" FROM pragma_table_info('offloaded_payloads') WHERE name = 'summary'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .unwrap_or(0);
+    Ok(summary_notnull == 1)
+}
+
+fn canonical_offloaded_payload_storage_path(
+    offloaded_payloads_dir: &Path,
+    thread_id: &str,
+    payload_id: &str,
+) -> String {
+    offloaded_payloads_dir
+        .join(thread_id)
+        .join(format!("{payload_id}.txt"))
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn rebuild_offloaded_payloads_table(
+    connection: &Connection,
+    offloaded_payloads_dir: &Path,
+) -> rusqlite::Result<()> {
+    let transaction = connection.unchecked_transaction()?;
+
+    transaction.execute_batch(&format!(
+        "ALTER TABLE offloaded_payloads RENAME TO offloaded_payloads_legacy;
+         {OFFLOADED_PAYLOADS_TABLE_SQL};"
+    ))?;
+
+    let legacy_rows = {
+        let mut stmt = transaction.prepare(
+            "SELECT payload_id, thread_id, tool_name, tool_call_id, content_type, byte_size, summary, created_at
+             FROM offloaded_payloads_legacy",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, i64>(7)?,
+            ))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+
+    let mut insert_stmt = transaction.prepare(
+        "INSERT INTO offloaded_payloads (
+             payload_id,
+             thread_id,
+             tool_name,
+             tool_call_id,
+             storage_path,
+             content_type,
+             byte_size,
+             summary,
+             created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+    )?;
+
+    for (
+        payload_id,
+        thread_id,
+        tool_name,
+        tool_call_id,
+        content_type,
+        byte_size,
+        summary,
+        created_at,
+    ) in legacy_rows
+    {
+        let storage_path = canonical_offloaded_payload_storage_path(
+            offloaded_payloads_dir,
+            &thread_id,
+            &payload_id,
+        );
+        insert_stmt.execute(rusqlite::params![
+            payload_id,
+            thread_id,
+            tool_name,
+            tool_call_id,
+            storage_path,
+            content_type,
+            byte_size,
+            summary.unwrap_or_default(),
+            created_at,
+        ])?;
+    }
+
+    drop(insert_stmt);
+    transaction.execute_batch(&format!(
+        "DROP TABLE offloaded_payloads_legacy;
+         {OFFLOADED_PAYLOADS_INDEX_SQL};"
+    ))?;
+    transaction.commit()
+}
+
+fn ensure_offloaded_payloads_schema(
+    connection: &Connection,
+    offloaded_payloads_dir: &Path,
+) -> rusqlite::Result<()> {
+    connection.execute_batch(&format!("{OFFLOADED_PAYLOADS_TABLE_IF_MISSING_SQL};"))?;
+    if table_has_column(connection, "offloaded_payloads", "summary")?
+        && !offloaded_payloads_summary_is_required(connection)?
+    {
+        rebuild_offloaded_payloads_table(connection, offloaded_payloads_dir)?;
+    }
+    connection.execute_batch(&format!("{OFFLOADED_PAYLOADS_INDEX_SQL};"))?;
+    Ok(())
+}
 
 pub(super) fn ensure_context_archive_fts(connection: &Connection) {
     connection
@@ -9,7 +157,19 @@ pub(super) fn ensure_context_archive_fts(connection: &Connection) {
         .ok();
 }
 
-pub(super) fn apply_schema_migrations(connection: &Connection) -> rusqlite::Result<()> {
+pub(super) fn apply_schema_migrations(
+    connection: &Connection,
+    offloaded_payloads_dir: &Path,
+) -> rusqlite::Result<()> {
+    ensure_offloaded_payloads_schema(connection, offloaded_payloads_dir)?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS thread_structural_memory (
+            thread_id TEXT PRIMARY KEY,
+            state_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_thread_structural_memory_updated ON thread_structural_memory(updated_at DESC);",
+    )?;
     ensure_column(connection, "agent_tasks", "session_id", "TEXT")?;
     ensure_column(connection, "agent_threads", "metadata_json", "TEXT")?;
     ensure_column(connection, "agent_tasks", "scheduled_at", "INTEGER")?;

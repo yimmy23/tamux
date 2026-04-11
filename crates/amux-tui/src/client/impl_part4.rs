@@ -73,6 +73,21 @@ impl DaemonClient {
                     })
                     .await;
             }
+            "participant_suggestion" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {
+                    return;
+                }
+                if let Some(suggestion) = event
+                    .get("suggestion")
+                    .cloned()
+                    .and_then(|raw| serde_json::from_value::<ThreadParticipantSuggestion>(raw).ok())
+                {
+                    let _ = event_tx
+                        .send(ClientEvent::ParticipantSuggestion { thread_id, suggestion })
+                        .await;
+                }
+            }
             "delta" => {
                 let thread_id = get_string(&event, "thread_id").unwrap_or_default();
                 if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {

@@ -63,6 +63,13 @@ fn add_available_tools_part_d(
         },
         "required": ["thread_id"]
     })));
+    tools.push(tool_def("read_offloaded_payload", "Read an offloaded tool-result payload by payload ID and return the exact raw text content.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "payload_id": { "type": "string", "description": "Payload ID from an offloaded tool-result thread message" }
+        },
+        "required": ["payload_id"]
+    })));
     tools.push(tool_def("enqueue_task", "Create a daemon-managed background task. Use this for work that should run later, survive disconnects, wait on dependencies, or schedule follow-up actions like reminders and gateway messages.", serde_json::json!({
         "type": "object",
         "properties": {

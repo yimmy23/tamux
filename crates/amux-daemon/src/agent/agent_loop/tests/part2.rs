@@ -824,7 +824,7 @@ async fn new_targeted_rarog_thread_prefers_concierge_model_override_over_stored_
         },
     );
     config.concierge.provider = Some(PROVIDER_ID_CUSTOM.to_string());
-    config.concierge.model = Some("qwen3.5-plus".to_string());
+    config.concierge.model = Some("qwen3.6-plus".to_string());
     config.concierge.reasoning_effort = Some("medium".to_string());
 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
@@ -848,7 +848,7 @@ async fn new_targeted_rarog_thread_prefers_concierge_model_override_over_stored_
         .find(|request| request.contains("POST /v1/chat/completions"))
         .expect("expected targeted Rarog thread to hit concierge provider request");
     assert!(
-        request.contains("\"model\":\"qwen3.5-plus\""),
+        request.contains("\"model\":\"qwen3.6-plus\""),
         "targeted Rarog request should carry concierge.model override"
     );
 }
@@ -2221,13 +2221,23 @@ async fn strong_match_requires_read_skill_before_non_discovery_tool() {
     assert!(saw_gate_notice, "expected a skill gate workflow notice");
     assert!(saw_gate_result, "expected a blocked read_file tool result");
 
-    let persisted = engine
-        .history
-        .get_thread(thread_id)
-        .await
-        .expect("read persisted thread")
-        .expect("thread should persist");
-    let metadata = persisted.metadata_json.expect("thread metadata");
+    let metadata = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let persisted = engine
+                .history
+                .get_thread(thread_id)
+                .await
+                .expect("read persisted thread")
+                .expect("thread should persist");
+            let metadata = persisted.metadata_json.expect("thread metadata");
+            if metadata.contains("\"recommended_skill\":\"systematic-debugging\"") {
+                return metadata;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("expected persisted metadata to include the resolved skill recommendation");
     assert!(metadata.contains("\"recommended_skill\":\"systematic-debugging\""));
     assert!(metadata.contains("\"compliant\":false"));
 }
@@ -2323,6 +2333,989 @@ async fn weak_match_allows_progress_without_skip_rationale() {
 }
 
 #[tokio::test]
+async fn persisted_mesh_next_step_can_downgrade_legacy_strong_gate_to_advisory() {
+    let root = tempdir().unwrap();
+    let readable_path = root.path().join("allowed.txt");
+    fs::write(&readable_path, "allowed through\n").expect("write readable file");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-persisted-mesh-next-step";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Persisted mesh gate".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "seed".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "latest_skill_discovery_state": {
+                        "query": "debug panic",
+                        "confidence_tier": "strong",
+                        "recommended_skill": "systematic-debugging",
+                        "recommended_action": "read_skill systematic-debugging",
+                        "mesh_next_step": "choose_or_bypass",
+                        "mesh_requires_approval": false,
+                        "read_skill_identifier": "variant-systematic-debugging-v1",
+                        "skip_rationale": null,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "seed-message-1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "seed".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![(
+        "read_file".to_string(),
+        serde_json::json!({ "path": readable_path }).to_string(),
+    )])
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "hi",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let thread = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .cloned()
+            .expect("thread should exist")
+    };
+
+    let read_result = thread
+        .messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == MessageRole::Tool && message.tool_name.as_deref() == Some("read_file")
+        })
+        .expect("read_file result should be recorded");
+    assert_eq!(read_result.tool_status.as_deref(), Some("done"));
+    assert!(read_result.content.contains("allowed through"));
+
+    let persisted = engine
+        .history
+        .get_thread(thread_id)
+        .await
+        .expect("read persisted thread")
+        .expect("thread should persist");
+    let metadata = persisted.metadata_json.expect("thread metadata");
+    assert!(metadata.contains("\"mesh_next_step\":\"choose_or_bypass\""));
+    assert!(metadata.contains("\"mesh_requires_approval\":false"));
+}
+
+#[tokio::test]
+async fn persisted_mesh_requires_approval_blocks_non_discovery_tool() {
+    let root = tempdir().unwrap();
+    let readable_path = root.path().join("allowed.txt");
+    fs::write(&readable_path, "allowed through\n").expect("write readable file");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-persisted-mesh-approval-gate";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Persisted mesh approval gate".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "seed".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "latest_skill_discovery_state": {
+                        "query": "debug panic",
+                        "confidence_tier": "strong",
+                        "recommended_skill": "systematic-debugging",
+                        "recommended_action": "request_approval systematic-debugging",
+                        "mesh_next_step": "read_skill",
+                        "mesh_requires_approval": true,
+                        "mesh_approval_id": "approval-required-1",
+                        "read_skill_identifier": "variant-systematic-debugging-v1",
+                        "skip_rationale": null,
+                        "skill_read_completed": false,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "seed-message-1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "seed".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![(
+        "read_file".to_string(),
+        serde_json::json!({ "path": readable_path }).to_string(),
+    )])
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "hi",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let thread = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .cloned()
+            .expect("thread should exist")
+    };
+
+    let read_result = thread
+        .messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == MessageRole::Tool && message.tool_name.as_deref() == Some("read_file")
+        })
+        .expect("read_file result should be recorded");
+    assert_eq!(read_result.tool_status.as_deref(), Some("error"));
+    assert!(read_result.content.contains("obtain approval"));
+}
+
+#[tokio::test]
+async fn reading_skill_does_not_clear_mesh_approval_requirement() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-mesh-approval-persists-after-read";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Mesh approval persists after read".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "debug panic".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "latest_skill_discovery_state": {
+                        "query": "debug panic",
+                        "confidence_tier": "strong",
+                        "recommended_skill": "systematic-debugging",
+                        "recommended_action": "request_approval systematic-debugging",
+                        "mesh_next_step": "read_skill",
+                        "mesh_requires_approval": true,
+                        "mesh_approval_id": "approval-required-2",
+                        "read_skill_identifier": "systematic-debugging",
+                        "skip_rationale": null,
+                        "skill_read_completed": false,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "seed-message-1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "debug panic".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+
+    let state = engine
+        .record_thread_skill_read_compliance(thread_id, "systematic-debugging")
+        .await
+        .expect("state should exist after hydrate");
+
+    assert!(
+        !state.compliant,
+        "read_skill compliance alone must not clear approval-required state"
+    );
+    assert!(state.mesh_requires_approval);
+
+    let persisted = engine
+        .history
+        .get_thread(thread_id)
+        .await
+        .expect("read persisted thread")
+        .expect("thread should persist");
+    let metadata = persisted.metadata_json.expect("thread metadata");
+    assert!(metadata.contains("\"mesh_requires_approval\":true"));
+    assert!(metadata.contains("\"compliant\":false"));
+}
+
+#[tokio::test]
+async fn substantive_follow_up_does_not_downgrade_hydrated_mesh_approval_requirement() {
+    let root = tempdir().unwrap();
+    let skill_dir = root.path().join("skills").join("systematic-debugging");
+    fs::create_dir_all(&skill_dir).expect("create skills directory");
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        "# Systematic debugging\nUse this workflow to debug panic in rust service failures. Choose it when the task is to debug panic in rust service incidents.\n",
+    )
+    .expect("write skill");
+    let readable_path = root.path().join("allowed.txt");
+    fs::write(&readable_path, "allowed through\n").expect("write readable file");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-hydrated-approval-persists-across-preflight";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Hydrated approval persists across preflight".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "debug panic".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "latest_skill_discovery_state": {
+                        "query": "debug panic",
+                        "confidence_tier": "strong",
+                        "recommended_skill": "systematic-debugging",
+                        "recommended_action": "request_approval systematic-debugging",
+                        "mesh_next_step": "read_skill",
+                        "mesh_requires_approval": true,
+                        "mesh_approval_id": "approval-required-3",
+                        "read_skill_identifier": "systematic-debugging",
+                        "skip_rationale": null,
+                        "skill_read_completed": false,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "seed-message-1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "debug panic".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![(
+        "read_file".to_string(),
+        serde_json::json!({ "path": readable_path }).to_string(),
+    )])
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.skill_recommendation.strong_match_threshold = 0.60;
+    config.skill_recommendation.weak_match_threshold = 0.30;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "debug panic in parser",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let finalized_state = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if let Some(state) = engine.get_thread_skill_discovery_state(thread_id).await {
+                if !state.discovery_pending {
+                    return state;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("expected async skill preflight to complete");
+
+    assert_eq!(
+        finalized_state.recommended_skill.as_deref(),
+        Some("systematic-debugging")
+    );
+
+    let persisted = engine
+        .history
+        .get_thread(thread_id)
+        .await
+        .expect("read persisted thread")
+        .expect("thread should persist");
+    let metadata = persisted.metadata_json.expect("thread metadata");
+    assert!(metadata.contains("\"mesh_requires_approval\":true"));
+    assert!(metadata.contains("\"compliant\":false"));
+
+    let thread = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .cloned()
+            .expect("thread should exist")
+    };
+    let read_result = thread
+        .messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == MessageRole::Tool && message.tool_name.as_deref() == Some("read_file")
+        })
+        .expect("read_file result should be recorded");
+    assert_eq!(read_result.tool_status.as_deref(), Some("error"));
+    assert!(read_result.content.contains("obtain approval"));
+}
+
+#[tokio::test]
+async fn substantive_follow_up_preserves_hydrated_advisory_mesh_next_step() {
+    let root = tempdir().unwrap();
+    let skill_dir = root.path().join("skills").join("debugging-playbook");
+    fs::create_dir_all(&skill_dir).expect("create skills directory");
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        "# Debugging playbook\nUse this skill for generic debug investigations.\n",
+    )
+    .expect("write skill");
+    let readable_path = root.path().join("allowed.txt");
+    fs::write(&readable_path, "allowed through\n").expect("write readable file");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-hydrated-advisory-persists-across-preflight";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Hydrated advisory persists across preflight".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "debug panic".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "latest_skill_discovery_state": {
+                        "query": "debug panic",
+                        "confidence_tier": "strong",
+                        "recommended_skill": "debugging-playbook",
+                        "recommended_action": "justify_skill_skip",
+                        "mesh_next_step": "choose_or_bypass",
+                        "mesh_requires_approval": false,
+                        "mesh_approval_id": null,
+                        "read_skill_identifier": "debugging-playbook",
+                        "skip_rationale": null,
+                        "skill_read_completed": false,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "seed-message-1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "debug panic".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![(
+        "read_file".to_string(),
+        serde_json::json!({ "path": readable_path }).to_string(),
+    )])
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.skill_recommendation.strong_match_threshold = 0.80;
+    config.skill_recommendation.weak_match_threshold = 0.30;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "debug panic",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let finalized_state = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if let Some(state) = engine.get_thread_skill_discovery_state(thread_id).await {
+                if !state.discovery_pending {
+                    return state;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("expected async skill preflight to complete");
+
+    assert_eq!(
+        finalized_state.recommended_skill.as_deref(),
+        Some("systematic-debugging")
+    );
+
+    let persisted = engine
+        .history
+        .get_thread(thread_id)
+        .await
+        .expect("read persisted thread")
+        .expect("thread should persist");
+    let metadata = persisted.metadata_json.expect("thread metadata");
+    assert!(metadata.contains("\"mesh_next_step\":\"choose_or_bypass\""));
+
+    let thread = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .cloned()
+            .expect("thread should exist")
+    };
+    let read_result = thread
+        .messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == MessageRole::Tool && message.tool_name.as_deref() == Some("read_file")
+        })
+        .expect("read_file result should be recorded");
+    assert_eq!(read_result.tool_status.as_deref(), Some("done"));
+}
+
+#[tokio::test]
+async fn terse_follow_up_still_emits_hydrated_mesh_guidance_without_fresh_preflight() {
+    let root = tempdir().unwrap();
+    let readable_path = root.path().join("allowed.txt");
+    fs::write(&readable_path, "allowed through\n").expect("write readable file");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-terse-follow-up-hydrated-mesh-guidance";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Hydrated terse follow-up guidance".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "debug panic".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "latest_skill_discovery_state": {
+                        "query": "debug panic",
+                        "confidence_tier": "strong",
+                        "recommended_skill": "systematic-debugging",
+                        "recommended_action": "request_approval systematic-debugging",
+                        "mesh_next_step": "read_skill",
+                        "mesh_requires_approval": true,
+                        "mesh_approval_id": "approval-required-4",
+                        "read_skill_identifier": "systematic-debugging",
+                        "skip_rationale": null,
+                        "skill_read_completed": true,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "seed-message-1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "debug panic".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![(
+        "read_file".to_string(),
+        serde_json::json!({ "path": readable_path }).to_string(),
+    )])
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut events = engine.subscribe();
+    engine.hydrate().await.expect("hydrate");
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "ok",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let mut saw_skill_preflight_notice = false;
+    while let Ok(event) = events.try_recv() {
+        if let AgentEvent::WorkflowNotice {
+            thread_id: event_thread_id,
+            kind,
+            message,
+            details,
+        } = event
+        {
+            if event_thread_id == thread_id && kind == "skill-preflight" {
+                saw_skill_preflight_notice = true;
+                assert!(message.contains("request_approval systematic-debugging"));
+                assert!(details
+                    .unwrap_or_default()
+                    .contains("\"mesh_requires_approval\":true"));
+            }
+        }
+    }
+    assert!(saw_skill_preflight_notice);
+}
+
+#[tokio::test]
+async fn approval_id_survives_substantive_follow_up_and_can_be_resolved() {
+    let root = tempdir().unwrap();
+    let skill_dir = root.path().join("skills").join("systematic-debugging");
+    fs::create_dir_all(&skill_dir).expect("create skills directory");
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        "# Systematic debugging\nUse this workflow to debug panic in rust service failures. Choose it when the task is to debug panic in rust service incidents.\n",
+    )
+    .expect("write skill");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-approval-id-survives-follow-up";
+    let approval_id = "approval-required-5";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Approval id survives follow-up".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "debug panic".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "latest_skill_discovery_state": {
+                        "query": "debug panic",
+                        "confidence_tier": "strong",
+                        "recommended_skill": "systematic-debugging",
+                        "recommended_action": "request_approval systematic-debugging",
+                        "mesh_next_step": "read_skill",
+                        "mesh_requires_approval": true,
+                        "mesh_approval_id": approval_id,
+                        "read_skill_identifier": "systematic-debugging",
+                        "skip_rationale": null,
+                        "skill_read_completed": true,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "seed-message-1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "debug panic".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![]).await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 0;
+    config.skill_recommendation.strong_match_threshold = 0.60;
+    config.skill_recommendation.weak_match_threshold = 0.30;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "debug panic in parser",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let preserved = engine
+        .get_thread_skill_discovery_state(thread_id)
+        .await
+        .expect("preserved state");
+    assert_eq!(preserved.mesh_approval_id.as_deref(), Some(approval_id));
+
+    let resolved = engine
+        .record_thread_skill_approval_resolution(thread_id, approval_id)
+        .await
+        .expect("approval should resolve");
+    assert!(resolved.compliant);
+    assert!(!resolved.mesh_requires_approval);
+}
+
+#[tokio::test]
+async fn hydrated_legacy_name_only_skill_identifier_becomes_compliant_after_read_skill() {
+    let root = tempdir().unwrap();
+    let skill_dir = root.path().join("skills").join("systematic-debugging");
+    fs::create_dir_all(&skill_dir).expect("create skills directory");
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        "# Systematic debugging\nUse this workflow to debug panic in rust service failures.\n",
+    )
+    .expect("write skill");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-legacy-name-only-read-skill";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Legacy name-only gate".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "debug panic".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "latest_skill_discovery_state": {
+                        "query": "debug panic",
+                        "confidence_tier": "strong",
+                        "recommended_skill": "systematic-debugging",
+                        "recommended_action": "read_skill systematic-debugging",
+                        "read_skill_identifier": "systematic-debugging",
+                        "skip_rationale": null,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "seed-message-1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "debug panic".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![(
+        "read_skill".to_string(),
+        serde_json::json!({ "skill": "systematic-debugging" }).to_string(),
+    )])
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+
+    let state = engine
+        .record_thread_skill_read_compliance(thread_id, "systematic-debugging")
+        .await
+        .expect("legacy state should be present after hydrate");
+
+    assert!(state.compliant);
+
+    let persisted = engine
+        .history
+        .get_thread(thread_id)
+        .await
+        .expect("read persisted thread")
+        .expect("thread should persist");
+    let metadata = persisted.metadata_json.expect("thread metadata");
+    assert!(metadata.contains("\"compliant\":true"));
+}
+
+#[tokio::test]
 async fn local_strong_match_still_runs_when_background_community_scout_enabled() {
     let root = tempdir().unwrap();
     let skill_dir = root.path().join("skills").join("systematic-debugging");
@@ -2403,13 +3396,41 @@ async fn local_strong_match_still_runs_when_background_community_scout_enabled()
         .await
         .expect("send message should complete");
 
-    let persisted = engine
-        .history
-        .get_thread(thread_id)
-        .await
-        .expect("read persisted thread")
-        .expect("thread should persist");
-    let metadata = persisted.metadata_json.expect("thread metadata");
+    let finalized_state = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if let Some(state) = engine.get_thread_skill_discovery_state(thread_id).await {
+                if !state.discovery_pending {
+                    return state;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("expected async skill preflight to complete");
+
+    assert_eq!(
+        finalized_state.recommended_skill.as_deref(),
+        Some("systematic-debugging")
+    );
+
+    let metadata = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let persisted = engine
+                .history
+                .get_thread(thread_id)
+                .await
+                .expect("read persisted thread")
+                .expect("thread should persist");
+            let metadata = persisted.metadata_json.expect("thread metadata");
+            if metadata.contains("\"recommended_skill\":\"systematic-debugging\"") {
+                return metadata;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("expected persisted metadata to include the resolved skill recommendation");
     assert!(metadata.contains("\"recommended_skill\":\"systematic-debugging\""));
 
     let scout_notice = tokio::time::timeout(std::time::Duration::from_millis(500), async {
@@ -2541,4 +3562,95 @@ async fn disabled_background_community_scout_does_not_search_registry() {
         !saw_scout_notice,
         "community scout should stay disabled for this turn"
     );
+}
+
+#[tokio::test]
+async fn send_message_does_not_wait_for_background_skill_discovery_completion() {
+    let root = tempdir().unwrap();
+    let skill_dir = root.path().join("skills").join("systematic-debugging");
+    fs::create_dir_all(&skill_dir).expect("create skills directory");
+    fs::write(
+        skill_dir.join("SKILL.md"),
+        "# Systematic debugging\nUse this workflow to debug panic failures in rust services.\n",
+    )
+    .expect("write skill");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![]).await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 0;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let release_discovery = Arc::new(tokio::sync::Notify::new());
+    let runner_started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    engine.set_skill_discovery_test_runner(
+        crate::agent::skill_preflight::make_delayed_test_skill_discovery_runner(
+            runner_started.clone(),
+            release_discovery.clone(),
+            crate::agent::skill_preflight::sample_test_skill_discovery_completion(
+                "debug panic in rust service",
+                "systematic-debugging",
+            ),
+        ),
+    );
+
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_millis(250),
+        engine.send_message_inner(
+            None,
+            "debug panic in rust service",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        ),
+    )
+    .await
+    .expect("send_message_inner should not block on skill discovery completion")
+    .expect("send message should complete");
+
+    assert!(
+        runner_started.load(std::sync::atomic::Ordering::SeqCst),
+        "background runner should have started"
+    );
+
+    let pending_state = engine
+        .get_thread_skill_discovery_state(&outcome.thread_id)
+        .await
+        .expect("pending discovery state should be stored");
+    assert!(pending_state.discovery_pending);
+    assert_eq!(pending_state.recommended_action, "await_skill_discovery");
+
+    release_discovery.notify_waiters();
+
+    let completed_state = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if let Some(state) = engine
+                .get_thread_skill_discovery_state(&outcome.thread_id)
+                .await
+            {
+                if !state.discovery_pending {
+                    return state;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("background discovery result should be applied");
+
+    assert_eq!(
+        completed_state.recommended_skill.as_deref(),
+        Some("systematic-debugging")
+    );
+    assert!(!completed_state.discovery_pending);
 }

@@ -157,6 +157,66 @@ pub(super) fn format_status_modal_text(
                     }
                 }
             }
+            if let Some(skill_mesh) = diagnostics
+                .get("skill_mesh")
+                .and_then(|value| value.as_object())
+            {
+                rendered.push_str("\nSkill Mesh:\n");
+                let backend = skill_mesh
+                    .get("backend")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown");
+                let state = skill_mesh
+                    .get("state")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown");
+                rendered.push_str(&format!("  Backend:   {backend}\n"));
+                rendered.push_str(&format!("  State:     {state}\n"));
+                if let Some(active_gate) = skill_mesh
+                    .get("active_gate")
+                    .and_then(|value| value.as_object())
+                {
+                    if let Some(skill) = active_gate
+                        .get("recommended_skill")
+                        .and_then(|value| value.as_str())
+                    {
+                        rendered.push_str(&format!("  Gate:      {skill}\n"));
+                    }
+                    if let Some(action) = active_gate
+                        .get("recommended_action")
+                        .and_then(|value| value.as_str())
+                    {
+                        rendered.push_str(&format!("  Action:    {action}\n"));
+                    }
+                    let approval = active_gate
+                        .get("requires_approval")
+                        .and_then(|value| value.as_bool())
+                        .map(|value| if value { "yes" } else { "no" })
+                        .unwrap_or("no");
+                    rendered.push_str(&format!("  Approval:  {approval}\n"));
+                    if let Some(rationale) = active_gate
+                        .get("rationale")
+                        .and_then(|value| value.as_array())
+                        .and_then(|items| items.first())
+                        .and_then(|value| value.as_str())
+                    {
+                        rendered.push_str(&format!("  Why:       {rationale}\n"));
+                    }
+                    if let Some(family) = active_gate
+                        .get("capability_family")
+                        .and_then(|value| value.as_array())
+                    {
+                        let joined = family
+                            .iter()
+                            .filter_map(|value| value.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" / ");
+                        if !joined.is_empty() {
+                            rendered.push_str(&format!("  Family:    {joined}\n"));
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -238,7 +298,9 @@ mod tests {
                 recent_actions_json: r#"[{"action_type":"tool_call","summary":"Ran status"}]"#
                     .to_string(),
             },
-            Some(r#"{"aline":{"available":true,"watcher_state":"running"}}"#),
+            Some(
+                r#"{"aline":{"available":true,"watcher_state":"running"},"skill_mesh":{"backend":"mesh","state":"fresh","active_gate":{"recommended_skill":"systematic-debugging","recommended_action":"request_approval systematic-debugging","requires_approval":true,"skill_read_completed":true,"rationale":["matched debug panic"],"capability_family":["development","debugging"]}}}"#,
+            ),
         );
 
         assert!(rendered.contains("Version:"));
@@ -247,6 +309,14 @@ mod tests {
         assert!(rendered.contains("Aline:"));
         assert!(rendered.contains("Watcher:"));
         assert!(rendered.contains("running"));
+        assert!(rendered.contains("Skill Mesh:"));
+        assert!(rendered.contains("Backend:   mesh"));
+        assert!(rendered.contains("State:     fresh"));
+        assert!(rendered.contains("Gate:      systematic-debugging"));
+        assert!(rendered.contains("Action:    request_approval systematic-debugging"));
+        assert!(rendered.contains("Approval:  yes"));
+        assert!(rendered.contains("Why:       matched debug panic"));
+        assert!(rendered.contains("Family:    development / debugging"));
     }
 
     #[test]

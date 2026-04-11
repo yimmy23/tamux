@@ -17,7 +17,7 @@ fn normalize_tool_dispatch(
     }
 }
 
-fn parse_tool_args(
+pub(crate) fn parse_tool_args(
     tool_name: &str,
     raw_arguments: &str,
 ) -> std::result::Result<serde_json::Value, String> {
@@ -142,13 +142,13 @@ fn parse_file_multipart_args(raw_arguments: &str) -> Result<serde_json::Value> {
     Ok(serde_json::Value::Object(fields))
 }
 
-fn get_string_arg<'a>(args: &'a serde_json::Value, names: &[&str]) -> Option<&'a str> {
+pub(crate) fn get_string_arg<'a>(args: &'a serde_json::Value, names: &[&str]) -> Option<&'a str> {
     names
         .iter()
         .find_map(|name| args.get(*name).and_then(|value| value.as_str()))
 }
 
-fn get_file_path_arg<'a>(args: &'a serde_json::Value) -> Option<&'a str> {
+pub(crate) fn get_file_path_arg<'a>(args: &'a serde_json::Value) -> Option<&'a str> {
     ["path", "file_path", "filepath", "filename", "file"]
         .into_iter()
         .find_map(|name| {
@@ -156,6 +156,13 @@ fn get_file_path_arg<'a>(args: &'a serde_json::Value) -> Option<&'a str> {
                 .and_then(|value| value.as_str())
                 .filter(|value| !value.trim().is_empty())
         })
+}
+
+pub(crate) fn get_explicit_cwd_arg<'a>(args: &'a serde_json::Value) -> Option<&'a str> {
+    args.get("cwd")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn get_file_content_arg(args: &serde_json::Value) -> Result<String> {

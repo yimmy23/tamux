@@ -156,6 +156,8 @@ pub struct AgentConfig {
     pub gateway: GatewayConfig,
     #[serde(default)]
     pub snapshot_retention: SnapshotRetentionSettings,
+    #[serde(default = "default_offload_tool_result_threshold_bytes")]
+    pub offload_tool_result_threshold_bytes: usize,
     /// Agent backend: daemon (built-in LLM), openclaw, hermes, or legacy.
     #[serde(default)]
     pub agent_backend: AgentBackend,
@@ -311,6 +313,14 @@ impl Default for CustomModelCompactionConfig {
 pub struct BuiltinSubAgentOverrides {
     #[serde(default)]
     pub weles: WelesBuiltinOverrides,
+    #[serde(default)]
+    pub swarozyc: BuiltinPersonaOverrides,
+    #[serde(default)]
+    pub radogost: BuiltinPersonaOverrides,
+    #[serde(default)]
+    pub domowoj: BuiltinPersonaOverrides,
+    #[serde(default)]
+    pub swietowit: BuiltinPersonaOverrides,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -337,6 +347,16 @@ pub struct WelesBuiltinOverrides {
     pub reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_concurrent_reviews: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BuiltinPersonaOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

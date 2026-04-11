@@ -37,6 +37,19 @@ pub(super) enum AgentBridgeCommand {
         #[serde(default, deserialize_with = "deserialize_context_messages")]
         context_messages: Option<Vec<amux_protocol::AgentDbMessage>>,
     },
+    InternalDelegate {
+        thread_id: Option<String>,
+        target_agent_id: String,
+        content: String,
+        session_id: Option<String>,
+    },
+    ThreadParticipantCommand {
+        thread_id: String,
+        target_agent_id: String,
+        action: String,
+        instruction: Option<String>,
+        session_id: Option<String>,
+    },
     StopStream {
         thread_id: String,
     },
@@ -104,6 +117,11 @@ pub(super) enum AgentBridgeCommand {
         value_json: String,
     },
     SetProviderModel {
+        provider_id: String,
+        model: String,
+    },
+    SetTargetAgentProviderModel {
+        target_agent_id: String,
         provider_id: String,
         model: String,
     },

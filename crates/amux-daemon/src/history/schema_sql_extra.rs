@@ -211,6 +211,26 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 updated_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS offloaded_payloads (
+                payload_id    TEXT PRIMARY KEY,
+                thread_id     TEXT NOT NULL,
+                tool_name     TEXT NOT NULL,
+                tool_call_id  TEXT,
+                storage_path  TEXT NOT NULL,
+                content_type  TEXT NOT NULL,
+                byte_size     INTEGER NOT NULL,
+                summary       TEXT NOT NULL,
+                created_at    INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_offloaded_payloads_thread_created ON offloaded_payloads(thread_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS thread_structural_memory (
+                thread_id   TEXT PRIMARY KEY,
+                state_json  TEXT NOT NULL,
+                updated_at  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_thread_structural_memory_updated ON thread_structural_memory(updated_at DESC);
+
             CREATE TABLE IF NOT EXISTS plugins (
                 name            TEXT PRIMARY KEY,
                 version         TEXT NOT NULL,
@@ -269,6 +289,34 @@ pub(super) fn extended_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_op_profile_events_created ON operator_profile_events(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_op_profile_events_field ON operator_profile_events(field_key, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS memory_distillation_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_thread_id TEXT NOT NULL,
+                source_message_range TEXT,
+                distilled_fact TEXT NOT NULL,
+                target_file TEXT NOT NULL,
+                category TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                created_at_ms INTEGER NOT NULL,
+                applied_to_memory INTEGER DEFAULT 0,
+                agent_id TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_distillation_log_thread ON memory_distillation_log(source_thread_id, created_at_ms DESC);
+            CREATE INDEX IF NOT EXISTS idx_distillation_log_applied ON memory_distillation_log(applied_to_memory, created_at_ms DESC);
+
+            CREATE TABLE IF NOT EXISTS forge_pass_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                period_start_ms INTEGER NOT NULL,
+                period_end_ms INTEGER NOT NULL,
+                traces_analyzed INTEGER NOT NULL,
+                patterns_found INTEGER NOT NULL,
+                hints_applied INTEGER NOT NULL,
+                hints_logged INTEGER NOT NULL,
+                completed_at_ms INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_forge_pass_log_agent ON forge_pass_log(agent_id, completed_at_ms DESC);
 
             CREATE TABLE IF NOT EXISTS operator_profile_checkins (
                 id            TEXT PRIMARY KEY,

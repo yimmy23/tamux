@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.9"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 authors = ["tamux contributors"]
@@ -37,6 +37,10 @@ humantime = "2"
 tar = "0.4"
 flate2 = "1"
 semver = "1"
+notify-debouncer-mini = "0.7.0"
+lancedb = "0.27.2"
+arrow-array = "57.3.0"
+arrow-schema = "57.3.0"
 
 # Protocol
 amux-shared = { package = "tamux-shared", path = "crates/amux-shared" }

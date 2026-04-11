@@ -515,6 +515,59 @@ impl AgentEngine {
                 }
             })
             .unwrap_or("unknown");
+        let skill_mesh_backend = self
+            .config
+            .read()
+            .await
+            .skill_recommendation
+            .discovery_backend
+            .clone();
+        let skill_mesh_state = if skill_mesh_backend.eq_ignore_ascii_case("mesh") {
+            "fresh"
+        } else {
+            "legacy"
+        };
+        let active_skill_gate_state = self
+            .thread_skill_discovery_states
+            .read()
+            .await
+            .values()
+            .filter(|state| !state.compliant)
+            .max_by_key(|state| state.updated_at)
+            .cloned();
+        let active_skill_gate = if let Some(state) = active_skill_gate_state {
+            let discovery = if state.is_discovery_pending() {
+                None
+            } else {
+                self.discover_skill_recommendations_public(&state.query, None, 1, None)
+                    .await
+                    .ok()
+            };
+            let rationale = discovery
+                .as_ref()
+                .map(|value| value.rationale.clone())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| {
+                    if state.query.trim().is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![format!("matched {}", state.query.trim())]
+                    }
+                });
+            let capability_family = fallback_skill_gate_family(state.recommended_skill.as_deref());
+            serde_json::json!({
+                "recommended_skill": state.recommended_skill,
+                "recommended_action": state.recommended_action,
+                "requires_approval": state.mesh_requires_approval,
+                "skill_read_completed": state.skill_read_completed,
+                "mesh_next_step": state.mesh_next_step,
+                "rationale": rationale,
+                "capability_family": capability_family,
+            })
+            .into()
+        } else {
+            None
+        };
 
         serde_json::json!({
             "operator_profile_sync_state": sync_state,
@@ -536,6 +589,24 @@ impl AgentEngine {
                     .as_ref()
                     .and_then(|summary| summary.short_circuit_reason.map(|reason| reason.as_str())),
             },
+            "skill_mesh": {
+                "backend": skill_mesh_backend,
+                "state": skill_mesh_state,
+                "active_gate": active_skill_gate,
+            },
         })
+    }
+}
+
+fn fallback_skill_gate_family(recommended_skill: Option<&str>) -> Vec<String> {
+    let Some(skill) = recommended_skill.map(|value| value.to_ascii_lowercase()) else {
+        return vec!["development".to_string()];
+    };
+    if skill.contains("debug") {
+        vec!["development".to_string(), "debugging".to_string()]
+    } else if skill.contains("plan") {
+        vec!["planning".to_string()]
+    } else {
+        vec!["development".to_string()]
     }
 }

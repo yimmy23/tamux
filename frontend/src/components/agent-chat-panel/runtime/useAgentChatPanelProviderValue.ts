@@ -136,9 +136,12 @@ export function useAgentChatPanelProviderValue(): {
   });
 
   const {
+    builtinAgentSetup,
+    cancelBuiltinAgentSetup,
     canStartGoalRun,
     sendDaemonMessage,
     startGoalRunFromPrompt,
+    submitBuiltinAgentSetup,
   } = useDaemonAgentActions({
     activePaneId,
     activeThreadId,
@@ -220,6 +223,25 @@ export function useAgentChatPanelProviderValue(): {
     sendMessageLegacy(text);
   }, [agentSettings.agent_backend, sendDaemonMessage, sendMessageLegacy]);
 
+  const sendParticipantSuggestion = useCallback(async (threadId: string, suggestionId: string, forceSend = false) => {
+    const amux = getAgentBridge();
+    if (!amux?.agentSendParticipantSuggestion) {
+      return;
+    }
+    if (forceSend && activeThreadId) {
+      stopStreaming(activeThreadId);
+    }
+    await amux.agentSendParticipantSuggestion({ threadId, suggestionId, sessionId: null });
+  }, [activeThreadId, stopStreaming]);
+
+  const dismissParticipantSuggestion = useCallback(async (threadId: string, suggestionId: string) => {
+    const amux = getAgentBridge();
+    if (!amux?.agentDismissParticipantSuggestion) {
+      return;
+    }
+    await amux.agentDismissParticipantSuggestion({ threadId, suggestionId, sessionId: null });
+  }, []);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
@@ -294,12 +316,17 @@ export function useAgentChatPanelProviderValue(): {
     messagesEndRef,
     inputRef,
     sendMessage,
+    sendParticipantSuggestion,
+    dismissParticipantSuggestion,
     deleteMessage,
     stopStreaming,
     handleSend,
     handleKeyDown,
+    builtinAgentSetup,
     canStartGoalRun,
+    cancelBuiltinAgentSetup,
     startGoalRunFromPrompt,
+    submitBuiltinAgentSetup,
     tabItems,
     welesHealth,
   }), [
@@ -310,11 +337,14 @@ export function useAgentChatPanelProviderValue(): {
     updateAgentSetting,
     allMessagesByThread,
     chatBackView,
+    builtinAgentSetup,
     canStartGoalRun,
+    cancelBuiltinAgentSetup,
     startGoalRunFromPrompt,
     daemonTodosByThread,
     deleteMessage,
     deleteThread,
+    dismissParticipantSuggestion,
     filteredThreads,
     goalRunsForTrace,
     handleSend,
@@ -337,6 +367,7 @@ export function useAgentChatPanelProviderValue(): {
     setSearchQuery,
     snippets,
     stopStreaming,
+    submitBuiltinAgentSetup,
     symbolHits,
     symbolQuery,
     tabItems,
@@ -350,6 +381,7 @@ export function useAgentChatPanelProviderValue(): {
     welesHealth,
     createThread,
     sendMessage,
+    sendParticipantSuggestion,
   ]);
 
   return { isOpen, value };

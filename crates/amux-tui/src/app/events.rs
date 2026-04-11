@@ -126,6 +126,19 @@ impl TuiModel {
             ClientEvent::ThreadReloadRequired { thread_id } => {
                 self.handle_thread_reload_required_event(thread_id);
             }
+            ClientEvent::ParticipantSuggestion {
+                thread_id,
+                suggestion,
+            } => {
+                self.queue_participant_suggestion(
+                    thread_id,
+                    suggestion.id,
+                    suggestion.target_agent_id,
+                    suggestion.target_agent_name,
+                    suggestion.instruction,
+                    suggestion.force_send,
+                );
+            }
             ClientEvent::TaskList(tasks) => {
                 self.handle_task_list_event(tasks);
             }

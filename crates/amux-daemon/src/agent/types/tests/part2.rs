@@ -103,6 +103,16 @@ use amux_shared::providers::{PROVIDER_ID_ARCEE, PROVIDER_ID_GITHUB_COPILOT};
     fn consolidation_result_defaults_are_zero() {
         let result = ConsolidationResult::default();
         assert_eq!(result.traces_reviewed, 0);
+        assert!(!result.distillation_ran);
+        assert_eq!(result.distillation_threads_analyzed, 0);
+        assert_eq!(result.distillation_candidates_generated, 0);
+        assert_eq!(result.distillation_auto_applied, 0);
+        assert_eq!(result.distillation_queued_for_review, 0);
+        assert!(!result.forge_ran);
+        assert_eq!(result.forge_traces_analyzed, 0);
+        assert_eq!(result.forge_patterns_detected, 0);
+        assert_eq!(result.forge_hints_generated, 0);
+        assert_eq!(result.forge_hints_auto_applied, 0);
         assert_eq!(result.facts_decayed, 0);
         assert_eq!(result.tombstones_purged, 0);
         assert_eq!(result.facts_refined, 0);
@@ -173,6 +183,7 @@ use amux_shared::providers::{PROVIDER_ID_ARCEE, PROVIDER_ID_GITHUB_COPILOT};
 
         let cfg: SkillRecommendationConfig = serde_json::from_str(&json).unwrap();
         assert!(!cfg.enabled);
+        assert_eq!(cfg.discovery_backend, "mesh");
         assert!(cfg.require_read_on_strong_match);
         assert!((cfg.strong_match_threshold - 0.91).abs() < f64::EPSILON);
         assert!((cfg.weak_match_threshold - 0.60).abs() < f64::EPSILON);
@@ -201,6 +212,7 @@ use amux_shared::providers::{PROVIDER_ID_ARCEE, PROVIDER_ID_GITHUB_COPILOT};
     fn skill_recommendation_config_defaults() {
         let cfg = SkillRecommendationConfig::default();
         assert!(cfg.enabled);
+        assert_eq!(cfg.discovery_backend, "mesh");
         assert!(cfg.require_read_on_strong_match);
         assert!((cfg.strong_match_threshold - 0.85).abs() < f64::EPSILON);
         assert!((cfg.weak_match_threshold - 0.60).abs() < f64::EPSILON);
@@ -227,6 +239,7 @@ use amux_shared::providers::{PROVIDER_ID_ARCEE, PROVIDER_ID_GITHUB_COPILOT};
         assert!((cfg.skill_discovery.min_quality_score - 0.91).abs() < f64::EPSILON);
         assert!((cfg.skill_discovery.novelty_similarity_threshold - 0.42).abs() < f64::EPSILON);
         assert!(cfg.skill_recommendation.enabled);
+        assert_eq!(cfg.skill_recommendation.discovery_backend, "mesh");
         assert!(cfg.skill_recommendation.require_read_on_strong_match);
         assert!((cfg.skill_recommendation.strong_match_threshold - 0.85).abs() < f64::EPSILON);
         assert!((cfg.skill_recommendation.weak_match_threshold - 0.60).abs() < f64::EPSILON);
@@ -246,6 +259,7 @@ use amux_shared::providers::{PROVIDER_ID_ARCEE, PROVIDER_ID_GITHUB_COPILOT};
             },
             "skill_recommendation": {
                 "enabled": false,
+                "discovery_backend": "mesh",
                 "require_read_on_strong_match": false,
                 "strong_match_threshold": 0.97,
                 "weak_match_threshold": 0.51,
@@ -262,6 +276,7 @@ use amux_shared::providers::{PROVIDER_ID_ARCEE, PROVIDER_ID_GITHUB_COPILOT};
         assert!((cfg.skill_discovery.min_quality_score - 0.95).abs() < f64::EPSILON);
         assert!((cfg.skill_discovery.novelty_similarity_threshold - 0.33).abs() < f64::EPSILON);
         assert!(!cfg.skill_recommendation.enabled);
+        assert_eq!(cfg.skill_recommendation.discovery_backend, "mesh");
         assert!(!cfg.skill_recommendation.require_read_on_strong_match);
         assert!((cfg.skill_recommendation.strong_match_threshold - 0.97).abs() < f64::EPSILON);
         assert!((cfg.skill_recommendation.weak_match_threshold - 0.51).abs() < f64::EPSILON);

@@ -75,6 +75,7 @@ pub enum ClientMessage {
     AgentGetEffectiveConfigState,
     AgentSetConfigItem { key_path: String, value_json: String },
     AgentSetProviderModel { provider_id: String, model: String },
+    AgentSetTargetAgentProviderModel { target_agent_id: String, provider_id: String, model: String },
     AgentFetchModels { provider_id: String, base_url: String, api_key: String },
     AgentHeartbeatGetItems,
     AgentHeartbeatSetItems { items_json: String },
@@ -177,4 +178,8 @@ pub enum ClientMessage {
     AgentAnswerQuestion { question_id: String, answer: String },
     AgentListTools { #[serde(default)] limit: Option<usize>, #[serde(default)] offset: Option<usize> },
     AgentSearchTools { query: String, #[serde(default)] limit: Option<usize>, #[serde(default)] offset: Option<usize> },
+    AgentInternalDelegate { thread_id: Option<String>, target_agent_id: String, content: String, session_id: Option<String>, #[serde(default)] client_surface: Option<ClientSurface> },
+    AgentThreadParticipantCommand { thread_id: String, target_agent_id: String, action: String, #[serde(default)] instruction: Option<String>, session_id: Option<String>, #[serde(default)] client_surface: Option<ClientSurface> },
+    AgentSendParticipantSuggestion { thread_id: String, suggestion_id: String, session_id: Option<String>, #[serde(default)] client_surface: Option<ClientSurface> },
+    AgentDismissParticipantSuggestion { thread_id: String, suggestion_id: String, session_id: Option<String>, #[serde(default)] client_surface: Option<ClientSurface> },
 }

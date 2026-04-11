@@ -57,6 +57,10 @@ pub enum AgentEvent {
     ThreadReloadRequired {
         thread_id: String,
     },
+    ParticipantSuggestion {
+        thread_id: String,
+        suggestion: crate::agent::ThreadParticipantSuggestion,
+    },
     TaskUpdate {
         task_id: String,
         status: TaskStatus,

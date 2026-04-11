@@ -67,7 +67,7 @@ pub fn render(
         let prompt = &prompts[row.index];
         let prefix = if is_selected { "> " } else { "  " };
         let preview = truncate_preview(
-            &prompt.text,
+            &prompt.display_text(),
             row.actions[0].1.x.saturating_sub(chunks[1].x + 4) as usize,
         );
         let style = if is_selected {
@@ -224,6 +224,7 @@ fn action_label(
     current_tick: u64,
 ) -> &'static str {
     match action {
+        QueuedPromptAction::SendNow if prompt.force_send => "send now!",
         QueuedPromptAction::SendNow => "send now",
         QueuedPromptAction::Copy if prompt.is_copied(current_tick) => "copied",
         QueuedPromptAction::Copy => "copy",

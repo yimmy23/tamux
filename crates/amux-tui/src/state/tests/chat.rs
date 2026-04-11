@@ -648,6 +648,75 @@ fn thread_detail_keeps_local_messages_with_actions() {
 }
 
 #[test]
+fn thread_detail_preserves_local_messages_in_active_compaction_window() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Thread".into(),
+    });
+    state.reduce(ChatAction::SelectThread("t1".into()));
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::Assistant,
+            content: "rule based".into(),
+            message_kind: "compaction_artifact".into(),
+            compaction_payload: Some("Older context compacted for continuity".into()),
+            timestamp: 10,
+            ..Default::default()
+        },
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Local assistant follow-up".into(),
+            timestamp: 20,
+            ..Default::default()
+        },
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::User,
+            content: "Newest local user prompt".into(),
+            timestamp: 30,
+            ..Default::default()
+        },
+    });
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Thread".into(),
+        messages: vec![AgentMessage {
+            role: MessageRole::Assistant,
+            content: "rule based".into(),
+            message_kind: "compaction_artifact".into(),
+            compaction_payload: Some("Older context compacted for continuity".into()),
+            timestamp: 10,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert!(
+        thread
+            .messages
+            .iter()
+            .any(|message| message.content == "Local assistant follow-up"),
+        "detail merge should preserve local assistant messages after the latest compaction artifact"
+    );
+    assert!(
+        thread
+            .messages
+            .iter()
+            .any(|message| message.content == "Newest local user prompt"),
+        "detail merge should preserve local user messages after the latest compaction artifact"
+    );
+}
+
+#[test]
 fn append_message_replaces_previous_concierge_welcome() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {

@@ -48,6 +48,15 @@ fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref()
+        == Some(agent::skill_preflight::SKILL_DISCOVERY_WORKER_ARG)
+    {
+        return agent::skill_preflight::run_skill_discovery_worker_from_stdio().await;
+    }
+    if std::env::args().nth(1).as_deref() == Some(agent::ALINE_STARTUP_WORKER_ARG) {
+        return agent::run_aline_startup_worker_from_stdio().await;
+    }
+
     let _log_guard = init_logging()?;
 
     tracing::info!("tamux-daemon starting");

@@ -1,10 +1,12 @@
-function parseWorkflowDetails(details: string | null) {
+function parseWorkflowDetails(details: string | null): Record<string, unknown> | null {
   if (!details) {
     return null;
   }
   try {
-    const parsed = JSON.parse(details);
-    return parsed && typeof parsed === "object" ? parsed : null;
+    const parsed: unknown = JSON.parse(details);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
@@ -22,6 +24,18 @@ export function formatSkillWorkflowNotice(
     typeof parsed?.confidence_tier === "string" ? parsed.confidence_tier : null;
   const recommendedAction =
     typeof parsed?.recommended_action === "string" ? parsed.recommended_action : null;
+  const normalizedIntent =
+    typeof parsed?.normalized_intent === "string" ? parsed.normalized_intent : null;
+  const meshState = typeof parsed?.mesh_state === "string" ? parsed.mesh_state : null;
+  const requiresApproval = parsed?.requires_approval === true;
+  const rationaleRaw = parsed?.rationale;
+  const rationale = Array.isArray(rationaleRaw)
+    ? rationaleRaw.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+  const capabilityFamilyRaw = parsed?.capability_family;
+  const capabilityFamily = Array.isArray(capabilityFamilyRaw)
+    ? capabilityFamilyRaw.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
   const skipRationale =
     typeof parsed?.skip_rationale === "string" ? parsed.skip_rationale : null;
 
@@ -32,8 +46,13 @@ export function formatSkillWorkflowNotice(
     const summary = [
       confidenceTier === "strong" ? "Skill gate required" : "Skill guidance ready",
       recommendedSkill ? `skill=${recommendedSkill}` : null,
+      normalizedIntent ? `intent=${normalizedIntent}` : null,
       confidenceTier ? `confidence=${confidenceTier}` : null,
       recommendedAction ? `next=${recommendedAction}` : null,
+      capabilityFamily.length ? `family=${capabilityFamily.join(" / ")}` : null,
+      meshState ? `mesh=${meshState}` : null,
+      requiresApproval ? "approval required" : null,
+      rationale.length ? `why=${rationale.join(", ")}` : null,
     ].filter(Boolean).join(" | ");
     return { kind: nextKind, message: summary || message };
   }
@@ -43,8 +62,13 @@ export function formatSkillWorkflowNotice(
     const summary = [
       blocked ? "Skill gate blocked progress" : "Skill guidance allowed progress",
       recommendedSkill ? `skill=${recommendedSkill}` : null,
+      normalizedIntent ? `intent=${normalizedIntent}` : null,
       confidenceTier ? `confidence=${confidenceTier}` : null,
       recommendedAction ? `next=${recommendedAction}` : null,
+      capabilityFamily.length ? `family=${capabilityFamily.join(" / ")}` : null,
+      meshState ? `mesh=${meshState}` : null,
+      requiresApproval ? "approval required" : null,
+      rationale.length ? `why=${rationale.join(", ")}` : null,
     ].filter(Boolean).join(" | ");
     return {
       kind: blocked ? "skill-discovery-required" : "skill-discovery-recommended",

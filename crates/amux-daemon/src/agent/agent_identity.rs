@@ -1,15 +1,16 @@
 //! Shared agent identity helpers for main, concierge, and spawned agents.
 
+use anyhow::anyhow;
 use std::collections::hash_map::DefaultHasher;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
 
 use amux_protocol::{AGENT_ID_RAROG, AGENT_ID_SWAROG, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
 
-use super::types::AgentTask;
+use super::types::{AgentConfig, AgentTask, BuiltinPersonaOverrides};
 
 pub(super) const MAIN_AGENT_ID: &str = AGENT_ID_SWAROG;
-pub(super) const MAIN_AGENT_NAME: &str = AGENT_NAME_SWAROG;
+pub(crate) const MAIN_AGENT_NAME: &str = AGENT_NAME_SWAROG;
 pub(super) const CONCIERGE_AGENT_ID: &str = AGENT_ID_RAROG;
 pub(super) const CONCIERGE_AGENT_NAME: &str = AGENT_NAME_RAROG;
 pub(super) const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
@@ -32,7 +33,7 @@ pub(super) const SWIETOWIT_AGENT_NAME: &str = "Swietowit";
 pub(super) const ROD_AGENT_ID: &str = "rod";
 pub(super) const ROD_AGENT_NAME: &str = "Rod";
 pub(super) const WELES_AGENT_ID: &str = "weles";
-pub(super) const WELES_AGENT_NAME: &str = "Weles";
+pub(crate) const WELES_AGENT_NAME: &str = "Weles";
 pub(crate) const WELES_BUILTIN_SUBAGENT_ID: &str = "weles_builtin";
 pub(crate) const WELES_GOVERNANCE_SCOPE: &str = "governance";
 pub(crate) const WELES_VITALITY_SCOPE: &str = "vitality";
@@ -152,6 +153,52 @@ pub(crate) fn is_weles_internal_scope(scope: &str) -> bool {
 pub(crate) fn is_weles_agent_scope(scope: &str) -> bool {
     let normalized = scope.trim().to_ascii_lowercase();
     normalized == WELES_AGENT_ID || is_weles_internal_scope(&normalized)
+}
+
+pub(super) fn is_explicit_builtin_persona_scope(alias: &str) -> bool {
+    matches!(
+        canonical_agent_id(alias),
+        SWAROZYC_AGENT_ID | RADOGOST_AGENT_ID | DOMOWOJ_AGENT_ID | SWIETOWIT_AGENT_ID
+    )
+}
+
+pub(super) fn builtin_persona_overrides<'a>(
+    config: &'a AgentConfig,
+    alias: &str,
+) -> Option<&'a BuiltinPersonaOverrides> {
+    match canonical_agent_id(alias) {
+        SWAROZYC_AGENT_ID => Some(&config.builtin_sub_agents.swarozyc),
+        RADOGOST_AGENT_ID => Some(&config.builtin_sub_agents.radogost),
+        DOMOWOJ_AGENT_ID => Some(&config.builtin_sub_agents.domowoj),
+        SWIETOWIT_AGENT_ID => Some(&config.builtin_sub_agents.swietowit),
+        _ => None,
+    }
+}
+
+pub(super) fn builtin_persona_requires_setup(config: &AgentConfig, alias: &str) -> bool {
+    let Some(overrides) = builtin_persona_overrides(config, alias) else {
+        return false;
+    };
+    overrides
+        .provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+        || overrides
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+}
+
+pub(super) fn builtin_persona_setup_error(alias: &str) -> anyhow::Error {
+    let canonical_id = canonical_agent_id(alias);
+    anyhow!(
+        "builtin agent '{}' is not configured. Choose provider and model first.",
+        canonical_id
+    )
 }
 
 pub(super) fn internal_dm_thread_id(agent_a: &str, agent_b: &str) -> String {

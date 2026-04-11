@@ -11,6 +11,9 @@ pub(crate) use pure::{
     DEFAULT_HALF_LIFE_HOURS, DEFAULT_IDLE_THRESHOLD_MS,
 };
 
+const DISTILLATION_LAST_RUN_KEY_PREFIX: &str = "distillation_last_run_ms";
+const FORGE_LAST_RUN_KEY_PREFIX: &str = "forge_last_run_ms";
+
 // ---------------------------------------------------------------------------
 // Consolidation entry point and sub-tasks
 // ---------------------------------------------------------------------------
@@ -66,6 +69,17 @@ impl AgentEngine {
         // Sub-task 1: Review execution traces -> promote heuristics (MEMO-01, MEMO-06)
         if std::time::Instant::now() < deadline {
             result.traces_reviewed = self.review_execution_traces(&config, &deadline).await;
+        }
+
+        // Sub-task 1.5: Distill durable memory from older threads.
+        if std::time::Instant::now() < deadline {
+            self.maybe_run_distillation_subphase(&deadline, &mut result)
+                .await;
+        }
+
+        // Sub-task 1.6: Forge strategy hints from recent execution traces.
+        if std::time::Instant::now() < deadline {
+            self.maybe_run_forge_subphase(&deadline, &mut result).await;
         }
 
         // Sub-task 2: Decay stale memory facts and tombstone low-confidence ones (MEMO-02)
@@ -138,12 +152,22 @@ impl AgentEngine {
         self.record_provenance_event(
             "memory_consolidation",
             &format!(
-                "Consolidation tick: {} traces reviewed, {} facts decayed, {} tombstones purged, {} facts refined, {} skill candidates flagged, {} skills drafted, {} skills tested, {} skills promoted",
-                result.traces_reviewed, result.facts_decayed, result.tombstones_purged, result.facts_refined,
+                "Consolidation tick: {} traces reviewed, distillation ran={}, forge ran={}, {} facts decayed, {} tombstones purged, {} facts refined, {} skill candidates flagged, {} skills drafted, {} skills tested, {} skills promoted",
+                result.traces_reviewed, result.distillation_ran, result.forge_ran, result.facts_decayed, result.tombstones_purged, result.facts_refined,
                 result.skill_candidates_flagged, result.skills_drafted, result.skills_tested, result.skills_promoted
             ),
             serde_json::json!({
                 "traces_reviewed": result.traces_reviewed,
+                "distillation_ran": result.distillation_ran,
+                "distillation_threads_analyzed": result.distillation_threads_analyzed,
+                "distillation_candidates_generated": result.distillation_candidates_generated,
+                "distillation_auto_applied": result.distillation_auto_applied,
+                "distillation_queued_for_review": result.distillation_queued_for_review,
+                "forge_ran": result.forge_ran,
+                "forge_traces_analyzed": result.forge_traces_analyzed,
+                "forge_patterns_detected": result.forge_patterns_detected,
+                "forge_hints_generated": result.forge_hints_generated,
+                "forge_hints_auto_applied": result.forge_hints_auto_applied,
                 "facts_decayed": result.facts_decayed,
                 "tombstones_purged": result.tombstones_purged,
                 "facts_refined": result.facts_refined,
@@ -161,6 +185,133 @@ impl AgentEngine {
         .await;
 
         Some(result)
+    }
+
+    async fn maybe_run_distillation_subphase(
+        &self,
+        deadline: &std::time::Instant,
+        result: &mut ConsolidationResult,
+    ) {
+        if std::time::Instant::now() >= *deadline {
+            return;
+        }
+
+        let agent_id = crate::agent::agent_identity::current_agent_scope_id();
+        let config = super::memory_distillation::DistillationConfig {
+            agent_id: agent_id.clone(),
+            ..Default::default()
+        };
+        if !self
+            .should_run_learning_subphase(
+                DISTILLATION_LAST_RUN_KEY_PREFIX,
+                &agent_id,
+                config.interval_hours,
+            )
+            .await
+        {
+            return;
+        }
+
+        match super::memory_distillation::run_distillation_pass(
+            &self.history,
+            &config,
+            &self.data_dir,
+        )
+        .await
+        {
+            Ok(pass) => {
+                result.distillation_ran = true;
+                result.distillation_threads_analyzed = pass.threads_analyzed;
+                result.distillation_candidates_generated = pass.candidates_generated;
+                result.distillation_auto_applied = pass.auto_applied;
+                result.distillation_queued_for_review = pass.queued_for_review;
+                self.record_learning_subphase_run(DISTILLATION_LAST_RUN_KEY_PREFIX, &agent_id)
+                    .await;
+            }
+            Err(error) => {
+                tracing::warn!(agent_id = %agent_id, "distillation sub-phase failed: {error}");
+            }
+        }
+    }
+
+    async fn maybe_run_forge_subphase(
+        &self,
+        deadline: &std::time::Instant,
+        result: &mut ConsolidationResult,
+    ) {
+        if std::time::Instant::now() >= *deadline {
+            return;
+        }
+
+        let agent_id = crate::agent::agent_identity::current_agent_scope_id();
+        let config = super::forge::ForgeConfig {
+            agent_id: agent_id.clone(),
+            ..Default::default()
+        };
+        if !self
+            .should_run_learning_subphase(
+                FORGE_LAST_RUN_KEY_PREFIX,
+                &agent_id,
+                config.interval_hours,
+            )
+            .await
+        {
+            return;
+        }
+
+        match super::forge::run_forge_pass(&self.history, &config, &self.data_dir).await {
+            Ok(pass) => {
+                result.forge_ran = true;
+                result.forge_traces_analyzed = pass.traces_analyzed;
+                result.forge_patterns_detected = pass.patterns_detected;
+                result.forge_hints_generated = pass.hints_generated;
+                result.forge_hints_auto_applied = pass.hints_auto_applied;
+                self.record_learning_subphase_run(FORGE_LAST_RUN_KEY_PREFIX, &agent_id)
+                    .await;
+            }
+            Err(error) => {
+                tracing::warn!(agent_id = %agent_id, "forge sub-phase failed: {error}");
+            }
+        }
+    }
+
+    async fn should_run_learning_subphase(
+        &self,
+        key_prefix: &str,
+        agent_id: &str,
+        interval_hours: u64,
+    ) -> bool {
+        if interval_hours == 0 {
+            return true;
+        }
+
+        let key = format!("{key_prefix}:{agent_id}");
+        let now = now_millis();
+        match self.history.get_consolidation_state(&key).await {
+            Ok(Some(value)) => value
+                .parse::<u64>()
+                .map(|last_run| {
+                    now.saturating_sub(last_run) >= interval_hours.saturating_mul(60 * 60 * 1000)
+                })
+                .unwrap_or(true),
+            Ok(None) => true,
+            Err(error) => {
+                tracing::warn!(key = %key, "failed to read learning sub-phase cadence state: {error}");
+                true
+            }
+        }
+    }
+
+    async fn record_learning_subphase_run(&self, key_prefix: &str, agent_id: &str) {
+        let key = format!("{key_prefix}:{agent_id}");
+        let now = now_millis();
+        if let Err(error) = self
+            .history
+            .set_consolidation_state(&key, &now.to_string(), now)
+            .await
+        {
+            tracing::warn!(key = %key, "failed to persist learning sub-phase cadence state: {error}");
+        }
     }
 
     /// Review recent execution traces and promote successful tool sequences to

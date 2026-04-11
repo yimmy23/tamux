@@ -156,6 +156,37 @@ fn render_sub_agent_registry_section(sub_agents: &[SubAgentDefinition]) -> Optio
     }
 }
 
+fn render_active_skill_gate_section(
+    state: &crate::agent::types::LatestSkillDiscoveryState,
+) -> String {
+    let mut lines = vec![format!("- Query: {}", state.query)];
+    if let Some(skill) = state.recommended_skill.as_deref() {
+        lines.push(format!("- Skill: {}", skill));
+    }
+    lines.push(format!("- Confidence: {}", state.confidence_tier));
+    lines.push(format!("- Next action: {}", state.recommended_action));
+    lines.push(format!(
+        "- Approval required: {}",
+        if state.mesh_requires_approval {
+            "yes"
+        } else {
+            "no"
+        }
+    ));
+    lines.push(format!(
+        "- Skill already read: {}",
+        if state.skill_read_completed {
+            "yes"
+        } else {
+            "no"
+        }
+    ));
+    if let Some(rationale) = state.skip_rationale.as_deref() {
+        lines.push(format!("- Skip rationale: {}", rationale));
+    }
+    lines.join("\n")
+}
+
 fn exact_sub_agent_match<'a>(
     sub_agents: &'a [SubAgentDefinition],
     requested: &str,
@@ -255,7 +286,22 @@ fn build_direct_target(
     }
 
     if normalized != MAIN_AGENT_ID && normalized != CONCIERGE_AGENT_ID {
-        let provider_config = engine.resolve_provider_config(config)?;
+        if is_explicit_builtin_persona_scope(normalized)
+            && builtin_persona_requires_setup(config, normalized)
+        {
+            return Err(builtin_persona_setup_error(normalized));
+        }
+        let provider_id = builtin_persona_overrides(config, normalized)
+            .and_then(|overrides| overrides.provider.clone())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| config.provider.clone());
+        let mut provider_config = engine.resolve_sub_agent_provider_config(config, &provider_id)?;
+        if let Some(model) = builtin_persona_overrides(config, normalized)
+            .and_then(|overrides| overrides.model.clone())
+            .filter(|value| !value.trim().is_empty())
+        {
+            provider_config.model = model;
+        }
         return Ok(PromptInspectionTarget {
             agent_id: normalized.to_string(),
             agent_name: canonical_agent_name(normalized).to_string(),
@@ -265,7 +311,7 @@ fn build_direct_target(
                 crate::agent::agent_identity::build_spawned_persona_prompt(normalized),
                 config.system_prompt,
             ),
-            provider_id: config.provider.clone(),
+            provider_id,
             model: provider_config.model,
         });
     }
@@ -283,6 +329,7 @@ fn build_sections(
     operational_context: Option<&str>,
     causal_guidance: Option<&str>,
     learned_patterns: Option<&str>,
+    active_skill_gate: Option<&crate::agent::types::LatestSkillDiscoveryState>,
 ) -> Vec<PromptInspectionSection> {
     let skills_root = super::skills_dir(&super::agent_data_dir());
     let generated_skills_root = skills_root.join("generated");
@@ -332,6 +379,14 @@ fn build_sections(
         "Local Skills",
         render_local_skills_section(&skills_root, &generated_skills_root),
     );
+    if let Some(state) = active_skill_gate {
+        push_section(
+            &mut sections,
+            "active_skill_gate",
+            "Active Skill Gate",
+            render_active_skill_gate_section(state),
+        );
+    }
     if let Some(plugin_skills) = render_plugin_skills_section(&skills_root) {
         push_section(
             &mut sections,
@@ -435,6 +490,14 @@ impl AgentEngine {
         let memory = self
             .memory_snapshot_for_scope(&target.memory_scope_id)
             .await;
+        let active_skill_gate = self
+            .thread_skill_discovery_states
+            .read()
+            .await
+            .values()
+            .filter(|state| !state.compliant)
+            .max_by_key(|state| state.updated_at)
+            .cloned();
         let memory_paths = memory_paths_for_scope(&self.data_dir, &target.memory_scope_id);
         let operator_model_summary = self.build_operator_model_prompt_summary().await;
         let operational_context = self.build_operational_context_summary().await;
@@ -481,6 +544,7 @@ impl AgentEngine {
             operational_context.as_deref(),
             causal_guidance.as_deref(),
             learned_patterns.as_deref(),
+            active_skill_gate.as_ref(),
         );
 
         let payload = PromptInspectionPayload {
@@ -493,5 +557,36 @@ impl AgentEngine {
         };
 
         serde_json::to_string(&payload).map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_active_skill_gate_section;
+
+    #[test]
+    fn active_skill_gate_section_includes_key_gate_fields() {
+        let rendered =
+            render_active_skill_gate_section(&crate::agent::types::LatestSkillDiscoveryState {
+                query: "debug panic".to_string(),
+                confidence_tier: "strong".to_string(),
+                recommended_skill: Some("systematic-debugging".to_string()),
+                recommended_action: "request_approval systematic-debugging".to_string(),
+                mesh_next_step: Some(crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill),
+                mesh_requires_approval: true,
+                mesh_approval_id: Some("approval-1".to_string()),
+                read_skill_identifier: Some("systematic-debugging".to_string()),
+                skip_rationale: None,
+                discovery_pending: false,
+                skill_read_completed: true,
+                compliant: false,
+                updated_at: 1,
+            });
+
+        assert!(rendered.contains("Query: debug panic"));
+        assert!(rendered.contains("Skill: systematic-debugging"));
+        assert!(rendered.contains("Next action: request_approval systematic-debugging"));
+        assert!(rendered.contains("Approval required: yes"));
+        assert!(rendered.contains("Skill already read: yes"));
     }
 }

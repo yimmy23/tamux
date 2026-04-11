@@ -326,7 +326,10 @@ mod tests {
 
     #[test]
     fn stage_label_cycles_through_loading_states() {
-        assert_eq!(stage_label(&CONCIERGE_STAGES, 0), "Reading the ember-thread");
+        assert_eq!(
+            stage_label(&CONCIERGE_STAGES, 0),
+            "Reading the ember-thread"
+        );
         assert_eq!(
             stage_label(&CONCIERGE_STAGES, 28),
             "Gathering sparks from recent memory"

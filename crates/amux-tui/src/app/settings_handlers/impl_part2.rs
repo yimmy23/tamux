@@ -255,6 +255,10 @@ impl TuiModel {
         self.apply_provider_selection_internal(provider_id, true);
     }
 
+    pub(super) fn apply_provider_selection_without_sync(&mut self, provider_id: &str) {
+        self.apply_provider_selection_internal(provider_id, false);
+    }
+
     pub(super) fn run_auth_tab_action(&mut self) {
         let Some(entry) = self.auth.entries.get(self.auth.selected).cloned() else {
             return;

@@ -717,12 +717,25 @@ mod tests {
         let value = parse_skill_discovery_event(DaemonMessage::SkillDiscoverResult {
             result_json: serde_json::json!({
                 "query": "debug panic",
+                "normalized_intent": "debug panic root cause",
                 "required": true,
                 "confidence_tier": "strong",
                 "recommended_action": "read_skill systematic-debugging",
+                "requires_approval": false,
+                "mesh_state": "fresh",
+                "rationale": ["matched debug intent"],
+                "capability_family": ["development", "debugging"],
                 "explicit_rationale_required": false,
                 "workspace_tags": ["rust"],
-                "candidates": [],
+                "candidates": [{
+                    "skill_name": "systematic-debugging",
+                    "matched_intents": ["debug panic root cause"],
+                    "matched_trigger_phrases": ["panic"],
+                    "risk_level": "low",
+                    "trust_tier": "trusted_builtin",
+                    "source_kind": "builtin",
+                    "recommended_action": "read_skill systematic-debugging"
+                }],
                 "next_cursor": "cursor:skill-2"
             })
             .to_string(),
@@ -731,7 +744,11 @@ mod tests {
         .expect("payload should parse");
 
         assert_eq!(value["query"], "debug panic");
+        assert_eq!(value["normalized_intent"], "debug panic root cause");
         assert_eq!(value["confidence_tier"], "strong");
+        assert_eq!(value["mesh_state"], "fresh");
+        assert_eq!(value["capability_family"][0], "development");
+        assert_eq!(value["candidates"][0]["trust_tier"], "trusted_builtin");
         assert_eq!(value["next_cursor"], "cursor:skill-2");
     }
 }

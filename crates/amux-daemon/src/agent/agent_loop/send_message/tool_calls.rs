@@ -250,6 +250,8 @@ impl<'a> SendMessageRunner<'a> {
     ) {
         let mut threads = self.engine.threads.write().await;
         if let Some(thread) = threads.get_mut(&self.tid) {
+            let author_agent_id = current_agent_scope_id();
+            let author_agent_name = canonical_agent_name(&author_agent_id).to_string();
             self.assistant_output_visible = true;
             thread.messages.push(AgentMessage {
                 id: generate_message_id(),
@@ -269,10 +271,14 @@ impl<'a> SendMessageRunner<'a> {
                 response_id,
                 upstream_message,
                 provider_final_result,
+                author_agent_id: Some(author_agent_id),
+                author_agent_name: Some(author_agent_name),
                 reasoning: msg_reasoning,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,
                 compaction_payload: None,
+                offloaded_payload_id: None,
+                structural_refs: Vec::new(),
                 timestamp: now_millis(),
             });
             thread.total_input_tokens += input_tokens.unwrap_or(0);
@@ -310,10 +316,14 @@ impl<'a> SendMessageRunner<'a> {
                 response_id: None,
                 upstream_message: None,
                 provider_final_result: None,
+                author_agent_id: None,
+                author_agent_name: None,
                 reasoning: None,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,
                 compaction_payload: None,
+                offloaded_payload_id: None,
+                structural_refs: Vec::new(),
                 timestamp: now_millis(),
             });
         }
@@ -347,7 +357,38 @@ impl<'a> SendMessageRunner<'a> {
             return false;
         }
 
-        if state.confidence_tier.eq_ignore_ascii_case("strong") {
+        if state.is_discovery_pending() {
+            self.engine.emit_workflow_notice(
+                &self.tid,
+                "skill-gate",
+                format!(
+                    "Skill discovery is still running asynchronously before `{}`; allowing the tool call to proceed for now.",
+                    tc.function.name
+                ),
+                serde_json::to_string(&state).ok(),
+            );
+            return false;
+        }
+
+        if state.mesh_requires_approval {
+            let denied_content = format!(
+                "Tool call blocked by skill discovery governance. Before `{}` you must obtain approval for `{}`.",
+                tc.function.name, state.recommended_action
+            );
+            self.engine.emit_workflow_notice(
+                &self.tid,
+                "skill-gate",
+                format!(
+                    "Skill discovery requires approval before `{}`. Required next step: {}.",
+                    tc.function.name, state.recommended_action
+                ),
+                serde_json::to_string(&state).ok(),
+            );
+            self.persist_denied_tool_result(tc, denied_content).await;
+            return true;
+        }
+
+        if state.requires_skill_read_before_progress() {
             let denied_content = format!(
                 "Tool call blocked by skill discovery gate. Before `{}` you must `{}`.",
                 tc.function.name, state.recommended_action
@@ -368,7 +409,7 @@ impl<'a> SendMessageRunner<'a> {
         self.engine.emit_workflow_notice(
             &self.tid,
             "skill-gate",
-            if state.confidence_tier.eq_ignore_ascii_case("weak") {
+            if state.has_advisory_skill_read() {
                 format!(
                     "Weak skill discovery recommends `{}` before `{}`; allowing the tool call to proceed.",
                     state.recommended_action, tc.function.name

@@ -204,3 +204,202 @@ async fn hydrate_async_syncs_seeded_builtin_skills_into_catalog() {
     .await
     .expect("built-in skill sync should complete in the background");
 }
+
+#[tokio::test]
+async fn hydrate_restores_repo_watchers_without_duplicate_root_watchers() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let repo_one = root.path().join("repo-one");
+    let repo_two = root.path().join("repo-two");
+    std::fs::create_dir_all(&repo_one).expect("create repo one");
+    std::fs::create_dir_all(&repo_two).expect("create repo two");
+
+    let contexts = HashMap::from([
+        (
+            "thread-1".to_string(),
+            ThreadWorkContext {
+                thread_id: "thread-1".to_string(),
+                entries: vec![WorkContextEntry {
+                    path: "alpha.rs".to_string(),
+                    previous_path: None,
+                    kind: WorkContextEntryKind::RepoChange,
+                    source: "test".to_string(),
+                    change_kind: None,
+                    repo_root: Some(repo_one.to_string_lossy().to_string()),
+                    goal_run_id: None,
+                    step_index: None,
+                    session_id: None,
+                    is_text: true,
+                    updated_at: 1,
+                }],
+            },
+        ),
+        (
+            "thread-2".to_string(),
+            ThreadWorkContext {
+                thread_id: "thread-2".to_string(),
+                entries: vec![WorkContextEntry {
+                    path: "beta.rs".to_string(),
+                    previous_path: None,
+                    kind: WorkContextEntryKind::RepoChange,
+                    source: "test".to_string(),
+                    change_kind: None,
+                    repo_root: Some(repo_one.to_string_lossy().to_string()),
+                    goal_run_id: None,
+                    step_index: None,
+                    session_id: None,
+                    is_text: true,
+                    updated_at: 2,
+                }],
+            },
+        ),
+        (
+            "thread-3".to_string(),
+            ThreadWorkContext {
+                thread_id: "thread-3".to_string(),
+                entries: vec![WorkContextEntry {
+                    path: "gamma.rs".to_string(),
+                    previous_path: None,
+                    kind: WorkContextEntryKind::RepoChange,
+                    source: "test".to_string(),
+                    change_kind: None,
+                    repo_root: Some(repo_two.to_string_lossy().to_string()),
+                    goal_run_id: None,
+                    step_index: None,
+                    session_id: None,
+                    is_text: true,
+                    updated_at: 3,
+                }],
+            },
+        ),
+    ]);
+    tokio::fs::write(
+        engine.data_dir.join("work-context.json"),
+        serde_json::to_string_pretty(&contexts).expect("serialize work contexts"),
+    )
+    .await
+    .expect("write work contexts");
+
+    engine.hydrate().await.expect("hydrate should succeed");
+
+    let immediate_watcher_count = engine.repo_watchers.lock().await.len();
+    assert!(
+        immediate_watcher_count <= 2,
+        "hydrate should not restore more than one watcher per repo root"
+    );
+
+    let repo_one_key = std::fs::canonicalize(&repo_one)
+        .expect("canonicalize repo one")
+        .to_string_lossy()
+        .to_string();
+    let repo_two_key = std::fs::canonicalize(&repo_two)
+        .expect("canonicalize repo two")
+        .to_string_lossy()
+        .to_string();
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let membership = {
+                let watchers = engine.repo_watchers.lock().await;
+                if watchers.len() != 2 {
+                    None
+                } else {
+                    let repo_one_threads = watchers
+                        .get(&repo_one_key)
+                        .map(|entry| {
+                            entry
+                                .thread_ids
+                                .lock()
+                                .expect("repo one watcher membership")
+                                .clone()
+                        })
+                        .unwrap_or_default();
+                    let repo_two_threads = watchers
+                        .get(&repo_two_key)
+                        .map(|entry| {
+                            entry
+                                .thread_ids
+                                .lock()
+                                .expect("repo two watcher membership")
+                                .clone()
+                        })
+                        .unwrap_or_default();
+                    Some((repo_one_threads, repo_two_threads))
+                }
+            };
+
+            if let Some((repo_one_threads, repo_two_threads)) = membership {
+                if repo_one_threads
+                    == HashSet::from(["thread-1".to_string(), "thread-2".to_string()])
+                    && repo_two_threads == HashSet::from(["thread-3".to_string()])
+                {
+                    break;
+                }
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("repo watcher restoration should finish in the background");
+}
+
+#[tokio::test]
+async fn remove_repo_watcher_keeps_shared_root_watcher_until_last_thread_leaves() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let repo_root = root.path().join("shared-repo");
+    std::fs::create_dir_all(&repo_root).expect("create shared repo");
+    let repo_key = std::fs::canonicalize(&repo_root)
+        .expect("canonicalize shared repo")
+        .to_string_lossy()
+        .to_string();
+
+    engine
+        .ensure_repo_watcher("thread-1", &repo_root.to_string_lossy())
+        .await;
+    engine
+        .ensure_repo_watcher("thread-2", &repo_root.to_string_lossy())
+        .await;
+
+    {
+        let watchers = engine.repo_watchers.lock().await;
+        let entry = watchers
+            .get(&repo_key)
+            .expect("shared watcher should exist");
+        assert_eq!(watchers.len(), 1);
+        assert_eq!(
+            entry
+                .thread_ids
+                .lock()
+                .expect("shared watcher membership")
+                .clone(),
+            HashSet::from(["thread-1".to_string(), "thread-2".to_string()])
+        );
+    }
+
+    engine.remove_repo_watcher("thread-1").await;
+
+    {
+        let watchers = engine.repo_watchers.lock().await;
+        let entry = watchers
+            .get(&repo_key)
+            .expect("shared watcher should remain for thread-2");
+        assert_eq!(watchers.len(), 1);
+        assert_eq!(
+            entry
+                .thread_ids
+                .lock()
+                .expect("remaining watcher membership")
+                .clone(),
+            HashSet::from(["thread-2".to_string()])
+        );
+    }
+
+    engine.remove_repo_watcher("thread-2").await;
+    assert!(engine.repo_watchers.lock().await.is_empty());
+}

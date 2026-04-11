@@ -261,4 +261,90 @@ mod tests {
         assert!(err.to_string().contains("daemon message too large for IPC"));
         assert!(!daemon_message_fits_ipc(&msg));
     }
+
+    #[test]
+    fn client_codec_round_trips_internal_delegate_message() {
+        let mut client_codec = AmuxCodec::default();
+        let mut daemon_codec = DaemonCodec::default();
+        let mut frame = BytesMut::new();
+
+        client_codec
+            .encode(
+                ClientMessage::AgentInternalDelegate {
+                    thread_id: Some("thread-1".to_string()),
+                    target_agent_id: "weles".to_string(),
+                    content: "investigate this".to_string(),
+                    session_id: Some("sess-1".to_string()),
+                    client_surface: Some(crate::ClientSurface::Tui),
+                },
+                &mut frame,
+            )
+            .expect("encode internal delegate");
+
+        match daemon_codec
+            .decode(&mut frame)
+            .expect("decode internal delegate")
+        {
+            Some(ClientMessage::AgentInternalDelegate {
+                thread_id,
+                target_agent_id,
+                content,
+                session_id,
+                client_surface,
+            }) => {
+                assert_eq!(thread_id.as_deref(), Some("thread-1"));
+                assert_eq!(target_agent_id, "weles");
+                assert_eq!(content, "investigate this");
+                assert_eq!(session_id.as_deref(), Some("sess-1"));
+                assert_eq!(client_surface, Some(crate::ClientSurface::Tui));
+            }
+            other => panic!("expected internal delegate message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn client_codec_round_trips_thread_participant_command_message() {
+        let mut client_codec = AmuxCodec::default();
+        let mut daemon_codec = DaemonCodec::default();
+        let mut frame = BytesMut::new();
+
+        client_codec
+            .encode(
+                ClientMessage::AgentThreadParticipantCommand {
+                    thread_id: "thread-2".to_string(),
+                    target_agent_id: "rarog".to_string(),
+                    action: "upsert".to_string(),
+                    instruction: Some("watch performance regressions".to_string()),
+                    session_id: Some("sess-2".to_string()),
+                    client_surface: Some(crate::ClientSurface::Tui),
+                },
+                &mut frame,
+            )
+            .expect("encode participant command");
+
+        match daemon_codec
+            .decode(&mut frame)
+            .expect("decode participant command")
+        {
+            Some(ClientMessage::AgentThreadParticipantCommand {
+                thread_id,
+                target_agent_id,
+                action,
+                instruction,
+                session_id,
+                client_surface,
+            }) => {
+                assert_eq!(thread_id, "thread-2");
+                assert_eq!(target_agent_id, "rarog");
+                assert_eq!(action, "upsert");
+                assert_eq!(
+                    instruction.as_deref(),
+                    Some("watch performance regressions")
+                );
+                assert_eq!(session_id.as_deref(), Some("sess-2"));
+                assert_eq!(client_surface, Some(crate::ClientSurface::Tui));
+            }
+            other => panic!("expected participant command message, got {other:?}"),
+        }
+    }
 }

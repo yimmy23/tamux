@@ -150,6 +150,9 @@ fn default_generated_tool_output_kb() -> usize {
 fn default_snapshot_max_total_size_mb() -> u64 {
     10_240
 }
+fn default_offload_tool_result_threshold_bytes() -> usize {
+    50 * 1024
+}
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -193,6 +196,7 @@ impl Default for AgentConfig {
             providers: HashMap::new(),
             gateway: GatewayConfig::default(),
             snapshot_retention: SnapshotRetentionSettings::default(),
+            offload_tool_result_threshold_bytes: default_offload_tool_result_threshold_bytes(),
             agent_backend: AgentBackend::default(),
             sub_agents: Vec::new(),
             builtin_sub_agents: BuiltinSubAgentOverrides::default(),

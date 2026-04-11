@@ -164,10 +164,14 @@ impl AgentEngine {
                     response_id: metadata.response_id,
                     upstream_message: metadata.upstream_message,
                     provider_final_result: metadata.provider_final_result,
+                    author_agent_id: metadata.author_agent_id,
+                    author_agent_name: metadata.author_agent_name,
                     reasoning: msg.reasoning.clone(),
                     message_kind: metadata.message_kind,
                     compaction_strategy: metadata.compaction_strategy,
                     compaction_payload: metadata.compaction_payload,
+                    offloaded_payload_id: metadata.offloaded_payload_id,
+                    structural_refs: metadata.structural_refs,
                     timestamp: msg.created_at as u64,
                 })
             })
@@ -353,10 +357,14 @@ impl AgentEngine {
                     response_id: metadata.response_id,
                     upstream_message: metadata.upstream_message,
                     provider_final_result: metadata.provider_final_result,
+                    author_agent_id: metadata.author_agent_id,
+                    author_agent_name: metadata.author_agent_name,
                     reasoning: msg.reasoning,
                     message_kind: metadata.message_kind,
                     compaction_strategy: metadata.compaction_strategy,
                     compaction_payload: metadata.compaction_payload,
+                    offloaded_payload_id: metadata.offloaded_payload_id,
+                    structural_refs: metadata.structural_refs,
                     timestamp: msg.created_at as u64,
                 })
             })
@@ -447,7 +455,7 @@ impl AgentEngine {
         content: &str,
         client_surface: Option<amux_protocol::ClientSurface>,
     ) -> Result<String> {
-        Ok(Box::pin(self.send_message_inner(
+        let outcome = Box::pin(self.send_message_inner(
             thread_id,
             content,
             None,
@@ -458,8 +466,17 @@ impl AgentEngine {
             client_surface,
             true,
         ))
-        .await?
-        .thread_id)
+        .await?;
+        let thread_id = outcome.thread_id.clone();
+        if let Err(error) = self.run_participant_observers(&thread_id).await {
+            let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                thread_id: thread_id.clone(),
+                kind: "participant_observer_error".to_string(),
+                message: "participant observers failed".to_string(),
+                details: Some(error.to_string()),
+            });
+        }
+        Ok(thread_id)
     }
 
     pub async fn send_message_with_session_surface_and_target(

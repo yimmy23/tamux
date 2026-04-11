@@ -17,7 +17,8 @@ use amux_protocol::{AmuxCodec, ClientMessage, DaemonMessage};
 
 use crate::wire::{
     AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
-    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadWorkContext,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
 };
 
 #[cfg(unix)]
@@ -72,6 +73,10 @@ pub enum ClientEvent {
     },
     ThreadReloadRequired {
         thread_id: String,
+    },
+    ParticipantSuggestion {
+        thread_id: String,
+        suggestion: ThreadParticipantSuggestion,
     },
     TaskList(Vec<AgentTask>),
     TaskUpdate(AgentTask),

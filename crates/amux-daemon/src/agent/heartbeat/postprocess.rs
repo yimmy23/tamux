@@ -199,6 +199,13 @@ impl AgentEngine {
         if let Some(ref result) = consolidation_result {
             tracing::info!(
                 traces = result.traces_reviewed,
+                distillation_ran = result.distillation_ran,
+                distillation_threads = result.distillation_threads_analyzed,
+                distillation_applied = result.distillation_auto_applied,
+                forge_ran = result.forge_ran,
+                forge_traces = result.forge_traces_analyzed,
+                forge_patterns = result.forge_patterns_detected,
+                forge_applied = result.forge_hints_auto_applied,
                 decayed = result.facts_decayed,
                 tombstones = result.tombstones_purged,
                 refined = result.facts_refined,

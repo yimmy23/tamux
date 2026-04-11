@@ -204,6 +204,35 @@ async fn prepare_provider_model_json_validates_without_mutating_runtime_config()
 }
 
 #[tokio::test]
+async fn prepare_agent_provider_model_json_updates_builtin_persona_overrides() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut config = engine.get_config().await;
+    config.api_key = "sk-test".to_string();
+    engine.set_config(config).await;
+
+    let prepared = engine
+        .prepare_agent_provider_model_json("swarozyc", PROVIDER_ID_OPENAI, "gpt-5.4-mini")
+        .await
+        .expect("builtin persona provider/model preparation should succeed");
+
+    assert_eq!(
+        prepared.builtin_sub_agents.swarozyc.provider.as_deref(),
+        Some(PROVIDER_ID_OPENAI)
+    );
+    assert_eq!(
+        prepared.builtin_sub_agents.swarozyc.model.as_deref(),
+        Some("gpt-5.4-mini")
+    );
+
+    let current = engine.get_config().await;
+    assert!(current.builtin_sub_agents.swarozyc.provider.is_none());
+    assert!(current.builtin_sub_agents.swarozyc.model.is_none());
+}
+
+#[tokio::test]
 async fn persisted_config_is_visible_while_runtime_reconcile_is_still_in_flight() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

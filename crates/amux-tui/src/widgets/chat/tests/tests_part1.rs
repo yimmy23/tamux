@@ -183,7 +183,7 @@ fn read_file_tool_row_renders_clickable_path_chip() {
     let text = rendered_line_plain_text(tool_line);
 
     assert!(text.contains("read_file"));
-    println!("TEXT: {}", text); assert!(text.contains("[demo.txt]"));
+    assert!(text.contains("[demo.txt]"));
     assert!(!text.contains("[/tmp/demo.txt]"));
 }
 
@@ -228,7 +228,90 @@ fn edit_tool_row_renders_clickable_path_chip() {
     let text = rendered_line_plain_text(tool_line);
 
     assert!(text.contains("write_file"));
-    assert!(text.contains("[/tmp/demo.txt]"));
+    assert!(text.contains("[demo.txt]"));
+    assert!(!text.contains("[/tmp/demo.txt]"));
+}
+
+#[test]
+fn all_file_mutation_tool_rows_use_filename_chip() {
+    let cases = [
+        (
+            "create_file",
+            serde_json::json!({
+                "path": "/tmp/demo.txt",
+                "content": "hello"
+            })
+            .to_string(),
+        ),
+        (
+            "append_to_file",
+            serde_json::json!({
+                "path": "/tmp/demo.txt",
+                "content": "hello"
+            })
+            .to_string(),
+        ),
+        (
+            "replace_in_file",
+            serde_json::json!({
+                "path": "/tmp/demo.txt",
+                "old_text": "old",
+                "new_text": "new"
+            })
+            .to_string(),
+        ),
+        (
+            "apply_file_patch",
+            serde_json::json!({
+                "path": "/tmp/demo.txt",
+                "edits": [
+                    {
+                        "old_text": "old",
+                        "new_text": "new"
+                    }
+                ]
+            })
+            .to_string(),
+        ),
+        (
+            "apply_patch",
+            serde_json::json!({
+                "input": "*** Begin Patch\n*** Update File: /tmp/demo.txt\n@@\n-old\n+new\n*** End Patch"
+            })
+            .to_string(),
+        ),
+    ];
+
+    for (tool_name, tool_arguments) in cases {
+        let chat = chat_with_messages(vec![AgentMessage {
+            role: MessageRole::Tool,
+            tool_name: Some(tool_name.into()),
+            tool_arguments: Some(tool_arguments),
+            tool_status: Some("done".into()),
+            content: "ok".into(),
+            ..Default::default()
+        }]);
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+        let tool_line = lines
+            .iter()
+            .find(|line| {
+                line.message_index == Some(0)
+                    && matches!(line.kind, RenderedLineKind::ToolToggle)
+            })
+            .expect("tool row should be rendered");
+        let text = rendered_line_plain_text(tool_line);
+
+        assert!(text.contains(tool_name), "expected tool name in row: {text}");
+        assert!(
+            text.contains("[demo.txt]"),
+            "expected filename chip for {tool_name}, got: {text}"
+        );
+        assert!(
+            !text.contains("[/tmp/demo.txt]"),
+            "unexpected full path chip for {tool_name}, got: {text}"
+        );
+    }
 }
 
 #[test]
@@ -261,7 +344,7 @@ fn apply_file_patch_tool_row_uses_filename_chip() {
     let text = rendered_line_plain_text(tool_line);
 
     assert!(text.contains("apply_file_patch"));
-    println!("TEXT: {}", text); assert!(text.contains("[demo.txt]"));
+    assert!(text.contains("[demo.txt]"));
     assert!(!text.contains("[/tmp/demo.txt]"));
 }
 

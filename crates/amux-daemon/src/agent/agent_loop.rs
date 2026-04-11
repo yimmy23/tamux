@@ -11,7 +11,7 @@ mod policy;
 #[path = "agent_loop/recovery.rs"]
 mod recovery;
 #[path = "agent_loop/send_message/mod.rs"]
-mod send_message;
+pub(crate) mod send_message;
 #[path = "agent_loop/thread_state.rs"]
 mod thread_state;
 

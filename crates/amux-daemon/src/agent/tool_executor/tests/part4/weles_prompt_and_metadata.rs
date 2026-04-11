@@ -116,6 +116,7 @@ fn weles_governance_prompt_prepends_core_and_appends_operator_suffix() {
                 system_prompt: Some("Operator WELES override".to_string()),
                 ..Default::default()
             },
+            ..Default::default()
         },
         ..AgentConfig::default()
     };

@@ -696,7 +696,10 @@ fn operator_question_message_accepts_lowercase_compact_labels_and_matches_answer
 
     let plain = plain_lines(&lines).join("\n");
 
-    assert!(plain.contains("[a] proceed"), "expected lowercase option label, got: {plain}");
+    assert!(
+        plain.contains("[a] proceed"),
+        "expected lowercase option label, got: {plain}"
+    );
     assert!(
         plain.contains("[b1] revise"),
         "expected lowercase alphanumeric option label, got: {plain}"

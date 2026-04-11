@@ -7,7 +7,7 @@ impl HistoryStore {
         task_id: Option<&str>,
         goal_run_id: Option<&str>,
         outcome: &str,
-    ) -> Result<usize> {
+    ) -> Result<(usize, Vec<String>)> {
         let normalized_outcome = outcome.trim().to_ascii_lowercase();
         if !matches!(
             normalized_outcome.as_str(),
@@ -96,7 +96,7 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
         if pending_len == 0 {
-            return Ok(0);
+            return Ok((0, Vec::new()));
         }
 
         self.append_telemetry(
@@ -113,14 +113,14 @@ impl HistoryStore {
         )
         .await?;
 
-        for skill_name in skill_names {
+        for skill_name in &skill_names {
             let _ = self.rebalance_skill_variants(&skill_name).await;
             if normalized_outcome == "success" {
                 let _ = self.maybe_branch_skill_variants(&skill_name).await;
                 let _ = self.maybe_merge_skill_variants(&skill_name).await;
             }
         }
-        Ok(pending_len)
+        Ok((pending_len, skill_names.into_iter().collect()))
     }
 
     pub async fn rebalance_skill_variants(

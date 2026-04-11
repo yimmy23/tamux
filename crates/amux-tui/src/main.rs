@@ -288,6 +288,46 @@ fn start_daemon_bridge(
                                     target_agent_id,
                                 );
                             }
+                            DaemonCommand::InternalDelegate {
+                                thread_id,
+                                target_agent_id,
+                                content,
+                                session_id,
+                            } => {
+                                let _ = client.send_internal_delegate(
+                                    thread_id,
+                                    target_agent_id,
+                                    content,
+                                    session_id,
+                                );
+                            }
+                            DaemonCommand::ThreadParticipantCommand {
+                                thread_id,
+                                target_agent_id,
+                                action,
+                                instruction,
+                                session_id,
+                            } => {
+                                let _ = client.send_thread_participant_command(
+                                    thread_id,
+                                    target_agent_id,
+                                    action,
+                                    instruction,
+                                    session_id,
+                                );
+                            }
+                            DaemonCommand::SendParticipantSuggestion {
+                                thread_id,
+                                suggestion_id,
+                            } => {
+                                let _ = client.send_participant_suggestion(thread_id, suggestion_id);
+                            }
+                            DaemonCommand::DismissParticipantSuggestion {
+                                thread_id,
+                                suggestion_id,
+                            } => {
+                                let _ = client.dismiss_participant_suggestion(thread_id, suggestion_id);
+                            }
                             DaemonCommand::StopStream { thread_id } => {
                                 let _ = client.stop_stream(thread_id);
                             }
@@ -309,6 +349,17 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::SetProviderModel { provider_id, model } => {
                                 let _ = client.set_provider_model(provider_id, model);
+                            }
+                            DaemonCommand::SetTargetAgentProviderModel {
+                                target_agent_id,
+                                provider_id,
+                                model,
+                            } => {
+                                let _ = client.set_target_agent_provider_model(
+                                    target_agent_id,
+                                    provider_id,
+                                    model,
+                                );
                             }
                             DaemonCommand::ControlGoalRun { goal_run_id, action } => {
                                 let _ = client.control_goal_run(goal_run_id, action);

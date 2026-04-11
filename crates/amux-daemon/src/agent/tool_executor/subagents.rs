@@ -341,6 +341,38 @@ async fn execute_list_agents(agent: &AgentEngine) -> Result<String> {
             "model": config.builtin_sub_agents.weles.model.clone().unwrap_or_else(|| config.model.clone()),
             "switchable": true
         }),
+        serde_json::json!({
+            "agent": crate::agent::agent_identity::SWAROZYC_AGENT_ID,
+            "name": crate::agent::agent_identity::SWAROZYC_AGENT_NAME,
+            "kind": "builtin",
+            "provider": config.builtin_sub_agents.swarozyc.provider.clone(),
+            "model": config.builtin_sub_agents.swarozyc.model.clone(),
+            "switchable": true
+        }),
+        serde_json::json!({
+            "agent": crate::agent::agent_identity::RADOGOST_AGENT_ID,
+            "name": crate::agent::agent_identity::RADOGOST_AGENT_NAME,
+            "kind": "builtin",
+            "provider": config.builtin_sub_agents.radogost.provider.clone(),
+            "model": config.builtin_sub_agents.radogost.model.clone(),
+            "switchable": true
+        }),
+        serde_json::json!({
+            "agent": crate::agent::agent_identity::DOMOWOJ_AGENT_ID,
+            "name": crate::agent::agent_identity::DOMOWOJ_AGENT_NAME,
+            "kind": "builtin",
+            "provider": config.builtin_sub_agents.domowoj.provider.clone(),
+            "model": config.builtin_sub_agents.domowoj.model.clone(),
+            "switchable": true
+        }),
+        serde_json::json!({
+            "agent": crate::agent::agent_identity::SWIETOWIT_AGENT_ID,
+            "name": crate::agent::agent_identity::SWIETOWIT_AGENT_NAME,
+            "kind": "builtin",
+            "provider": config.builtin_sub_agents.swietowit.provider.clone(),
+            "model": config.builtin_sub_agents.swietowit.model.clone(),
+            "switchable": true
+        }),
     ];
 
     for sub_agent in agent.list_sub_agents().await {

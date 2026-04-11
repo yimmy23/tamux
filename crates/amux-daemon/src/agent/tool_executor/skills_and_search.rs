@@ -206,7 +206,9 @@ async fn execute_read_skill(
         .clamp(20, 1000) as usize;
     let skills_root = super::skills_dir(agent_data_dir);
     sync_skill_catalog(&skills_root, history).await?;
-    let context_tags = resolve_skill_context_tags(session_manager, session_id).await;
+    let context_tags =
+        resolve_skill_context_tags(agent.workspace_root.as_ref(), session_manager, session_id)
+            .await;
     let variant = history.resolve_skill_variant(skill, &context_tags).await?;
     let candidate_variants = match variant.as_ref() {
         Some(selected) => history
@@ -265,13 +267,27 @@ async fn execute_read_skill(
             "\n\n... (truncated, showing {max_lines} of {total_lines} lines)"
         ));
     }
-    let compliance_identifier = variant
-        .as_ref()
-        .map(|entry| entry.skill_name.as_str())
-        .unwrap_or(skill);
-    let _ = agent
-        .record_thread_skill_read_compliance(thread_id, compliance_identifier)
-        .await;
+    if let Some(variant) = variant.as_ref() {
+        let first_state = agent
+            .record_thread_skill_read_compliance(thread_id, &variant.variant_id)
+            .await;
+        let allow_legacy_name_fallback = first_state.as_ref().is_some_and(|state| {
+            !state.compliant
+                && state
+                    .recommended_skill
+                    .as_deref()
+                    .is_some_and(|recommended| recommended.eq_ignore_ascii_case(&variant.skill_name))
+        });
+        if allow_legacy_name_fallback {
+            let _ = agent
+                .record_thread_skill_read_compliance(thread_id, &variant.skill_name)
+                .await;
+        }
+    } else {
+        let _ = agent
+            .record_thread_skill_read_compliance(thread_id, skill)
+            .await;
+    }
     Ok(body)
 }
 

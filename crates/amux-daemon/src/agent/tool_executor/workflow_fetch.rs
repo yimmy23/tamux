@@ -192,6 +192,7 @@ async fn sync_skill_catalog(
 }
 
 async fn resolve_skill_context_tags(
+    workspace_root: Option<&PathBuf>,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
 ) -> Vec<String> {
@@ -205,6 +206,7 @@ async fn resolve_skill_context_tags(
     } else {
         None
     }
+    .or_else(|| workspace_root.cloned())
     .or_else(|| std::env::current_dir().ok());
 
     root.filter(|path| path.is_dir())

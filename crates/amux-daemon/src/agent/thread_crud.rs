@@ -244,7 +244,13 @@ impl AgentEngine {
         if removed {
             self.clear_thread_client_surface(thread_id).await;
             self.clear_thread_skill_discovery_state(thread_id).await;
+            self.clear_thread_structural_memory(thread_id).await;
             self.thread_handoff_states.write().await.remove(thread_id);
+            self.thread_participants.write().await.remove(thread_id);
+            self.thread_participant_suggestions
+                .write()
+                .await
+                .remove(thread_id);
             self.remove_repo_watcher(thread_id).await;
             self.thread_todos.write().await.remove(thread_id);
             self.thread_work_contexts.write().await.remove(thread_id);

@@ -168,7 +168,8 @@ triggers: [service crash]
 }
 
 #[tokio::test]
-async fn confidence_tier_is_none_and_action_is_none_when_scores_do_not_clear_threshold() -> Result<()> {
+async fn confidence_tier_is_none_and_action_is_none_when_scores_do_not_clear_threshold(
+) -> Result<()> {
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;
     let skills_root = root.path().join("skills");
@@ -243,7 +244,10 @@ triggers: [fix bug, failing test, root cause]
     .await?;
 
     assert_eq!(result.confidence, SkillRecommendationConfidence::Strong);
-    assert_eq!(result.recommended_action, SkillRecommendationAction::ReadSkill);
+    assert_eq!(
+        result.recommended_action,
+        SkillRecommendationAction::ReadSkill
+    );
 
     Ok(())
 }

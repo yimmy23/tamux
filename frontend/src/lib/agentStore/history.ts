@@ -57,6 +57,8 @@ type AgentDbMessageRecord = {
 export type RemoteAgentMessageRecord = {
   role?: AgentRole;
   content?: string;
+  author_agent_id?: string | null;
+  author_agent_name?: string | null;
   provider?: string | null;
   model?: string | null;
   api_transport?: string | null;
@@ -91,6 +93,27 @@ export type RemoteAgentThreadRecord = {
   updated_at?: number | null;
   total_input_tokens?: number | null;
   total_output_tokens?: number | null;
+  thread_participants?: Array<{
+    agent_id?: string;
+    agent_name?: string;
+    instruction?: string;
+    status?: "active" | "inactive";
+    created_at?: number | null;
+    updated_at?: number | null;
+    deactivated_at?: number | null;
+    last_contribution_at?: number | null;
+  }>;
+  queued_participant_suggestions?: Array<{
+    id?: string;
+    target_agent_id?: string;
+    target_agent_name?: string;
+    instruction?: string;
+    force_send?: boolean;
+    status?: "queued" | "failed";
+    created_at?: number | null;
+    updated_at?: number | null;
+    error?: string | null;
+  }>;
 };
 
 export function isHiddenAgentThread(thread: Pick<RemoteAgentThreadRecord, "id" | "title">): boolean {
@@ -177,6 +200,8 @@ export function buildHydratedRemoteMessage(
     createdAt: Number(message.timestamp ?? Date.now()),
     role: message.role ?? "assistant",
     content: typeof message.content === "string" ? message.content : "",
+    authorAgentId: typeof message.author_agent_id === "string" ? message.author_agent_id : undefined,
+    authorAgentName: typeof message.author_agent_name === "string" ? message.author_agent_name : undefined,
     provider,
     model: typeof message.model === "string" ? message.model : undefined,
     api_transport: typeof message.api_transport === "string"
@@ -274,6 +299,40 @@ export function buildHydratedRemoteThread(
       upstreamAssistantId: typeof thread.upstream_assistant_id === "string"
         ? thread.upstream_assistant_id
         : null,
+      threadParticipants: Array.isArray(thread.thread_participants)
+        ? thread.thread_participants
+          .filter((participant) => typeof participant?.agent_id === "string" && typeof participant?.agent_name === "string")
+          .map((participant) => ({
+            agentId: participant.agent_id as string,
+            agentName: participant.agent_name as string,
+            instruction: typeof participant.instruction === "string" ? participant.instruction : "",
+            status: participant.status === "inactive" ? "inactive" : "active",
+            createdAt: Number(participant.created_at ?? Date.now()),
+            updatedAt: Number(participant.updated_at ?? Date.now()),
+            deactivatedAt: typeof participant.deactivated_at === "number" ? participant.deactivated_at : null,
+            lastContributionAt: typeof participant.last_contribution_at === "number"
+              ? participant.last_contribution_at
+              : null,
+          }))
+        : [],
+      queuedParticipantSuggestions: Array.isArray(thread.queued_participant_suggestions)
+        ? thread.queued_participant_suggestions
+          .filter((suggestion) =>
+            typeof suggestion?.id === "string"
+            && typeof suggestion?.target_agent_id === "string"
+            && typeof suggestion?.target_agent_name === "string")
+          .map((suggestion) => ({
+            id: suggestion.id as string,
+            targetAgentId: suggestion.target_agent_id as string,
+            targetAgentName: suggestion.target_agent_name as string,
+            instruction: typeof suggestion.instruction === "string" ? suggestion.instruction : "",
+            forceSend: Boolean(suggestion.force_send),
+            status: suggestion.status === "failed" ? "failed" : "queued",
+            createdAt: Number(suggestion.created_at ?? Date.now()),
+            updatedAt: Number(suggestion.updated_at ?? Date.now()),
+            error: typeof suggestion.error === "string" ? suggestion.error : null,
+          }))
+        : [],
     },
     messages,
   };
@@ -341,6 +400,8 @@ export function serializeThread(thread: AgentThread): AgentDbThreadRecord {
       upstreamProvider: thread.upstreamProvider ?? null,
       upstreamModel: thread.upstreamModel ?? null,
       upstreamAssistantId: thread.upstreamAssistantId ?? null,
+      threadParticipants: thread.threadParticipants ?? [],
+      queuedParticipantSuggestions: thread.queuedParticipantSuggestions ?? [],
     }),
   };
 }
@@ -371,6 +432,8 @@ export function serializeMessage(message: AgentMessage): AgentDbMessageRecord {
       reasoningTokens: message.reasoningTokens ?? null,
       audioTokens: message.audioTokens ?? null,
       videoTokens: message.videoTokens ?? null,
+      authorAgentId: message.authorAgentId ?? null,
+      authorAgentName: message.authorAgentName ?? null,
       cost: message.cost ?? null,
       tps: message.tps ?? null,
       isCompactionSummary: message.isCompactionSummary,
@@ -421,6 +484,10 @@ export function deserializeThread(thread: AgentDbThreadRecord): AgentThread {
       : null,
     upstreamModel: typeof metadata.upstreamModel === "string" ? metadata.upstreamModel : null,
     upstreamAssistantId: typeof metadata.upstreamAssistantId === "string" ? metadata.upstreamAssistantId : null,
+    threadParticipants: Array.isArray(metadata.threadParticipants) ? metadata.threadParticipants as AgentThread["threadParticipants"] : [],
+    queuedParticipantSuggestions: Array.isArray(metadata.queuedParticipantSuggestions)
+      ? metadata.queuedParticipantSuggestions as AgentThread["queuedParticipantSuggestions"]
+      : [],
   };
 }
 
@@ -445,6 +512,8 @@ export function deserializeMessage(message: AgentDbMessageRecord): AgentMessage 
     createdAt: message.created_at,
     role: message.role as AgentRole,
     content: message.content,
+    authorAgentId: typeof metadata.authorAgentId === "string" ? metadata.authorAgentId : undefined,
+    authorAgentName: typeof metadata.authorAgentName === "string" ? metadata.authorAgentName : undefined,
     provider: message.provider ?? undefined,
     model: message.model ?? undefined,
     api_transport: typeof metadata.api_transport === "string"

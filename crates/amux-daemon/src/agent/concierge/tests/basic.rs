@@ -98,7 +98,7 @@ fn resolve_concierge_provider_uses_shared_resolution_path() {
     config.assistant_id = "assistant-root".to_string();
     config.concierge.provider =
         Some(amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN.to_string());
-    config.concierge.model = Some("qwen3.5-plus".to_string());
+    config.concierge.model = Some("qwen3.6-plus".to_string());
     config.concierge.reasoning_effort = Some("high".to_string());
     config.providers.insert(
         amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN.to_string(),
@@ -131,7 +131,7 @@ fn resolve_concierge_provider_uses_shared_resolution_path() {
     let shared = resolve_provider_config_for(
         &config,
         amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN,
-        Some("qwen3.5-plus"),
+        Some("qwen3.6-plus"),
     )
     .expect("shared provider resolution should succeed");
     assert_eq!(resolved.base_url, shared.base_url);

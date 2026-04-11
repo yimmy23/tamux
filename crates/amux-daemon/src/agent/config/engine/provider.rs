@@ -22,6 +22,18 @@ impl AgentEngine {
             | crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID => {
                 crate::agent::agent_identity::WELES_AGENT_ID.to_string()
             }
+            crate::agent::agent_identity::SWAROZYC_AGENT_ID => {
+                crate::agent::agent_identity::SWAROZYC_AGENT_ID.to_string()
+            }
+            crate::agent::agent_identity::RADOGOST_AGENT_ID => {
+                crate::agent::agent_identity::RADOGOST_AGENT_ID.to_string()
+            }
+            crate::agent::agent_identity::DOMOWOJ_AGENT_ID => {
+                crate::agent::agent_identity::DOMOWOJ_AGENT_ID.to_string()
+            }
+            crate::agent::agent_identity::SWIETOWIT_AGENT_ID => {
+                crate::agent::agent_identity::SWIETOWIT_AGENT_ID.to_string()
+            }
             _ if normalized
                 == crate::agent::agent_identity::WELES_AGENT_NAME.to_ascii_lowercase() =>
             {
@@ -130,6 +142,34 @@ impl AgentEngine {
                 let mut updated = current;
                 updated.builtin_sub_agents.weles.provider = Some(provider_id.to_string());
                 updated.builtin_sub_agents.weles.model = Some(model.to_string());
+                Ok(updated)
+            }
+            crate::agent::agent_identity::SWAROZYC_AGENT_ID => {
+                self.validate_non_main_agent_provider_model(&current, provider_id, model)?;
+                let mut updated = current;
+                updated.builtin_sub_agents.swarozyc.provider = Some(provider_id.to_string());
+                updated.builtin_sub_agents.swarozyc.model = Some(model.to_string());
+                Ok(updated)
+            }
+            crate::agent::agent_identity::RADOGOST_AGENT_ID => {
+                self.validate_non_main_agent_provider_model(&current, provider_id, model)?;
+                let mut updated = current;
+                updated.builtin_sub_agents.radogost.provider = Some(provider_id.to_string());
+                updated.builtin_sub_agents.radogost.model = Some(model.to_string());
+                Ok(updated)
+            }
+            crate::agent::agent_identity::DOMOWOJ_AGENT_ID => {
+                self.validate_non_main_agent_provider_model(&current, provider_id, model)?;
+                let mut updated = current;
+                updated.builtin_sub_agents.domowoj.provider = Some(provider_id.to_string());
+                updated.builtin_sub_agents.domowoj.model = Some(model.to_string());
+                Ok(updated)
+            }
+            crate::agent::agent_identity::SWIETOWIT_AGENT_ID => {
+                self.validate_non_main_agent_provider_model(&current, provider_id, model)?;
+                let mut updated = current;
+                updated.builtin_sub_agents.swietowit.provider = Some(provider_id.to_string());
+                updated.builtin_sub_agents.swietowit.model = Some(model.to_string());
                 Ok(updated)
             }
             _ => {

@@ -191,7 +191,7 @@ export function MessageBubble({
         onMouseLeave={() => setHovered(false)}
       >
         {isAssistant && (
-          <div style={{ color: "#5ee7df", opacity: 0.95, marginBottom: 4, fontSize: 12 }}>{"> assistant"}</div>
+          <div style={{ color: "#5ee7df", opacity: 0.95, marginBottom: 4, fontSize: 12 }}>{`> ${message.authorAgentName || "assistant"}`}</div>
         )}
 
         {isAssistant && message.reasoning && (

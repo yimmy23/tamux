@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub(super) const WATCHER_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 pub(super) const IMPORT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -16,8 +17,10 @@ const DEFAULT_MAX_CANDIDATES: usize = 3;
 const DEFAULT_MAX_PAGES: usize = 3;
 const DEFAULT_RECENCY_WINDOW: Duration = Duration::from_secs(72 * 60 * 60);
 const STARTUP_STATE_FILE: &str = "aline-startup-state.json";
+pub(crate) const ALINE_STARTUP_WORKER_ARG: &str = "__tamux-aline-startup-worker";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum WatcherState {
     Running,
     Stopped,
@@ -63,7 +66,8 @@ pub(super) struct StartupSelectionPolicy {
     pub(super) max_pages: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum AlineStartupShortCircuitReason {
     AlineUnavailable,
     NoRepoRoots,
@@ -96,7 +100,7 @@ pub(super) struct PersistedAlineStartupState {
     pub(super) updated_at: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(super) struct AlineStartupSummary {
     pub(super) aline_available: bool,
     pub(super) watcher_initial_state: Option<WatcherState>,
@@ -111,6 +115,21 @@ pub(super) struct AlineStartupSummary {
     pub(super) failure_stage: Option<String>,
     pub(super) failure_message: Option<String>,
     pub(super) recently_imported_session_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct AsyncAlineStartupRequest {
+    pub repo_root: String,
+    pub data_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct AsyncAlineStartupCompletion {
+    pub repo_root: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<AlineStartupSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 impl AlineStartupSummary {
@@ -426,6 +445,154 @@ where
     }
 
     Ok(summary)
+}
+
+pub(super) async fn ensure_watcher_running<R>(runner: &R) -> Option<AlineStartupSummary>
+where
+    R: StartupCommandRunner + ?Sized,
+{
+    let mut summary = AlineStartupSummary::available();
+    let status_output = match runner.run(build_watcher_status_command()).await {
+        Ok(output) => output,
+        Err(error) => {
+            tracing::warn!(%error, "failed to query Aline watcher status during hydrate");
+            return Some(summary);
+        }
+    };
+    if let Err(error) = ensure_success_exit(&status_output, "aline watcher status") {
+        tracing::warn!(%error, "Aline watcher status command failed during hydrate");
+        return Some(summary);
+    }
+
+    let watcher_status = parse_watcher_status(&status_output.stdout);
+    summary.watcher_initial_state = Some(watcher_status.state.clone());
+    if watcher_status.state != WatcherState::Stopped {
+        return Some(summary);
+    }
+
+    let start_output = match runner.run(build_watcher_start_command()).await {
+        Ok(output) => output,
+        Err(error) => {
+            tracing::warn!(%error, "failed to start Aline watcher during hydrate");
+            return Some(summary);
+        }
+    };
+    if let Err(error) = ensure_success_exit(&start_output, "aline watcher start") {
+        tracing::warn!(%error, "Aline watcher start command failed during hydrate");
+        return Some(summary);
+    }
+
+    summary.watcher_started = true;
+    Some(summary)
+}
+
+pub(super) async fn run_aline_startup_reconciliation_for_data_dir<R>(
+    runner: &R,
+    repo_root: &Path,
+    data_dir: &Path,
+) -> Result<AlineStartupSummary>
+where
+    R: StartupCommandRunner + ?Sized,
+{
+    let mut persisted_state = load_persisted_aline_startup_state(data_dir).await;
+    let summary = reconcile_startup_sessions(
+        runner,
+        repo_root,
+        chrono::Utc::now(),
+        StartupSelectionPolicy::default(),
+        &persisted_state.recent_session_ids(
+            chrono::Utc::now(),
+            StartupSelectionPolicy::default().recency_window,
+        ),
+    )
+    .await?;
+
+    if summary.failure_stage.is_none() {
+        persisted_state
+            .record_recently_imported(&summary.recently_imported_session_ids, chrono::Utc::now());
+        if let Err(error) = persist_aline_startup_state(data_dir, &persisted_state).await {
+            tracing::warn!(
+                path = %aline_startup_state_path(data_dir).display(),
+                %error,
+                "failed to persist Aline startup dedupe state"
+            );
+        }
+    }
+
+    Ok(summary)
+}
+
+pub(crate) async fn run_aline_startup_subprocess(
+    request: AsyncAlineStartupRequest,
+) -> Result<AsyncAlineStartupCompletion> {
+    let executable = std::env::current_exe().context("resolve tamux-daemon executable")?;
+    let mut child = tokio::process::Command::new(executable)
+        .arg(ALINE_STARTUP_WORKER_ARG)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("spawn Aline startup reconciliation worker subprocess")?;
+
+    let request_json = serde_json::to_vec(&request).context("serialize Aline startup request")?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow!("Aline startup worker stdin unavailable"))?;
+    stdin
+        .write_all(&request_json)
+        .await
+        .context("write Aline startup worker request")?;
+    drop(stdin);
+
+    let output = child
+        .wait_with_output()
+        .await
+        .context("wait for Aline startup worker subprocess")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "Aline startup worker subprocess failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
+    serde_json::from_slice::<AsyncAlineStartupCompletion>(&output.stdout)
+        .context("parse Aline startup worker output")
+}
+
+pub(crate) async fn run_aline_startup_worker_from_stdio() -> Result<()> {
+    let mut request_bytes = Vec::new();
+    tokio::io::stdin()
+        .read_to_end(&mut request_bytes)
+        .await
+        .context("read Aline startup worker request")?;
+    let request = serde_json::from_slice::<AsyncAlineStartupRequest>(&request_bytes)
+        .context("parse Aline startup worker request")?;
+
+    let runner = TokioStartupCommandRunner;
+    let repo_root = PathBuf::from(&request.repo_root);
+    let completion =
+        match run_aline_startup_reconciliation_for_data_dir(&runner, &repo_root, &request.data_dir)
+            .await
+        {
+            Ok(summary) => AsyncAlineStartupCompletion {
+                repo_root: request.repo_root,
+                summary: Some(summary),
+                error: None,
+            },
+            Err(error) => AsyncAlineStartupCompletion {
+                repo_root: request.repo_root,
+                summary: None,
+                error: Some(error.to_string()),
+            },
+        };
+
+    let response = serde_json::to_vec(&completion).context("serialize Aline startup completion")?;
+    tokio::io::stdout()
+        .write_all(&response)
+        .await
+        .context("write Aline startup completion")?;
+    Ok(())
 }
 
 pub(super) fn aline_startup_state_path(data_dir: &Path) -> PathBuf {

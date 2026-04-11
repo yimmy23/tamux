@@ -138,6 +138,61 @@ fn ambiguous_matches_extend_shared_prefix() {
 }
 
 #[test]
+fn leading_agent_completion_prefers_known_agents_before_files() {
+    let cwd = make_temp_dir();
+    fs::create_dir_all(cwd.join("weles-notes")).expect("test directory should be creatable");
+
+    let buffer = "@we";
+    let outcome = crate::state::input_refs::complete_active_at_token_with_agents(
+        buffer,
+        buffer.len(),
+        &cwd,
+        &["weles".to_string(), "reviewer".to_string()],
+    );
+
+    assert!(outcome.consumed);
+    assert_eq!(
+        outcome
+            .replacement
+            .as_ref()
+            .expect("agent completion should replace the token")
+            .text,
+        "@weles "
+    );
+}
+
+#[test]
+fn parse_leading_internal_delegate_directive() {
+    let directive = crate::state::input_refs::parse_leading_agent_directive(
+        "!weles verify @src/main.rs",
+        &["weles".to_string()],
+    )
+    .expect("directive should parse");
+
+    assert_eq!(
+        directive.kind,
+        crate::state::input_refs::LeadingAgentDirectiveKind::InternalDelegate
+    );
+    assert_eq!(directive.agent_alias, "weles");
+    assert_eq!(directive.body, "verify @src/main.rs");
+}
+
+#[test]
+fn parse_leading_participant_stop_directive() {
+    let directive = crate::state::input_refs::parse_leading_agent_directive(
+        "@weles stop",
+        &["weles".to_string()],
+    )
+    .expect("directive should parse");
+
+    assert_eq!(
+        directive.kind,
+        crate::state::input_refs::LeadingAgentDirectiveKind::ParticipantDeactivate
+    );
+    assert_eq!(directive.agent_alias, "weles");
+}
+
+#[test]
 fn tilde_resolution_handles_forward_and_backslash_separators() {
     let cwd = make_temp_dir();
     let home = make_temp_dir();

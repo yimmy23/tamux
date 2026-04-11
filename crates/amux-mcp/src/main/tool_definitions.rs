@@ -579,9 +579,16 @@ mod tests {
         let tools = defs
             .as_array()
             .expect("tool definitions should be an array");
+        let discover_skills = tools
+            .iter()
+            .find(|tool| tool["name"] == "discover_skills")
+            .expect("discover_skills tool definition should be present");
         assert!(
-            tools.iter().any(|tool| tool["name"] == "discover_skills"),
-            "discover_skills tool definition should be present"
+            discover_skills["description"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("recommended next action"),
+            "discover_skills definition should describe the richer DIDSM action-oriented payload"
         );
     }
 

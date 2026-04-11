@@ -234,6 +234,10 @@ const bridgeApi = {
 
     // Agent engine (daemon-side)
     agentSendMessage: (threadId, content, sessionId, contextMessages) => ipcRenderer.invoke('agent-send-message', threadId, content, sessionId, contextMessages),
+    agentInternalDelegate: (threadId, targetAgentId, content, sessionId) => ipcRenderer.invoke('agent-internal-delegate', threadId, targetAgentId, content, sessionId),
+    agentThreadParticipantCommand: (payload) => ipcRenderer.invoke('agent-thread-participant-command', payload),
+    agentSendParticipantSuggestion: (payload) => ipcRenderer.invoke('agent-send-participant-suggestion', payload),
+    agentDismissParticipantSuggestion: (payload) => ipcRenderer.invoke('agent-dismiss-participant-suggestion', payload),
     agentStopStream: (threadId) => ipcRenderer.invoke('agent-stop-stream', threadId),
     agentListThreads: () => ipcRenderer.invoke('agent-list-threads'),
     agentGetThread: (threadId) => ipcRenderer.invoke('agent-get-thread', threadId),
@@ -274,6 +278,7 @@ const bridgeApi = {
     agentResetOperatorModel: () => ipcRenderer.invoke('agent-reset-operator-model'),
     agentSetConfigItem: (keyPath, value) => ipcRenderer.invoke('agent-set-config-item', keyPath, value),
     agentSetProviderModel: (providerId, model) => ipcRenderer.invoke('agent-set-provider-model', providerId, model),
+    agentSetTargetAgentProviderModel: (targetAgentId, providerId, model) => ipcRenderer.invoke('agent-set-target-agent-provider-model', targetAgentId, providerId, model),
     agentSetTierOverride: (tier) => ipcRenderer.invoke('agent-set-tier-override', tier),
     gatewayGetConfig: () => ipcRenderer.invoke('gateway:get-config'),
     gatewaySetConfig: (patch) => ipcRenderer.invoke('gateway:set-config', patch),

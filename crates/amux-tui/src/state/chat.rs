@@ -106,16 +106,14 @@ impl ChatState {
             .unwrap_or(&[])
     }
 
-    pub fn resolve_operator_question_answer(
-        &mut self,
-        question_id: &str,
-        answer: String,
-    ) -> bool {
+    pub fn resolve_operator_question_answer(&mut self, question_id: &str, answer: String) -> bool {
         let mut updated = false;
         for thread in &mut self.threads {
-            if let Some(message) = thread.messages.iter_mut().find(|message| {
-                message.operator_question_id.as_deref() == Some(question_id)
-            }) {
+            if let Some(message) = thread
+                .messages
+                .iter_mut()
+                .find(|message| message.operator_question_id.as_deref() == Some(question_id))
+            {
                 message.operator_question_answer = Some(answer);
                 message.actions.clear();
                 updated = true;
@@ -489,12 +487,19 @@ impl ChatState {
                 self.threads = new_threads
                     .into_iter()
                     .map(|mut incoming| {
-                        if incoming.messages.is_empty() {
-                            if let Some(existing) = existing_threads
-                                .iter()
-                                .find(|thread| thread.id == incoming.id)
-                            {
+                        if let Some(existing) = existing_threads
+                            .iter()
+                            .find(|thread| thread.id == incoming.id)
+                        {
+                            if incoming.messages.is_empty() {
                                 incoming.messages = existing.messages.clone();
+                            }
+                            if incoming.thread_participants.is_empty() {
+                                incoming.thread_participants = existing.thread_participants.clone();
+                            }
+                            if incoming.queued_participant_suggestions.is_empty() {
+                                incoming.queued_participant_suggestions =
+                                    existing.queued_participant_suggestions.clone();
                             }
                         }
                         incoming
@@ -509,27 +514,44 @@ impl ChatState {
                     return;
                 }
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == incoming.id) {
-                    // Merge: keep local user messages and local messages that carry
-                    // interactive UI actions (e.g. concierge action buttons), then
-                    // add incoming daemon messages.
-                    let local_kept_msgs: Vec<AgentMessage> = existing
-                        .messages
-                        .iter()
-                        .filter(|m| {
-                            m.role == MessageRole::User
-                                || !m.actions.is_empty()
-                                || m.is_concierge_welcome
-                        })
-                        .cloned()
-                        .collect();
-                    let mut merged = local_kept_msgs;
-                    // Add incoming messages that aren't already present
-                    for msg in incoming.messages {
-                        if !merged
+                    // Merge incoming daemon state with any richer or newer local
+                    // messages that have not been reflected back by a thread detail
+                    // refresh yet. This keeps the active compaction window stable
+                    // until an actual compaction artifact arrives.
+                    let mut merged = incoming.messages;
+                    for local in existing.messages.iter().cloned() {
+                        if let Some(index) = merged
                             .iter()
-                            .any(|m| m.content == msg.content && m.role == msg.role)
+                            .position(|message| message.content == local.content && message.role == local.role)
                         {
-                            merged.push(msg);
+                            if !local.actions.is_empty() && merged[index].actions.is_empty() {
+                                merged[index].actions = local.actions.clone();
+                            }
+                            if local.is_concierge_welcome {
+                                merged[index].is_concierge_welcome = true;
+                            }
+                            if merged[index].timestamp == 0 && local.timestamp != 0 {
+                                merged[index].timestamp = local.timestamp;
+                            }
+                            if merged[index].message_kind.is_empty() && !local.message_kind.is_empty()
+                            {
+                                merged[index].message_kind = local.message_kind.clone();
+                            }
+                            if merged[index].compaction_strategy.is_none()
+                                && local.compaction_strategy.is_some()
+                            {
+                                merged[index].compaction_strategy = local.compaction_strategy.clone();
+                            }
+                            if merged[index].compaction_payload.is_none()
+                                && local.compaction_payload.is_some()
+                            {
+                                merged[index].compaction_payload = local.compaction_payload.clone();
+                            }
+                            if merged[index].cost.is_none() && local.cost.is_some() {
+                                merged[index].cost = local.cost;
+                            }
+                        } else {
+                            merged.push(local);
                         }
                     }
                     // Sort by timestamp (0 timestamps go last)
@@ -546,6 +568,13 @@ impl ChatState {
                     existing.total_output_tokens = incoming
                         .total_output_tokens
                         .max(existing.total_output_tokens);
+                    if !incoming.thread_participants.is_empty() {
+                        existing.thread_participants = incoming.thread_participants;
+                    }
+                    if !incoming.queued_participant_suggestions.is_empty() {
+                        existing.queued_participant_suggestions =
+                            incoming.queued_participant_suggestions;
+                    }
                     if incoming.agent_name.is_some() {
                         existing.agent_name = incoming.agent_name;
                     }

@@ -26,6 +26,61 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
             return { ok: false, error: err.message };
         }
     });
+    ipcMain.handle('agent-internal-delegate', async (_event, threadId, targetAgentId, content, sessionId) => {
+        try {
+            sendAgentCommand({
+                type: 'internal-delegate',
+                thread_id: typeof threadId === 'string' && threadId.trim() ? threadId.trim() : null,
+                target_agent_id: targetAgentId,
+                content,
+                session_id: typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null,
+            });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+    ipcMain.handle('agent-thread-participant-command', async (_event, payload) => {
+        try {
+            sendAgentCommand({
+                type: 'thread-participant-command',
+                thread_id: payload?.threadId,
+                target_agent_id: payload?.targetAgentId,
+                action: payload?.action,
+                instruction: typeof payload?.instruction === 'string' && payload.instruction.trim() ? payload.instruction : null,
+                session_id: typeof payload?.sessionId === 'string' && payload.sessionId.trim() ? payload.sessionId.trim() : null,
+            });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+    ipcMain.handle('agent-send-participant-suggestion', async (_event, payload) => {
+        try {
+            sendAgentCommand({
+                type: 'send-participant-suggestion',
+                thread_id: payload?.threadId,
+                suggestion_id: payload?.suggestionId,
+                session_id: typeof payload?.sessionId === 'string' && payload.sessionId.trim() ? payload.sessionId.trim() : null,
+            });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+    ipcMain.handle('agent-dismiss-participant-suggestion', async (_event, payload) => {
+        try {
+            sendAgentCommand({
+                type: 'dismiss-participant-suggestion',
+                thread_id: payload?.threadId,
+                suggestion_id: payload?.suggestionId,
+                session_id: typeof payload?.sessionId === 'string' && payload.sessionId.trim() ? payload.sessionId.trim() : null,
+            });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
     ipcMain.handle('agent-stop-stream', async (_event, threadId) => { try { sendAgentCommand({ type: 'stop-stream', thread_id: threadId }); } catch {} return { ok: true }; });
     ipcMain.handle('agent-list-threads', async () => { try { return await sendAgentQuery({ type: 'list-threads' }, 'thread-list'); } catch { return []; } });
     ipcMain.handle('agent-get-thread', async (_event, threadId) => { try { return await sendAgentQuery({ type: 'get-thread', thread_id: threadId }, 'thread-detail'); } catch { return null; } });
@@ -230,6 +285,7 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
     });
     ipcMain.handle('agent-set-config-item', async (_event, keyPath, value) => { try { sendAgentCommand({ type: 'set-config-item', key_path: keyPath, value_json: JSON.stringify(value) }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('agent-set-provider-model', async (_event, providerId, model) => { try { sendAgentCommand({ type: 'set-provider-model', provider_id: providerId, model }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
+    ipcMain.handle('agent-set-target-agent-provider-model', async (_event, targetAgentId, providerId, model) => { try { sendAgentCommand({ type: 'set-target-agent-provider-model', target_agent_id: targetAgentId, provider_id: providerId, model }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('agent-set-tier-override', async (_event, tier) => { try { sendAgentCommand({ type: 'set-tier-override', tier: tier || null }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('gateway:get-config', async () => { try { const config = await sendAgentQuery({ type: 'get-config' }, 'config'); return config?.gateway ?? {}; } catch (err) { logToFile('warn', '[gateway] get-config IPC error', { error: err.message }); return {}; } });
     ipcMain.handle('gateway:set-config', async (_event, patch) => {

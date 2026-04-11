@@ -15,6 +15,8 @@ export type ChatViewProps = {
   activeThread: AgentThread | undefined;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   onSendMessage: (text: string) => void;
+  onSendParticipantSuggestion: (threadId: string, suggestionId: string, forceSend?: boolean) => void | Promise<void>;
+  onDismissParticipantSuggestion: (threadId: string, suggestionId: string) => void | Promise<void>;
   onStopStreaming: () => void;
   onDeleteMessage?: (messageId: string) => void;
   onUpdateReasoningEffort: (value: string) => void;
