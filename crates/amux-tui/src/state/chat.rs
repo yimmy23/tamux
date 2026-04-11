@@ -520,10 +520,9 @@ impl ChatState {
                     // until an actual compaction artifact arrives.
                     let mut merged = incoming.messages;
                     for local in existing.messages.iter().cloned() {
-                        if let Some(index) = merged
-                            .iter()
-                            .position(|message| message.content == local.content && message.role == local.role)
-                        {
+                        if let Some(index) = merged.iter().position(|message| {
+                            message.content == local.content && message.role == local.role
+                        }) {
                             if !local.actions.is_empty() && merged[index].actions.is_empty() {
                                 merged[index].actions = local.actions.clone();
                             }
@@ -533,14 +532,16 @@ impl ChatState {
                             if merged[index].timestamp == 0 && local.timestamp != 0 {
                                 merged[index].timestamp = local.timestamp;
                             }
-                            if merged[index].message_kind.is_empty() && !local.message_kind.is_empty()
+                            if merged[index].message_kind.is_empty()
+                                && !local.message_kind.is_empty()
                             {
                                 merged[index].message_kind = local.message_kind.clone();
                             }
                             if merged[index].compaction_strategy.is_none()
                                 && local.compaction_strategy.is_some()
                             {
-                                merged[index].compaction_strategy = local.compaction_strategy.clone();
+                                merged[index].compaction_strategy =
+                                    local.compaction_strategy.clone();
                             }
                             if merged[index].compaction_payload.is_none()
                                 && local.compaction_payload.is_some()

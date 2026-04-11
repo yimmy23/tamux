@@ -784,6 +784,61 @@ fn task_list_hydrates_pending_approvals_from_awaiting_approval_tasks() {
 }
 
 #[test]
+fn unrelated_sync_does_not_clear_event_backed_pending_approval() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::ApprovalRequired {
+        approval_id: "approval-1".to_string(),
+        command: "git push".to_string(),
+        rationale: Some("Push branch".to_string()),
+        reasons: vec!["network access requested".to_string()],
+        risk_level: "high".to_string(),
+        blast_radius: "repo".to_string(),
+    });
+
+    model.handle_thread_list_event(vec![crate::wire::AgentThread {
+        id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+        ..Default::default()
+    }]);
+
+    assert!(
+        model.approval.approval_by_id("approval-1").is_some(),
+        "thread sync should not discard live approvals without an explicit resolution"
+    );
+}
+
+#[test]
+fn task_list_clears_approval_when_same_task_no_longer_waits_for_it() {
+    let mut model = make_model();
+
+    model.handle_task_list_event(vec![crate::wire::AgentTask {
+        id: "task-1".to_string(),
+        title: "Hydrated approval".to_string(),
+        thread_id: Some("thread-1".to_string()),
+        status: Some(crate::wire::TaskStatus::AwaitingApproval),
+        awaiting_approval_id: Some("approval-1".to_string()),
+        blocked_reason: Some("waiting for operator approval".to_string()),
+        ..Default::default()
+    }]);
+    assert!(model.approval.approval_by_id("approval-1").is_some());
+
+    model.handle_task_list_event(vec![crate::wire::AgentTask {
+        id: "task-1".to_string(),
+        title: "Hydrated approval".to_string(),
+        thread_id: Some("thread-1".to_string()),
+        status: Some(crate::wire::TaskStatus::Queued),
+        awaiting_approval_id: None,
+        ..Default::default()
+    }]);
+
+    assert!(
+        model.approval.approval_by_id("approval-1").is_none(),
+        "task snapshot should clear approvals only when the same task explicitly drops them"
+    );
+}
+
+#[test]
 fn task_list_hydrates_policy_escalation_rationale_from_thread_messages() {
     let mut model = make_model();
     model.handle_thread_detail_event(crate::wire::AgentThread {

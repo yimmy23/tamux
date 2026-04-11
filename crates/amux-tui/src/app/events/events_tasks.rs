@@ -92,25 +92,34 @@ impl TuiModel {
     }
 
     fn sync_pending_approvals_from_tasks(&mut self) {
-        let mut active_ids = std::collections::HashSet::new();
         let tasks = self.tasks.tasks().to_vec();
         for task in &tasks {
-            if let Some(approval_id) = task.awaiting_approval_id.as_deref() {
-                active_ids.insert(approval_id.to_string());
+            // Task snapshots hydrate approval details, but absence is not authoritative because
+            // the daemon can cap or omit tasks that still have a live approval event.
+            if task.awaiting_approval_id.is_some() {
                 self.upsert_task_backed_approval(task);
             }
         }
+    }
 
-        let stale_ids: Vec<String> = self
-            .approval
-            .pending_approvals()
-            .iter()
-            .filter(|approval| !active_ids.contains(&approval.approval_id))
-            .map(|approval| approval.approval_id.clone())
-            .collect();
-        for approval_id in stale_ids {
-            self.approval
-                .reduce(crate::state::ApprovalAction::ClearResolved(approval_id));
+    fn clear_replaced_task_approvals(
+        &mut self,
+        previous_tasks: &[task::AgentTask],
+        next_tasks: &[task::AgentTask],
+    ) {
+        for previous_task in previous_tasks {
+            let Some(previous_approval_id) = previous_task.awaiting_approval_id.as_deref() else {
+                continue;
+            };
+            let Some(next_task) = next_tasks.iter().find(|task| task.id == previous_task.id) else {
+                continue;
+            };
+            if next_task.awaiting_approval_id.as_deref() != Some(previous_approval_id) {
+                self.approval
+                    .reduce(crate::state::ApprovalAction::ClearResolved(
+                        previous_approval_id.to_string(),
+                    ));
+            }
         }
     }
 
@@ -239,8 +248,11 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_task_list_event(&mut self, tasks: Vec<crate::wire::AgentTask>) {
-        let tasks = tasks.into_iter().map(conversion::convert_task).collect();
-        self.tasks.reduce(task::TaskAction::TaskListReceived(tasks));
+        let previous_tasks = self.tasks.tasks().to_vec();
+        let tasks: Vec<_> = tasks.into_iter().map(conversion::convert_task).collect();
+        self.tasks
+            .reduce(task::TaskAction::TaskListReceived(tasks.clone()));
+        self.clear_replaced_task_approvals(&previous_tasks, &tasks);
         self.sync_pending_approvals_from_tasks();
     }
 
