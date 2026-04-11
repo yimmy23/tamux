@@ -88,10 +88,7 @@ fn is_participant_deactivation_action(action: &str) -> bool {
 }
 
 impl AgentEngine {
-    async fn resolve_thread_participant_target(
-        &self,
-        alias: &str,
-    ) -> Result<(String, String)> {
+    async fn resolve_thread_participant_target(&self, alias: &str) -> Result<(String, String)> {
         let trimmed = alias.trim();
         if trimmed.is_empty() {
             anyhow::bail!("target agent cannot be empty");
@@ -115,10 +112,7 @@ impl AgentEngine {
         anyhow::bail!("unknown agent target: {trimmed}");
     }
 
-    pub async fn list_thread_participants(
-        &self,
-        thread_id: &str,
-    ) -> Vec<ThreadParticipantState> {
+    pub async fn list_thread_participants(&self, thread_id: &str) -> Vec<ThreadParticipantState> {
         self.thread_participants
             .read()
             .await
@@ -283,7 +277,9 @@ impl AgentEngine {
         let updated = suggestions
             .get_mut(thread_id)
             .and_then(|entry| {
-                entry.iter_mut().find(|suggestion| suggestion.id == suggestion_id)
+                entry
+                    .iter_mut()
+                    .find(|suggestion| suggestion.id == suggestion_id)
             })
             .map(|suggestion| {
                 suggestion.status = ThreadParticipantSuggestionStatus::Failed;
@@ -373,7 +369,11 @@ impl AgentEngine {
             }
             Err(error) => {
                 let _ = self
-                    .fail_thread_participant_suggestion(thread_id, suggestion_id, &error.to_string())
+                    .fail_thread_participant_suggestion(
+                        thread_id,
+                        suggestion_id,
+                        &error.to_string(),
+                    )
                     .await?;
                 Err(error)
             }
@@ -421,9 +421,10 @@ impl AgentEngine {
         let now = now_millis();
         let mut participants = self.thread_participants.write().await;
         let entry = participants.entry(thread_id.to_string()).or_default();
-        let updated = if let Some(existing) = entry.iter_mut().find(|participant| {
-            participant.agent_id.eq_ignore_ascii_case(&agent_id)
-        }) {
+        let updated = if let Some(existing) = entry
+            .iter_mut()
+            .find(|participant| participant.agent_id.eq_ignore_ascii_case(&agent_id))
+        {
             existing.agent_id = agent_id.clone();
             existing.agent_name = agent_name.clone();
             existing.instruction = trimmed_instruction.to_string();
@@ -582,6 +583,96 @@ impl AgentEngine {
         Ok(())
     }
 
+    pub async fn append_visible_thread_participant_message(
+        &self,
+        thread_id: &str,
+        target_agent_id: &str,
+        content: &str,
+    ) -> Result<()> {
+        if !self.threads.read().await.contains_key(thread_id) {
+            anyhow::bail!("thread not found: {thread_id}");
+        }
+
+        let trimmed_content = content.trim();
+        if trimmed_content.is_empty() {
+            anyhow::bail!("participant message content cannot be empty");
+        }
+
+        let (agent_id, agent_name) = self
+            .resolve_thread_participant_target(target_agent_id)
+            .await?;
+
+        let participant_exists =
+            self.list_thread_participants(thread_id)
+                .await
+                .iter()
+                .any(|participant| {
+                    participant.agent_id.eq_ignore_ascii_case(&agent_id)
+                        && participant.status == ThreadParticipantStatus::Active
+                });
+        if !participant_exists {
+            anyhow::bail!("participant is not active on thread: {agent_id}");
+        }
+
+        let now = now_millis();
+        {
+            let mut threads = self.threads.write().await;
+            let thread = threads
+                .get_mut(thread_id)
+                .ok_or_else(|| anyhow::anyhow!("thread not found: {thread_id}"))?;
+            thread.messages.push(AgentMessage {
+                id: generate_message_id(),
+                role: MessageRole::Assistant,
+                content: trimmed_content.to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                weles_review: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
+                author_agent_id: Some(agent_id.clone()),
+                author_agent_name: Some(agent_name.clone()),
+                reasoning: None,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
+                offloaded_payload_id: None,
+                structural_refs: Vec::new(),
+                timestamp: now,
+            });
+            thread.updated_at = now;
+        }
+
+        {
+            let mut participants = self.thread_participants.write().await;
+            if let Some(entry) = participants.get_mut(thread_id) {
+                if let Some(participant) = entry
+                    .iter_mut()
+                    .find(|participant| participant.agent_id.eq_ignore_ascii_case(&agent_id))
+                {
+                    participant.last_contribution_at = Some(now);
+                    participant.updated_at = now;
+                    participant.status = ThreadParticipantStatus::Active;
+                }
+            }
+        }
+
+        self.persist_thread_by_id(thread_id).await;
+        let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+            thread_id: thread_id.to_string(),
+        });
+
+        Ok(())
+    }
+
     pub async fn send_visible_thread_participant_message(
         &self,
         thread_id: &str,
@@ -602,14 +693,14 @@ impl AgentEngine {
             .resolve_thread_participant_target(target_agent_id)
             .await?;
 
-        let participant_exists = self
-            .list_thread_participants(thread_id)
-            .await
-            .iter()
-            .any(|participant| {
-                participant.agent_id.eq_ignore_ascii_case(&agent_id)
-                    && participant.status == ThreadParticipantStatus::Active
-            });
+        let participant_exists =
+            self.list_thread_participants(thread_id)
+                .await
+                .iter()
+                .any(|participant| {
+                    participant.agent_id.eq_ignore_ascii_case(&agent_id)
+                        && participant.status == ThreadParticipantStatus::Active
+                });
         if !participant_exists {
             anyhow::bail!("participant is not active on thread: {agent_id}");
         }
@@ -618,7 +709,13 @@ impl AgentEngine {
             let threads = self.threads.read().await;
             threads
                 .get(thread_id)
-                .map(|thread| thread.messages.iter().map(|message| message.id.clone()).collect())
+                .map(|thread| {
+                    thread
+                        .messages
+                        .iter()
+                        .map(|message| message.id.clone())
+                        .collect()
+                })
                 .unwrap_or_default()
         };
         let client_surface = self.get_thread_client_surface(thread_id).await;
@@ -640,9 +737,9 @@ impl AgentEngine {
         let mut tagged_assistant = false;
         {
             let mut threads = self.threads.write().await;
-            let thread = threads
-                .get_mut(thread_id)
-                .ok_or_else(|| anyhow::anyhow!("thread not found after participant send: {thread_id}"))?;
+            let thread = threads.get_mut(thread_id).ok_or_else(|| {
+                anyhow::anyhow!("thread not found after participant send: {thread_id}")
+            })?;
 
             thread.messages.retain(|message| {
                 !(message.role == MessageRole::User && !existing_message_ids.contains(&message.id))
