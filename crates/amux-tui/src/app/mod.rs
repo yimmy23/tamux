@@ -386,6 +386,7 @@ pub struct TuiModel {
     prompt_modal_error: Option<String>,
     prompt_modal_scroll: usize,
     thread_participants_modal_scroll: usize,
+    help_modal_scroll: usize,
 
     // Active mouse drag selection in the chat pane
     chat_drag_anchor: Option<Position>,

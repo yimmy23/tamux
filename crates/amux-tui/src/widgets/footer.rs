@@ -454,6 +454,10 @@ pub fn render_status_bar(
     spans.push(Span::styled(":threads  ", theme.fg_dim));
     spans.push(Span::styled("ctrl+g", theme.fg_active));
     spans.push(Span::styled(":goals  ", theme.fg_dim));
+    spans.push(Span::styled("ctrl+a", theme.fg_active));
+    spans.push(Span::styled(":approvals  ", theme.fg_dim));
+    spans.push(Span::styled("ctrl+i", theme.fg_active));
+    spans.push(Span::styled(":notifications  ", theme.fg_dim));
     spans.push(Span::styled("ctrl+p", theme.fg_active));
     spans.push(Span::styled(":cmd  ", theme.fg_dim));
     spans.push(Span::styled("/", theme.fg_active));
@@ -504,11 +508,43 @@ pub fn status_bar_hit_test(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
 
     #[test]
     fn footer_handles_empty_state() {
         let input = InputState::new();
         let _theme = ThemeTokens::default();
         assert_eq!(input.mode(), InputMode::Insert);
+    }
+
+    #[test]
+    fn status_bar_lists_notifications_hotkey() {
+        let backend = TestBackend::new(120, 1);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+
+        terminal
+            .draw(|frame| {
+                render_status_bar(
+                    frame,
+                    Rect::new(0, 0, 120, 1),
+                    &ThemeTokens::default(),
+                    true,
+                    false,
+                    false,
+                    0,
+                    0,
+                    0,
+                    "ready",
+                );
+            })
+            .expect("status bar render should succeed");
+
+        let buffer = terminal.backend().buffer();
+        let row = (0..120)
+            .filter_map(|x| buffer.cell((x, 0)).map(|cell| cell.symbol()))
+            .collect::<String>();
+
+        assert!(row.contains("ctrl+i"), "missing notifications hotkey: {row}");
     }
 }

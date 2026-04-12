@@ -6,8 +6,12 @@ mod help_modal;
 #[path = "render_helpers/status_modal.rs"]
 mod status_modal;
 
-pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
-    help_modal::render_help_modal(frame, area, theme);
+pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, scroll: usize, theme: &ThemeTokens) {
+    help_modal::render_help_modal(frame, area, scroll, theme);
+}
+
+pub(super) fn help_modal_text() -> String {
+    help_modal::help_modal_text()
 }
 
 pub(super) fn render_status_modal(

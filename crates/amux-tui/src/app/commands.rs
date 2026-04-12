@@ -474,6 +474,8 @@ impl TuiModel {
                 | "settings"
                 | "view"
                 | "status"
+                | "notifications"
+                | "approvals"
                 | "participants"
                 | "quit"
                 | "prompt"
@@ -567,6 +569,14 @@ impl TuiModel {
                 self.send_daemon_command(DaemonCommand::RequestAgentStatus);
                 self.status_line = "Requesting tamux status...".to_string();
             }
+            "notifications" => {
+                self.toggle_notifications_modal();
+                self.status_line = "Viewing notifications".to_string();
+            }
+            "approvals" => {
+                self.toggle_approval_center();
+                self.status_line = "Viewing approvals".to_string();
+            }
             "participants" => {
                 self.open_thread_participants_modal();
                 self.status_line = "Viewing thread participants".to_string();
@@ -593,6 +603,7 @@ impl TuiModel {
                 self.status_line = "Edit the skill source and run it in the terminal".to_string();
             }
             "help" => {
+                self.help_modal_scroll = 0;
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::Help));
                 self.modal.set_picker_item_count(100);

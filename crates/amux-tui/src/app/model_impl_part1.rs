@@ -77,6 +77,7 @@ impl TuiModel {
             prompt_modal_error: None,
             prompt_modal_scroll: 0,
             thread_participants_modal_scroll: 0,
+            help_modal_scroll: 0,
             chat_drag_anchor: None,
             chat_drag_current: None,
             chat_drag_anchor_point: None,
@@ -282,6 +283,25 @@ impl TuiModel {
         total_lines.saturating_sub(viewport_lines)
     }
 
+    pub(crate) fn help_modal_max_scroll(&self) -> usize {
+        let body = render_helpers::help_modal_text();
+        let (viewport_lines, inner_width) = self
+            .current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::Help)
+            .map(|(_, area)| {
+                (
+                    area.height.saturating_sub(3) as usize,
+                    area.width.saturating_sub(2) as usize,
+                )
+            })
+            .unwrap_or((1, 1));
+        let total_lines = crate::widgets::message::wrap_text(&body, inner_width.max(1))
+            .len()
+            .max(1);
+        let viewport_lines = viewport_lines.max(1);
+        total_lines.saturating_sub(viewport_lines)
+    }
+
     pub(crate) fn set_status_modal_scroll(&mut self, scroll: usize) {
         self.status_modal_scroll = scroll.min(self.status_modal_max_scroll());
     }
@@ -311,6 +331,10 @@ impl TuiModel {
             scroll.min(self.thread_participants_modal_max_scroll());
     }
 
+    pub(crate) fn set_help_modal_scroll(&mut self, scroll: usize) {
+        self.help_modal_scroll = scroll.min(self.help_modal_max_scroll());
+    }
+
     pub(crate) fn step_prompt_modal_scroll(&mut self, delta: i32) {
         let current = self.prompt_modal_scroll as i32;
         let next = (current + delta).max(0) as usize;
@@ -333,6 +357,12 @@ impl TuiModel {
         self.set_thread_participants_modal_scroll(next);
     }
 
+    pub(crate) fn step_help_modal_scroll(&mut self, delta: i32) {
+        let current = self.help_modal_scroll as i32;
+        let next = (current + delta).max(0) as usize;
+        self.set_help_modal_scroll(next);
+    }
+
     pub(crate) fn page_thread_participants_modal_scroll(&mut self, direction: i32) {
         let page = self
             .current_modal_area()
@@ -341,6 +371,16 @@ impl TuiModel {
             .unwrap_or(10)
             .max(1);
         self.step_thread_participants_modal_scroll(page * direction);
+    }
+
+    pub(crate) fn page_help_modal_scroll(&mut self, direction: i32) {
+        let page = self
+            .current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::Help)
+            .map(|(_, area)| area.height.saturating_sub(4) as i32)
+            .unwrap_or(10)
+            .max(1);
+        self.step_help_modal_scroll(page * direction);
     }
 
     pub(crate) fn open_thread_participants_modal(&mut self) {

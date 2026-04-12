@@ -257,6 +257,30 @@ fn slash_participants_opens_modal_with_thread_participant_sections() {
 }
 
 #[test]
+fn slash_notifications_opens_notifications_modal() {
+    let (mut model, _daemon_rx) = make_model();
+    model.connected = true;
+    model.input.set_text("/notifications");
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::Notifications));
+}
+
+#[test]
+fn slash_approvals_opens_approval_center_modal() {
+    let (mut model, _daemon_rx) = make_model();
+    model.connected = true;
+    model.input.set_text("/approvals");
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ApprovalCenter));
+}
+
+#[test]
 fn prompt_viewer_down_scrolls_prompt_body() {
     let (mut model, _daemon_rx) = make_model();
     model.prompt_modal_snapshot = Some(crate::client::AgentPromptInspectionVm {
@@ -338,6 +362,21 @@ fn status_viewer_down_scrolls_status_body() {
 
     assert!(!quit);
     assert_eq!(model.status_modal_scroll, 1);
+}
+
+#[test]
+fn help_viewer_down_scrolls_help_body() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Help));
+    model.width = 80;
+    model.height = 20;
+
+    let quit = model.handle_key_modal(KeyCode::Down, KeyModifiers::NONE, modal::ModalKind::Help);
+
+    assert!(!quit);
+    assert_eq!(model.help_modal_scroll, 1);
 }
 
 #[test]

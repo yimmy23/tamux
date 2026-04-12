@@ -21,6 +21,14 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Open queued messages", theme.fg_dim),
         ]),
         Line::from(vec![
+            Span::styled("  Ctrl+I           ", theme.fg_active),
+            Span::styled("Open notifications", theme.fg_dim),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+A           ", theme.fg_active),
+            Span::styled("Open approvals center", theme.fg_dim),
+        ]),
+        Line::from(vec![
             Span::styled("  /participants    ", theme.fg_active),
             Span::styled("Open thread participants modal", theme.fg_dim),
         ]),
@@ -181,6 +189,14 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Show tamux status", theme.fg_dim),
         ]),
         Line::from(vec![
+            Span::styled("  /notifications   ", theme.fg_active),
+            Span::styled("Open notifications center", theme.fg_dim),
+        ]),
+        Line::from(vec![
+            Span::styled("  /approvals       ", theme.fg_active),
+            Span::styled("Open approvals center", theme.fg_dim),
+        ]),
+        Line::from(vec![
             Span::styled("  /help            ", theme.fg_active),
             Span::styled("This help screen", theme.fg_dim),
         ]),
@@ -205,11 +221,23 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Exit TUI", theme.fg_dim),
         ]),
         Line::raw(""),
+        Line::from(Span::styled(
+            "  Use Up/Down, PgUp/PgDn, Home/End to scroll",
+            theme.fg_dim,
+        )),
         Line::from(Span::styled("  Press Esc to close", theme.fg_dim)),
     ]
 }
 
-pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
+pub(super) fn help_modal_text() -> String {
+    help_modal_lines(&ThemeTokens::default())
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, scroll: usize, theme: &ThemeTokens) {
     use ratatui::text::{Line, Span};
     use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 
@@ -226,7 +254,7 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
     let lines = help_modal_lines(theme);
 
     let paragraph = Paragraph::new(lines)
-        .scroll((0, 0))
+        .scroll((scroll.min(u16::MAX as usize) as u16, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
@@ -245,5 +273,17 @@ mod tests {
 
         assert!(text.contains("/status"));
         assert!(text.contains("Show tamux status"));
+    }
+
+    #[test]
+    fn help_modal_lists_notifications_and_approvals_commands() {
+        let text = help_modal_lines(&ThemeTokens::default())
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("/notifications"));
+        assert!(text.contains("/approvals"));
     }
 }

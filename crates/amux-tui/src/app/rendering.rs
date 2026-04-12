@@ -960,7 +960,12 @@ impl TuiModel {
                     );
                 }
                 modal::ModalKind::Help => {
-                    render_helpers::render_help_modal(frame, overlay_area, &self.theme);
+                    render_helpers::render_help_modal(
+                        frame,
+                        overlay_area,
+                        self.help_modal_scroll,
+                        &self.theme,
+                    );
                 }
                 modal::ModalKind::WhatsAppLink => {
                     widgets::whatsapp_link::render(frame, overlay_area, &self.modal, &self.theme);
