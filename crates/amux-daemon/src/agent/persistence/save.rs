@@ -145,7 +145,7 @@ impl AgentEngine {
 
         if let Err(e) = self
             .history
-            .replace_thread_snapshot(&thread_row, &message_rows)
+            .reconcile_thread_snapshot(&thread_row, &message_rows)
             .await
         {
             tracing::warn!(

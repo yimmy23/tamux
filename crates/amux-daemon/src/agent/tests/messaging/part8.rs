@@ -399,6 +399,98 @@ async fn queued_participant_suggestion_auto_sends_after_active_stream_finishes()
 }
 
 #[tokio::test]
+async fn queued_participant_suggestion_auto_sends_when_thread_is_already_idle() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let base_url = spawn_recording_openai_server(recorded_bodies.clone()).await;
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = base_url;
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread_participant_queue_auto_send_idle";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Participant queue auto send idle".to_string(),
+            messages: vec![AgentMessage::user("hello", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register");
+
+    engine
+        .queue_thread_participant_suggestion(thread_id, "weles", "Late idle participant note.", false)
+        .await
+        .expect("queue participant suggestion after thread is already idle");
+
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let thread_messages = {
+                let threads = engine.threads.read().await;
+                threads
+                    .get(thread_id)
+                    .expect("thread should still exist")
+                    .messages
+                    .clone()
+            };
+            let has_participant_note = thread_messages.iter().any(|message| {
+                message.role == MessageRole::Assistant
+                    && message.author_agent_id.as_deref() == Some("weles")
+                    && message.content == "Late idle participant note."
+            });
+            let has_main_follow_up = thread_messages.iter().any(|message| {
+                message.role == MessageRole::Assistant
+                    && message.author_agent_id.as_deref() != Some("weles")
+                    && message.content == "Gateway reply ok"
+            });
+            if has_participant_note && has_main_follow_up {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("queued participant note should auto-send even when it arrives after the thread is idle");
+
+    assert_eq!(
+        recorded_bodies.lock().expect("lock request log").len(),
+        1,
+        "idle auto-send should wake the main thread agent once"
+    );
+    assert!(
+        engine
+            .list_thread_participant_suggestions(thread_id)
+            .await
+            .is_empty(),
+        "idle auto-sent suggestion should not remain queued"
+    );
+}
+
+#[tokio::test]
 async fn participant_failed_suggestions_reload() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -721,5 +813,115 @@ async fn participant_observer_failure_keeps_outer_send_successful() {
             .await
             .is_empty(),
         "force-send participant failure should not leave queued or failed suggestions behind"
+    );
+}
+
+#[tokio::test]
+async fn resend_existing_user_message_runs_participant_observers_after_stream_completion() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind resend observer server");
+    let addr = listener.local_addr().expect("resend observer addr");
+
+    tokio::spawn({
+        let recorded_bodies = recorded_bodies.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let body = read_http_request_body(&mut socket)
+                    .await
+                    .expect("read request");
+                recorded_bodies
+                    .lock()
+                    .expect("lock request log")
+                    .push_back(body.clone());
+                let response_body = if body.contains("Role: participant observer") {
+                    concat!(
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"NO_SUGGESTION\"}}]}\n\n",
+                        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\n",
+                        "data: [DONE]\n\n"
+                    )
+                } else {
+                    concat!(
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"Main reply before observer.\"}}]}\n\n",
+                        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                        "data: [DONE]\n\n"
+                    )
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n{}",
+                    response_body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write response");
+            }
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread_resend_runs_participant_observers";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Resend observer hook".to_string(),
+            messages: vec![AgentMessage::user("hello", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register");
+
+    recorded_bodies
+        .lock()
+        .expect("lock request log")
+        .clear();
+
+    engine
+        .resend_existing_user_message(thread_id, "hello")
+        .await
+        .expect("resend should succeed");
+
+    let request_bodies = recorded_bodies
+        .lock()
+        .expect("lock request log")
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        request_bodies
+            .iter()
+            .any(|body| body.contains("Role: participant observer")),
+        "resend completion should trigger a participant observer prompt"
     );
 }

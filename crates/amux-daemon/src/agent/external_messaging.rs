@@ -127,7 +127,7 @@ impl AgentEngine {
                     None,
                 )
                 .await;
-                self.persist_threads().await;
+                self.persist_thread_by_id(&tid).await;
                 self.emit_turn_error_completion(&tid, &message, None, None)
                     .await;
                 self.finish_stream_cancellation(&tid, stream_generation)
@@ -156,7 +156,7 @@ impl AgentEngine {
                     None,
                 )
                 .await;
-                self.persist_threads().await;
+                self.persist_thread_by_id(&tid).await;
                 self.emit_turn_error_completion(
                     &tid,
                     &error_text,
@@ -185,7 +185,7 @@ impl AgentEngine {
             )
             .await;
         }
-        self.persist_threads().await;
+        self.persist_thread_by_id(&tid).await;
         self.finish_stream_cancellation(&tid, stream_generation)
             .await;
 

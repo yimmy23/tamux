@@ -1,6 +1,208 @@
 use super::*;
 
 impl HistoryStore {
+    pub async fn reconcile_thread_snapshot(
+        &self,
+        thread: &AgentDbThread,
+        messages: &[AgentDbMessage],
+    ) -> Result<()> {
+        let thread = thread.clone();
+        let messages = messages.to_vec();
+        self.conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+                let incoming_message_count = messages.len() as i64;
+                let incoming_latest_created_at = messages
+                    .iter()
+                    .map(|message| message.created_at)
+                    .max()
+                    .unwrap_or(thread.updated_at);
+
+                let existing_snapshot = transaction
+                    .query_row(
+                        "SELECT
+                            updated_at,
+                            message_count,
+                            COALESCE((
+                                SELECT MAX(created_at)
+                                FROM agent_messages
+                                WHERE thread_id = ?1
+                            ), 0)
+                         FROM agent_threads
+                         WHERE id = ?1",
+                        params![&thread.id],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
+
+                if let Some((
+                    existing_updated_at,
+                    existing_message_count,
+                    existing_latest_created_at,
+                )) = existing_snapshot
+                {
+                    let stale_snapshot = existing_updated_at > thread.updated_at
+                        || (existing_updated_at == thread.updated_at
+                            && (existing_message_count > incoming_message_count
+                                || existing_latest_created_at > incoming_latest_created_at));
+                    if stale_snapshot {
+                        tracing::debug!(
+                            thread_id = %thread.id,
+                            existing_updated_at,
+                            incoming_updated_at = thread.updated_at,
+                            existing_message_count,
+                            incoming_message_count,
+                            existing_latest_created_at,
+                            incoming_latest_created_at,
+                            "skipping stale thread snapshot persistence"
+                        );
+                        return Ok(());
+                    }
+                }
+
+                transaction.execute(
+                    "INSERT INTO agent_threads \
+                     (id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview, metadata_json) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+                     ON CONFLICT(id) DO UPDATE SET \
+                        workspace_id = excluded.workspace_id, \
+                        surface_id = excluded.surface_id, \
+                        pane_id = excluded.pane_id, \
+                        agent_name = excluded.agent_name, \
+                        title = excluded.title, \
+                        created_at = excluded.created_at, \
+                        updated_at = excluded.updated_at, \
+                        message_count = excluded.message_count, \
+                        total_tokens = excluded.total_tokens, \
+                        last_preview = excluded.last_preview, \
+                        metadata_json = excluded.metadata_json",
+                    params![
+                        thread.id,
+                        thread.workspace_id,
+                        thread.surface_id,
+                        thread.pane_id,
+                        thread.agent_name,
+                        thread.title,
+                        thread.created_at,
+                        thread.updated_at,
+                        thread.message_count,
+                        thread.total_tokens,
+                        thread.last_preview,
+                        thread.metadata_json,
+                    ],
+                )?;
+
+                let mut existing_stmt = transaction.prepare(
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json \
+                     FROM agent_messages WHERE thread_id = ?1",
+                )?;
+                let existing_rows = existing_stmt.query_map(params![&thread.id], map_agent_message)?;
+                let mut existing_messages =
+                    std::collections::HashMap::<String, AgentDbMessage>::new();
+                for row in existing_rows {
+                    let message = row?;
+                    existing_messages.insert(message.id.clone(), message);
+                }
+                drop(existing_stmt);
+
+                let incoming_ids = messages
+                    .iter()
+                    .map(|message| message.id.clone())
+                    .collect::<std::collections::HashSet<_>>();
+
+                for message in &messages {
+                    let needs_upsert = existing_messages
+                        .get(&message.id)
+                        .map(|existing| {
+                            existing.thread_id != message.thread_id
+                                || existing.created_at != message.created_at
+                                || existing.role != message.role
+                                || existing.content != message.content
+                                || existing.provider != message.provider
+                                || existing.model != message.model
+                                || existing.input_tokens != message.input_tokens
+                                || existing.output_tokens != message.output_tokens
+                                || existing.total_tokens != message.total_tokens
+                                || existing.reasoning != message.reasoning
+                                || existing.tool_calls_json != message.tool_calls_json
+                                || existing.metadata_json != message.metadata_json
+                        })
+                        .unwrap_or(true);
+                    if !needs_upsert {
+                        continue;
+                    }
+
+                    transaction.execute(
+                        "INSERT OR REPLACE INTO agent_messages \
+                         (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                        params![
+                            message.id,
+                            message.thread_id,
+                            message.created_at,
+                            message.role,
+                            message.content,
+                            message.provider,
+                            message.model,
+                            message.input_tokens,
+                            message.output_tokens,
+                            message.total_tokens,
+                            message.reasoning,
+                            message.tool_calls_json,
+                            message.metadata_json,
+                        ],
+                    )?;
+                }
+
+                let stale_ids = existing_messages
+                    .keys()
+                    .filter(|id| !incoming_ids.contains(*id))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !stale_ids.is_empty() {
+                    let placeholders =
+                        std::iter::repeat_n("?", stale_ids.len()).collect::<Vec<_>>().join(", ");
+                    let sql = format!(
+                        "DELETE FROM agent_messages WHERE thread_id = ? AND id IN ({placeholders})"
+                    );
+                    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+                    params.push(Box::new(thread.id.clone()));
+                    for id in stale_ids {
+                        params.push(Box::new(id));
+                    }
+                    let refs: Vec<&dyn rusqlite::types::ToSql> =
+                        params.iter().map(|value| value.as_ref()).collect();
+                    transaction.execute(&sql, refs.as_slice())?;
+                }
+
+                if messages.is_empty() {
+                    transaction.execute(
+                        "UPDATE agent_threads SET message_count = ?2, total_tokens = ?3, last_preview = ?4, updated_at = ?5 WHERE id = ?1",
+                        params![
+                            &thread.id,
+                            thread.message_count,
+                            thread.total_tokens,
+                            thread.last_preview,
+                            thread.updated_at,
+                        ],
+                    )?;
+                } else {
+                    refresh_thread_stats(&transaction, &thread.id)?;
+                }
+
+                transaction.commit()?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn create_thread(&self, thread: &AgentDbThread) -> Result<()> {
         let thread = thread.clone();
         self.conn.call(move |conn| {
@@ -86,7 +288,7 @@ impl HistoryStore {
                             incoming_message_count,
                             existing_latest_created_at,
                             incoming_latest_created_at,
-                            "skipping stale thread snapshot persistence"
+                            "skipping stale thread snapshot replace"
                         );
                         return Ok(());
                     }

@@ -4,7 +4,7 @@ pub(super) fn refresh_thread_stats(
     connection: &Connection,
     thread_id: &str,
 ) -> std::result::Result<(), rusqlite::Error> {
-    let (message_count, total_tokens, last_preview, updated_at): (i64, i64, String, i64) = connection.query_row(
+    let (message_count, total_tokens, last_preview, latest_message_at): (i64, i64, String, i64) = connection.query_row(
         "SELECT
             COUNT(*),
             COALESCE(SUM(total_tokens), 0),
@@ -16,8 +16,20 @@ pub(super) fn refresh_thread_stats(
     )?;
 
     connection.execute(
-        "UPDATE agent_threads SET message_count = ?2, total_tokens = ?3, last_preview = ?4, updated_at = ?5 WHERE id = ?1",
-        params![thread_id, message_count, total_tokens, last_preview, updated_at],
+        "UPDATE agent_threads
+         SET
+            message_count = ?2,
+            total_tokens = ?3,
+            last_preview = ?4,
+            updated_at = MAX(updated_at, ?5)
+         WHERE id = ?1",
+        params![
+            thread_id,
+            message_count,
+            total_tokens,
+            last_preview,
+            latest_message_at
+        ],
     )?;
     Ok(())
 }

@@ -312,7 +312,7 @@ impl<'a> SendMessageRunner<'a> {
                             None,
                         )
                         .await;
-                    engine.persist_threads().await;
+                    engine.persist_thread_by_id(&tid).await;
                     engine
                         .emit_turn_error_completion(&tid, &error_text, None, None)
                         .await;

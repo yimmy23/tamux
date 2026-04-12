@@ -1,12 +1,12 @@
 use super::*;
 use amux_shared::providers::{
     MINIMAX_PROVIDER, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ARCEE,
-    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI, QWEN_PROVIDER,
+    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, QWEN_PROVIDER,
 };
 
 #[test]
-fn provider_count_is_22() {
-    assert_eq!(PROVIDERS.len(), 22);
+fn provider_count_is_23() {
+    assert_eq!(PROVIDERS.len(), 23);
 }
 
 #[test]
@@ -138,4 +138,21 @@ fn arcee_provider_uses_expected_defaults() {
         Some(256_000)
     );
     assert!(supports_model_fetch_for(PROVIDER_ID_ARCEE));
+}
+
+#[test]
+fn nvidia_provider_uses_expected_defaults() {
+    let provider = find_by_id(PROVIDER_ID_NVIDIA).unwrap();
+    assert_eq!(provider.name, "NVIDIA");
+    assert_eq!(provider.default_base_url, "https://integrate.api.nvidia.com/v1");
+    assert_eq!(provider.default_model, "minimaxai/minimax-m2.7");
+    assert_eq!(provider.default_auth_source, "api_key");
+    assert_eq!(provider.supported_auth_sources, API_KEY_ONLY_AUTH_SOURCES);
+    assert_eq!(provider.default_transport, "chat_completions");
+    assert_eq!(provider.supported_transports, CHAT_ONLY_TRANSPORTS);
+    assert_eq!(
+        known_context_window_for(PROVIDER_ID_NVIDIA, "minimaxai/minimax-m2.7"),
+        Some(205_000)
+    );
+    assert!(supports_model_fetch_for(PROVIDER_ID_NVIDIA));
 }

@@ -232,3 +232,12 @@ pub const MINIMAX_MODELS: &[ModelDefinition] = &[
     },
 ];
 
+pub const NVIDIA_MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: "minimaxai/minimax-m2.7",
+        name: "MiniMax M2.7",
+        context_window: 205000,
+        modalities: TEXT_ONLY,
+    },
+];
+

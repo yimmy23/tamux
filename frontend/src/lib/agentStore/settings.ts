@@ -65,6 +65,7 @@ export interface AgentSettings {
   "z.ai": AgentProviderConfig;
   "z.ai-coding-plan": AgentProviderConfig;
   arcee: AgentProviderConfig;
+  nvidia: AgentProviderConfig;
   openrouter: AgentProviderConfig;
   cerebras: AgentProviderConfig;
   together: AgentProviderConfig;
@@ -161,6 +162,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   "z.ai": { base_url: "https://api.z.ai/api/paas/v4", model: "glm-4-plus", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   "z.ai-coding-plan": { base_url: "https://api.z.ai/api/coding/paas/v4", model: "glm-5", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   arcee: { base_url: "https://api.arcee.ai/api/v1", model: "trinity-large-thinking", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: 256_000 },
+  nvidia: { base_url: "https://integrate.api.nvidia.com/v1", model: "minimaxai/minimax-m2.7", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   openrouter: { base_url: "https://openrouter.ai/api/v1", model: "arcee-ai/trinity-large-thinking", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   cerebras: { base_url: "https://api.cerebras.ai/v1", model: "llama-3.3-70b", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   together: { base_url: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
@@ -416,6 +418,7 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     "kimi-coding-plan": providerConfigFromRaw("kimi-coding-plan", source),
     "z.ai": providerConfigFromRaw("z.ai", source),
     "z.ai-coding-plan": providerConfigFromRaw("z.ai-coding-plan", source),
+    nvidia: providerConfigFromRaw("nvidia", source),
     openrouter: providerConfigFromRaw("openrouter", source),
     cerebras: providerConfigFromRaw("cerebras", source),
     together: providerConfigFromRaw("together", source),

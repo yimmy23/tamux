@@ -327,7 +327,7 @@ impl<'a> SendMessageRunner<'a> {
             self.engine.persist_subagent_runtime_metrics(&task.id).await;
         }
 
-        self.engine.persist_threads().await;
+        self.engine.persist_thread_by_id(&self.tid).await;
         let final_upstream_message = {
             let threads = self.engine.threads.read().await;
             threads

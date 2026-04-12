@@ -685,7 +685,7 @@ impl<'a> SendMessageRunner<'a> {
                                 None,
                                 None,
                             ).await;
-                            self.engine.persist_threads().await;
+                            self.engine.persist_thread_by_id(&self.tid).await;
                             self.engine.emit_turn_error_completion(
                                 &self.tid,
                                 &visible_message,

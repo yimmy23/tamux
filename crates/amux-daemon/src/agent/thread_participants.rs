@@ -391,6 +391,10 @@ impl AgentEngine {
         if suggestion.force_send {
             self.send_thread_participant_suggestion(thread_id, &suggestion.id, None)
                 .await?;
+        } else {
+            let _ = self
+                .maybe_auto_send_next_thread_participant_suggestion(thread_id)
+                .await?;
         }
 
         Ok(suggestion)

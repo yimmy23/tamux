@@ -18,6 +18,7 @@ pub const PROVIDER_ID_KIMI_CODING_PLAN: &str = "kimi-coding-plan";
 pub const PROVIDER_ID_LMSTUDIO: &str = "lmstudio";
 pub const PROVIDER_ID_MINIMAX: &str = "minimax";
 pub const PROVIDER_ID_MINIMAX_CODING_PLAN: &str = "minimax-coding-plan";
+pub const PROVIDER_ID_NVIDIA: &str = "nvidia";
 pub const PROVIDER_ID_OLLAMA: &str = "ollama";
 pub const PROVIDER_ID_OPENAI: &str = "openai";
 pub const PROVIDER_ID_CHATGPT_SUBSCRIPTION: &str = "chatgpt_subscription";
@@ -43,6 +44,9 @@ pub const MINIMAX_PROVIDER: ProviderRef = ProviderRef {
 };
 pub const MINIMAX_CODING_PLAN_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_MINIMAX_CODING_PLAN,
+};
+pub const NVIDIA_PROVIDER: ProviderRef = ProviderRef {
+    id: PROVIDER_ID_NVIDIA,
 };
 pub const OPENAI_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_OPENAI,
