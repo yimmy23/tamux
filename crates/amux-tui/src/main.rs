@@ -280,6 +280,9 @@ fn start_daemon_bridge(
                             DaemonCommand::RequestAgentStatus => {
                                 let _ = client.request_agent_status();
                             }
+                            DaemonCommand::RequestAgentStatistics { window } => {
+                                let _ = client.request_agent_statistics(window);
+                            }
                             DaemonCommand::RequestPromptInspection { agent_id } => {
                                 let _ = client.request_prompt_inspection(agent_id);
                             }

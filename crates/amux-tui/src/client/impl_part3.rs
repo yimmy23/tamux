@@ -115,6 +115,15 @@ impl DaemonClient {
                             diagnostics_json,
                         })
                         .await;
+                    }
+            }
+            DaemonMessage::AgentStatisticsResponse { statistics_json } => {
+                if let Ok(snapshot) = serde_json::from_str::<amux_protocol::AgentStatisticsSnapshot>(
+                    &statistics_json,
+                ) {
+                    let _ = event_tx
+                        .send(ClientEvent::StatisticsSnapshot(snapshot))
+                        .await;
                 }
             }
             DaemonMessage::AgentPromptInspection { prompt_json } => {

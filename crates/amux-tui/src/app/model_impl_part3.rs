@@ -45,6 +45,7 @@ impl TuiModel {
                 modal::ModalKind::ToolsPicker => "modal:tools_picker".to_string(),
                 modal::ModalKind::ViewPicker => "modal:view_picker".to_string(),
                 modal::ModalKind::Status => "modal:status".to_string(),
+                modal::ModalKind::Statistics => "modal:statistics".to_string(),
                 modal::ModalKind::PromptViewer => "modal:prompt".to_string(),
                 modal::ModalKind::Help => "modal:help".to_string(),
                 modal::ModalKind::WhatsAppLink => "modal:whatsapp_link".to_string(),

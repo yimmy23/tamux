@@ -228,6 +228,7 @@ impl ConciergeEngine {
                 weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
+                cost: None,
                 provider: Some("concierge".into()),
                 model: None,
                 api_transport: None,

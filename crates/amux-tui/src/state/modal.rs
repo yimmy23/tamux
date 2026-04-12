@@ -4,6 +4,7 @@
 pub enum ModalKind {
     CommandPalette,
     Status,
+    Statistics,
     PromptViewer,
     ThreadParticipants,
     ThreadPicker,
@@ -417,6 +418,10 @@ fn default_command_items() -> Vec<CommandItem> {
         CommandItem {
             command: "status".into(),
             description: "Show tamux status".into(),
+        },
+        CommandItem {
+            command: "statistics".into(),
+            description: "Show DB-backed usage statistics".into(),
         },
         CommandItem {
             command: "notifications".into(),

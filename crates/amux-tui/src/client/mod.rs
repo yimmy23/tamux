@@ -315,6 +315,7 @@ pub enum ClientEvent {
         diagnostics_json: String,
     },
     StatusSnapshot(AgentStatusSnapshotVm),
+    StatisticsSnapshot(amux_protocol::AgentStatisticsSnapshot),
     PromptInspection(AgentPromptInspectionVm),
 
     TierChanged {

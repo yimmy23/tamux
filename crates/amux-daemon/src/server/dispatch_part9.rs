@@ -2,6 +2,7 @@ if matches!(
         &msg,
         ClientMessage::SkillPublish{ .. } |
         ClientMessage::AgentStatusQuery |
+        ClientMessage::AgentStatisticsQuery{ .. } |
         ClientMessage::AgentInspectPrompt{ .. } |
         ClientMessage::AgentSetTierOverride{ .. } |
         ClientMessage::PluginList{ .. } |
@@ -148,6 +149,26 @@ if matches!(
                 ClientMessage::AgentStatusQuery => {
                     let msg = agent.get_status_snapshot().await;
                     framed.send(msg).await?;
+                }
+
+                ClientMessage::AgentStatisticsQuery { window } => {
+                    match agent.history.get_agent_statistics(window).await {
+                        Ok(snapshot) => {
+                            framed
+                                .send(DaemonMessage::AgentStatisticsResponse {
+                                    statistics_json: serde_json::to_string(&snapshot)
+                                        .unwrap_or_else(|_| "{}".to_string()),
+                                })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
                 }
 
                 ClientMessage::AgentInspectPrompt { agent_id } => {

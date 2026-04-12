@@ -208,6 +208,7 @@ async fn auto_compaction_forces_connection_close_on_next_llm_request() {
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
+                        cost: None,
                         provider: None,
                         model: None,
                         api_transport: None,

@@ -559,6 +559,9 @@ impl TuiModel {
             ClientEvent::StatusSnapshot(snapshot) => {
                 self.handle_status_snapshot_event(snapshot);
             }
+            ClientEvent::StatisticsSnapshot(snapshot) => {
+                self.handle_statistics_snapshot_event(snapshot);
+            }
             ClientEvent::PromptInspection(prompt) => {
                 self.handle_prompt_inspection_event(prompt);
             }

@@ -4,8 +4,10 @@ use crate::agent::types::{
     GoalRunStepKind, GoalRunStepStatus, TaskLogLevel, TaskPriority, TaskStatus,
 };
 use amux_protocol::{
-    AgentDbMessage, AgentDbThread, AgentEventRow, CommandLogEntry, GatewayHealthState,
-    HistorySearchHit, SnapshotIndexEntry, TranscriptIndexEntry, WormChainTip,
+    AgentDbMessage, AgentDbThread, AgentEventRow, AgentStatisticsSnapshot,
+    AgentStatisticsTotals, AgentStatisticsWindow, CommandLogEntry, GatewayHealthState,
+    HistorySearchHit, ModelStatisticsRow, ProviderStatisticsRow, SnapshotIndexEntry,
+    TranscriptIndexEntry, WormChainTip,
 };
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -494,6 +496,7 @@ pub struct AgentMessagePatch {
     pub input_tokens: Option<Option<i64>>,
     pub output_tokens: Option<Option<i64>>,
     pub total_tokens: Option<Option<i64>>,
+    pub cost_usd: Option<Option<f64>>,
 }
 
 mod audit;
@@ -516,6 +519,7 @@ mod schema_helpers;
 mod schema_migrations;
 mod schema_sql;
 mod schema_sql_extra;
+mod statistics;
 mod skill_generation;
 pub(crate) use skill_generation::page_skill_variants;
 mod skill_metadata;

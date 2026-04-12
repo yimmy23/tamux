@@ -133,6 +133,7 @@ impl AgentEngine {
                     input_tokens: Some(message.input_tokens as i64),
                     output_tokens: Some(message.output_tokens as i64),
                     total_tokens: Some((message.input_tokens + message.output_tokens) as i64),
+                    cost_usd: message.cost,
                     reasoning: message.reasoning.clone(),
                     tool_calls_json: message
                         .tool_calls

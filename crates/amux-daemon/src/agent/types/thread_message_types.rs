@@ -122,6 +122,8 @@ pub struct AgentMessage {
     pub input_tokens: u64,
     #[serde(default)]
     pub output_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -171,6 +173,7 @@ impl AgentMessage {
             weles_review: None,
             input_tokens: 0,
             output_tokens: 0,
+            cost: None,
             provider: None,
             model: None,
             api_transport: None,

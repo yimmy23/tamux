@@ -172,6 +172,7 @@ pub(super) fn apply_schema_migrations(
     )?;
     ensure_column(connection, "agent_tasks", "session_id", "TEXT")?;
     ensure_column(connection, "agent_threads", "metadata_json", "TEXT")?;
+    ensure_column(connection, "agent_messages", "cost_usd", "REAL")?;
     ensure_column(connection, "agent_tasks", "scheduled_at", "INTEGER")?;
     ensure_column(connection, "agent_tasks", "goal_run_id", "TEXT")?;
     ensure_column(connection, "agent_tasks", "goal_run_title", "TEXT")?;
