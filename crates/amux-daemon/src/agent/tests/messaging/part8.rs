@@ -117,6 +117,116 @@ async fn participant_send_now_posts_direct_visible_message_then_continues_thread
 }
 
 #[tokio::test]
+async fn participant_follow_up_and_later_turn_persist_across_reload() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let base_url = spawn_recording_openai_server(recorded_bodies.clone()).await;
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = base_url;
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+    let thread_id = "thread_participant_reload_persistence";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Participant reload persistence".to_string(),
+            messages: vec![AgentMessage::user("hello", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register");
+    let suggestion = engine
+        .queue_thread_participant_suggestion(
+            thread_id,
+            "weles",
+            "Participant verdict: claim is false.",
+            false,
+        )
+        .await
+        .expect("queue suggestion");
+
+    engine
+        .send_thread_participant_suggestion(thread_id, &suggestion.id, None)
+        .await
+        .expect("send suggestion");
+
+    engine
+        .resend_existing_user_message(thread_id, "hello")
+        .await
+        .expect("later resend should succeed");
+
+    let live_messages = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .expect("thread should still exist")
+            .messages
+            .clone()
+    };
+    assert!(
+        live_messages.len() >= 4,
+        "expected user, participant post, participant follow-up, and a later main-agent turn"
+    );
+
+    drop(engine);
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let reloaded = AgentEngine::new_test(manager, config, root.path()).await;
+    reloaded.hydrate().await.expect("hydrate");
+
+    let reloaded_messages = reloaded
+        .get_thread(thread_id)
+        .await
+        .expect("reloaded thread should exist")
+        .messages;
+
+    assert_eq!(reloaded_messages.len(), live_messages.len());
+    assert_eq!(
+        reloaded_messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>(),
+        live_messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        reloaded_messages
+            .last()
+            .and_then(|message| message.author_agent_id.as_deref()),
+        live_messages
+            .last()
+            .and_then(|message| message.author_agent_id.as_deref())
+    );
+}
+
+#[tokio::test]
 async fn queued_participant_suggestion_auto_sends_after_active_stream_finishes() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

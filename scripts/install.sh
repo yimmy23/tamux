@@ -11,6 +11,7 @@ GITHUB_OWNER="mkurman"
 GITHUB_REPO="tamux"
 GITHUB_API_URL="https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}"
 DOWNLOAD_BASE_URL="https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download"
+DIRECT_INSTALL_MARKER="${INSTALL_DIR}/.tamux-install-source"
 BINARIES="tamux tamux-daemon tamux-tui tamux-gateway tamux-mcp"
 DRY_RUN=false
 
@@ -104,6 +105,17 @@ resolve_version() {
   echo "Latest version: ${VERSION}"
 }
 
+wait_for_previous_tamux() {
+  if [ -z "${TAMUX_UPGRADE_WAIT_PID:-}" ]; then
+    return
+  fi
+
+  echo "Waiting for tamux process ${TAMUX_UPGRADE_WAIT_PID} to exit..."
+  while kill -0 "${TAMUX_UPGRADE_WAIT_PID}" 2>/dev/null; do
+    sleep 1
+  done
+}
+
 sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
@@ -167,6 +179,11 @@ install_binaries() {
     chmod 755 "$INSTALL_DIR/$binary_name"
   done
 
+  {
+    echo "source=direct"
+    echo "install_dir=$INSTALL_DIR"
+  } > "$DIRECT_INSTALL_MARKER"
+
   echo "Installed: ${BINARIES} -> ${INSTALL_DIR}"
 }
 
@@ -213,6 +230,8 @@ ARCHIVE_PATH="${TMP_DIR}/${archive_name}"
 CHECKSUM_PATH="${TMP_DIR}/${checksum_name}"
 EXTRACT_DIR="${TMP_DIR}/extract"
 trap cleanup EXIT INT TERM HUP
+
+wait_for_previous_tamux
 
 echo "Downloading tamux v${VERSION} for ${archive_platform}..."
 download_file "$CHECKSUM_URL" "$CHECKSUM_PATH"

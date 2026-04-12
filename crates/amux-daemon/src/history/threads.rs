@@ -37,6 +37,60 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
+                let incoming_message_count = messages.len() as i64;
+                let incoming_latest_created_at = messages
+                    .iter()
+                    .map(|message| message.created_at)
+                    .max()
+                    .unwrap_or(thread.updated_at);
+
+                let existing_snapshot = transaction
+                    .query_row(
+                        "SELECT
+                            updated_at,
+                            message_count,
+                            COALESCE((
+                                SELECT MAX(created_at)
+                                FROM agent_messages
+                                WHERE thread_id = ?1
+                            ), 0)
+                         FROM agent_threads
+                         WHERE id = ?1",
+                        params![&thread.id],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
+
+                if let Some((
+                    existing_updated_at,
+                    existing_message_count,
+                    existing_latest_created_at,
+                )) = existing_snapshot
+                {
+                    let stale_snapshot = existing_updated_at > thread.updated_at
+                        || (existing_updated_at == thread.updated_at
+                            && (existing_message_count > incoming_message_count
+                                || existing_latest_created_at > incoming_latest_created_at));
+                    if stale_snapshot {
+                        tracing::debug!(
+                            thread_id = %thread.id,
+                            existing_updated_at,
+                            incoming_updated_at = thread.updated_at,
+                            existing_message_count,
+                            incoming_message_count,
+                            existing_latest_created_at,
+                            incoming_latest_created_at,
+                            "skipping stale thread snapshot persistence"
+                        );
+                        return Ok(());
+                    }
+                }
 
                 transaction.execute(
                     "INSERT INTO agent_threads \

@@ -158,6 +158,133 @@ async fn replace_thread_snapshot_replaces_messages_without_losing_thread_row() -
 }
 
 #[tokio::test]
+async fn replace_thread_snapshot_does_not_regress_to_stale_snapshot() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "thread-stale-snapshot-guard";
+    let base_thread = AgentDbThread {
+        id: thread_id.to_string(),
+        workspace_id: None,
+        surface_id: None,
+        pane_id: None,
+        agent_name: Some("Svarog".to_string()),
+        title: "Stale Snapshot Guard".to_string(),
+        created_at: 100,
+        updated_at: 200,
+        message_count: 2,
+        total_tokens: 0,
+        last_preview: "older".to_string(),
+        metadata_json: None,
+    };
+    let older_messages = vec![
+        AgentDbMessage {
+            id: "m1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 110,
+            role: "user".to_string(),
+            content: "older 1".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        },
+        AgentDbMessage {
+            id: "m2".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 120,
+            role: "assistant".to_string(),
+            content: "older 2".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        },
+    ];
+    store
+        .replace_thread_snapshot(&base_thread, &older_messages)
+        .await?;
+
+    let newer_thread = AgentDbThread {
+        updated_at: 300,
+        message_count: 4,
+        last_preview: "newer 4".to_string(),
+        ..base_thread.clone()
+    };
+    let mut newer_messages = older_messages.clone();
+    newer_messages.push(AgentDbMessage {
+        id: "m3".to_string(),
+        thread_id: thread_id.to_string(),
+        created_at: 210,
+        role: "user".to_string(),
+        content: "newer 3".to_string(),
+        provider: None,
+        model: None,
+        input_tokens: Some(0),
+        output_tokens: Some(0),
+        total_tokens: Some(0),
+        reasoning: None,
+        tool_calls_json: None,
+        metadata_json: None,
+    });
+    newer_messages.push(AgentDbMessage {
+        id: "m4".to_string(),
+        thread_id: thread_id.to_string(),
+        created_at: 220,
+        role: "assistant".to_string(),
+        content: "newer 4".to_string(),
+        provider: None,
+        model: None,
+        input_tokens: Some(0),
+        output_tokens: Some(0),
+        total_tokens: Some(0),
+        reasoning: None,
+        tool_calls_json: None,
+        metadata_json: None,
+    });
+    store
+        .replace_thread_snapshot(&newer_thread, &newer_messages)
+        .await?;
+
+    let stale_thread = AgentDbThread {
+        updated_at: 250,
+        message_count: 2,
+        last_preview: "stale older".to_string(),
+        ..base_thread
+    };
+    store
+        .replace_thread_snapshot(&stale_thread, &older_messages)
+        .await?;
+
+    let loaded_thread = store
+        .get_thread(thread_id)
+        .await?
+        .expect("thread should remain persisted");
+    let loaded_messages = store.list_messages(thread_id, None).await?;
+
+    assert_eq!(loaded_thread.updated_at, 300);
+    assert_eq!(loaded_thread.message_count, 4);
+    assert_eq!(loaded_thread.last_preview, "newer 4");
+    assert_eq!(loaded_messages.len(), 4);
+    assert_eq!(
+        loaded_messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>(),
+        vec!["older 1", "older 2", "newer 3", "newer 4"]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn list_messages_with_limit_returns_latest_messages_in_chronological_order() -> Result<()> {
     let (store, root) = make_test_store().await?;
     let thread_id = "limited-latest-thread";

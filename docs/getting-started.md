@@ -21,6 +21,8 @@ tamux --help
 
 The installer downloads the same GitHub release bundles used by the npm package and installs them into `~/.local/bin` by default. Set `TAMUX_VERSION` to pin a specific release or `TAMUX_INSTALL_DIR` to change the install location.
 
+Later, `tamux upgrade` will upgrade from the same source that installed the current binary: npm-backed installs use npm, and direct-binary installs reuse the direct installer for the active install directory.
+
 ## Required Dependencies
 
 ### Source / Development workflow

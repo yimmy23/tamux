@@ -33,7 +33,7 @@ impl TamuxUpdateStatus {
     pub fn cli_notice(&self) -> Option<String> {
         self.update_available.then(|| {
             format!(
-                "Update available: tamux {} -> {}. Run `tamux upgrade` to install `tamux@latest`.",
+                "Update available: tamux {} -> {}. Run `tamux upgrade` to install the latest tamux release.",
                 self.current_version, self.latest_version
             )
         })
@@ -44,7 +44,7 @@ impl TamuxUpdateStatus {
             (
                 format!("tamux {} is available", self.latest_version),
                 format!(
-                    "Installed: {}. Latest: {}. Run `tamux upgrade` to install `tamux@latest` via npm.",
+                    "Installed: {}. Latest: {}. Run `tamux upgrade` to install the latest tamux release.",
                     self.current_version, self.latest_version
                 ),
                 None,
@@ -55,7 +55,7 @@ impl TamuxUpdateStatus {
             (
                 "tamux is up to date".to_string(),
                 format!(
-                    "Installed version {} matches npm @latest.",
+                    "Installed version {} matches the latest available tamux release.",
                     self.current_version
                 ),
                 Some(timestamp_ms),
@@ -148,8 +148,24 @@ mod tests {
             notification.body.contains("Run `tamux upgrade`"),
             "notification should direct the operator to the upgrade command"
         );
+        assert!(
+            !notification.body.contains("npm"),
+            "notification body should stay installation-source agnostic"
+        );
         assert_eq!(notification.archived_at, None);
         assert_eq!(notification.deleted_at, None);
+    }
+
+    #[test]
+    fn cli_notice_stays_installation_source_agnostic() {
+        let status = TamuxUpdateStatus::from_versions("0.2.3", "0.2.4")
+            .expect("status should parse valid semver versions");
+
+        let notice = status.cli_notice().expect("notice");
+
+        assert!(notice.contains("Run `tamux upgrade`"));
+        assert!(!notice.contains("npm"));
+        assert!(!notice.contains("tamux@latest"));
     }
 
     #[test]

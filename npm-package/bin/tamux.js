@@ -38,6 +38,7 @@ function tryFallbackDownload() {
  */
 function spawnBinary(binPath) {
   var env = installMeta.prependDirectoryToPath(process.env, __dirname);
+  env.TAMUX_INSTALL_SOURCE = "npm";
   var child = child_process.spawn(binPath, process.argv.slice(2), {
     stdio: "inherit",
     env: env,

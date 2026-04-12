@@ -106,6 +106,8 @@ tamux --help
 
 The quick installer downloads the same native release bundle family that the npm package uses, installs the binaries into `~/.local/bin` by default, and works without Node.js or npm.
 
+After a quick-install or direct-binary install, `tamux upgrade` reuses the direct installer path for the current install directory. If you installed through npm, `tamux upgrade` continues to use npm.
+
 ### NPM
 
 ```bash
@@ -126,6 +128,8 @@ tamux --help
 ```
 
 If the bin directory is already on `PATH`, opening a new shell is still useful because `zsh` and `bash` can cache command lookups.
+
+When tamux is installed through npm, `tamux upgrade` upgrades through npm as well.
 
 ### From sources
 

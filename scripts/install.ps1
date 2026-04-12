@@ -41,6 +41,7 @@ $RequestHeaders = @{
     "Accept" = "application/vnd.github+json"
     "User-Agent" = "tamux-installer"
 }
+$DirectInstallMarker = Join-Path $InstallDir ".tamux-install-source"
 $Binaries = @("tamux.exe", "tamux-daemon.exe", "tamux-tui.exe", "tamux-gateway.exe", "tamux-mcp.exe")
 
 function Normalize-Version {
@@ -99,6 +100,17 @@ function Get-LatestVersion {
     }
 
     Write-Host "Latest version: $script:Version"
+}
+
+function Wait-ForPreviousTamux {
+    if (-not $env:TAMUX_UPGRADE_WAIT_PID) {
+        return
+    }
+
+    Write-Host "Waiting for tamux process $env:TAMUX_UPGRADE_WAIT_PID to exit..."
+    while (Get-Process -Id $env:TAMUX_UPGRADE_WAIT_PID -ErrorAction SilentlyContinue) {
+        Start-Sleep -Milliseconds 500
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -186,6 +198,11 @@ function Install-Binaries {
         Write-Host "  Installed: $bin"
     }
 
+    @(
+        "source=direct",
+        "install_dir=$InstallDir"
+    ) | Set-Content -Path $DirectInstallMarker
+
     Write-Host "Installed: $($Binaries -join ', ') -> $InstallDir"
 }
 
@@ -238,6 +255,7 @@ if ($DryRun) {
 }
 
 try {
+    Wait-ForPreviousTamux
     Download-AndVerify
     Install-Binaries
     Update-Path
