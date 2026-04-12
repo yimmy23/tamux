@@ -206,6 +206,8 @@ fn classify_openai_responses_stream_failure(
 ) -> anyhow::Error {
     let lower_code = error_code.unwrap_or_default().to_ascii_lowercase();
     let lower_message = error_message.unwrap_or_default().to_ascii_lowercase();
+    let stale_tool_output_mismatch = lower_message.contains("no tool call found")
+        && lower_message.contains("function call output");
 
     let class = if lower_code.contains("rate_limit") || lower_message.contains("rate limit") {
         UpstreamFailureClass::RateLimit
@@ -223,6 +225,7 @@ fn classify_openai_responses_stream_failure(
         || lower_message.contains("invalid request")
         || lower_message.contains("missing")
         || lower_message.contains("required")
+        || stale_tool_output_mismatch
     {
         UpstreamFailureClass::RequestInvalid
     } else if lower_code.contains("server")

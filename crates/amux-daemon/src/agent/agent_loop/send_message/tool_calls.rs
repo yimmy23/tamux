@@ -391,21 +391,17 @@ impl<'a> SendMessageRunner<'a> {
         }
 
         if state.requires_skill_read_before_progress() {
-            let denied_content = format!(
-                "Tool call blocked by skill discovery gate. Before `{}` you must `{}`.",
-                tc.function.name, state.recommended_action
-            );
             self.engine.emit_workflow_notice(
                 &self.tid,
                 "skill-gate",
                 format!(
-                    "Skill discovery gate blocked `{}`. Required next step: {}.",
-                    tc.function.name, state.recommended_action
+                    "Skill discovery strongly recommends `{}` before `{}`; allowing the tool call to proceed.",
+                    state.recommended_action,
+                    tc.function.name
                 ),
                 serde_json::to_string(&state).ok(),
             );
-            self.persist_denied_tool_result(tc, denied_content).await;
-            return true;
+            return false;
         }
 
         self.engine.emit_workflow_notice(

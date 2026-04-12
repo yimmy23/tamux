@@ -556,6 +556,41 @@
     }
 
     #[tokio::test]
+    async fn copilot_responses_parser_classifies_missing_tool_call_output_as_request_invalid() {
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_failed\"}}\n",
+            "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_failed\",\"status\":\"failed\",\"usage\":{\"input_tokens\":2,\"output_tokens\":0,\"total_tokens\":2},\"error\":{\"code\":\"bad_request\",\"message\":\"No tool call found for function call output with call_id call_oTvo8eFwoaFskvWlhGcUp5rU.\"}}}\n"
+        );
+        let (response, server) = responses_sse_test_response(body).await;
+
+        let (tx, mut rx) = mpsc::channel(8);
+        parse_openai_responses_sse(response, amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT, &tx)
+            .await
+            .expect("parse should complete with an error chunk");
+        drop(tx);
+
+        let mut saw_error = None;
+        while let Some(chunk) = rx.recv().await {
+            if let CompletionChunk::Error { message } = chunk.expect("chunk") {
+                saw_error = Some(message);
+                break;
+            }
+        }
+
+        let message = saw_error.expect("expected structured error chunk");
+        let diagnostics = parse_structured_error(&message);
+        assert_eq!(diagnostics.class, "request_invalid");
+        assert_eq!(diagnostics.diagnostics["event_type"], "response.failed");
+        assert_eq!(diagnostics.diagnostics["response_id"], "resp_failed");
+        assert_eq!(diagnostics.diagnostics["upstream_error"]["code"], "bad_request");
+        assert_eq!(
+            diagnostics.diagnostics["upstream_error"]["message"],
+            "No tool call found for function call output with call_id call_oTvo8eFwoaFskvWlhGcUp5rU."
+        );
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
     async fn copilot_responses_parser_surfaces_top_level_error_as_structured_error() {
         let body = concat!(
             "data: {\"type\":\"error\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"Slow down\",\"param\":\"model\"}}\n"
