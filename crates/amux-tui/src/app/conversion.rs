@@ -7,6 +7,18 @@ thread_local! {
 }
 
 pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
+    let derived_total_message_count = t.total_message_count.max(t.messages.len());
+    let derived_loaded_message_end = if t.loaded_message_end == 0 && !t.messages.is_empty() {
+        derived_total_message_count
+    } else {
+        t.loaded_message_end.max(t.messages.len())
+    };
+    let derived_loaded_message_start = if derived_loaded_message_end >= t.messages.len() {
+        t.loaded_message_start
+            .min(derived_loaded_message_end.saturating_sub(t.messages.len()))
+    } else {
+        0
+    };
     chat::AgentThread {
         id: t.id,
         agent_name: t.agent_name,
@@ -14,6 +26,13 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         created_at: t.created_at,
         updated_at: t.updated_at,
         messages: t.messages.into_iter().map(convert_message).collect(),
+        total_message_count: derived_total_message_count,
+        loaded_message_start: derived_loaded_message_start,
+        loaded_message_end: derived_loaded_message_end,
+        older_page_pending: false,
+        older_page_request_cooldown_until_tick: None,
+        history_window_expanded: false,
+        collapse_deadline_tick: None,
         total_input_tokens: t.total_input_tokens,
         total_output_tokens: t.total_output_tokens,
         thread_participants: t

@@ -84,7 +84,11 @@ where
         }
         AgentBridgeCommand::GetThread { thread_id } => {
             framed
-                .send(ClientMessage::AgentGetThread { thread_id })
+                .send(ClientMessage::AgentGetThread {
+                    thread_id,
+                    message_limit: None,
+                    message_offset: None,
+                })
                 .await?;
         }
         AgentBridgeCommand::DeleteThread { thread_id } => {
@@ -417,6 +421,11 @@ where
                     position,
                     confidence,
                 })
+                .await?;
+        }
+        AgentBridgeCommand::GetStatistics { window } => {
+            framed
+                .send(ClientMessage::AgentStatisticsQuery { window })
                 .await?;
         }
         AgentBridgeCommand::GetStatus => {
@@ -866,13 +875,21 @@ mod tests {
         bridge
             .send(ClientMessage::AgentGetThread {
                 thread_id: "thread-1".to_string(),
+                message_limit: None,
+                message_offset: None,
             })
             .await
             .expect("direct send should succeed");
 
         match daemon.next().await {
-            Some(Ok(ClientMessage::AgentGetThread { thread_id })) => {
+            Some(Ok(ClientMessage::AgentGetThread {
+                thread_id,
+                message_limit,
+                message_offset,
+            })) => {
                 assert_eq!(thread_id, "thread-1");
+                assert!(message_limit.is_none());
+                assert!(message_offset.is_none());
             }
             other => panic!("expected direct AgentGetThread decode, got {other:?}"),
         }

@@ -141,6 +141,26 @@ fn slash_status_opens_loading_modal_and_requests_status_without_sending_chat() {
 }
 
 #[test]
+fn slash_statistics_opens_loading_modal_and_requests_all_time_statistics() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.input.set_text("/statistics");
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::Statistics));
+    assert!(model.statistics_modal_loading);
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestAgentStatistics { window }) => {
+            assert_eq!(window, amux_protocol::AgentStatisticsWindow::All);
+        }
+        other => panic!("expected statistics request, got {:?}", other),
+    }
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
 fn slash_prompt_opens_loading_modal_and_requests_main_prompt() {
     let (mut model, mut daemon_rx) = make_model();
     model.connected = true;
@@ -387,6 +407,70 @@ fn help_viewer_down_scrolls_help_body() {
 
     assert!(!quit);
     assert_eq!(model.help_modal_scroll, 1);
+}
+
+#[test]
+fn statistics_modal_keyboard_cycles_tabs_and_filters() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Statistics));
+    model.statistics_modal_snapshot = Some(amux_protocol::AgentStatisticsSnapshot {
+        window: amux_protocol::AgentStatisticsWindow::All,
+        generated_at: 1,
+        has_incomplete_cost_history: false,
+        totals: amux_protocol::AgentStatisticsTotals {
+            input_tokens: 1,
+            output_tokens: 2,
+            total_tokens: 3,
+            cost_usd: 0.1,
+            provider_count: 1,
+            model_count: 1,
+        },
+        providers: vec![amux_protocol::ProviderStatisticsRow {
+            provider: "openai".to_string(),
+            input_tokens: 1,
+            output_tokens: 2,
+            total_tokens: 3,
+            cost_usd: 0.1,
+        }],
+        models: vec![amux_protocol::ModelStatisticsRow {
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            input_tokens: 1,
+            output_tokens: 2,
+            total_tokens: 3,
+            cost_usd: 0.1,
+        }],
+        top_models_by_tokens: Vec::new(),
+        top_models_by_cost: Vec::new(),
+    });
+
+    let quit =
+        model.handle_key_modal(KeyCode::Right, KeyModifiers::NONE, modal::ModalKind::Statistics);
+    assert!(!quit);
+    assert_eq!(
+        model.statistics_modal_tab,
+        crate::state::statistics::StatisticsTab::Providers
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char(']'),
+        KeyModifiers::NONE,
+        modal::ModalKind::Statistics,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.statistics_modal_window,
+        amux_protocol::AgentStatisticsWindow::Today
+    );
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestAgentStatistics { window }) => {
+            assert_eq!(window, amux_protocol::AgentStatisticsWindow::Today);
+        }
+        other => panic!("expected statistics refetch, got {:?}", other),
+    }
 }
 
 #[test]
@@ -1427,7 +1511,15 @@ fn thread_picker_enter_selects_filtered_rarog_thread() {
     assert!(!quit);
     assert_eq!(model.chat.active_thread_id(), Some("heartbeat-1"));
     match daemon_rx.try_recv() {
-        Ok(DaemonCommand::RequestThread(thread_id)) => assert_eq!(thread_id, "heartbeat-1"),
+        Ok(DaemonCommand::RequestThread {
+            thread_id,
+            message_limit,
+            message_offset,
+        }) => {
+            assert_eq!(thread_id, "heartbeat-1");
+            assert_eq!(message_limit, Some(50));
+            assert_eq!(message_offset, Some(0));
+        }
         other => panic!("expected thread request, got {:?}", other),
     }
 }

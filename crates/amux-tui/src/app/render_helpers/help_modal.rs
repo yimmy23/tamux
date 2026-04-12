@@ -189,6 +189,10 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Show tamux status", theme.fg_dim),
         ]),
         Line::from(vec![
+            Span::styled("  /statistics      ", theme.fg_active),
+            Span::styled("Open historical statistics modal", theme.fg_dim),
+        ]),
+        Line::from(vec![
             Span::styled("  /notifications   ", theme.fg_active),
             Span::styled("Open notifications center", theme.fg_dim),
         ]),

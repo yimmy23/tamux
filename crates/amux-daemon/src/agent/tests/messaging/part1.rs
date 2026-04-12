@@ -548,6 +548,7 @@ async fn handoff_activation_clears_thread_continuation_state_for_new_responder_s
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
+                        cost: None,
                         provider: Some(
                             amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string(),
                         ),
@@ -705,6 +706,7 @@ async fn delete_thread_messages_rehydrates_and_clears_invalid_continuation() {
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
+                        cost: None,
                         provider: Some(
                             amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string(),
                         ),
@@ -824,6 +826,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
+                        cost: None,
                         provider: Some(
                             amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string(),
                         ),
@@ -854,6 +857,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
+                        cost: None,
                         provider: None,
                         model: None,
                         api_transport: None,
@@ -882,6 +886,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
+                        cost: None,
                         provider: None,
                         model: None,
                         api_transport: None,
@@ -910,6 +915,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
+                        cost: None,
                         provider: Some(
                             amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string(),
                         ),
@@ -1015,6 +1021,7 @@ async fn thread_metadata_round_trips_latest_skill_discovery_state() {
             input_tokens: Some(0),
             output_tokens: Some(0),
             total_tokens: Some(0),
+            cost_usd: None,
             reasoning: None,
             tool_calls_json: None,
             metadata_json: None,
@@ -1044,4 +1051,59 @@ async fn thread_metadata_round_trips_latest_skill_discovery_state() {
     assert!(metadata.contains("\"mesh_requires_approval\":false"));
     assert!(metadata.contains("\"read_skill_identifier\":\"variant-systematic-debugging-v1\""));
     assert!(metadata.contains("\"compliant\":false"));
+}
+
+#[tokio::test]
+async fn hydrated_thread_message_preserves_cost() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-cost";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Cost".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "priced".to_string(),
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "msg-cost".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 100,
+            role: "assistant".to_string(),
+            content: "priced".to_string(),
+            provider: Some("openai".to_string()),
+            model: Some("gpt-5.4-mini".to_string()),
+            input_tokens: Some(4),
+            output_tokens: Some(2),
+            total_tokens: Some(6),
+            cost_usd: Some(0.0042),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+
+    let threads = engine.threads.read().await;
+    let thread = threads.get(thread_id).expect("thread should exist");
+    assert_eq!(thread.messages[0].cost, Some(0.0042));
 }

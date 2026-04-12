@@ -147,6 +147,7 @@ impl AgentEngine {
                 weles_review: None,
                 input_tokens,
                 output_tokens,
+                cost: None,
                 provider,
                 model,
                 api_transport,

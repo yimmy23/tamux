@@ -156,8 +156,7 @@ impl TuiModel {
             .reduce(chat::ChatAction::ThreadListReceived(threads));
         self.sync_pending_approvals_from_tasks();
         if let Some(thread_id) = active_thread_id.filter(|_| should_refresh_active_thread) {
-            self.begin_thread_loading(thread_id.clone());
-            self.send_daemon_command(DaemonCommand::RequestThread(thread_id));
+            self.request_latest_thread_page(thread_id, true);
         }
         if self.chat.active_thread().is_none() {
             self.thread_loading_id = None;
@@ -178,6 +177,36 @@ impl TuiModel {
         self.anticipatory
             .reduce(crate::state::AnticipatoryAction::Clear);
         let thread_id = thread.id.clone();
+        let should_preserve_prepend_anchor = self.chat.active_thread().is_some_and(|existing| {
+            let incoming_total = thread.total_message_count.max(thread.messages.len());
+            let incoming_end = if thread.loaded_message_end == 0 && !thread.messages.is_empty() {
+                incoming_total
+            } else {
+                thread.loaded_message_end.max(thread.messages.len())
+            };
+            let incoming_start = if incoming_end >= thread.messages.len() {
+                thread
+                    .loaded_message_start
+                    .min(incoming_end.saturating_sub(thread.messages.len()))
+            } else {
+                0
+            };
+            self.chat.active_thread_id() == Some(thread_id.as_str())
+                && self.chat.scroll_offset() > 0
+                && incoming_end == existing.loaded_message_start
+                && incoming_start < incoming_end
+        });
+        let before_rendered_lines = if should_preserve_prepend_anchor {
+            widgets::chat::rendered_line_count(
+                self.pane_layout().chat,
+                &self.chat,
+                &self.theme,
+                self.tick_counter,
+                self.retry_wait_start_selected,
+            )
+        } else {
+            0
+        };
         self.finish_thread_loading(&thread_id);
         let should_select_thread = self.chat.active_thread_id().is_none();
         if self.chat.active_thread_id() == Some(thread_id.as_str()) {
@@ -186,6 +215,18 @@ impl TuiModel {
         self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
             conversion::convert_thread(thread),
         ));
+        if should_preserve_prepend_anchor {
+            let after_rendered_lines = widgets::chat::rendered_line_count(
+                self.pane_layout().chat,
+                &self.chat,
+                &self.theme,
+                self.tick_counter,
+                self.retry_wait_start_selected,
+            );
+            self.chat.preserve_prepend_scroll_anchor(
+                after_rendered_lines.saturating_sub(before_rendered_lines),
+            );
+        }
         if should_select_thread {
             self.chat
                 .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
@@ -240,8 +281,7 @@ impl TuiModel {
         {
             return;
         }
-        self.begin_thread_loading(thread_id.clone());
-        self.send_daemon_command(DaemonCommand::RequestThread(thread_id.clone()));
+        self.request_latest_thread_page(thread_id.clone(), true);
         self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));
         self.status_line = "Thread reloaded from daemon".to_string();

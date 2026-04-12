@@ -261,6 +261,7 @@ const bridgeApi = {
     agentGetDivergentSession: (sessionId) => ipcRenderer.invoke('agent-get-divergent-session', sessionId),
     agentGetConfig: () => ipcRenderer.invoke('agent-get-config'),
     agentGetStatus: () => ipcRenderer.invoke('agent-get-status'),
+    agentGetStatistics: (window) => ipcRenderer.invoke('agent-get-statistics', window),
     agentInspectPrompt: (agentId) => ipcRenderer.invoke('agent-inspect-prompt', agentId),
     agentQueryAudits: (actionTypes, since, limit) => ipcRenderer.invoke('agent-query-audits', actionTypes, since, limit),
     agentGetProvenanceReport: (limit) => ipcRenderer.invoke('agent-get-provenance-report', limit),

@@ -145,6 +145,8 @@ async fn get_thread_includes_thread_participants_for_reload() {
     conn.framed
         .send(ClientMessage::AgentGetThread {
             thread_id: thread_id.to_string(),
+            message_limit: None,
+            message_offset: None,
         })
         .await
         .expect("request thread detail");
@@ -212,6 +214,8 @@ async fn get_thread_includes_failed_participant_suggestions() {
     conn.framed
         .send(ClientMessage::AgentGetThread {
             thread_id: thread_id.to_string(),
+            message_limit: None,
+            message_offset: None,
         })
         .await
         .expect("request thread detail");

@@ -47,6 +47,16 @@ impl TuiModel {
         self.status_modal_scroll = 0;
     }
 
+    pub(in crate::app) fn handle_statistics_snapshot_event(
+        &mut self,
+        snapshot: amux_protocol::AgentStatisticsSnapshot,
+    ) {
+        self.statistics_modal_snapshot = Some(snapshot);
+        self.statistics_modal_loading = false;
+        self.statistics_modal_error = None;
+        self.statistics_modal_scroll = 0;
+    }
+
     pub(in crate::app) fn handle_prompt_inspection_event(
         &mut self,
         prompt: crate::client::AgentPromptInspectionVm,

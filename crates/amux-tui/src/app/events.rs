@@ -36,6 +36,9 @@ impl TuiModel {
     pub fn on_tick(&mut self) {
         self.tick_counter = self.tick_counter.saturating_add(1);
         self.chat.clear_expired_copy_feedback(self.tick_counter);
+        self.maybe_request_older_chat_history();
+        self.maybe_schedule_chat_history_collapse();
+        self.chat.maybe_collapse_history(self.tick_counter);
         self.clear_expired_queued_prompt_copy_feedback();
         if self.pending_stop && !self.pending_stop_active() {
             self.pending_stop = false;
@@ -555,6 +558,9 @@ impl TuiModel {
             }
             ClientEvent::StatusSnapshot(snapshot) => {
                 self.handle_status_snapshot_event(snapshot);
+            }
+            ClientEvent::StatisticsSnapshot(snapshot) => {
+                self.handle_statistics_snapshot_event(snapshot);
             }
             ClientEvent::PromptInspection(prompt) => {
                 self.handle_prompt_inspection_event(prompt);

@@ -13,6 +13,7 @@ pub mod modal;
 pub mod notifications;
 pub mod settings;
 pub mod sidebar;
+pub mod statistics;
 pub mod subagents;
 pub mod task;
 pub mod tier;
@@ -33,7 +34,11 @@ pub enum FocusArea {
 pub enum DaemonCommand {
     Refresh,
     RefreshServices,
-    RequestThread(String),
+    RequestThread {
+        thread_id: String,
+        message_limit: Option<usize>,
+        message_offset: Option<usize>,
+    },
     RequestThreadTodos(String),
     RequestThreadWorkContext(String),
     RequestGoalRunDetail(String),
@@ -64,6 +69,9 @@ pub enum DaemonCommand {
         max_bytes: Option<usize>,
     },
     RequestAgentStatus,
+    RequestAgentStatistics {
+        window: amux_protocol::AgentStatisticsWindow,
+    },
     RequestPromptInspection {
         agent_id: Option<String>,
     },

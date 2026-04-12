@@ -46,7 +46,9 @@ fn scrollbar_layout_from_metrics(
         area.height,
     );
     let scrollbar = Rect::new(
-        area.x.saturating_add(area.width).saturating_sub(SCROLLBAR_WIDTH),
+        area.x
+            .saturating_add(area.width)
+            .saturating_sub(SCROLLBAR_WIDTH),
         area.y,
         SCROLLBAR_WIDTH,
         area.height,
@@ -76,11 +78,7 @@ fn scrollbar_layout_from_metrics(
     })
 }
 
-fn scroll_offset_from_thumb_offset(
-    thumb_offset: u16,
-    track_span: u16,
-    max_scroll: usize,
-) -> usize {
+fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scroll: usize) -> usize {
     if max_scroll == 0 || track_span == 0 {
         return 0;
     }
@@ -116,6 +114,28 @@ pub(crate) fn scrollbar_layout(
     );
 
     scrollbar_layout_from_metrics(area, all_lines.len(), scroll)
+}
+
+pub(crate) fn rendered_line_count(
+    area: Rect,
+    chat: &ChatState,
+    theme: &ThemeTokens,
+    current_tick: u64,
+    retry_wait_start_selected: bool,
+) -> usize {
+    if area.width == 0 || area.height == 0 {
+        return 0;
+    }
+
+    let inner = content_inner(area);
+    let (all_lines, _) = build_rendered_lines(
+        chat,
+        theme,
+        inner.width as usize,
+        current_tick,
+        retry_wait_start_selected,
+    );
+    all_lines.len()
 }
 
 pub(crate) fn scrollbar_scroll_offset_for_pointer(
@@ -559,8 +579,7 @@ pub fn selection_points_from_mouse(
     end: Position,
     retry_wait_start_selected: bool,
 ) -> Option<(SelectionPoint, SelectionPoint)> {
-    let snapshot =
-        selection_snapshot(area, chat, theme, current_tick, retry_wait_start_selected)?;
+    let snapshot = selection_snapshot(area, chat, theme, current_tick, retry_wait_start_selected)?;
     Some((
         selection_point_from_snapshot(&snapshot, start)?,
         selection_point_from_snapshot(&snapshot, end)?,

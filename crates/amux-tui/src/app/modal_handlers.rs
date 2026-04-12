@@ -988,6 +988,34 @@ impl TuiModel {
             return false;
         }
 
+        if kind == modal::ModalKind::Statistics {
+            match code {
+                KeyCode::Esc => {
+                    self.close_top_modal();
+                }
+                KeyCode::Char('/') => {
+                    self.close_top_modal();
+                    self.input.reduce(input::InputAction::InsertChar('/'));
+                    self.focus = FocusArea::Input;
+                }
+                KeyCode::Down | KeyCode::Char('j') => self.step_statistics_modal_scroll(1),
+                KeyCode::Up | KeyCode::Char('k') => self.step_statistics_modal_scroll(-1),
+                KeyCode::PageDown => self.page_statistics_modal_scroll(1),
+                KeyCode::PageUp => self.page_statistics_modal_scroll(-1),
+                KeyCode::Home => self.set_statistics_modal_scroll(0),
+                KeyCode::End => {
+                    let max_scroll = self.statistics_modal_max_scroll();
+                    self.set_statistics_modal_scroll(max_scroll);
+                }
+                KeyCode::Left | KeyCode::Char('h') => self.cycle_statistics_tab(-1),
+                KeyCode::Right | KeyCode::Char('l') => self.cycle_statistics_tab(1),
+                KeyCode::Char('[') => self.cycle_statistics_window(-1),
+                KeyCode::Char(']') => self.cycle_statistics_window(1),
+                _ => {}
+            }
+            return false;
+        }
+
         if kind == modal::ModalKind::Help {
             match code {
                 KeyCode::Esc => {

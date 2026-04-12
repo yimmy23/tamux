@@ -83,6 +83,7 @@ async fn persisted_assistant_messages_reload_upstream_message_metadata() {
                         weles_review: None,
                         input_tokens: 2,
                         output_tokens: 4,
+                        cost: None,
                         provider: Some(PROVIDER_ID_ANTHROPIC.to_string()),
                         model: Some("claude-sonnet-4-20250514".to_string()),
                         api_transport: Some(ApiTransport::ChatCompletions),

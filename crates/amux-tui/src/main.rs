@@ -221,8 +221,16 @@ fn start_daemon_bridge(
                             DaemonCommand::RefreshServices => {
                                 let _ = client.refresh_services();
                             }
-                            DaemonCommand::RequestThread(thread_id) => {
-                                let _ = client.request_thread(thread_id);
+                            DaemonCommand::RequestThread {
+                                thread_id,
+                                message_limit,
+                                message_offset,
+                            } => {
+                                let _ = client.request_thread(
+                                    thread_id,
+                                    message_limit,
+                                    message_offset,
+                                );
                             }
                             DaemonCommand::RequestThreadTodos(thread_id) => {
                                 let _ = client.request_todos(thread_id);
@@ -271,6 +279,9 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::RequestAgentStatus => {
                                 let _ = client.request_agent_status();
+                            }
+                            DaemonCommand::RequestAgentStatistics { window } => {
+                                let _ = client.request_agent_statistics(window);
                             }
                             DaemonCommand::RequestPromptInspection { agent_id } => {
                                 let _ = client.request_prompt_inspection(agent_id);

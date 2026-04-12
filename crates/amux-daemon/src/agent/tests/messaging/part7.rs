@@ -673,6 +673,87 @@ async fn participant_runner_skips_structured_no_suggestion() {
 }
 
 #[tokio::test]
+async fn participant_runner_skips_narrated_no_suggestion() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+
+    tokio::spawn(async move {
+        for _ in 0..3 {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let _ = read_http_request_body(&mut socket)
+                .await
+                .expect("read request");
+            let response_body = concat!(
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_runner_narrated_none\"}}\n\n",
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"**Observer: Radogost - Status Update**\\n\\nObserved four consecutive NO_SUGGESTION cycles with no forward progress.\\n\\n**Response:** `NO_SUGGESTION`\"}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_runner_narrated_none\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":9,\"output_tokens\":7},\"error\":null}}\n\n"
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let (engine, _temp_dir) = make_runner_test_engine(config).await;
+    let thread_id = "thread_participant_runner_narrated_none";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Participant runner narrated none".to_string(),
+            messages: vec![AgentMessage::user("noop", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register");
+
+    engine
+        .run_participant_observers(thread_id)
+        .await
+        .expect("participant observers should run");
+
+    assert!(
+        engine
+            .list_thread_participant_suggestions(thread_id)
+            .await
+            .is_empty(),
+        "narrated NO_SUGGESTION observer replies should not queue a participant suggestion"
+    );
+}
+
+#[tokio::test]
 async fn apply_participant_command_runs_initial_observer_review() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
@@ -858,6 +939,7 @@ async fn participant_prompt_excludes_tool_messages() {
                     weles_review: None,
                     input_tokens: 0,
                     output_tokens: 0,
+                    cost: None,
                     provider: None,
                     model: None,
                     api_transport: None,
@@ -886,6 +968,7 @@ async fn participant_prompt_excludes_tool_messages() {
                     weles_review: None,
                     input_tokens: 0,
                     output_tokens: 0,
+                    cost: None,
                     provider: None,
                     model: None,
                     api_transport: None,
@@ -961,6 +1044,7 @@ async fn participant_prompt_compacts_older_visible_messages() {
                     weles_review: None,
                     input_tokens: 0,
                     output_tokens: 0,
+                    cost: None,
                     provider: None,
                     model: None,
                     api_transport: None,

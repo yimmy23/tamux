@@ -299,6 +299,61 @@ fn participants_modal_mouse_wheel_scrolls_body() {
 }
 
 #[test]
+fn statistics_modal_mouse_wheel_scrolls_body() {
+    let mut model = build_model();
+    model.statistics_modal_snapshot = Some(amux_protocol::AgentStatisticsSnapshot {
+        window: amux_protocol::AgentStatisticsWindow::All,
+        generated_at: 1,
+        has_incomplete_cost_history: false,
+        totals: amux_protocol::AgentStatisticsTotals {
+            input_tokens: 100,
+            output_tokens: 100,
+            total_tokens: 200,
+            cost_usd: 1.0,
+            provider_count: 1,
+            model_count: 80,
+        },
+        providers: vec![amux_protocol::ProviderStatisticsRow {
+            provider: "openai".to_string(),
+            input_tokens: 100,
+            output_tokens: 100,
+            total_tokens: 200,
+            cost_usd: 1.0,
+        }],
+        models: (0..80)
+            .map(|idx| amux_protocol::ModelStatisticsRow {
+                provider: "openai".to_string(),
+                model: format!("model-{idx}"),
+                input_tokens: idx,
+                output_tokens: idx,
+                total_tokens: idx * 2,
+                cost_usd: idx as f64 / 10.0,
+            })
+            .collect(),
+        top_models_by_tokens: Vec::new(),
+        top_models_by_cost: Vec::new(),
+    });
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Statistics));
+    model.width = 80;
+    model.height = 20;
+
+    let (_, overlay_area) = model
+        .current_modal_area()
+        .expect("statistics modal should expose an overlay area");
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: overlay_area.x.saturating_add(2),
+        row: overlay_area.y.saturating_add(4),
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(model.statistics_modal_scroll, 3);
+}
+
+#[test]
 fn reselecting_same_sidebar_file_closes_work_context() {
     let mut model = build_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {

@@ -449,7 +449,12 @@ async fn queued_participant_suggestion_auto_sends_when_thread_is_already_idle() 
         .expect("participant should register");
 
     engine
-        .queue_thread_participant_suggestion(thread_id, "weles", "Late idle participant note.", false)
+        .queue_thread_participant_suggestion(
+            thread_id,
+            "weles",
+            "Late idle participant note.",
+            false,
+        )
         .await
         .expect("queue participant suggestion after thread is already idle");
 
@@ -480,7 +485,9 @@ async fn queued_participant_suggestion_auto_sends_when_thread_is_already_idle() 
         }
     })
     .await
-    .expect("queued participant note should auto-send even when it arrives after the thread is idle");
+    .expect(
+        "queued participant note should auto-send even when it arrives after the thread is idle",
+    );
 
     assert_eq!(
         recorded_bodies.lock().expect("lock request log").len(),
@@ -908,10 +915,7 @@ async fn resend_existing_user_message_runs_participant_observers_after_stream_co
         .await
         .expect("participant should register");
 
-    recorded_bodies
-        .lock()
-        .expect("lock request log")
-        .clear();
+    recorded_bodies.lock().expect("lock request log").clear();
 
     engine
         .resend_existing_user_message(thread_id, "hello")
@@ -929,5 +933,109 @@ async fn resend_existing_user_message_runs_participant_observers_after_stream_co
             .iter()
             .any(|body| body.contains("Role: participant observer")),
         "resend completion should trigger a participant observer prompt"
+    );
+}
+
+#[tokio::test]
+async fn active_participant_responder_completion_does_not_run_self_observer() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let base_url = spawn_recording_openai_server(recorded_bodies.clone()).await;
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = base_url;
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread_active_participant_responder_no_self_observer";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::WELES_AGENT_NAME.to_string()),
+            title: "Active participant responder self observer guard".to_string(),
+            messages: vec![AgentMessage::user("hello", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+    engine
+        .set_thread_handoff_state(
+            thread_id,
+            ThreadHandoffState {
+                origin_agent_id: MAIN_AGENT_ID.to_string(),
+                active_agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                responder_stack: vec![
+                    ThreadResponderFrame {
+                        agent_id: MAIN_AGENT_ID.to_string(),
+                        agent_name: MAIN_AGENT_NAME.to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    },
+                    ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::WELES_AGENT_NAME.to_string(),
+                        entered_at: 2,
+                        entered_via_handoff_event_id: Some("handoff-1".to_string()),
+                        linked_thread_id: Some("dm:svarog:weles".to_string()),
+                    },
+                ],
+                events: Vec::new(),
+                pending_approval_id: None,
+            },
+        )
+        .await;
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register");
+
+    recorded_bodies.lock().expect("lock request log").clear();
+
+    engine
+        .resend_existing_user_message(thread_id, "hello")
+        .await
+        .expect("active participant resend should succeed");
+
+    let request_bodies = recorded_bodies
+        .lock()
+        .expect("lock request log")
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        request_bodies.len(),
+        1,
+        "active participant responder should only issue its visible-thread turn request"
+    );
+    assert!(
+        request_bodies
+            .iter()
+            .all(|body| !body.contains("Role: participant observer")),
+        "active participant responder should not run a self-observer prompt"
+    );
+    assert!(
+        engine
+            .list_thread_participant_suggestions(thread_id)
+            .await
+            .is_empty(),
+        "active participant responder should not queue a self-observer suggestion after its own turn"
     );
 }

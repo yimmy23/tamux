@@ -268,7 +268,11 @@ impl TuiModel {
         {
             self.chat
                 .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
-            self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
+            self.send_daemon_command(DaemonCommand::RequestThread {
+                thread_id: "concierge".to_string(),
+                message_limit: Some(50),
+                message_offset: Some(0),
+            });
         }
         if let Some(thread) = self.chat.active_thread() {
             if thread.id == concierge_thread_id {
@@ -285,7 +289,11 @@ impl TuiModel {
         self.concierge
             .reduce(crate::state::ConciergeAction::WelcomeDismissed);
         self.chat.reduce(chat::ChatAction::DismissConciergeWelcome);
-        self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
+        self.send_daemon_command(DaemonCommand::RequestThread {
+            thread_id: "concierge".to_string(),
+            message_limit: Some(50),
+            message_offset: Some(0),
+        });
     }
 
     pub(in crate::app) fn handle_plugin_list_event(

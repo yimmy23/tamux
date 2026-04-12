@@ -295,6 +295,7 @@ impl<'a> SendMessageRunner<'a> {
                     weles_review: result.weles_review.clone(),
                     input_tokens: 0,
                     output_tokens: 0,
+                    cost: None,
                     provider: None,
                     model: None,
                     api_transport: None,

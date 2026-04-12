@@ -1,6 +1,7 @@
 use super::*;
 use amux_shared::providers::PROVIDER_ID_OPENAI;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::time::{timeout, Duration};
 
 #[tokio::test]
 async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
@@ -31,6 +32,7 @@ async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
                         weles_review: None,
                         input_tokens: 7,
                         output_tokens: 3,
+                        cost: None,
                         provider: Some(amux_shared::providers::PROVIDER_ID_OPENAI.to_string()),
                         model: Some("gpt-5.4-mini".to_string()),
                         api_transport: Some(ApiTransport::Responses),
@@ -536,6 +538,163 @@ async fn visible_thread_participant_send_does_not_trigger_self_reply_for_active_
 }
 
 #[tokio::test]
+async fn visible_thread_participant_send_stays_hidden_until_final_message_is_ready() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind participant hidden visible-send server");
+    let addr = listener
+        .local_addr()
+        .expect("participant hidden visible-send addr");
+    let first_request_started = Arc::new(tokio::sync::Notify::new());
+    let release_first_response = Arc::new(tokio::sync::Notify::new());
+    let first_request_started_task = first_request_started.clone();
+    let release_first_response_task = release_first_response.clone();
+
+    tokio::spawn(async move {
+        for attempt in 0..2 {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let body = read_http_request_body(&mut socket)
+                .await
+                .expect("read participant hidden visible-send request");
+            let response_body = match attempt {
+                0 => {
+                    assert!(
+                        body.contains("Role: visible thread participant"),
+                        "first request should be the hidden participant drafting prompt"
+                    );
+                    first_request_started_task.notify_waiters();
+                    release_first_response_task.notified().await;
+                    concat!(
+                        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_hidden_visible\"}}\n\n",
+                        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hidden participant final reply.\"}\n\n",
+                        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_hidden_visible\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":9,\"output_tokens\":5},\"error\":null}}\n\n"
+                    )
+                }
+                _ => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_hidden_follow_up\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Swarozyc saw the participant reply.\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_hidden_follow_up\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":8,\"output_tokens\":4},\"error\":null}}\n\n"
+                ),
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write participant hidden visible-send response");
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = Arc::new(AgentEngine::new_test(manager, config, root.path()).await);
+    let thread_id = "thread_participant_visible_send_hidden_until_ready";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Participant hidden visible send".to_string(),
+            messages: vec![AgentMessage::user("Can someone verify this?", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims and jump in when needed")
+        .await
+        .expect("participant should register");
+
+    let send_task = tokio::spawn({
+        let engine = engine.clone();
+        async move {
+            engine
+                .send_visible_thread_participant_message(
+                    thread_id,
+                    "weles",
+                    None,
+                    "Reply only if you found something important.",
+                )
+                .await
+        }
+    });
+
+    timeout(Duration::from_secs(1), first_request_started.notified())
+        .await
+        .expect("hidden participant drafting request should start");
+
+    let in_flight_messages = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .expect("thread should exist while participant drafts")
+            .messages
+            .clone()
+    };
+    assert_eq!(
+        in_flight_messages
+            .iter()
+            .filter(|message| message.role == MessageRole::User)
+            .count(),
+        1,
+        "participant drafting should not inject a temporary visible user turn"
+    );
+    {
+        let streams = engine.stream_cancellations.lock().await;
+        assert!(
+            !streams.contains_key(thread_id),
+            "hidden participant drafting should not register a visible thread stream"
+        );
+    }
+
+    release_first_response.notify_waiters();
+    timeout(Duration::from_secs(2), send_task)
+        .await
+        .expect("participant hidden visible send should finish")
+        .expect("join participant hidden visible send task")
+        .expect("participant hidden visible send should succeed");
+
+    let final_messages = engine
+        .get_thread(thread_id)
+        .await
+        .expect("thread should exist after participant hidden visible send")
+        .messages;
+    assert!(
+        final_messages.iter().any(|message| {
+            message.role == MessageRole::Assistant
+                && message.author_agent_id.as_deref() == Some("weles")
+                && message.content == "Hidden participant final reply."
+        }),
+        "final visible thread should contain only the completed participant-authored message"
+    );
+}
+
+#[tokio::test]
 async fn force_send_interrupts_stream() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -841,6 +1000,65 @@ async fn deactivating_missing_thread_participant_returns_ok() {
 }
 
 #[tokio::test]
+async fn auto_send_dismisses_stale_non_active_participant_suggestions() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-stale-non-active-participant-suggestion";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Stale non-active participant suggestion".to_string(),
+            messages: vec![AgentMessage::user("hello", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+
+    engine.thread_participant_suggestions.write().await.insert(
+        thread_id.to_string(),
+        vec![ThreadParticipantSuggestion {
+            id: "stale-radogost".to_string(),
+            target_agent_id: "radogost".to_string(),
+            target_agent_name: "Radogost".to_string(),
+            instruction: "Old stale suggestion".to_string(),
+            force_send: false,
+            status: ThreadParticipantSuggestionStatus::Queued,
+            created_at: 1,
+            updated_at: 1,
+            error: None,
+        }],
+    );
+
+    let sent = engine
+        .maybe_auto_send_next_thread_participant_suggestion(thread_id)
+        .await
+        .expect("auto-send should succeed");
+    assert!(
+        !sent,
+        "stale non-active participant suggestions should be pruned, not sent"
+    );
+    assert!(
+        engine
+            .list_thread_participant_suggestions(thread_id)
+            .await
+            .is_empty(),
+        "stale non-active participant suggestions should be dismissed"
+    );
+}
+
+#[tokio::test]
 async fn internal_delegate_does_not_register_participant() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -931,7 +1149,11 @@ async fn internal_delegate_does_not_register_participant() {
         .lock()
         .expect("lock recorded bodies")
         .clone();
-    assert_eq!(recorded.len(), 2, "delegate should use DM plus visible-thread continuation");
+    assert_eq!(
+        recorded.len(),
+        2,
+        "delegate should use DM plus visible-thread continuation"
+    );
     assert!(
         recorded[0].contains("Continuation requested on visible thread: yes"),
         "delegate DM should explicitly mention visible-thread continuation: {}",
@@ -981,7 +1203,10 @@ async fn internal_delegate_does_not_register_participant() {
                 && message.author_agent_id.as_deref() == Some("weles")
         })
         .expect("delegate should continue the visible thread as the requested agent");
-    assert_eq!(visible_follow_up.content, "Weles continued on the visible thread.");
+    assert_eq!(
+        visible_follow_up.content,
+        "Weles continued on the visible thread."
+    );
 }
 
 #[tokio::test]

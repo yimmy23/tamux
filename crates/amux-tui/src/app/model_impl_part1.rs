@@ -72,6 +72,12 @@ impl TuiModel {
             status_modal_loading: false,
             status_modal_error: None,
             status_modal_scroll: 0,
+            statistics_modal_snapshot: None,
+            statistics_modal_loading: false,
+            statistics_modal_error: None,
+            statistics_modal_tab: crate::state::statistics::StatisticsTab::Overview,
+            statistics_modal_window: amux_protocol::AgentStatisticsWindow::All,
+            statistics_modal_scroll: 0,
             prompt_modal_snapshot: None,
             prompt_modal_loading: false,
             prompt_modal_error: None,
@@ -118,6 +124,17 @@ impl TuiModel {
         }
     }
 
+    pub(crate) fn open_statistics_modal_loading(&mut self) {
+        self.statistics_modal_loading = true;
+        self.statistics_modal_snapshot = None;
+        self.statistics_modal_error = None;
+        self.statistics_modal_scroll = 0;
+        if self.modal.top() != Some(modal::ModalKind::Statistics) {
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::Statistics));
+        }
+    }
+
     pub(crate) fn status_modal_body(&self) -> String {
         if self.status_modal_loading {
             return "Loading tamux status...".to_string();
@@ -132,6 +149,19 @@ impl TuiModel {
             );
         }
         "No status available.".to_string()
+    }
+
+    pub(crate) fn statistics_modal_body(&self) -> String {
+        if self.statistics_modal_loading {
+            return "Loading historical statistics...".to_string();
+        }
+        if let Some(error) = &self.statistics_modal_error {
+            return format!("Statistics request failed\n=========================\n{error}");
+        }
+        if let Some(snapshot) = &self.statistics_modal_snapshot {
+            return widgets::statistics::format_statistics_body(snapshot, self.statistics_modal_tab);
+        }
+        "No statistics available.".to_string()
     }
 
     pub(crate) fn prompt_modal_body(&self) -> String {
@@ -264,6 +294,25 @@ impl TuiModel {
         total_lines.saturating_sub(viewport_lines)
     }
 
+    pub(crate) fn statistics_modal_max_scroll(&self) -> usize {
+        let body = self.statistics_modal_body();
+        let (viewport_lines, inner_width) = self
+            .current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::Statistics)
+            .map(|(_, area)| {
+                (
+                    area.height.saturating_sub(5) as usize,
+                    area.width.saturating_sub(2) as usize,
+                )
+            })
+            .unwrap_or((1, 1));
+        let total_lines = crate::widgets::message::wrap_text(&body, inner_width.max(1))
+            .len()
+            .max(1);
+        let viewport_lines = viewport_lines.max(1);
+        total_lines.saturating_sub(viewport_lines)
+    }
+
     pub(crate) fn thread_participants_modal_max_scroll(&self) -> usize {
         let body = self.thread_participants_modal_body();
         let (viewport_lines, inner_width) = self
@@ -306,10 +355,20 @@ impl TuiModel {
         self.status_modal_scroll = scroll.min(self.status_modal_max_scroll());
     }
 
+    pub(crate) fn set_statistics_modal_scroll(&mut self, scroll: usize) {
+        self.statistics_modal_scroll = scroll.min(self.statistics_modal_max_scroll());
+    }
+
     pub(crate) fn step_status_modal_scroll(&mut self, delta: i32) {
         let current = self.status_modal_scroll as i32;
         let next = (current + delta).max(0) as usize;
         self.set_status_modal_scroll(next);
+    }
+
+    pub(crate) fn step_statistics_modal_scroll(&mut self, delta: i32) {
+        let current = self.statistics_modal_scroll as i32;
+        let next = (current + delta).max(0) as usize;
+        self.set_statistics_modal_scroll(next);
     }
 
     pub(crate) fn page_status_modal_scroll(&mut self, direction: i32) {
@@ -320,6 +379,16 @@ impl TuiModel {
             .unwrap_or(10)
             .max(1);
         self.step_status_modal_scroll(page * direction);
+    }
+
+    pub(crate) fn page_statistics_modal_scroll(&mut self, direction: i32) {
+        let page = self
+            .current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::Statistics)
+            .map(|(_, area)| area.height.saturating_sub(6) as i32)
+            .unwrap_or(10)
+            .max(1);
+        self.step_statistics_modal_scroll(page * direction);
     }
 
     pub(crate) fn set_prompt_modal_scroll(&mut self, scroll: usize) {
@@ -399,6 +468,49 @@ impl TuiModel {
         self.open_prompt_modal_loading();
         self.send_daemon_command(DaemonCommand::RequestPromptInspection { agent_id });
         self.status_line = "Requesting assembled agent prompt...".to_string();
+    }
+
+    pub(crate) fn request_statistics_window(
+        &mut self,
+        window: amux_protocol::AgentStatisticsWindow,
+    ) {
+        self.statistics_modal_window = window;
+        self.open_statistics_modal_loading();
+        self.send_daemon_command(DaemonCommand::RequestAgentStatistics { window });
+        self.status_line = format!("Loading statistics for {}...", window.as_str());
+    }
+
+    pub(crate) fn select_statistics_tab(
+        &mut self,
+        tab: crate::state::statistics::StatisticsTab,
+    ) {
+        self.statistics_modal_tab = tab;
+        self.statistics_modal_scroll = 0;
+    }
+
+    pub(crate) fn cycle_statistics_tab(&mut self, direction: i32) {
+        let next = if direction >= 0 {
+            self.statistics_modal_tab.next()
+        } else {
+            self.statistics_modal_tab.prev()
+        };
+        self.select_statistics_tab(next);
+    }
+
+    pub(crate) fn cycle_statistics_window(&mut self, direction: i32) {
+        let windows = [
+            amux_protocol::AgentStatisticsWindow::Today,
+            amux_protocol::AgentStatisticsWindow::Last7Days,
+            amux_protocol::AgentStatisticsWindow::Last30Days,
+            amux_protocol::AgentStatisticsWindow::All,
+        ];
+        let current_index = windows
+            .iter()
+            .position(|window| *window == self.statistics_modal_window)
+            .unwrap_or(3) as i32;
+        let len = windows.len() as i32;
+        let next_index = (current_index + direction).rem_euclid(len) as usize;
+        self.request_statistics_window(windows[next_index]);
     }
 
     fn show_input_notice(

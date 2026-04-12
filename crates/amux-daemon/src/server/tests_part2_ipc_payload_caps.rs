@@ -83,6 +83,8 @@ async fn get_thread_streams_oversized_thread_detail_without_truncation() {
     conn.framed
         .send(ClientMessage::AgentGetThread {
             thread_id: thread_id.to_string(),
+            message_limit: None,
+            message_offset: None,
         })
         .await
         .expect("request thread detail");
@@ -115,6 +117,71 @@ async fn get_thread_streams_oversized_thread_detail_without_truncation() {
         .map(|message| message.content.clone())
         .collect::<Vec<_>>();
     assert_eq!(contents, vec![expected_huge_message, "recent tail".to_string()]);
+
+    conn.shutdown().await;
+}
+
+#[tokio::test]
+async fn get_thread_respects_requested_message_page_and_reports_window_metadata() {
+    let mut conn = spawn_test_connection().await;
+    let thread_id = "thread-detail-paged";
+
+    conn.agent.threads.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::types::AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some("main".to_string()),
+            title: "Paged thread".to_string(),
+            messages: (0..120)
+                .map(|index| crate::agent::types::AgentMessage::user(format!("msg {index}"), index as u64))
+                .collect(),
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            created_at: 1,
+            updated_at: 120,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        },
+    );
+
+    conn.framed
+        .send(ClientMessage::AgentGetThread {
+            thread_id: thread_id.to_string(),
+            message_limit: Some(50),
+            message_offset: Some(50),
+        })
+        .await
+        .expect("request paged thread detail");
+
+    let thread_json = match conn.recv().await {
+        DaemonMessage::AgentThreadDetail { thread_json } => thread_json,
+        other => panic!("expected thread detail, got {other:?}"),
+    };
+
+    let value: serde_json::Value =
+        serde_json::from_str(&thread_json).expect("decode paged thread detail");
+    let messages = value["messages"]
+        .as_array()
+        .expect("messages should be an array");
+    let first_content = messages
+        .first()
+        .and_then(|message| message.get("content"))
+        .and_then(serde_json::Value::as_str);
+    let last_content = messages
+        .last()
+        .and_then(|message| message.get("content"))
+        .and_then(serde_json::Value::as_str);
+
+    assert_eq!(value["total_message_count"].as_u64(), Some(120));
+    assert_eq!(value["loaded_message_start"].as_u64(), Some(20));
+    assert_eq!(value["loaded_message_end"].as_u64(), Some(70));
+    assert_eq!(messages.len(), 50);
+    assert_eq!(first_content, Some("msg 20"));
+    assert_eq!(last_content, Some("msg 69"));
 
     conn.shutdown().await;
 }

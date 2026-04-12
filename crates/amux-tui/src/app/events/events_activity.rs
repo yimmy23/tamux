@@ -558,6 +558,11 @@ impl TuiModel {
             self.prompt_modal_error = Some(message.clone());
             self.prompt_modal_scroll = 0;
         }
+        if self.statistics_modal_loading {
+            self.statistics_modal_loading = false;
+            self.statistics_modal_error = Some(message.clone());
+            self.statistics_modal_scroll = 0;
+        }
         let should_refresh_subagents = {
             let lowercase = message.to_ascii_lowercase();
             lowercase.contains("sub-agent")
@@ -578,11 +583,14 @@ impl TuiModel {
         self.error_active = true;
         self.error_tick = self.tick_counter;
         if busy && self.modal.top().is_none() {
-            if let Some(thread) = self.chat.active_thread_mut() {
-                thread.messages.push(chat::AgentMessage {
-                    role: chat::MessageRole::System,
-                    content: format!("Error: {}", message),
-                    ..Default::default()
+            if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) {
+                self.chat.reduce(chat::ChatAction::AppendMessage {
+                    thread_id,
+                    message: chat::AgentMessage {
+                        role: chat::MessageRole::System,
+                        content: format!("Error: {}", message),
+                        ..Default::default()
+                    },
                 });
             }
         } else {

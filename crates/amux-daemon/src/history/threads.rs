@@ -99,7 +99,7 @@ impl HistoryStore {
                 )?;
 
                 let mut existing_stmt = transaction.prepare(
-                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json \
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
                      FROM agent_messages WHERE thread_id = ?1",
                 )?;
                 let existing_rows = existing_stmt.query_map(params![&thread.id], map_agent_message)?;
@@ -129,6 +129,7 @@ impl HistoryStore {
                                 || existing.input_tokens != message.input_tokens
                                 || existing.output_tokens != message.output_tokens
                                 || existing.total_tokens != message.total_tokens
+                                || existing.cost_usd != message.cost_usd
                                 || existing.reasoning != message.reasoning
                                 || existing.tool_calls_json != message.tool_calls_json
                                 || existing.metadata_json != message.metadata_json
@@ -140,8 +141,8 @@ impl HistoryStore {
 
                     transaction.execute(
                         "INSERT OR REPLACE INTO agent_messages \
-                         (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json) \
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                         (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                         params![
                             message.id,
                             message.thread_id,
@@ -153,6 +154,7 @@ impl HistoryStore {
                             message.input_tokens,
                             message.output_tokens,
                             message.total_tokens,
+                            message.cost_usd,
                             message.reasoning,
                             message.tool_calls_json,
                             message.metadata_json,
@@ -334,8 +336,8 @@ impl HistoryStore {
                 for message in &messages {
                     transaction.execute(
                         "INSERT OR REPLACE INTO agent_messages \
-                         (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json) \
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                         (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                         params![
                             message.id,
                             message.thread_id,
@@ -347,6 +349,7 @@ impl HistoryStore {
                             message.input_tokens,
                             message.output_tokens,
                             message.total_tokens,
+                            message.cost_usd,
                             message.reasoning,
                             message.tool_calls_json,
                             message.metadata_json,
@@ -418,8 +421,8 @@ impl HistoryStore {
         self.conn.call(move |conn| {
         conn.execute(
             "INSERT OR REPLACE INTO agent_messages \
-             (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 message.id,
                 message.thread_id,
@@ -431,6 +434,7 @@ impl HistoryStore {
                 message.input_tokens,
                 message.output_tokens,
                 message.total_tokens,
+                message.cost_usd,
                 message.reasoning,
                 message.tool_calls_json,
                 message.metadata_json,
@@ -466,9 +470,10 @@ impl HistoryStore {
                 input_tokens = COALESCE(?5, input_tokens),
                 output_tokens = COALESCE(?6, output_tokens),
                 total_tokens = COALESCE(?7, total_tokens),
-                reasoning = COALESCE(?8, reasoning),
-                tool_calls_json = COALESCE(?9, tool_calls_json),
-                metadata_json = COALESCE(?10, metadata_json)
+                cost_usd = COALESCE(?8, cost_usd),
+                reasoning = COALESCE(?9, reasoning),
+                tool_calls_json = COALESCE(?10, tool_calls_json),
+                metadata_json = COALESCE(?11, metadata_json)
              WHERE id = ?1",
                     params![
                         id,
@@ -478,6 +483,7 @@ impl HistoryStore {
                         flatten_option_i64(&patch.input_tokens),
                         flatten_option_i64(&patch.output_tokens),
                         flatten_option_i64(&patch.total_tokens),
+                        flatten_option_f64(&patch.cost_usd),
                         flatten_option_str(&patch.reasoning),
                         flatten_option_str(&patch.tool_calls_json),
                         flatten_option_str(&patch.metadata_json),
@@ -533,7 +539,7 @@ impl HistoryStore {
             let messages = if let Some(limit) = limit {
                 let limit = limit.max(1) as i64;
                 let mut stmt = conn.prepare(
-                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json \
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
                      FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT ?2",
                 )?;
                 let rows = stmt.query_map(params![thread_id, limit], map_agent_message)?;
@@ -542,7 +548,7 @@ impl HistoryStore {
                 messages
             } else {
                 let mut stmt = conn.prepare(
-                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json \
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
                      FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at ASC, rowid ASC",
                 )?;
                 let rows = stmt.query_map(params![thread_id], map_agent_message)?;
@@ -562,7 +568,7 @@ impl HistoryStore {
             .call(move |conn| {
                 let limit = limit.clamp(1, 1000) as i64;
                 let mut stmt = conn.prepare(
-                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json \
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
                      FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT ?2",
                 )?;
                 let rows = stmt.query_map(params![thread_id, limit], map_agent_message)?;

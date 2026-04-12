@@ -151,6 +151,7 @@ pub enum DaemonMessage {
     AgentOpenAICodexAuthLogoutResult { ok: bool, error: Option<String> },
     SkillDiscoverResult { result_json: String },
     AgentQuestionAnswered { question_id: String, answer: String },
+    AgentStatisticsResponse { statistics_json: String },
     AgentToolList { result: ToolListResultPublic },
     AgentToolSearchResult { result: ToolSearchResultPublic },
     AgentThreadDeleted { thread_id: String, deleted: bool },

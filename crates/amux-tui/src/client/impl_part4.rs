@@ -540,9 +540,16 @@ impl DaemonClient {
         self.send(ClientMessage::AgentGetDivergentSession { session_id })
     }
 
-    pub fn request_thread(&self, thread_id: impl Into<String>) -> Result<()> {
+    pub fn request_thread(
+        &self,
+        thread_id: impl Into<String>,
+        message_limit: Option<usize>,
+        message_offset: Option<usize>,
+    ) -> Result<()> {
         self.send(ClientMessage::AgentGetThread {
             thread_id: thread_id.into(),
+            message_limit,
+            message_offset,
         })
     }
 

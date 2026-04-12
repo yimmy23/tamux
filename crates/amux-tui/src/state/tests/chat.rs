@@ -845,6 +845,130 @@ fn select_prev_message_decreases() {
 }
 
 #[test]
+fn thread_detail_latest_page_sets_window_metadata() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.total_message_count, 120);
+    assert_eq!(thread.loaded_message_start, 70);
+    assert_eq!(thread.loaded_message_end, 120);
+    assert_eq!(thread.messages.len(), 50);
+}
+
+#[test]
+fn older_thread_page_prepends_into_loaded_window() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 20,
+        loaded_message_end: 70,
+        messages: (20..70)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.loaded_message_start, 20);
+    assert_eq!(thread.loaded_message_end, 120);
+    assert_eq!(thread.messages.len(), 100);
+    assert_eq!(
+        thread
+            .messages
+            .first()
+            .and_then(|message| message.id.as_deref()),
+        Some("msg-20")
+    );
+    assert_eq!(
+        thread
+            .messages
+            .last()
+            .and_then(|message| message.id.as_deref()),
+        Some("msg-119")
+    );
+}
+
+#[test]
+fn collapse_history_keeps_latest_page_only() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 20,
+        loaded_message_end: 120,
+        messages: (20..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    state.schedule_history_collapse(10, 5);
+    state.maybe_collapse_history(14);
+    assert_eq!(state.active_thread().expect("thread").messages.len(), 100);
+
+    state.maybe_collapse_history(15);
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.loaded_message_start, 70);
+    assert_eq!(thread.loaded_message_end, 120);
+    assert_eq!(thread.messages.len(), 50);
+    assert_eq!(
+        thread
+            .messages
+            .first()
+            .and_then(|message| message.id.as_deref()),
+        Some("msg-70")
+    );
+}
+
+#[test]
 fn select_prev_message_clamps_at_zero() {
     let mut state = state_with_messages(3);
     state.select_message(Some(0));

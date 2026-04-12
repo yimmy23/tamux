@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { AgentMessage, AgentThread } from "../../lib/agentStore";
+import { AgentStatisticsView } from "../../lib/agentUsageStatistics";
 import { ActionButton, EmptyPanel, MetricRibbon, SectionTitle, inputStyle } from "./shared";
 
 type UsageSortKey = "totalTokens" | "promptTokens" | "completionTokens" | "cost" | "avgTps" | "requests";
@@ -19,6 +20,7 @@ export function UsageView({
     const [window, setWindow] = useState<UsageWindow>("all");
     const [exportFormat, setExportFormat] = useState<ExportFormat>("json");
     const [compactMode, setCompactMode] = useState(false);
+    const [mode, setMode] = useState<"explorer" | "statistics">("explorer");
 
     const windowStart = useMemo(() => {
         const now = Date.now();
@@ -365,6 +367,15 @@ export function UsageView({
 
     return (
         <div style={{ padding: "var(--space-4)", height: "100%", overflow: "auto" }}>
+            <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-3)", flexWrap: "wrap" }}>
+                <ActionButton onClick={() => setMode("explorer")} disabled={mode === "explorer"}>Explorer</ActionButton>
+                <ActionButton onClick={() => setMode("statistics")} disabled={mode === "statistics"}>Statistics</ActionButton>
+            </div>
+
+            {mode === "statistics" ? (
+                <AgentStatisticsView />
+            ) : (
+                <>
             <MetricRibbon
                 items={[
                     { label: "Sessions", value: String(stats.totals.sessions) },
@@ -466,6 +477,8 @@ export function UsageView({
                         </div>
                     ))}
                 </div>
+            )}
+                </>
             )}
         </div>
     );

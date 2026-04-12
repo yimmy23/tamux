@@ -133,6 +133,17 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
     ipcMain.handle('dismiss-audit-entry', async (_event, entryId) => { try { sendAgentCommand({ type: 'audit-dismiss', entry_id: entryId }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('agent-get-config', async () => sendAgentQuery({ type: 'get-config' }, 'config'));
     ipcMain.handle('agent-get-status', async () => { try { return await sendAgentQuery({ type: 'get-status' }, 'status-response'); } catch (err) { logToFile('warn', 'agent-get-status failed', { error: err?.message ?? String(err) }); return null; } });
+    ipcMain.handle('agent-get-statistics', async (_event, window) => {
+        try {
+            return await sendAgentQuery({
+                type: 'agent-get-statistics',
+                window: typeof window === 'string' && window.trim() ? window.trim() : 'all',
+            }, 'statistics-response');
+        } catch (err) {
+            logToFile('warn', 'agent-get-statistics failed', { error: err?.message ?? String(err), window });
+            return null;
+        }
+    });
     ipcMain.handle('agent-inspect-prompt', async (_event, agentId) => {
         try {
             return await sendAgentQuery({

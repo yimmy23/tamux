@@ -284,6 +284,7 @@ pub(super) fn compact_messages_for_request(
                 weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
+                cost: None,
                 provider: None,
                 model: None,
                 api_transport: None,
@@ -408,12 +409,9 @@ pub(super) fn effective_context_target_tokens(
         .max(1) as usize;
     let threshold_pct = config.compact_threshold_pct.clamp(1, 100) as usize;
     let primary_target = primary_context_window.saturating_mul(threshold_pct) / 100;
-    let strategy_target_cap = strategy_target_cap_tokens(
-        config,
-        primary_context_window as u32,
-        threshold_pct as u32,
-    )
-    .unwrap_or(primary_target);
+    let strategy_target_cap =
+        strategy_target_cap_tokens(config, primary_context_window as u32, threshold_pct as u32)
+            .unwrap_or(primary_target);
 
     primary_target
         .min(strategy_target_cap)
@@ -1610,6 +1608,7 @@ impl AgentEngine {
                 weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
+                cost: None,
                 provider: None,
                 model: None,
                 api_transport: None,

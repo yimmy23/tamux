@@ -79,6 +79,51 @@ async fn async_connection_roundtrip() -> Result<()> {
 }
 
 #[tokio::test]
+async fn agent_message_cost_round_trips_through_history() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "cost-thread";
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("Svarog".to_string()),
+            title: "Cost".to_string(),
+            created_at: 1000,
+            updated_at: 1000,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+    store
+        .add_message(&AgentDbMessage {
+            id: "m-cost".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1010,
+            role: "assistant".to_string(),
+            content: "priced".to_string(),
+            provider: Some("openai".to_string()),
+            model: Some("gpt-5.4-mini".to_string()),
+            input_tokens: Some(11),
+            output_tokens: Some(7),
+            total_tokens: Some(18),
+            cost_usd: Some(0.0123),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await?;
+
+    let loaded = store.list_messages(thread_id, Some(10)).await?;
+    assert_eq!(loaded[0].cost_usd, Some(0.0123));
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn replace_thread_snapshot_replaces_messages_without_losing_thread_row() -> Result<()> {
     let (store, root) = make_test_store().await?;
     let thread_id = "snapshot-thread";
@@ -107,6 +152,7 @@ async fn replace_thread_snapshot_replaces_messages_without_losing_thread_row() -
         input_tokens: Some(0),
         output_tokens: Some(1),
         total_tokens: Some(1),
+        cost_usd: None,
         reasoning: None,
         tool_calls_json: None,
         metadata_json: None,
@@ -133,6 +179,7 @@ async fn replace_thread_snapshot_replaces_messages_without_losing_thread_row() -
         input_tokens: Some(0),
         output_tokens: Some(2),
         total_tokens: Some(2),
+        cost_usd: None,
         reasoning: None,
         tool_calls_json: None,
         metadata_json: None,
@@ -187,6 +234,7 @@ async fn replace_thread_snapshot_does_not_regress_to_stale_snapshot() -> Result<
             input_tokens: Some(0),
             output_tokens: Some(0),
             total_tokens: Some(0),
+            cost_usd: None,
             reasoning: None,
             tool_calls_json: None,
             metadata_json: None,
@@ -202,6 +250,7 @@ async fn replace_thread_snapshot_does_not_regress_to_stale_snapshot() -> Result<
             input_tokens: Some(0),
             output_tokens: Some(0),
             total_tokens: Some(0),
+            cost_usd: None,
             reasoning: None,
             tool_calls_json: None,
             metadata_json: None,
@@ -229,6 +278,7 @@ async fn replace_thread_snapshot_does_not_regress_to_stale_snapshot() -> Result<
         input_tokens: Some(0),
         output_tokens: Some(0),
         total_tokens: Some(0),
+        cost_usd: None,
         reasoning: None,
         tool_calls_json: None,
         metadata_json: None,
@@ -244,6 +294,7 @@ async fn replace_thread_snapshot_does_not_regress_to_stale_snapshot() -> Result<
         input_tokens: Some(0),
         output_tokens: Some(0),
         total_tokens: Some(0),
+        cost_usd: None,
         reasoning: None,
         tool_calls_json: None,
         metadata_json: None,
@@ -285,7 +336,8 @@ async fn replace_thread_snapshot_does_not_regress_to_stale_snapshot() -> Result<
 }
 
 #[tokio::test]
-async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_ones() -> Result<()> {
+async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_ones() -> Result<()>
+{
     let (store, root) = make_test_store().await?;
     let thread_id = "thread-reconcile-snapshot";
     let base_thread = AgentDbThread {
@@ -314,6 +366,7 @@ async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_o
             input_tokens: Some(1),
             output_tokens: Some(0),
             total_tokens: Some(1),
+            cost_usd: None,
             reasoning: None,
             tool_calls_json: None,
             metadata_json: Some("{\"v\":1}".to_string()),
@@ -329,6 +382,7 @@ async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_o
             input_tokens: Some(2),
             output_tokens: Some(3),
             total_tokens: Some(5),
+            cost_usd: None,
             reasoning: Some("old reasoning".to_string()),
             tool_calls_json: None,
             metadata_json: Some("{\"v\":1}".to_string()),
@@ -359,6 +413,7 @@ async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_o
             input_tokens: Some(4),
             output_tokens: Some(5),
             total_tokens: Some(9),
+            cost_usd: None,
             reasoning: Some("new reasoning".to_string()),
             tool_calls_json: None,
             metadata_json: Some("{\"v\":2}".to_string()),
@@ -376,12 +431,21 @@ async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_o
 
     assert_eq!(loaded_thread.message_count, 2);
     assert_eq!(loaded_thread.last_preview, "new assistant");
-    assert_eq!(loaded_thread.metadata_json.as_deref(), Some("{\"phase\":\"new\"}"));
+    assert_eq!(
+        loaded_thread.metadata_json.as_deref(),
+        Some("{\"phase\":\"new\"}")
+    );
     assert_eq!(loaded_messages.len(), 2);
     assert_eq!(loaded_messages[1].content, "new assistant");
-    assert_eq!(loaded_messages[1].reasoning.as_deref(), Some("new reasoning"));
+    assert_eq!(
+        loaded_messages[1].reasoning.as_deref(),
+        Some("new reasoning")
+    );
     assert_eq!(loaded_messages[1].total_tokens, Some(9));
-    assert_eq!(loaded_messages[1].metadata_json.as_deref(), Some("{\"v\":2}"));
+    assert_eq!(
+        loaded_messages[1].metadata_json.as_deref(),
+        Some("{\"v\":2}")
+    );
 
     let pruned_thread = AgentDbThread {
         updated_at: 400,
@@ -438,6 +502,7 @@ async fn list_messages_with_limit_returns_latest_messages_in_chronological_order
                 input_tokens: Some(0),
                 output_tokens: Some(0),
                 total_tokens: Some(0),
+                cost_usd: None,
                 reasoning: None,
                 tool_calls_json: None,
                 metadata_json: None,

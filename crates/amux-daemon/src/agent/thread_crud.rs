@@ -21,6 +21,9 @@ pub(crate) struct ThreadListFilter {
 pub(crate) struct ThreadDetailResult {
     pub thread: AgentThread,
     pub messages_truncated: bool,
+    pub total_message_count: usize,
+    pub loaded_message_start: usize,
+    pub loaded_message_end: usize,
 }
 
 fn thread_detail_frame_fits_ipc(thread: &Option<AgentThread>) -> bool {
@@ -186,6 +189,9 @@ impl AgentEngine {
         Some(ThreadDetailResult {
             thread,
             messages_truncated,
+            total_message_count: total_messages,
+            loaded_message_start: start,
+            loaded_message_end: end,
         })
     }
 
@@ -221,6 +227,9 @@ impl AgentEngine {
         Some(ThreadDetailResult {
             thread,
             messages_truncated: detail.messages_truncated || low > 0,
+            total_message_count: detail.total_message_count,
+            loaded_message_start: detail.loaded_message_start + low,
+            loaded_message_end: detail.loaded_message_end,
         })
     }
 

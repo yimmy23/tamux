@@ -388,6 +388,7 @@ impl DaemonClient {
             | DaemonMessage::AgentDivergentSessionStarted { .. }
             | DaemonMessage::AgentDivergentSession { .. }
             | DaemonMessage::AgentStatusResponse { .. }
+            | DaemonMessage::AgentStatisticsResponse { .. }
             | DaemonMessage::AgentPromptInspection { .. }
             | DaemonMessage::AgentOperatorProfileSessionStarted { .. }
             | DaemonMessage::AgentOperatorProfileQuestion { .. }

@@ -809,6 +809,30 @@ fn daemon_message_roundtrips_plugin_oauth_complete_with_operation_id() {
     }
 }
 
+#[test]
+fn agent_get_thread_round_trip_preserves_message_page_arguments() {
+    let msg = ClientMessage::AgentGetThread {
+        thread_id: "thread-1".to_string(),
+        message_limit: Some(50),
+        message_offset: Some(100),
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentGetThread {
+            thread_id,
+            message_limit,
+            message_offset,
+        } => {
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(message_limit, Some(50));
+            assert_eq!(message_offset, Some(100));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
 fn sample_skill_variant() -> SkillVariantPublic {
     SkillVariantPublic {
         variant_id: "sv-001".to_string(),
@@ -1088,7 +1112,7 @@ fn skill_search_result_round_trip() {
 #[test]
 fn client_message_agent_logout_openai_codex_preserves_pre_change_wire_discriminant() {
     let msg = ClientMessage::AgentLogoutOpenAICodex;
-    assert_bincode_variant_index(&msg, 162);
+    assert_bincode_variant_index(&msg, 166);
 }
 
 #[test]
@@ -1097,7 +1121,7 @@ fn daemon_message_agent_openai_codex_auth_logout_result_preserves_pre_change_wir
         ok: true,
         error: None,
     };
-    assert_bincode_variant_index(&msg, 134);
+    assert_bincode_variant_index(&msg, 136);
 }
 
 #[test]

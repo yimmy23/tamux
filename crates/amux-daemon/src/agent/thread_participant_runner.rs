@@ -1,8 +1,49 @@
 use super::*;
 
-fn parse_participant_suggestion_response(response: &str) -> Option<(bool, String)> {
+fn normalize_no_suggestion_candidate(value: &str) -> String {
+    let mut current = value.trim();
+    loop {
+        let trimmed = current.trim_start_matches(|c: char| {
+            c.is_whitespace() || matches!(c, '*' | '`' | '_' | '-' | '•' | '>' | '#')
+        });
+        let lowercase = trimmed.to_ascii_lowercase();
+        let Some(colon_index) = lowercase.find(':') else {
+            current = trimmed;
+            break;
+        };
+        let label = lowercase[..colon_index].trim();
+        if matches!(label, "response" | "answer" | "result" | "final" | "status") {
+            current = &trimmed[colon_index + 1..];
+            continue;
+        }
+        current = trimmed;
+        break;
+    }
+
+    current
+        .trim_matches(|c: char| {
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    '*' | '`' | '_' | '"' | '\'' | '[' | ']' | '(' | ')' | '.'
+                )
+        })
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_')
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+pub(super) fn participant_response_is_no_suggestion(value: &str) -> bool {
+    matches!(
+        normalize_no_suggestion_candidate(value).as_str(),
+        "nosuggestion" | "no_suggestion"
+    )
+}
+
+pub(super) fn parse_participant_suggestion_response(response: &str) -> Option<(bool, String)> {
     let trimmed = response.trim();
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("NO_SUGGESTION") {
+    if trimmed.is_empty() || participant_response_is_no_suggestion(trimmed) {
         return None;
     }
 
@@ -23,10 +64,17 @@ fn parse_participant_suggestion_response(response: &str) -> Option<(bool, String
     }
 
     if let Some(message) = message_line {
-        if message.eq_ignore_ascii_case("NO_SUGGESTION") {
+        if participant_response_is_no_suggestion(&message) {
             return None;
         }
         return Some((force_send, message));
+    }
+
+    if trimmed
+        .lines()
+        .any(|line| participant_response_is_no_suggestion(line))
+    {
+        return None;
     }
 
     Some((force_send, trimmed.to_string()))
@@ -53,6 +101,38 @@ fn build_participant_prompt_from_snapshot(
     prompt.push_str("- NO_SUGGESTION\n");
     prompt.push_str("- FORCE: yes|no\n  MESSAGE: <text>\n\n");
     prompt.push_str("Visible thread:\n");
+    for message in visible_messages {
+        let role = match message.role {
+            MessageRole::Assistant => "assistant",
+            MessageRole::Tool => "tool",
+            MessageRole::System => "system",
+            MessageRole::User => "user",
+        };
+        if !message.content.trim().is_empty() {
+            prompt.push_str(&format!("- {role}: {}\n", message.content.trim()));
+        }
+    }
+    prompt
+}
+
+fn build_visible_participant_message_prompt(
+    participant: &ThreadParticipantState,
+    visible_messages: &[AgentMessage],
+    request: &str,
+) -> String {
+    let mut prompt = String::new();
+    prompt.push_str("Role: visible thread participant\n");
+    prompt.push_str(&format!("Participant: {}\n", participant.agent_name));
+    prompt.push_str(&format!(
+        "Participant registration instruction: {}\n\n",
+        participant.instruction
+    ));
+    prompt.push_str("Generate the one visible thread message you want to post now.\n");
+    prompt.push_str("Respond with only the exact message text to post.\n");
+    prompt.push_str("Do not include analysis, XML, tool calls, or extra framing.\n\n");
+    prompt.push_str("Current request:\n");
+    prompt.push_str(request.trim());
+    prompt.push_str("\n\nVisible thread:\n");
     for message in visible_messages {
         let role = match message.role {
             MessageRole::Assistant => "assistant",
@@ -201,7 +281,7 @@ impl AgentEngine {
         })
     }
 
-    async fn run_participant_observer_prompt(
+    async fn run_hidden_participant_prompt(
         &self,
         target_agent_id: &str,
         prompt: &str,
@@ -315,6 +395,40 @@ impl AgentEngine {
         .await
     }
 
+    pub async fn generate_visible_thread_participant_message(
+        &self,
+        thread_id: &str,
+        target_agent_id: &str,
+        request: &str,
+    ) -> Result<String> {
+        let participants = self.list_thread_participants(thread_id).await;
+        let participant = participants
+            .iter()
+            .find(|participant| {
+                participant.agent_id.eq_ignore_ascii_case(target_agent_id)
+                    && participant.status == ThreadParticipantStatus::Active
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!("participant is not active on thread: {target_agent_id}")
+            })?;
+        let thread = self
+            .get_thread(thread_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("thread not found: {thread_id}"))?;
+        let visible_messages = thread
+            .messages
+            .into_iter()
+            .filter(|message| !should_hide_participant_prompt_message(message))
+            .collect::<Vec<_>>();
+        let compacted_messages = self
+            .compact_participant_prompt_messages(target_agent_id, &visible_messages)
+            .await?;
+        let prompt =
+            build_visible_participant_message_prompt(participant, &compacted_messages, request);
+        self.run_hidden_participant_prompt(target_agent_id, &prompt)
+            .await
+    }
+
     pub async fn build_participant_prompt(
         &self,
         thread_id: &str,
@@ -369,6 +483,7 @@ impl AgentEngine {
             weles_review: None,
             input_tokens: 0,
             output_tokens: 0,
+            cost: None,
             provider: None,
             model: None,
             api_transport: None,
@@ -396,6 +511,7 @@ impl AgentEngine {
         if participants.is_empty() {
             return Ok(());
         }
+        let active_responder_agent_id = self.active_agent_id_for_thread(thread_id).await;
         let visible_messages = self
             .get_thread(thread_id)
             .await
@@ -405,10 +521,10 @@ impl AgentEngine {
             .filter(|message| !should_hide_participant_prompt_message(message))
             .collect::<Vec<_>>();
 
-        for participant in participants
-            .into_iter()
-            .filter(|participant| participant.status == ThreadParticipantStatus::Active)
-        {
+        for participant in participants.into_iter().filter(|participant| {
+            participant.status == ThreadParticipantStatus::Active
+                && active_responder_agent_id.as_deref() != Some(participant.agent_id.as_str())
+        }) {
             let compacted_messages = self
                 .compact_participant_prompt_messages(&participant.agent_id, &visible_messages)
                 .await?;
@@ -423,7 +539,7 @@ impl AgentEngine {
             );
             let prompt = build_participant_prompt_from_snapshot(&participant, &compacted_messages);
             let response = self
-                .run_participant_observer_prompt(&participant.agent_id, &prompt)
+                .run_hidden_participant_prompt(&participant.agent_id, &prompt)
                 .await?;
             let Some((force_send, message)) = parse_participant_suggestion_response(&response)
             else {

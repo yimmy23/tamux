@@ -3,6 +3,13 @@ impl DaemonClient {
         self.send(ClientMessage::AgentStatusQuery)
     }
 
+    pub fn request_agent_statistics(
+        &self,
+        window: amux_protocol::AgentStatisticsWindow,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentStatisticsQuery { window })
+    }
+
     pub fn request_prompt_inspection(&self, agent_id: Option<String>) -> Result<()> {
         self.send(ClientMessage::AgentInspectPrompt { agent_id })
     }

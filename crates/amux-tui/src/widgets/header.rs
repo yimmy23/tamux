@@ -189,7 +189,10 @@ fn build_total_usage_label(usage: &HeaderUsageDisplay) -> String {
 
 fn build_context_usage_label(usage: &HeaderUsageDisplay) -> String {
     let clamped_pct = usage.utilization_pct.min(100);
-    let bar: String = context_bar_cells(usage).iter().map(|cell| cell.ch).collect();
+    let bar: String = context_bar_cells(usage)
+        .iter()
+        .map(|cell| cell.ch)
+        .collect();
     let context_window = format_token_count(usage.context_window_tokens.max(1));
     format!("ctx [{bar}] {clamped_pct}% [{context_window}]")
 }
@@ -198,7 +201,10 @@ fn context_usage_line(usage: &HeaderUsageDisplay, theme: &ThemeTokens) -> Line<'
     let band = context_fill_band(usage);
     let fill_style = context_fill_style(band, theme);
     let pct = usage.utilization_pct.min(100);
-    let context_window = format!("[{}]", format_token_count(usage.context_window_tokens.max(1)));
+    let context_window = format!(
+        "[{}]",
+        format_token_count(usage.context_window_tokens.max(1))
+    );
 
     let mut spans = Vec::with_capacity(CONTEXT_BAR_WIDTH + 8);
     spans.push(Span::styled("ctx ", theme.fg_dim));

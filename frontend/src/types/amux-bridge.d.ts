@@ -219,6 +219,45 @@ declare global {
         last_error?: string | null;
     };
 
+    type AmuxStatisticsWindow = "today" | "7d" | "30d" | "all";
+
+    type AmuxAgentStatisticsTotals = {
+        input_tokens: number;
+        output_tokens: number;
+        total_tokens: number;
+        cost_usd: number;
+        provider_count: number;
+        model_count: number;
+    };
+
+    type AmuxProviderStatisticsRow = {
+        provider: string;
+        input_tokens: number;
+        output_tokens: number;
+        total_tokens: number;
+        cost_usd: number;
+    };
+
+    type AmuxModelStatisticsRow = {
+        provider: string;
+        model: string;
+        input_tokens: number;
+        output_tokens: number;
+        total_tokens: number;
+        cost_usd: number;
+    };
+
+    type AmuxAgentStatisticsSnapshot = {
+        window: AmuxStatisticsWindow;
+        generated_at: number;
+        has_incomplete_cost_history: boolean;
+        totals: AmuxAgentStatisticsTotals;
+        providers: AmuxProviderStatisticsRow[];
+        models: AmuxModelStatisticsRow[];
+        top_models_by_tokens: AmuxModelStatisticsRow[];
+        top_models_by_cost: AmuxModelStatisticsRow[];
+    };
+
     type AmuxBridge = {
         checkSetupPrereqs?: (profile?: "source" | "desktop") => Promise<AmuxSetupPrereqReport>;
         discoverCodingAgents?: () => Promise<AmuxCodingAgentDiscoveryResult[]>;
@@ -349,6 +388,7 @@ declare global {
                 operator_profile_scheduler_fallback?: boolean;
             };
         } | null>;
+        agentGetStatistics?: (window?: AmuxStatisticsWindow) => Promise<AmuxAgentStatisticsSnapshot | null | unknown>;
         agentInspectPrompt?: (agentId?: string | null) => Promise<{
             agent_id: string;
             agent_name: string;

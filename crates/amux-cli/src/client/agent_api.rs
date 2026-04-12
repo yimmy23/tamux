@@ -140,7 +140,11 @@ pub async fn send_thread_get_query(thread_id: String) -> Result<Option<AgentThre
     let mut framed = connect().await?;
     let requested_thread_id = thread_id.clone();
     framed
-        .send(ClientMessage::AgentGetThread { thread_id })
+        .send(ClientMessage::AgentGetThread {
+            thread_id,
+            message_limit: None,
+            message_offset: None,
+        })
         .await?;
 
     let mut thread_detail_bytes = Vec::new();

@@ -23,6 +23,7 @@ const AGENT_QUERY_RESPONSE_TYPES = [
   'concierge-config',
   'concierge-welcome-dismissed',
   'status-response',
+  'statistics-response',
   'prompt-inspection',
   'plugin-list-result',
   'plugin-get-result',

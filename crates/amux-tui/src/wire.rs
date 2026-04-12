@@ -106,6 +106,13 @@ pub struct AgentThread {
     pub messages: Vec<AgentMessage>,
 
     #[serde(default)]
+    pub total_message_count: usize,
+    #[serde(default)]
+    pub loaded_message_start: usize,
+    #[serde(default)]
+    pub loaded_message_end: usize,
+
+    #[serde(default)]
     pub total_input_tokens: u64,
     #[serde(default)]
     pub total_output_tokens: u64,

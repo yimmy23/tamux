@@ -55,6 +55,7 @@ pub(super) fn base_schema_sql() -> &'static str {
                 input_tokens    INTEGER,
                 output_tokens   INTEGER,
                 total_tokens    INTEGER,
+                cost_usd        REAL,
                 reasoning       TEXT,
                 tool_calls_json TEXT,
                 metadata_json   TEXT

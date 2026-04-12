@@ -1,4 +1,74 @@
 impl TuiModel {
+    fn request_thread_page(
+        &mut self,
+        thread_id: String,
+        message_limit: usize,
+        message_offset: usize,
+        show_loading: bool,
+    ) {
+        if show_loading {
+            self.begin_thread_loading(thread_id.clone());
+        }
+        self.send_daemon_command(DaemonCommand::RequestThread {
+            thread_id,
+            message_limit: Some(message_limit),
+            message_offset: Some(message_offset),
+        });
+    }
+
+    fn request_latest_thread_page(&mut self, thread_id: String, show_loading: bool) {
+        self.request_thread_page(thread_id, chat::CHAT_HISTORY_PAGE_SIZE, 0, show_loading);
+    }
+
+    fn maybe_request_older_chat_history(&mut self) {
+        let Some(message_offset) = self.chat.active_thread_next_page_offset(self.tick_counter)
+        else {
+            return;
+        };
+        let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
+            return;
+        };
+        let chat_area = self.pane_layout().chat;
+        let Some(layout) = widgets::chat::scrollbar_layout(
+            chat_area,
+            &self.chat,
+            &self.theme,
+            self.tick_counter,
+            self.retry_wait_start_selected,
+        ) else {
+            return;
+        };
+        if layout.max_scroll.saturating_sub(layout.scroll) > 3 {
+            return;
+        }
+
+        self.chat.mark_active_thread_older_page_pending(
+            true,
+            self.tick_counter,
+            chat::CHAT_HISTORY_FETCH_DEBOUNCE_TICKS,
+        );
+        self.request_thread_page(
+            thread_id,
+            chat::CHAT_HISTORY_PAGE_SIZE,
+            message_offset,
+            false,
+        );
+    }
+
+    fn maybe_schedule_chat_history_collapse(&mut self) {
+        if self.chat.scroll_offset() != 0 {
+            return;
+        }
+        if self.chat.active_thread().is_some_and(|thread| {
+            thread.history_window_expanded && thread.collapse_deadline_tick.is_none()
+        }) {
+            self.chat.schedule_history_collapse(
+                self.tick_counter,
+                chat::CHAT_HISTORY_COLLAPSE_DELAY_TICKS,
+            );
+        }
+    }
+
     pub(super) fn thread_picker_target_agent_id(
         tab: modal::ThreadPickerTab,
     ) -> Option<&'static str> {
@@ -42,8 +112,7 @@ impl TuiModel {
         self.agent_activity = None;
         self.chat
             .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
-        self.begin_thread_loading(thread_id.clone());
-        self.send_daemon_command(DaemonCommand::RequestThread(thread_id));
+        self.request_latest_thread_page(thread_id, true);
         self.main_pane_view = MainPaneView::Conversation;
         self.focus = FocusArea::Chat;
     }
@@ -231,8 +300,10 @@ impl TuiModel {
     }
 
     fn run_concierge_action(&mut self, action: crate::state::ConciergeActionVm) {
-        if let Some((question_id, answer)) =
-            action.action_type.strip_prefix("operator_question_answer:").and_then(|rest| {
+        if let Some((question_id, answer)) = action
+            .action_type
+            .strip_prefix("operator_question_answer:")
+            .and_then(|rest| {
                 let (question_id, answer) = rest.split_once(':')?;
                 Some((question_id.to_string(), answer.to_string()))
             })
@@ -260,7 +331,7 @@ impl TuiModel {
                 self.send_daemon_command(DaemonCommand::DismissConciergeWelcome);
                 self.chat
                     .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
-                self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
+                self.request_latest_thread_page("concierge".to_string(), false);
                 self.main_pane_view = MainPaneView::Conversation;
                 self.focus = FocusArea::Input;
                 self.set_input_text("Search history for: ");
@@ -278,7 +349,7 @@ impl TuiModel {
                 self.cleanup_concierge_on_navigate();
                 self.chat
                     .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
-                self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
+                self.request_latest_thread_page("concierge".to_string(), false);
                 self.main_pane_view = MainPaneView::Conversation;
                 self.focus = FocusArea::Input;
                 self.set_input_text("/goal ");
@@ -288,7 +359,7 @@ impl TuiModel {
                 self.cleanup_concierge_on_navigate();
                 self.chat
                     .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
-                self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
+                self.request_latest_thread_page("concierge".to_string(), false);
                 self.main_pane_view = MainPaneView::Conversation;
                 self.focus = FocusArea::Input;
             }
@@ -465,7 +536,9 @@ impl TuiModel {
         } else {
             let header_action = self.notifications.first_enabled_header_action();
             self.notifications
-                .reduce(crate::state::NotificationsAction::FocusHeader(header_action));
+                .reduce(crate::state::NotificationsAction::FocusHeader(
+                    header_action,
+                ));
             self.modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::Notifications));
         }
@@ -509,22 +582,29 @@ impl TuiModel {
             .and_then(|approval_id| visible.iter().position(|id| id == approval_id))
             .unwrap_or(0) as i32;
         let next = (current + delta).clamp(0, visible.len().saturating_sub(1) as i32) as usize;
-        self.approval.reduce(crate::state::ApprovalAction::SelectApproval(
-            visible[next].clone(),
-        ));
+        self.approval
+            .reduce(crate::state::ApprovalAction::SelectApproval(
+                visible[next].clone(),
+            ));
     }
 
     fn select_approval_center_row(&mut self, index: usize) {
         let visible = self.visible_approval_ids();
         if let Some(approval_id) = visible.get(index) {
-            self.approval.reduce(crate::state::ApprovalAction::SelectApproval(
-                approval_id.clone(),
-            ));
+            self.approval
+                .reduce(crate::state::ApprovalAction::SelectApproval(
+                    approval_id.clone(),
+                ));
         }
     }
 
     fn select_approval_center_rule_row(&mut self, index: usize) {
-        if let Some(rule_id) = self.approval.saved_rules().get(index).map(|rule| rule.id.clone()) {
+        if let Some(rule_id) = self
+            .approval
+            .saved_rules()
+            .get(index)
+            .map(|rule| rule.id.clone())
+        {
             self.approval
                 .reduce(crate::state::ApprovalAction::SelectRule(rule_id));
         }
@@ -539,11 +619,7 @@ impl TuiModel {
     }
 
     fn revoke_selected_task_approval_rule(&mut self) {
-        let Some(rule_id) = self
-            .approval
-            .selected_rule()
-            .map(|rule| rule.id.clone())
-        else {
+        let Some(rule_id) = self.approval.selected_rule().map(|rule| rule.id.clone()) else {
             return;
         };
         self.approval
@@ -581,7 +657,9 @@ impl TuiModel {
 
     fn upsert_notification_local(&mut self, notification: amux_protocol::InboxNotification) {
         self.notifications
-            .reduce(crate::state::NotificationsAction::Upsert(notification.clone()));
+            .reduce(crate::state::NotificationsAction::Upsert(
+                notification.clone(),
+            ));
         self.send_daemon_command(DaemonCommand::UpsertNotification(notification));
     }
 
@@ -607,7 +685,9 @@ impl TuiModel {
     fn toggle_notification_expand(&mut self, notification_id: String) {
         self.mark_notification_read(&notification_id);
         self.notifications
-            .reduce(crate::state::NotificationsAction::ToggleExpand(notification_id));
+            .reduce(crate::state::NotificationsAction::ToggleExpand(
+                notification_id,
+            ));
     }
 
     fn archive_notification(&mut self, notification_id: &str) {
@@ -676,7 +756,9 @@ impl TuiModel {
             1 => self.mark_notification_read(notification_id),
             2 => self.archive_notification(notification_id),
             3 => self.delete_notification(notification_id),
-            other => self.execute_notification_action(notification_id, "", Some(other.saturating_sub(4))),
+            other => {
+                self.execute_notification_action(notification_id, "", Some(other.saturating_sub(4)))
+            }
         }
     }
 
@@ -737,5 +819,4 @@ impl TuiModel {
             }
         }
     }
-
 }

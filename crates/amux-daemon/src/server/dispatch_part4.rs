@@ -74,9 +74,15 @@ if matches!(
                         .await?;
                 }
 
-                ClientMessage::AgentGetThread { thread_id } => {
+                ClientMessage::AgentGetThread {
+                    thread_id,
+                    message_limit,
+                    message_offset,
+                } => {
                     client_agent_threads.insert(thread_id.clone());
-                    let json = agent.agent_thread_detail_json(&thread_id).await;
+                    let json = agent
+                        .agent_thread_detail_json(&thread_id, message_limit, message_offset)
+                        .await;
                     if thread_detail_fits_single_ipc_frame(&json) {
                         framed
                             .send(DaemonMessage::AgentThreadDetail { thread_json: json })
