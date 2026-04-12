@@ -316,5 +316,9 @@ pub(super) enum AgentBridgeCommand {
     RetireGeneratedTool {
         tool_name: String,
     },
+    #[serde(rename = "agent-get-statistics")]
+    GetStatistics {
+        window: amux_protocol::AgentStatisticsWindow,
+    },
     Shutdown,
 }

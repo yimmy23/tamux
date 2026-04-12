@@ -13,6 +13,7 @@ pub mod modal;
 pub mod notifications;
 pub mod settings;
 pub mod sidebar;
+pub mod statistics;
 pub mod subagents;
 pub mod task;
 pub mod tier;
@@ -68,6 +69,9 @@ pub enum DaemonCommand {
         max_bytes: Option<usize>,
     },
     RequestAgentStatus,
+    RequestAgentStatistics {
+        window: amux_protocol::AgentStatisticsWindow,
+    },
     RequestPromptInspection {
         agent_id: Option<String>,
     },

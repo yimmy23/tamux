@@ -220,6 +220,7 @@ async fn gateway_auto_send_thread_response_emits_gateway_request_for_latest_assi
             weles_review: None,
             input_tokens: 0,
             output_tokens: 0,
+            cost: None,
             provider: None,
             model: None,
             api_transport: None,

@@ -32,6 +32,7 @@ async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
                         weles_review: None,
                         input_tokens: 7,
                         output_tokens: 3,
+                        cost: None,
                         provider: Some(amux_shared::providers::PROVIDER_ID_OPENAI.to_string()),
                         model: Some("gpt-5.4-mini".to_string()),
                         api_transport: Some(ApiTransport::Responses),

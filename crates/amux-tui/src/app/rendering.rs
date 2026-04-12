@@ -820,6 +820,7 @@ impl TuiModel {
                 modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
                 modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
                 modal::ModalKind::Status => render_helpers::centered_rect(72, 70, area),
+                modal::ModalKind::Statistics => render_helpers::centered_rect(84, 84, area),
                 modal::ModalKind::PromptViewer => render_helpers::centered_rect(84, 84, area),
                 modal::ModalKind::ThreadParticipants => render_helpers::centered_rect(76, 68, area),
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
@@ -983,6 +984,19 @@ impl TuiModel {
                         &self.theme,
                     );
                 }
+                modal::ModalKind::Statistics => {
+                    widgets::statistics::render(
+                        frame,
+                        overlay_area,
+                        self.statistics_modal_snapshot.as_ref(),
+                        self.statistics_modal_loading,
+                        self.statistics_modal_error.as_deref(),
+                        self.statistics_modal_tab,
+                        self.statistics_modal_window,
+                        self.statistics_modal_scroll,
+                        &self.theme,
+                    );
+                }
                 modal::ModalKind::PromptViewer => {
                     render_helpers::render_status_modal(
                         frame,
@@ -1032,7 +1046,8 @@ impl TuiModel {
             modal::ModalKind::ApprovalCenter => render_helpers::centered_rect(86, 82, area),
             modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
             modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
-            modal::ModalKind::Status => render_helpers::centered_rect(84, 84, area),
+            modal::ModalKind::Status => render_helpers::centered_rect(72, 70, area),
+            modal::ModalKind::Statistics => render_helpers::centered_rect(84, 84, area),
             modal::ModalKind::PromptViewer => render_helpers::centered_rect(84, 84, area),
             modal::ModalKind::ThreadParticipants => render_helpers::centered_rect(76, 68, area),
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),

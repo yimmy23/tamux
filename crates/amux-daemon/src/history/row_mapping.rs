@@ -103,9 +103,10 @@ pub(super) fn map_agent_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Age
         input_tokens: row.get(7)?,
         output_tokens: row.get(8)?,
         total_tokens: row.get(9)?,
-        reasoning: row.get(10)?,
-        tool_calls_json: row.get(11)?,
-        metadata_json: row.get(12)?,
+        cost_usd: row.get(10)?,
+        reasoning: row.get(11)?,
+        tool_calls_json: row.get(12)?,
+        metadata_json: row.get(13)?,
     })
 }
 
@@ -159,5 +160,9 @@ pub(super) fn flatten_option_str(value: &Option<Option<String>>) -> Option<&str>
 }
 
 pub(super) fn flatten_option_i64(value: &Option<Option<i64>>) -> Option<i64> {
+    value.as_ref().copied().flatten()
+}
+
+pub(super) fn flatten_option_f64(value: &Option<Option<f64>>) -> Option<f64> {
     value.as_ref().copied().flatten()
 }

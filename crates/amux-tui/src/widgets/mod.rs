@@ -26,6 +26,7 @@ pub mod reasoning;
 pub mod settings;
 pub mod sidebar;
 pub mod splash;
+pub mod statistics;
 pub mod subagents;
 pub mod task_tree;
 pub mod task_view;

@@ -423,6 +423,11 @@ where
                 })
                 .await?;
         }
+        AgentBridgeCommand::GetStatistics { window } => {
+            framed
+                .send(ClientMessage::AgentStatisticsQuery { window })
+                .await?;
+        }
         AgentBridgeCommand::GetStatus => {
             framed.send(ClientMessage::AgentStatusQuery).await?;
         }

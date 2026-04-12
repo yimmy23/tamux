@@ -224,6 +224,7 @@ impl AgentEngine {
                                 weles_review: metadata.weles_review,
                                 input_tokens: message.input_tokens.unwrap_or(0) as u64,
                                 output_tokens: message.output_tokens.unwrap_or(0) as u64,
+                                cost: message.cost_usd,
                                 provider: message.provider,
                                 model: message.model,
                                 api_transport: metadata.api_transport,

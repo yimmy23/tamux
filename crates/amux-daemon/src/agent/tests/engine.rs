@@ -163,6 +163,7 @@ async fn hydrate_restores_thread_token_totals_from_persisted_history() {
         weles_review: None,
         input_tokens: 11,
         output_tokens: 7,
+        cost: None,
         provider: None,
         model: None,
         api_transport: None,

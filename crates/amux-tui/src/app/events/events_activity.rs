@@ -558,6 +558,11 @@ impl TuiModel {
             self.prompt_modal_error = Some(message.clone());
             self.prompt_modal_scroll = 0;
         }
+        if self.statistics_modal_loading {
+            self.statistics_modal_loading = false;
+            self.statistics_modal_error = Some(message.clone());
+            self.statistics_modal_scroll = 0;
+        }
         let should_refresh_subagents = {
             let lowercase = message.to_ascii_lowercase();
             lowercase.contains("sub-agent")

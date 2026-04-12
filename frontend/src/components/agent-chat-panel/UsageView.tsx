@@ -368,8 +368,8 @@ export function UsageView({
     return (
         <div style={{ padding: "var(--space-4)", height: "100%", overflow: "auto" }}>
             <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-3)", flexWrap: "wrap" }}>
-                <ActionButton onClick={() => setMode("explorer")}>Explorer</ActionButton>
-                <ActionButton onClick={() => setMode("statistics")}>Statistics</ActionButton>
+                <ActionButton onClick={() => setMode("explorer")} disabled={mode === "explorer"}>Explorer</ActionButton>
+                <ActionButton onClick={() => setMode("statistics")} disabled={mode === "statistics"}>Statistics</ActionButton>
             </div>
 
             {mode === "statistics" ? (

@@ -328,6 +328,13 @@ where
             });
             emit_agent_event(&msg.to_string())?;
         }
+        Some(Ok(DaemonMessage::AgentStatisticsResponse { statistics_json })) => {
+            let msg = serde_json::json!({
+                "type": "statistics-response",
+                "data": serde_json::from_str::<serde_json::Value>(&statistics_json).unwrap_or_default(),
+            });
+            emit_agent_event(&msg.to_string())?;
+        }
         Some(Ok(DaemonMessage::AgentPromptInspection { prompt_json })) => {
             let msg = serde_json::json!({
                 "type": "prompt-inspection",

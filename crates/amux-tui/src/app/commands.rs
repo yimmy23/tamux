@@ -474,6 +474,8 @@ impl TuiModel {
                 | "settings"
                 | "view"
                 | "status"
+                | "statistics"
+                | "stats"
                 | "notifications"
                 | "approvals"
                 | "participants"
@@ -568,6 +570,9 @@ impl TuiModel {
                 self.open_status_modal_loading();
                 self.send_daemon_command(DaemonCommand::RequestAgentStatus);
                 self.status_line = "Requesting tamux status...".to_string();
+            }
+            "statistics" | "stats" => {
+                self.request_statistics_window(self.statistics_modal_window);
             }
             "notifications" => {
                 self.toggle_notifications_modal();

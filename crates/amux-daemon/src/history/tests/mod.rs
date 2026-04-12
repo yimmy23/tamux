@@ -16,4 +16,5 @@ mod notifications;
 mod provider_auth;
 mod skill_variants;
 mod sqlite_audit;
+mod statistics;
 mod tombstones_gateway;

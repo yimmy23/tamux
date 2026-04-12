@@ -527,9 +527,85 @@ pub struct AgentDbMessage {
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
+    pub cost_usd: Option<f64>,
     pub reasoning: Option<String>,
     pub tool_calls_json: Option<String>,
     pub metadata_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum AgentStatisticsWindow {
+    #[serde(rename = "today")]
+    Today,
+    #[serde(rename = "7d")]
+    Last7Days,
+    #[serde(rename = "30d")]
+    Last30Days,
+    #[default]
+    #[serde(rename = "all")]
+    All,
+}
+
+impl AgentStatisticsWindow {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Today => "today",
+            Self::Last7Days => "7d",
+            Self::Last30Days => "30d",
+            Self::All => "all",
+        }
+    }
+
+    pub fn from_wire(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "today" => Self::Today,
+            "7d" => Self::Last7Days,
+            "30d" => Self::Last30Days,
+            "all" => Self::All,
+            _ => Self::All,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentStatisticsTotals {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub cost_usd: f64,
+    pub provider_count: u64,
+    pub model_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProviderStatisticsRow {
+    pub provider: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModelStatisticsRow {
+    pub provider: String,
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentStatisticsSnapshot {
+    pub window: AgentStatisticsWindow,
+    pub generated_at: u64,
+    pub has_incomplete_cost_history: bool,
+    pub totals: AgentStatisticsTotals,
+    pub providers: Vec<ProviderStatisticsRow>,
+    pub models: Vec<ModelStatisticsRow>,
+    pub top_models_by_tokens: Vec<ModelStatisticsRow>,
+    pub top_models_by_cost: Vec<ModelStatisticsRow>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

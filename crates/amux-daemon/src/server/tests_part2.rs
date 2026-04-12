@@ -1,5 +1,6 @@
 include!("tests_part2_support.rs");
 include!("tests_part2_ipc_payload_caps.rs");
+include!("tests_part2_statistics.rs");
 include!("tests_part2_gateway_state.rs");
 include!("tests_part2_concierge_operations.rs");
 include!("tests_part2_provider_models.rs");

@@ -197,6 +197,9 @@ impl TuiModel {
                 modal::ModalKind::Status => {
                     self.step_status_modal_scroll(-3);
                 }
+                modal::ModalKind::Statistics => {
+                    self.step_statistics_modal_scroll(-3);
+                }
                 modal::ModalKind::PromptViewer => {
                     self.step_prompt_modal_scroll(-3);
                 }
@@ -233,6 +236,9 @@ impl TuiModel {
                 modal::ModalKind::Status => {
                     self.step_status_modal_scroll(3);
                 }
+                modal::ModalKind::Statistics => {
+                    self.step_statistics_modal_scroll(3);
+                }
                 modal::ModalKind::PromptViewer => {
                     self.step_prompt_modal_scroll(3);
                 }
@@ -249,6 +255,7 @@ impl TuiModel {
                     kind,
                     modal::ModalKind::Help
                         | modal::ModalKind::Status
+                        | modal::ModalKind::Statistics
                         | modal::ModalKind::PromptViewer
                         | modal::ModalKind::CommandPalette
                         | modal::ModalKind::ThreadPicker
@@ -627,6 +634,22 @@ impl TuiModel {
                                 self.execute_selected_queued_prompt_action();
                             }
                         }
+                    }
+                }
+                modal::ModalKind::Statistics => {
+                    match widgets::statistics::hit_test(
+                        overlay_area,
+                        Position::new(mouse.column, mouse.row),
+                    ) {
+                        Some(widgets::statistics::StatisticsHitTarget::Tab(tab)) => {
+                            self.select_statistics_tab(tab);
+                        }
+                        Some(widgets::statistics::StatisticsHitTarget::Window(window)) => {
+                            if window != self.statistics_modal_window {
+                                self.request_statistics_window(window);
+                            }
+                        }
+                        None => {}
                     }
                 }
                 modal::ModalKind::ProviderPicker => {
