@@ -21,7 +21,8 @@ impl TuiModel {
     }
 
     fn maybe_request_older_chat_history(&mut self) {
-        let Some(message_offset) = self.chat.active_thread_next_page_offset() else {
+        let Some(message_offset) = self.chat.active_thread_next_page_offset(self.tick_counter)
+        else {
             return;
         };
         let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
@@ -41,7 +42,11 @@ impl TuiModel {
             return;
         }
 
-        self.chat.mark_active_thread_older_page_pending(true);
+        self.chat.mark_active_thread_older_page_pending(
+            true,
+            self.tick_counter,
+            chat::CHAT_HISTORY_FETCH_DEBOUNCE_TICKS,
+        );
         self.request_thread_page(
             thread_id,
             chat::CHAT_HISTORY_PAGE_SIZE,

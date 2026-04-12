@@ -449,7 +449,12 @@ async fn queued_participant_suggestion_auto_sends_when_thread_is_already_idle() 
         .expect("participant should register");
 
     engine
-        .queue_thread_participant_suggestion(thread_id, "weles", "Late idle participant note.", false)
+        .queue_thread_participant_suggestion(
+            thread_id,
+            "weles",
+            "Late idle participant note.",
+            false,
+        )
         .await
         .expect("queue participant suggestion after thread is already idle");
 
@@ -480,7 +485,9 @@ async fn queued_participant_suggestion_auto_sends_when_thread_is_already_idle() 
         }
     })
     .await
-    .expect("queued participant note should auto-send even when it arrives after the thread is idle");
+    .expect(
+        "queued participant note should auto-send even when it arrives after the thread is idle",
+    );
 
     assert_eq!(
         recorded_bodies.lock().expect("lock request log").len(),
@@ -908,10 +915,7 @@ async fn resend_existing_user_message_runs_participant_observers_after_stream_co
         .await
         .expect("participant should register");
 
-    recorded_bodies
-        .lock()
-        .expect("lock request log")
-        .clear();
+    recorded_bodies.lock().expect("lock request log").clear();
 
     engine
         .resend_existing_user_message(thread_id, "hello")
@@ -1003,10 +1007,7 @@ async fn active_participant_responder_completion_does_not_run_self_observer() {
         .await
         .expect("participant should register");
 
-    recorded_bodies
-        .lock()
-        .expect("lock request log")
-        .clear();
+    recorded_bodies.lock().expect("lock request log").clear();
 
     engine
         .resend_existing_user_message(thread_id, "hello")

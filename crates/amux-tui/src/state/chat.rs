@@ -15,6 +15,7 @@ use amux_protocol::AGENT_NAME_RAROG;
 
 pub const CHAT_HISTORY_PAGE_SIZE: usize = 50;
 pub const CHAT_HISTORY_COLLAPSE_DELAY_TICKS: u64 = 20;
+pub const CHAT_HISTORY_FETCH_DEBOUNCE_TICKS: u64 = 6;
 
 #[derive(Default)]
 struct ThreadActivityState {
@@ -253,20 +254,31 @@ impl ChatState {
             .is_some_and(|thread| thread.older_page_pending)
     }
 
-    pub fn active_thread_next_page_offset(&self) -> Option<usize> {
+    pub fn active_thread_next_page_offset(&self, current_tick: u64) -> Option<usize> {
         let thread = self.active_thread()?;
-        (thread.loaded_message_start > 0 && !thread.older_page_pending).then_some(
-            thread
-                .loaded_message_end
-                .saturating_sub(thread.loaded_message_start),
-        )
+        let cooldown_elapsed = thread
+            .older_page_request_cooldown_until_tick
+            .is_none_or(|deadline| current_tick >= deadline);
+        (thread.loaded_message_start > 0 && !thread.older_page_pending && cooldown_elapsed)
+            .then_some(
+                thread
+                    .loaded_message_end
+                    .saturating_sub(thread.loaded_message_start),
+            )
     }
 
-    pub fn mark_active_thread_older_page_pending(&mut self, pending: bool) {
+    pub fn mark_active_thread_older_page_pending(
+        &mut self,
+        pending: bool,
+        current_tick: u64,
+        debounce_ticks: u64,
+    ) {
         if let Some(thread) = self.active_thread_mut() {
             thread.older_page_pending = pending;
             if pending {
                 thread.collapse_deadline_tick = None;
+                thread.older_page_request_cooldown_until_tick =
+                    Some(current_tick.saturating_add(debounce_ticks));
             }
             self.bump_render_revision();
         }
@@ -780,6 +792,8 @@ impl ChatState {
                                 incoming.loaded_message_start = existing.loaded_message_start;
                                 incoming.loaded_message_end = existing.loaded_message_end;
                                 incoming.older_page_pending = existing.older_page_pending;
+                                incoming.older_page_request_cooldown_until_tick =
+                                    existing.older_page_request_cooldown_until_tick;
                                 incoming.history_window_expanded = existing.history_window_expanded;
                                 incoming.collapse_deadline_tick = existing.collapse_deadline_tick;
                             }
@@ -824,6 +838,9 @@ impl ChatState {
                     existing.loaded_message_start = merged_start;
                     existing.loaded_message_end = merged_end.max(existing.total_message_count);
                     existing.older_page_pending = false;
+                    existing.older_page_request_cooldown_until_tick = existing
+                        .older_page_request_cooldown_until_tick
+                        .max(incoming.older_page_request_cooldown_until_tick);
                     existing.history_window_expanded =
                         existing.messages.len() > CHAT_HISTORY_PAGE_SIZE;
                     if disjoint && incoming.loaded_message_end <= existing.loaded_message_end {
@@ -886,6 +903,7 @@ impl ChatState {
                     existing.loaded_message_start = 0;
                     existing.loaded_message_end = existing.messages.len();
                     existing.history_window_expanded = false;
+                    existing.older_page_request_cooldown_until_tick = None;
                     existing.collapse_deadline_tick = None;
                 } else {
                     let local_message_count = local_messages.len();
@@ -912,6 +930,7 @@ impl ChatState {
                     thread.loaded_message_start = 0;
                     thread.loaded_message_end = 0;
                     thread.older_page_pending = false;
+                    thread.older_page_request_cooldown_until_tick = None;
                     thread.history_window_expanded = false;
                     thread.collapse_deadline_tick = None;
                 }

@@ -285,7 +285,8 @@ async fn replace_thread_snapshot_does_not_regress_to_stale_snapshot() -> Result<
 }
 
 #[tokio::test]
-async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_ones() -> Result<()> {
+async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_ones() -> Result<()>
+{
     let (store, root) = make_test_store().await?;
     let thread_id = "thread-reconcile-snapshot";
     let base_thread = AgentDbThread {
@@ -376,12 +377,21 @@ async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_o
 
     assert_eq!(loaded_thread.message_count, 2);
     assert_eq!(loaded_thread.last_preview, "new assistant");
-    assert_eq!(loaded_thread.metadata_json.as_deref(), Some("{\"phase\":\"new\"}"));
+    assert_eq!(
+        loaded_thread.metadata_json.as_deref(),
+        Some("{\"phase\":\"new\"}")
+    );
     assert_eq!(loaded_messages.len(), 2);
     assert_eq!(loaded_messages[1].content, "new assistant");
-    assert_eq!(loaded_messages[1].reasoning.as_deref(), Some("new reasoning"));
+    assert_eq!(
+        loaded_messages[1].reasoning.as_deref(),
+        Some("new reasoning")
+    );
     assert_eq!(loaded_messages[1].total_tokens, Some(9));
-    assert_eq!(loaded_messages[1].metadata_json.as_deref(), Some("{\"v\":2}"));
+    assert_eq!(
+        loaded_messages[1].metadata_json.as_deref(),
+        Some("{\"v\":2}")
+    );
 
     let pruned_thread = AgentDbThread {
         updated_at: 400,

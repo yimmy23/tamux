@@ -23,7 +23,10 @@ fn normalize_no_suggestion_candidate(value: &str) -> String {
     current
         .trim_matches(|c: char| {
             c.is_whitespace()
-                || matches!(c, '*' | '`' | '_' | '"' | '\'' | '[' | ']' | '(' | ')' | '.')
+                || matches!(
+                    c,
+                    '*' | '`' | '_' | '"' | '\'' | '[' | ']' | '(' | ')' | '.'
+                )
         })
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '_')
@@ -420,11 +423,8 @@ impl AgentEngine {
         let compacted_messages = self
             .compact_participant_prompt_messages(target_agent_id, &visible_messages)
             .await?;
-        let prompt = build_visible_participant_message_prompt(
-            participant,
-            &compacted_messages,
-            request,
-        );
+        let prompt =
+            build_visible_participant_message_prompt(participant, &compacted_messages, request);
         self.run_hidden_participant_prompt(target_agent_id, &prompt)
             .await
     }
@@ -520,15 +520,10 @@ impl AgentEngine {
             .filter(|message| !should_hide_participant_prompt_message(message))
             .collect::<Vec<_>>();
 
-        for participant in participants
-            .into_iter()
-            .filter(|participant| {
-                participant.status == ThreadParticipantStatus::Active
-                    && active_responder_agent_id
-                        .as_deref()
-                        != Some(participant.agent_id.as_str())
-            })
-        {
+        for participant in participants.into_iter().filter(|participant| {
+            participant.status == ThreadParticipantStatus::Active
+                && active_responder_agent_id.as_deref() != Some(participant.agent_id.as_str())
+        }) {
             let compacted_messages = self
                 .compact_participant_prompt_messages(&participant.agent_id, &visible_messages)
                 .await?;

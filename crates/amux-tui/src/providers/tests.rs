@@ -144,7 +144,10 @@ fn arcee_provider_uses_expected_defaults() {
 fn nvidia_provider_uses_expected_defaults() {
     let provider = find_by_id(PROVIDER_ID_NVIDIA).unwrap();
     assert_eq!(provider.name, "NVIDIA");
-    assert_eq!(provider.default_base_url, "https://integrate.api.nvidia.com/v1");
+    assert_eq!(
+        provider.default_base_url,
+        "https://integrate.api.nvidia.com/v1"
+    );
     assert_eq!(provider.default_model, "minimaxai/minimax-m2.7");
     assert_eq!(provider.default_auth_source, "api_key");
     assert_eq!(provider.supported_auth_sources, API_KEY_ONLY_AUTH_SOURCES);

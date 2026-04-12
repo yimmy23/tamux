@@ -104,7 +104,10 @@ fn detect_install_source(install_source_env: Option<&str>, exe_path: &Path) -> I
     }
 
     InstallSource::Unknown {
-        reason: format!("unable to determine install source for {}", exe_path.display()),
+        reason: format!(
+            "unable to determine install source for {}",
+            exe_path.display()
+        ),
     }
 }
 
@@ -114,9 +117,9 @@ fn looks_like_npm_install(exe_path: &Path) -> bool {
         .map(|component| component.as_os_str().to_string_lossy().to_ascii_lowercase())
         .collect();
 
-    lowered.windows(3).any(|window| {
-        window[0] == "node_modules" && window[1] == "tamux" && window[2] == "bin"
-    })
+    lowered
+        .windows(3)
+        .any(|window| window[0] == "node_modules" && window[1] == "tamux" && window[2] == "bin")
 }
 
 fn looks_like_source_build(exe_path: &Path) -> bool {
@@ -244,7 +247,9 @@ pub(crate) fn run_upgrade() -> Result<()> {
             let status = Command::new(npm_command())
                 .args(["install", "-g", "tamux@latest"])
                 .status()
-                .context("failed to launch npm; ensure Node.js and npm are installed and on PATH")?;
+                .context(
+                    "failed to launch npm; ensure Node.js and npm are installed and on PATH",
+                )?;
 
             if !status.success() {
                 bail!("npm install -g tamux@latest failed");
@@ -296,8 +301,7 @@ mod tests {
     fn detects_direct_binary_install_from_sibling_layout() {
         let root = tempdir().expect("tempdir");
         std::fs::write(root.path().join("tamux"), b"binary").expect("write tamux");
-        std::fs::write(root.path().join("tamux-daemon"), b"binary")
-            .expect("write daemon");
+        std::fs::write(root.path().join("tamux-daemon"), b"binary").expect("write daemon");
 
         let source = detect_install_source(None, &root.path().join("tamux"));
 

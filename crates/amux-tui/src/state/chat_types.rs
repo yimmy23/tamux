@@ -10,6 +10,7 @@ pub struct AgentThread {
     pub loaded_message_start: usize,
     pub loaded_message_end: usize,
     pub older_page_pending: bool,
+    pub older_page_request_cooldown_until_tick: Option<u64>,
     pub history_window_expanded: bool,
     pub collapse_deadline_tick: Option<u64>,
     pub total_input_tokens: u64,

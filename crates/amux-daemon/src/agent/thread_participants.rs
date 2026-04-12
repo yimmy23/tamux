@@ -295,20 +295,23 @@ impl AgentEngine {
             let stored_user_content_for_turn = stored_user_content.clone();
             let llm_user_content_for_turn = current_llm_user_content.clone();
             let client_surface_for_turn = self.get_thread_client_surface(&thread_for_turn).await;
-            let outcome = Box::pin(run_with_agent_scope(current_agent_scope_id.clone(), async move {
-                self.run_internal_send_loop(
-                    Some(thread_for_turn.as_str()),
-                    &stored_user_content_for_turn,
-                    &llm_user_content_for_turn,
-                    None,
-                    preferred_session_hint,
-                    None,
-                    client_surface_for_turn,
-                    false,
-                    true,
-                )
-                .await
-            }))
+            let outcome = Box::pin(run_with_agent_scope(
+                current_agent_scope_id.clone(),
+                async move {
+                    self.run_internal_send_loop(
+                        Some(thread_for_turn.as_str()),
+                        &stored_user_content_for_turn,
+                        &llm_user_content_for_turn,
+                        None,
+                        preferred_session_hint,
+                        None,
+                        client_surface_for_turn,
+                        false,
+                        true,
+                    )
+                    .await
+                },
+            ))
             .await?;
 
             if let Some(restart) = outcome.handoff_restart.clone() {
@@ -657,8 +660,12 @@ impl AgentEngine {
     }
 
     pub(crate) async fn continue_thread_after_participant_post_or_notice(&self, thread_id: &str) {
-        let (prior_user_message, latest_participant_author_id) =
-            self.threads.read().await.get(thread_id).map_or((None, None), |thread| {
+        let (prior_user_message, latest_participant_author_id) = self
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .map_or((None, None), |thread| {
                 let prior_user_message = thread
                     .messages
                     .iter()
@@ -678,10 +685,7 @@ impl AgentEngine {
         };
 
         if let Some(latest_participant_author_id) = latest_participant_author_id {
-            if self
-                .active_agent_id_for_thread(thread_id)
-                .await
-                .as_deref()
+            if self.active_agent_id_for_thread(thread_id).await.as_deref()
                 == Some(latest_participant_author_id.as_str())
             {
                 tracing::info!(
@@ -890,7 +894,9 @@ impl AgentEngine {
                 Some(entry) => {
                     let removed = entry
                         .iter()
-                        .position(|participant| participant.agent_id.eq_ignore_ascii_case(&agent_id))
+                        .position(|participant| {
+                            participant.agent_id.eq_ignore_ascii_case(&agent_id)
+                        })
                         .map(|index| entry.remove(index));
                     (removed, entry.is_empty())
                 }

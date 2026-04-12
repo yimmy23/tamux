@@ -30,6 +30,7 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         loaded_message_start: derived_loaded_message_start,
         loaded_message_end: derived_loaded_message_end,
         older_page_pending: false,
+        older_page_request_cooldown_until_tick: None,
         history_window_expanded: false,
         collapse_deadline_tick: None,
         total_input_tokens: t.total_input_tokens,

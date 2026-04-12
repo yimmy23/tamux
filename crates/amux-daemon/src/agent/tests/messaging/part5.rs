@@ -1044,7 +1044,10 @@ async fn auto_send_dismisses_stale_non_active_participant_suggestions() {
         .maybe_auto_send_next_thread_participant_suggestion(thread_id)
         .await
         .expect("auto-send should succeed");
-    assert!(!sent, "stale non-active participant suggestions should be pruned, not sent");
+    assert!(
+        !sent,
+        "stale non-active participant suggestions should be pruned, not sent"
+    );
     assert!(
         engine
             .list_thread_participant_suggestions(thread_id)
@@ -1145,7 +1148,11 @@ async fn internal_delegate_does_not_register_participant() {
         .lock()
         .expect("lock recorded bodies")
         .clone();
-    assert_eq!(recorded.len(), 2, "delegate should use DM plus visible-thread continuation");
+    assert_eq!(
+        recorded.len(),
+        2,
+        "delegate should use DM plus visible-thread continuation"
+    );
     assert!(
         recorded[0].contains("Continuation requested on visible thread: yes"),
         "delegate DM should explicitly mention visible-thread continuation: {}",
@@ -1195,7 +1202,10 @@ async fn internal_delegate_does_not_register_participant() {
                 && message.author_agent_id.as_deref() == Some("weles")
         })
         .expect("delegate should continue the visible thread as the requested agent");
-    assert_eq!(visible_follow_up.content, "Weles continued on the visible thread.");
+    assert_eq!(
+        visible_follow_up.content,
+        "Weles continued on the visible thread."
+    );
 }
 
 #[tokio::test]

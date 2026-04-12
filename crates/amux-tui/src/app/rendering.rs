@@ -115,16 +115,18 @@ impl TuiModel {
         let threshold_pct = self.config.compact_threshold_pct.clamp(1, 100);
         let threshold_target = context_window.saturating_mul(threshold_pct) / 100;
         let strategy_cap = match self.config.compaction_strategy.as_str() {
-            "weles" => self
-                .current_header_weles_compaction_window_tokens(context_window)
-                .saturating_mul(threshold_pct)
-                / 100,
-            "custom_model" => self
-                .config
-                .compaction_custom_context_window_tokens
-                .max(1)
-                .saturating_mul(threshold_pct)
-                / 100,
+            "weles" => {
+                self.current_header_weles_compaction_window_tokens(context_window)
+                    .saturating_mul(threshold_pct)
+                    / 100
+            }
+            "custom_model" => {
+                self.config
+                    .compaction_custom_context_window_tokens
+                    .max(1)
+                    .saturating_mul(threshold_pct)
+                    / 100
+            }
             _ => threshold_target,
         };
 

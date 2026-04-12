@@ -221,7 +221,10 @@ async fn stop_marks_participant_inactive_and_clears_live_suggestions() {
         .await
         .expect("queue while stream is active");
     assert_eq!(
-        engine.list_thread_participant_suggestions(thread_id).await.len(),
+        engine
+            .list_thread_participant_suggestions(thread_id)
+            .await
+            .len(),
         1
     );
 
@@ -247,7 +250,9 @@ async fn stop_marks_participant_inactive_and_clears_live_suggestions() {
         .await
         .expect_err("inactive participant should not accept new queued suggestions");
     assert!(
-        error.to_string().contains("participant is not active on thread"),
+        error
+            .to_string()
+            .contains("participant is not active on thread"),
         "unexpected error: {error}"
     );
 }
@@ -336,8 +341,7 @@ async fn leave_removes_participant_and_readding_starts_fresh() {
     assert_eq!(participants[0].instruction, "fresh instructions");
     assert_eq!(participants[0].status, ThreadParticipantStatus::Active);
     assert_eq!(
-        participants[0].last_contribution_at,
-        None,
+        participants[0].last_contribution_at, None,
         "re-added participant should be a fresh instance"
     );
     assert_eq!(participants[0].deactivated_at, None);
