@@ -1,6 +1,27 @@
 use super::*;
 
+fn is_policy_escalation_approval(approval_id: &str) -> bool {
+    approval_id.starts_with("policy-escalation-")
+}
+
 impl AgentEngine {
+    pub(in crate::agent) async fn has_policy_escalation_session_grant(
+        &self,
+        thread_id: &str,
+    ) -> bool {
+        self.policy_escalation_session_grants
+            .read()
+            .await
+            .contains(thread_id)
+    }
+
+    pub(in crate::agent) async fn store_policy_escalation_session_grant(&self, thread_id: &str) {
+        self.policy_escalation_session_grants
+            .write()
+            .await
+            .insert(thread_id.to_string());
+    }
+
     pub async fn add_task(
         &self,
         title: String,
@@ -397,6 +418,22 @@ impl AgentEngine {
             amux_protocol::ApprovalDecision::ApproveOnce
                 | amux_protocol::ApprovalDecision::ApproveSession
         ) {
+            if let Some(goal_run_id) = updated.goal_run_id.as_deref() {
+                self.sync_goal_run_with_task(goal_run_id, &updated).await;
+            }
+        }
+        if matches!(
+            decision,
+            amux_protocol::ApprovalDecision::ApproveOnce
+                | amux_protocol::ApprovalDecision::ApproveSession
+        ) {
+            if matches!(decision, amux_protocol::ApprovalDecision::ApproveSession)
+                && is_policy_escalation_approval(approval_id)
+            {
+                if let Some(thread_id) = updated.thread_id.as_deref() {
+                    self.store_policy_escalation_session_grant(thread_id).await;
+                }
+            }
             if let Some(thread_id) = updated.thread_id.as_deref() {
                 let _ = self
                     .record_thread_skill_approval_resolution(thread_id, approval_id)

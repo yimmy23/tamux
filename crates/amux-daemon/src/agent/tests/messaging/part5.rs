@@ -1,5 +1,6 @@
 use super::*;
 use amux_shared::providers::PROVIDER_ID_OPENAI;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[tokio::test]
 async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
@@ -230,6 +231,8 @@ async fn visible_thread_participant_send_records_message_author_and_updates_part
     let addr = listener
         .local_addr()
         .expect("participant visible-send addr");
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let request_counter_task = request_counter.clone();
 
     tokio::spawn(async move {
         for _ in 0..3 {
@@ -239,11 +242,22 @@ async fn visible_thread_participant_send_records_message_author_and_updates_part
             let _ = read_http_request_body(&mut socket)
                 .await
                 .expect("read participant visible-send request");
-            let response_body = concat!(
-                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible\"}}\n\n",
-                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"I checked that claim and it is inaccurate.\"}\n\n",
-                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":8},\"error\":null}}\n\n"
-            );
+            let response_body = match request_counter_task.fetch_add(1, Ordering::SeqCst) {
+                0 => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"I checked that claim and it is inaccurate.\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":8},\"error\":null}}\n\n"
+                ),
+                1 => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible_follow_up\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Swarozyc acknowledged the verification.\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible_follow_up\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":9,\"output_tokens\":5},\"error\":null}}\n\n"
+                ),
+                _ => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible_tail\"}}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible_tail\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0},\"error\":null}}\n\n"
+                ),
+            };
             let response = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                 response_body.len(),
@@ -308,16 +322,22 @@ async fn visible_thread_participant_send_records_message_author_and_updates_part
         .await
         .expect("participant visible send should succeed");
 
-    let threads = engine.threads.read().await;
-    let thread = threads
-        .get(thread_id)
-        .expect("thread should still exist after participant send");
-    let assistant = thread
-        .messages
+    let thread_messages = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .expect("thread should still exist after participant send")
+            .messages
+            .clone()
+    };
+    let participant_idx = thread_messages
         .iter()
-        .rev()
-        .find(|message| message.role == MessageRole::Assistant)
-        .expect("participant visible send should append an assistant message");
+        .position(|message| {
+            message.role == MessageRole::Assistant
+                && message.author_agent_id.as_deref() == Some("weles")
+        })
+        .expect("participant visible send should append a participant-authored assistant message");
+    let assistant = &thread_messages[participant_idx];
 
     assert_eq!(
         assistant.content,
@@ -326,15 +346,21 @@ async fn visible_thread_participant_send_records_message_author_and_updates_part
     assert_eq!(assistant.author_agent_id.as_deref(), Some("weles"));
     assert_eq!(assistant.author_agent_name.as_deref(), Some("Weles"));
     assert_eq!(
-        thread
-            .messages
+        thread_messages
             .iter()
             .filter(|message| message.role == MessageRole::User)
             .count(),
         1,
         "visible participant sends should not append an extra user turn"
     );
-    drop(threads);
+    let follow_up = thread_messages[participant_idx + 1..]
+        .iter()
+        .find(|message| {
+            message.role == MessageRole::Assistant
+                && message.author_agent_id.as_deref() != Some("weles")
+        })
+        .expect("visible participant send should trigger a separate active-agent follow-up");
+    assert_eq!(follow_up.content, "Swarozyc acknowledged the verification.");
 
     let participants = engine.list_thread_participants(thread_id).await;
     let weles = participants
@@ -355,6 +381,8 @@ async fn force_send_interrupts_stream() {
         .await
         .expect("bind participant force server");
     let addr = listener.local_addr().expect("participant force addr");
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let request_counter_task = request_counter.clone();
 
     tokio::spawn(async move {
         for _ in 0..3 {
@@ -364,11 +392,17 @@ async fn force_send_interrupts_stream() {
             let _ = read_http_request_body(&mut socket)
                 .await
                 .expect("read participant force request");
-            let response_body = concat!(
-                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_force\"}}\n\n",
-                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Urgent fix\"}\n\n",
-                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_force\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":8,\"output_tokens\":4},\"error\":null}}\n\n"
-            );
+            let response_body = match request_counter_task.fetch_add(1, Ordering::SeqCst) {
+                0 => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_force_follow_up\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Swarozyc is handling the urgent fix.\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_force_follow_up\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":8,\"output_tokens\":5},\"error\":null}}\n\n"
+                ),
+                _ => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_force_tail\"}}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_force_tail\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0},\"error\":null}}\n\n"
+                ),
+            };
             let response = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                 response_body.len(),
@@ -432,12 +466,26 @@ async fn force_send_interrupts_stream() {
         "force-send should cancel the active stream"
     );
 
-    let threads = engine.threads.read().await;
-    let last = threads
-        .get(thread_id)
-        .and_then(|thread| thread.messages.last())
-        .expect("thread should have a last message");
-    assert_eq!(last.author_agent_id.as_deref(), Some("weles"));
+    let thread_messages = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .expect("thread should still exist after force-send")
+            .messages
+            .clone()
+    };
+    assert!(thread_messages.iter().any(|message| {
+        message.role == MessageRole::Assistant && message.author_agent_id.as_deref() == Some("weles")
+    }));
+    let follow_up = thread_messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == MessageRole::Assistant
+                && message.author_agent_id.as_deref() != Some("weles")
+        })
+        .expect("force-send should trigger a separate active-agent follow-up");
+    assert_eq!(follow_up.content, "Swarozyc is handling the urgent fix.");
 }
 
 #[tokio::test]
@@ -448,6 +496,8 @@ async fn force_send_auto_posts_on_enqueue() {
         .await
         .expect("bind participant auto-post server");
     let addr = listener.local_addr().expect("participant auto-post addr");
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let request_counter_task = request_counter.clone();
 
     tokio::spawn(async move {
         for _ in 0..3 {
@@ -457,11 +507,17 @@ async fn force_send_auto_posts_on_enqueue() {
             let _ = read_http_request_body(&mut socket)
                 .await
                 .expect("read participant auto-post request");
-            let response_body = concat!(
-                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_force_auto\"}}\n\n",
-                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Auto-posted fix\"}\n\n",
-                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_force_auto\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":8,\"output_tokens\":4},\"error\":null}}\n\n"
-            );
+            let response_body = match request_counter_task.fetch_add(1, Ordering::SeqCst) {
+                0 => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_force_auto_follow_up\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Swarozyc picked up the auto-posted fix.\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_force_auto_follow_up\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":8,\"output_tokens\":6},\"error\":null}}\n\n"
+                ),
+                _ => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_force_auto_tail\"}}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_force_auto_tail\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0},\"error\":null}}\n\n"
+                ),
+            };
             let response = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                 response_body.len(),
@@ -517,12 +573,26 @@ async fn force_send_auto_posts_on_enqueue() {
         .await
         .expect("force-send enqueue should succeed");
 
-    let threads = engine.threads.read().await;
-    let last = threads
-        .get(thread_id)
-        .and_then(|thread| thread.messages.last())
-        .expect("thread should have a last message");
-    assert_eq!(last.author_agent_id.as_deref(), Some("weles"));
+    let thread_messages = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .expect("thread should still exist after auto-post")
+            .messages
+            .clone()
+    };
+    assert!(thread_messages.iter().any(|message| {
+        message.role == MessageRole::Assistant && message.author_agent_id.as_deref() == Some("weles")
+    }));
+    let follow_up = thread_messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == MessageRole::Assistant
+                && message.author_agent_id.as_deref() != Some("weles")
+        })
+        .expect("force-send enqueue should trigger a separate active-agent follow-up");
+    assert_eq!(follow_up.content, "Swarozyc picked up the auto-posted fix.");
 }
 
 #[tokio::test]

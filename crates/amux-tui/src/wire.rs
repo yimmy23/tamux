@@ -50,6 +50,11 @@ pub struct AgentMessage {
     pub provider_final_result_json: Option<String>,
 
     #[serde(default)]
+    pub author_agent_id: Option<String>,
+    #[serde(default)]
+    pub author_agent_name: Option<String>,
+
+    #[serde(default)]
     pub tool_name: Option<String>,
     #[serde(default)]
     pub tool_arguments: Option<String>,

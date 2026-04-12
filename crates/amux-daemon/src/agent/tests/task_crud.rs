@@ -518,6 +518,54 @@ async fn explicit_acknowledgment_unblocks_goal_and_current_step_task() {
 }
 
 #[tokio::test]
+async fn task_approval_resolution_syncs_parent_goal_run_state() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-policy-escalation";
+    let task_id = "task-policy-escalation";
+    let approval_id = "policy-escalation-thread_sync-1000";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(sample_supervised_goal_run(
+            goal_run_id,
+            task_id,
+            approval_id,
+        ));
+    sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
+
+    assert!(
+        engine
+            .handle_task_approval_resolution(
+                approval_id,
+                amux_protocol::ApprovalDecision::ApproveOnce
+            )
+            .await
+    );
+
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert_eq!(goal.status, GoalRunStatus::Running);
+    assert!(goal.awaiting_approval_id.is_none());
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == task_id)
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+}
+
+#[tokio::test]
 async fn cancelling_goal_run_settles_unresolved_goal_plan_trace() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

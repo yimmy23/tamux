@@ -102,7 +102,7 @@ async fn participant_runner_enqueues_suggestion() {
 }
 
 #[tokio::test]
-async fn participant_runner_force_send_posts_visible_message() {
+async fn participant_runner_force_send_posts_visible_message_and_continues_thread() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
 
@@ -123,9 +123,9 @@ async fn participant_runner_force_send_posts_visible_message() {
                     "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_runner_force_observer\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":6,\"output_tokens\":7},\"error\":null}}\n\n"
                 ),
                 2 => concat!(
-                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_runner_force_visible\"}}\n\n",
-                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Visible participant post.\"}\n\n",
-                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_runner_force_visible\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":4,\"output_tokens\":2},\"error\":null}}\n\n"
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_runner_force_follow_up\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Swarozyc follow-up.\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_runner_force_follow_up\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":4,\"output_tokens\":2},\"error\":null}}\n\n"
                 ),
                 _ => concat!(
                     "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_runner_force_tail\"}}\n\n",
@@ -194,15 +194,15 @@ async fn participant_runner_force_send_posts_visible_message() {
     let thread = threads
         .get(thread_id)
         .expect("thread should still exist after participant send");
-    let assistant = thread
+    let participant_idx = thread
         .messages
         .iter()
-        .rev()
-        .find(|message| {
+        .position(|message| {
             message.role == MessageRole::Assistant
                 && message.author_agent_id.as_deref() == Some("weles")
         })
         .expect("force-send participant post should stay on the visible thread");
+    let assistant = &thread.messages[participant_idx];
 
     assert_eq!(assistant.content, "Visible participant post.");
     assert_eq!(assistant.author_agent_name.as_deref(), Some("Weles"));
@@ -215,6 +215,14 @@ async fn participant_runner_force_send_posts_visible_message() {
         1,
         "force-send participant posts should not add an extra user turn"
     );
+    let follow_up = thread.messages[participant_idx + 1..]
+        .iter()
+        .find(|message| {
+            message.role == MessageRole::Assistant
+                && message.author_agent_id.as_deref() != Some("weles")
+        })
+        .expect("force-send participant post should trigger a separate active-agent follow-up");
+    assert_eq!(follow_up.content, "Swarozyc follow-up.");
     drop(threads);
 
     let dm_thread_id = crate::agent::agent_identity::internal_dm_thread_id(
@@ -418,6 +426,84 @@ async fn participant_runner_skips_no_suggestion() {
             id: thread_id.to_string(),
             agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
             title: "Participant runner none".to_string(),
+            messages: vec![AgentMessage::user("noop", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register");
+
+    engine
+        .run_participant_observers(thread_id)
+        .await
+        .expect("participant observers should run");
+
+    assert!(engine
+        .list_thread_participant_suggestions(thread_id)
+        .await
+        .is_empty());
+}
+
+#[tokio::test]
+async fn participant_runner_skips_structured_no_suggestion() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+
+    tokio::spawn(async move {
+        for _ in 0..3 {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let _ = read_http_request_body(&mut socket)
+                .await
+                .expect("read request");
+            let response_body = concat!(
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_runner_structured_none\"}}\n\n",
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"FORCE: no\\nMESSAGE: NO_SUGGESTION\"}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_runner_structured_none\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":4,\"output_tokens\":3},\"error\":null}}\n\n"
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let (engine, _temp_dir) = make_runner_test_engine(config).await;
+    let thread_id = "thread_participant_runner_structured_none";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Participant runner structured none".to_string(),
             messages: vec![AgentMessage::user("noop", 1)],
             pinned: false,
             upstream_thread_id: None,

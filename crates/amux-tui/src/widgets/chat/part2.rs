@@ -263,10 +263,16 @@ fn assistant_responder_labels(
 ) -> Vec<Option<String>> {
     let mut labels = vec![None; thread.messages.len()];
     let mut responder = initial_responder_name(thread);
+    let participant_ids = thread
+        .thread_participants
+        .iter()
+        .map(|participant| participant.agent_id.trim().to_ascii_lowercase())
+        .collect::<std::collections::HashSet<_>>();
 
     for (idx, msg) in thread.messages.iter().enumerate() {
         if msg.role == MessageRole::Assistant {
-            labels[idx] = responder.clone();
+            labels[idx] =
+                message_responder_label(msg, &participant_ids).or_else(|| responder.clone());
         }
         if let Some(event) = handoff_responder_event_for_message(msg) {
             if event.to_agent_name.is_some() {
@@ -276,6 +282,31 @@ fn assistant_responder_labels(
     }
 
     labels
+}
+
+fn message_responder_label(
+    msg: &AgentMessage,
+    participant_ids: &std::collections::HashSet<String>,
+) -> Option<String> {
+    let author_name = msg
+        .author_agent_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let author_id = msg
+        .author_agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+    if author_id
+        .as_deref()
+        .is_some_and(|author_id| participant_ids.contains(author_id))
+    {
+        Some(format!("@{author_name}"))
+    } else {
+        Some(author_name.to_string())
+    }
 }
 
 fn initial_responder_name(thread: &crate::state::chat::AgentThread) -> Option<String> {

@@ -3,7 +3,7 @@ use amux_shared::providers::PROVIDER_ID_OPENAI;
 use tokio::time::{timeout, Duration};
 
 #[tokio::test]
-async fn participant_send_now_posts_direct_visible_message_without_llm_roundtrip() {
+async fn participant_send_now_posts_direct_visible_message_then_continues_thread() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
@@ -61,12 +61,15 @@ async fn participant_send_now_posts_direct_visible_message_without_llm_roundtrip
         .await
         .expect("send suggestion");
 
-    let threads = engine.threads.read().await;
-    let thread = threads
-        .get(thread_id)
-        .expect("thread should still exist after participant send-now");
-    let assistant = thread
-        .messages
+    let thread_messages = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .expect("thread should still exist after participant send-now")
+            .messages
+            .clone()
+    };
+    let assistant = thread_messages
         .iter()
         .rev()
         .find(|message| {
@@ -80,21 +83,28 @@ async fn participant_send_now_posts_direct_visible_message_without_llm_roundtrip
     assert_eq!(assistant.provider, None);
     assert_eq!(assistant.model, None);
     assert_eq!(
-        thread
-            .messages
+        thread_messages
             .iter()
             .filter(|message| message.role == MessageRole::User)
             .count(),
         1,
         "send-now should not add a fresh user turn"
     );
-    drop(threads);
+    let follow_up = thread_messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == MessageRole::Assistant
+                && message.author_agent_id.as_deref() != Some("weles")
+        })
+        .expect("send-now should trigger a separate active-agent follow-up");
+    assert_eq!(follow_up.content, "Gateway reply ok");
 
-    assert!(
-        recorded_bodies.lock().expect("lock request log").is_empty(),
-        "send-now should post the participant suggestion directly without a new LLM request"
+    assert_eq!(
+        recorded_bodies.lock().expect("lock request log").len(),
+        1,
+        "send-now should wake the active thread agent once after the direct participant post"
     );
-
     let dm_thread_id = crate::agent::agent_identity::internal_dm_thread_id(
         crate::agent::agent_identity::MAIN_AGENT_ID,
         "weles",

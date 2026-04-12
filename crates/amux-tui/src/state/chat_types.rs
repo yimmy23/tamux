@@ -53,6 +53,8 @@ pub struct AgentMessage {
     pub role: MessageRole,
     pub content: String,
     pub reasoning: Option<String>,
+    pub author_agent_id: Option<String>,
+    pub author_agent_name: Option<String>,
     pub is_operator_question: bool,
     pub operator_question_id: Option<String>,
     pub operator_question_answer: Option<String>,

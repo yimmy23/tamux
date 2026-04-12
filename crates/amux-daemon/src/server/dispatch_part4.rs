@@ -662,6 +662,13 @@ if matches!(
                     agent
                         .handle_task_approval_resolution(&approval_id, decision)
                         .await;
+                    framed
+                        .send(DaemonMessage::ApprovalResolved {
+                            id: uuid::Uuid::nil(),
+                            approval_id,
+                            decision,
+                        })
+                        .await?;
                 }
 
                 ClientMessage::AgentSubscribe => {

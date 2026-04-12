@@ -270,6 +270,88 @@
     }
 
     #[test]
+    fn assistant_messages_prefer_message_author_name_when_available() {
+        let mut chat = ChatState::new();
+        chat.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        chat.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+            id: "t1".into(),
+            agent_name: Some("Svarog".into()),
+            title: "Test".into(),
+            messages: vec![AgentMessage {
+                role: MessageRole::Assistant,
+                content: "Active responder reply".into(),
+                author_agent_id: Some("swarozyc".into()),
+                author_agent_name: Some("Swarozyc".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }));
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+        let message_lines: Vec<String> = lines
+            .iter()
+            .filter(|line| line.message_index == Some(0))
+            .map(rendered_line_plain_text)
+            .collect();
+
+        assert!(
+            message_lines
+                .iter()
+                .any(|line| line.contains("Responder: Swarozyc")),
+            "expected responder label from message author, got: {message_lines:?}"
+        );
+    }
+
+    #[test]
+    fn participant_authored_messages_render_with_at_prefixed_responder_label() {
+        let mut chat = ChatState::new();
+        chat.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        chat.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+            id: "t1".into(),
+            agent_name: Some("Swarozyc".into()),
+            title: "Test".into(),
+            thread_participants: vec![crate::state::chat::ThreadParticipantState {
+                agent_id: "weles".into(),
+                agent_name: "Weles".into(),
+                instruction: "verify claims".into(),
+                status: "active".into(),
+                created_at: 1,
+                updated_at: 1,
+                deactivated_at: None,
+                last_contribution_at: None,
+            }],
+            messages: vec![AgentMessage {
+                role: MessageRole::Assistant,
+                content: "Participant note".into(),
+                author_agent_id: Some("weles".into()),
+                author_agent_name: Some("Weles".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }));
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+        let message_lines: Vec<String> = lines
+            .iter()
+            .filter(|line| line.message_index == Some(0))
+            .map(rendered_line_plain_text)
+            .collect();
+
+        assert!(
+            message_lines
+                .iter()
+                .any(|line| line.contains("Responder: @Weles")),
+            "expected participant responder label, got: {message_lines:?}"
+        );
+    }
+
+    #[test]
     fn chat_scrollbar_geometry_reserves_right_gutter_when_transcript_overflows() {
         let chat = chat_with_messages(
             (0..12)

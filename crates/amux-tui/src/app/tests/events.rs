@@ -1326,6 +1326,38 @@ fn thread_detail_clears_loading_state() {
 }
 
 #[test]
+fn thread_detail_preserves_message_author_metadata() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::Assistant,
+            content: "Visible participant post.".to_string(),
+            author_agent_id: Some("weles".to_string()),
+            author_agent_name: Some("Weles".to_string()),
+            timestamp: 1,
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        created_at: 1,
+        updated_at: 1,
+        ..Default::default()
+    })));
+
+    let thread = model
+        .chat
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "thread-user")
+        .expect("thread detail should populate chat state");
+    let message = thread.messages.first().expect("thread should contain message");
+    assert_eq!(message.author_agent_id.as_deref(), Some("weles"));
+    assert_eq!(message.author_agent_name.as_deref(), Some("Weles"));
+}
+
+#[test]
 fn internal_dm_threads_are_retained_in_thread_list_for_internal_picker() {
     let mut model = make_model();
 

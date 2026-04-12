@@ -551,6 +551,18 @@ impl ChatState {
                             if merged[index].cost.is_none() && local.cost.is_some() {
                                 merged[index].cost = local.cost;
                             }
+                            if merged[index].author_agent_id.is_none()
+                                && local.author_agent_id.is_some()
+                            {
+                                merged[index].author_agent_id =
+                                    local.author_agent_id.clone();
+                            }
+                            if merged[index].author_agent_name.is_none()
+                                && local.author_agent_name.is_some()
+                            {
+                                merged[index].author_agent_name =
+                                    local.author_agent_name.clone();
+                            }
                         } else {
                             merged.push(local);
                         }

@@ -63,6 +63,8 @@ pub(super) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessag
         },
         content: m.content,
         reasoning: m.reasoning,
+        author_agent_id: m.author_agent_id,
+        author_agent_name: m.author_agent_name,
         is_operator_question: m.is_operator_question,
         operator_question_id: m.operator_question_id,
         operator_question_answer: m.operator_question_answer,

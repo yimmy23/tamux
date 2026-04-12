@@ -364,6 +364,8 @@ impl AgentEngine {
                         }),
                     )
                     .await;
+                self.continue_thread_after_participant_post_or_notice(thread_id)
+                    .await;
                 Ok(true)
             }
             Err(error) => {
@@ -397,6 +399,41 @@ impl AgentEngine {
         }
 
         serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
+    }
+
+    pub(crate) async fn continue_thread_after_participant_post_or_notice(
+        &self,
+        thread_id: &str,
+    ) {
+        let prior_user_message = self.threads.read().await.get(thread_id).and_then(|thread| {
+            thread
+                .messages
+                .iter()
+                .rev()
+                .find(|message| message.role == MessageRole::User)
+                .map(|message| message.content.clone())
+        });
+        let Some(prior_user_message) = prior_user_message.filter(|value| !value.trim().is_empty())
+        else {
+            return;
+        };
+
+        if let Err(error) = self
+            .resend_existing_user_message(thread_id, &prior_user_message)
+            .await
+        {
+            tracing::warn!(
+                thread_id = %thread_id,
+                error = %error,
+                "participant follow-up continuation failed"
+            );
+            let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                thread_id: thread_id.to_string(),
+                kind: "participant_follow_up_error".to_string(),
+                message: "participant follow-up failed".to_string(),
+                details: Some(error.to_string()),
+            });
+        }
     }
 
     pub async fn upsert_thread_participant(
@@ -795,6 +832,8 @@ impl AgentEngine {
         let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
             thread_id: thread_id.to_string(),
         });
+        self.continue_thread_after_participant_post_or_notice(thread_id)
+            .await;
 
         Ok(())
     }

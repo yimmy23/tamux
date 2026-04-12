@@ -22,9 +22,14 @@ fn parse_participant_suggestion_response(response: &str) -> Option<(bool, String
         }
     }
 
-    message_line
-        .map(|message| (force_send, message))
-        .or_else(|| Some((force_send, trimmed.to_string())))
+    if let Some(message) = message_line {
+        if message.eq_ignore_ascii_case("NO_SUGGESTION") {
+            return None;
+        }
+        return Some((force_send, message));
+    }
+
+    Some((force_send, trimmed.to_string()))
 }
 
 fn should_hide_participant_prompt_message(message: &AgentMessage) -> bool {
@@ -442,6 +447,8 @@ impl AgentEngine {
                     &message,
                 )
                 .await?;
+                self.continue_thread_after_participant_post_or_notice(thread_id)
+                    .await;
             } else {
                 self.queue_thread_participant_suggestion(
                     thread_id,

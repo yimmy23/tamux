@@ -200,6 +200,9 @@ impl TuiModel {
                 modal::ModalKind::PromptViewer => {
                     self.step_prompt_modal_scroll(-3);
                 }
+                modal::ModalKind::ThreadParticipants => {
+                    self.step_thread_participants_modal_scroll(-3);
+                }
                 _ => {}
             },
             MouseEventKind::ScrollDown if inside => match kind {
@@ -229,6 +232,9 @@ impl TuiModel {
                 }
                 modal::ModalKind::PromptViewer => {
                     self.step_prompt_modal_scroll(3);
+                }
+                modal::ModalKind::ThreadParticipants => {
+                    self.step_thread_participants_modal_scroll(3);
                 }
                 _ => {}
             },
