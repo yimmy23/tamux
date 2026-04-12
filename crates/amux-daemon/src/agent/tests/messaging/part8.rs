@@ -246,10 +246,11 @@ async fn queued_participant_suggestion_auto_sends_after_active_stream_finishes()
             let Ok((mut socket, _)) = listener.accept().await else {
                 break;
             };
-            let _ = read_http_request_body(&mut socket)
+            let body = read_http_request_body(&mut socket)
                 .await
                 .expect("read queued participant request");
-            let response_body = match request_counter_task.fetch_add(1, Ordering::SeqCst) {
+            let request_index = request_counter_task.fetch_add(1, Ordering::SeqCst);
+            let response_body = match request_index {
                 0 => {
                     first_request_started_task.notify_waiters();
                     release_first_response_task.notified().await;
@@ -259,6 +260,11 @@ async fn queued_participant_suggestion_auto_sends_after_active_stream_finishes()
                         "data: [DONE]\n\n"
                     )
                 }
+                _ if body.contains("Role: participant observer") => concat!(
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"NO_SUGGESTION\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\n",
+                    "data: [DONE]\n\n"
+                ),
                 1 => concat!(
                     "data: {\"choices\":[{\"delta\":{\"content\":\"Swarozyc followed the queued participant note.\"}}]}\n\n",
                     "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":6}}\n\n",
@@ -386,8 +392,8 @@ async fn queued_participant_suggestion_auto_sends_after_active_stream_finishes()
     );
     assert_eq!(
         request_counter.load(Ordering::SeqCst),
-        2,
-        "expected one request for the active resend and one follow-up after auto-sending the queued participant note"
+        3,
+        "expected one main resend, one observer review, and one follow-up after auto-sending the queued participant note"
     );
     assert!(
         engine

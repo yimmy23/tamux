@@ -239,10 +239,17 @@ async fn visible_thread_participant_send_records_message_author_and_updates_part
             let Ok((mut socket, _)) = listener.accept().await else {
                 break;
             };
-            let _ = read_http_request_body(&mut socket)
+            let body = read_http_request_body(&mut socket)
                 .await
                 .expect("read participant visible-send request");
-            let response_body = match request_counter_task.fetch_add(1, Ordering::SeqCst) {
+            let response_body = if body.contains("Role: participant observer") {
+                concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible_observer\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"NO_SUGGESTION\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible_observer\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":3,\"output_tokens\":1},\"error\":null}}\n\n"
+                )
+            } else {
+                match request_counter_task.fetch_add(1, Ordering::SeqCst) {
                 0 => concat!(
                     "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible\"}}\n\n",
                     "data: {\"type\":\"response.output_text.delta\",\"delta\":\"I checked that claim and it is inaccurate.\"}\n\n",
@@ -257,6 +264,7 @@ async fn visible_thread_participant_send_records_message_author_and_updates_part
                     "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible_tail\"}}\n\n",
                     "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible_tail\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0},\"error\":null}}\n\n"
                 ),
+                }
             };
             let response = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
@@ -370,6 +378,160 @@ async fn visible_thread_participant_send_records_message_author_and_updates_part
     assert!(
         weles.last_contribution_at.is_some(),
         "participant send should stamp last contribution time"
+    );
+}
+
+#[tokio::test]
+async fn visible_thread_participant_send_does_not_trigger_self_reply_for_active_participant() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind participant self-reply server");
+    let addr = listener.local_addr().expect("participant self-reply addr");
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let request_counter_task = request_counter.clone();
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let body = read_http_request_body(&mut socket)
+                .await
+                .expect("read participant self-reply request");
+            let response_body = if body.contains("Role: participant observer") {
+                concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_self_reply_observer\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"NO_SUGGESTION\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_self_reply_observer\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":3,\"output_tokens\":1},\"error\":null}}\n\n"
+                )
+            } else {
+                match request_counter_task.fetch_add(1, Ordering::SeqCst) {
+                    0 => concat!(
+                        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_self_reply\"}}\n\n",
+                        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Weles sends the verification.\"}\n\n",
+                        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_self_reply\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":8,\"output_tokens\":4},\"error\":null}}\n\n"
+                    ),
+                    _ => concat!(
+                        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_self_reply_extra\"}}\n\n",
+                        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"unexpected extra request\"}\n\n",
+                        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_self_reply_extra\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"error\":null}}\n\n"
+                    ),
+                }
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write participant self-reply response");
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread_participant_visible_send_self_reply";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::WELES_AGENT_NAME.to_string()),
+                title: "Participant visible self reply".to_string(),
+                messages: vec![AgentMessage::user("Weles, verify this.", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    engine
+        .set_thread_handoff_state(
+            thread_id,
+            ThreadHandoffState {
+                origin_agent_id: MAIN_AGENT_ID.to_string(),
+                active_agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                responder_stack: vec![
+                    ThreadResponderFrame {
+                        agent_id: MAIN_AGENT_ID.to_string(),
+                        agent_name: MAIN_AGENT_NAME.to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    },
+                    ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::WELES_AGENT_NAME.to_string(),
+                        entered_at: 2,
+                        entered_via_handoff_event_id: Some("handoff-1".to_string()),
+                        linked_thread_id: Some("dm:svarog:weles".to_string()),
+                    },
+                ],
+                events: Vec::new(),
+                pending_approval_id: None,
+            },
+        )
+        .await;
+
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims and jump in when needed")
+        .await
+        .expect("participant should register");
+
+    engine
+        .send_visible_thread_participant_message(
+            thread_id,
+            "weles",
+            None,
+            "Reply only if you found something important.",
+        )
+        .await
+        .expect("participant visible send should succeed");
+
+    let thread_messages = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .expect("thread should still exist after participant send")
+            .messages
+            .clone()
+    };
+    assert_eq!(
+        thread_messages
+            .iter()
+            .filter(|message| message.role == MessageRole::Assistant)
+            .count(),
+        1,
+        "active participant should not trigger a self-reply continuation"
+    );
+    assert_eq!(
+        request_counter.load(Ordering::SeqCst),
+        1,
+        "active participant visible send should only issue the participant reply request"
     );
 }
 

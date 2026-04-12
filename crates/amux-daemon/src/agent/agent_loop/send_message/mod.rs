@@ -40,6 +40,7 @@ impl AgentEngine {
         record_operator: bool,
         initial_reuse_existing_user_message: bool,
         allow_auto_participant_queue_drain: bool,
+        run_participant_observers_after_turn: bool,
     ) -> Result<SendMessageOutcome> {
         let stored_user_content = content;
         let mut current_thread_id = thread_id.map(str::to_string);
@@ -135,6 +136,19 @@ impl AgentEngine {
                     self.maybe_auto_send_next_thread_participant_suggestion(&outcome.thread_id),
                 )
                 .await?;
+            }
+
+            if run_participant_observers_after_turn && !outcome.interrupted_for_approval {
+                if let Err(error) =
+                    Box::pin(self.run_participant_observers(&outcome.thread_id)).await
+                {
+                    let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                        thread_id: outcome.thread_id.clone(),
+                        kind: "participant_observer_error".to_string(),
+                        message: "participant observers failed".to_string(),
+                        details: Some(error.to_string()),
+                    });
+                }
             }
 
             return Ok(outcome);
@@ -233,6 +247,7 @@ impl AgentEngine {
             record_operator,
             false,
             true,
+            true,
         )
         .await
     }
@@ -252,6 +267,7 @@ impl AgentEngine {
             None,
             None,
             false,
+            true,
             true,
             true,
         )
@@ -274,6 +290,7 @@ impl AgentEngine {
             None,
             false,
             true,
+            false,
             false,
         )
         .await

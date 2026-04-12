@@ -467,16 +467,7 @@ impl AgentEngine {
             true,
         ))
         .await?;
-        let thread_id = outcome.thread_id.clone();
-        if let Err(error) = self.run_participant_observers(&thread_id).await {
-            let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
-                thread_id: thread_id.clone(),
-                kind: "participant_observer_error".to_string(),
-                message: "participant observers failed".to_string(),
-                details: Some(error.to_string()),
-            });
-        }
-        Ok(thread_id)
+        Ok(outcome.thread_id)
     }
 
     pub async fn send_message_with_session_surface_and_target(

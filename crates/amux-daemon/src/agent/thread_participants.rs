@@ -598,18 +598,41 @@ impl AgentEngine {
     }
 
     pub(crate) async fn continue_thread_after_participant_post_or_notice(&self, thread_id: &str) {
-        let prior_user_message = self.threads.read().await.get(thread_id).and_then(|thread| {
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| message.role == MessageRole::User)
-                .map(|message| message.content.clone())
-        });
+        let (prior_user_message, latest_participant_author_id) =
+            self.threads.read().await.get(thread_id).map_or((None, None), |thread| {
+                let prior_user_message = thread
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| message.role == MessageRole::User)
+                    .map(|message| message.content.clone());
+                let latest_participant_author_id = thread.messages.last().and_then(|message| {
+                    (message.role == MessageRole::Assistant)
+                        .then(|| message.author_agent_id.clone())
+                        .flatten()
+                });
+                (prior_user_message, latest_participant_author_id)
+            });
         let Some(prior_user_message) = prior_user_message.filter(|value| !value.trim().is_empty())
         else {
             return;
         };
+
+        if let Some(latest_participant_author_id) = latest_participant_author_id {
+            if self
+                .active_agent_id_for_thread(thread_id)
+                .await
+                .as_deref()
+                == Some(latest_participant_author_id.as_str())
+            {
+                tracing::info!(
+                    thread_id = %thread_id,
+                    participant = %latest_participant_author_id,
+                    "skipping participant follow-up continuation because the participant is already the active responder"
+                );
+                return;
+            }
+        }
 
         if let Err(error) = self
             .continue_existing_user_message_without_queue_drain(thread_id, &prior_user_message)
