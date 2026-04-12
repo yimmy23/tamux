@@ -47,8 +47,8 @@ impl DaemonClient {
 
         match kind {
             "thread_created" => {
-                let title = get_string(&event, "title")
-                    .unwrap_or_else(|| "New Conversation".to_string());
+                let title =
+                    get_string(&event, "title").unwrap_or_else(|| "New Conversation".to_string());
                 let thread_id = get_string(&event, "thread_id").unwrap_or_default();
                 let agent_name = get_string(&event, "agent_name");
                 if Self::is_hidden_agent_thread(Some(thread_id.as_str()), Some(title.as_str())) {
@@ -68,9 +68,7 @@ impl DaemonClient {
                     return;
                 }
                 let _ = event_tx
-                    .send(ClientEvent::ThreadReloadRequired {
-                        thread_id,
-                    })
+                    .send(ClientEvent::ThreadReloadRequired { thread_id })
                     .await;
             }
             "participant_suggestion" => {
@@ -84,7 +82,10 @@ impl DaemonClient {
                     .and_then(|raw| serde_json::from_value::<ThreadParticipantSuggestion>(raw).ok())
                 {
                     let _ = event_tx
-                        .send(ClientEvent::ParticipantSuggestion { thread_id, suggestion })
+                        .send(ClientEvent::ParticipantSuggestion {
+                            thread_id,
+                            suggestion,
+                        })
                         .await;
                 }
             }
@@ -185,6 +186,7 @@ impl DaemonClient {
             "workflow_notice" => {
                 let _ = event_tx
                     .send(ClientEvent::WorkflowNotice {
+                        thread_id: get_string(&event, "thread_id"),
                         kind: get_string(&event, "kind").unwrap_or_default(),
                         message: get_string(&event, "message").unwrap_or_default(),
                         details: get_string(&event, "details"),
@@ -222,11 +224,9 @@ impl DaemonClient {
                     .await;
             }
             "notification_inbox_upsert" => {
-                if let Some(notification) = event
-                    .get("notification")
-                    .cloned()
-                    .and_then(|raw| serde_json::from_value::<amux_protocol::InboxNotification>(raw).ok())
-                {
+                if let Some(notification) = event.get("notification").cloned().and_then(|raw| {
+                    serde_json::from_value::<amux_protocol::InboxNotification>(raw).ok()
+                }) {
                     let _ = event_tx
                         .send(ClientEvent::NotificationUpsert(notification))
                         .await;
@@ -235,13 +235,9 @@ impl DaemonClient {
             "weles_health_update" => {
                 let _ = event_tx
                     .send(ClientEvent::WelesHealthUpdate {
-                        state: get_string(&event, "state")
-                            .unwrap_or_else(|| "healthy".to_string()),
+                        state: get_string(&event, "state").unwrap_or_else(|| "healthy".to_string()),
                         reason: get_string(&event, "reason"),
-                        checked_at: event
-                            .get("checked_at")
-                            .and_then(Value::as_u64)
-                            .unwrap_or(0),
+                        checked_at: event.get("checked_at").and_then(Value::as_u64).unwrap_or(0),
                     })
                     .await;
             }
@@ -603,5 +599,4 @@ impl DaemonClient {
             file_path,
         })
     }
-
 }

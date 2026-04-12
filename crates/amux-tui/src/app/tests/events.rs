@@ -138,11 +138,13 @@ fn whatsapp_status_events_update_modal_state() {
         model.modal.whatsapp_link().phase(),
         crate::state::modal::WhatsAppLinkPhase::Error
     );
-    assert!(model
-        .modal
-        .whatsapp_link()
-        .status_text()
-        .contains("scan timeout"));
+    assert!(
+        model
+            .modal
+            .whatsapp_link()
+            .status_text()
+            .contains("scan timeout")
+    );
 
     model.handle_client_event(ClientEvent::WhatsAppLinkDisconnected {
         reason: Some("socket closed".to_string()),
@@ -151,11 +153,13 @@ fn whatsapp_status_events_update_modal_state() {
         model.modal.whatsapp_link().phase(),
         crate::state::modal::WhatsAppLinkPhase::Disconnected
     );
-    assert!(model
-        .modal
-        .whatsapp_link()
-        .status_text()
-        .contains("socket closed"));
+    assert!(
+        model
+            .modal
+            .whatsapp_link()
+            .status_text()
+            .contains("socket closed")
+    );
 }
 
 #[test]
@@ -394,6 +398,7 @@ fn operator_question_event_does_not_replace_existing_modal() {
 fn operator_profile_workflow_warning_surfaces_retry_notice() {
     let mut model = make_model();
     model.handle_client_event(ClientEvent::WorkflowNotice {
+        thread_id: None,
         kind: "operator-profile-warning".to_string(),
         message: "Operator profile operation failed".to_string(),
         details: Some("{\"retry_action\":\"request_concierge_welcome\"}".to_string()),
@@ -405,6 +410,33 @@ fn operator_profile_workflow_warning_surfaces_retry_notice() {
         rendered.0.contains("Ctrl+R"),
         "warning notice should include retry hint"
     );
+}
+
+#[test]
+fn auto_compaction_workflow_notice_requests_page_containing_artifact() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-compaction".to_string(),
+        title: "Compaction".to_string(),
+        agent_name: Some("Swarog".to_string()),
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-compaction".to_string(),
+    ));
+
+    model.handle_client_event(ClientEvent::WorkflowNotice {
+        thread_id: Some("thread-compaction".to_string()),
+        kind: "auto-compaction".to_string(),
+        message: "Auto compaction applied using heuristic.".to_string(),
+        details: Some("{\"split_at\":20,\"total_message_count\":121}".to_string()),
+    });
+
+    let (thread_id, message_limit, message_offset) =
+        next_thread_request(&mut daemon_rx).expect("expected targeted thread reload request");
+    assert_eq!(thread_id, "thread-compaction");
+    assert_eq!(message_limit, Some(chat::CHAT_HISTORY_PAGE_SIZE));
+    assert_eq!(message_offset, Some(100));
 }
 
 #[test]
@@ -766,11 +798,13 @@ fn approval_required_in_background_thread_shows_notice_without_modal() {
 
     assert_eq!(model.modal.top(), None);
     assert_eq!(model.approval.pending_approvals().len(), 1);
-    assert!(model
-        .input_notice_style()
-        .expect("approval banner should be visible")
-        .0
-        .contains("Ctrl+A"));
+    assert!(
+        model
+            .input_notice_style()
+            .expect("approval banner should be visible")
+            .0
+            .contains("Ctrl+A")
+    );
 }
 
 #[test]
@@ -2262,10 +2296,12 @@ fn openai_codex_auth_events_update_config_and_modal_state() {
         model.openai_auth_url.as_deref(),
         Some("https://auth.openai.com/oauth/authorize?flow=tui")
     );
-    assert!(model
-        .openai_auth_status_text
-        .as_deref()
-        .is_some_and(|text| text.contains("complete ChatGPT authentication")));
+    assert!(
+        model
+            .openai_auth_status_text
+            .as_deref()
+            .is_some_and(|text| text.contains("complete ChatGPT authentication"))
+    );
     assert!(matches!(
         daemon_rx
             .try_recv()

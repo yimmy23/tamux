@@ -6,7 +6,7 @@
 //!
 //! NOTE: Uses local type aliases until Task 9 resolves the state.rs → wire.rs rename.
 
-use crate::state::{chat::ChatAction, config::ConfigAction, task::TaskAction, AppAction};
+use crate::state::{AppAction, chat::ChatAction, config::ConfigAction, task::TaskAction};
 
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
@@ -126,6 +126,7 @@ pub enum ClientEvent {
         provider_final_result_json: Option<String>,
     },
     WorkflowNotice {
+        thread_id: Option<String>,
         kind: String,
         message: String,
         details: Option<String>,
@@ -428,9 +429,11 @@ mod tests {
             reasoning: Some("summary".into()),
             provider_final_result_json: None,
         });
-        assert!(actions
-            .iter()
-            .any(|a| matches!(a, AppAction::Chat(ChatAction::TurnDone { .. }))));
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, AppAction::Chat(ChatAction::TurnDone { .. })))
+        );
     }
 
     #[test]

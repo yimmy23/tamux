@@ -4,6 +4,14 @@ fn parse_workflow_notice_details(details: Option<&str>) -> Option<serde_json::Va
     serde_json::from_str::<serde_json::Value>(details?).ok()
 }
 
+fn auto_compaction_reload_offset(details: Option<&str>) -> Option<usize> {
+    let parsed = parse_workflow_notice_details(details)?;
+    let split_at = parsed.get("split_at")?.as_u64()? as usize;
+    let total_message_count = parsed.get("total_message_count")?.as_u64()? as usize;
+    let artifact_end = split_at.saturating_add(1).min(total_message_count);
+    Some(total_message_count.saturating_sub(artifact_end))
+}
+
 fn normalized_skill_workflow_notice(
     kind: &str,
     message: &str,
@@ -647,6 +655,7 @@ impl TuiModel {
 
     pub(in crate::app) fn handle_workflow_notice_event(
         &mut self,
+        thread_id: Option<String>,
         kind: String,
         message: String,
         details: Option<String>,
@@ -674,6 +683,22 @@ impl TuiModel {
             } else {
                 message.clone()
             };
+        }
+        if kind == "auto-compaction" {
+            if let (Some(thread_id), Some(active_thread_id), Some(message_offset)) = (
+                thread_id.as_deref(),
+                self.chat.active_thread_id(),
+                auto_compaction_reload_offset(details_ref),
+            ) {
+                if thread_id == active_thread_id {
+                    self.request_thread_page(
+                        thread_id.to_string(),
+                        chat::CHAT_HISTORY_PAGE_SIZE,
+                        message_offset,
+                        false,
+                    );
+                }
+            }
         }
         if kind == "operator-profile-warning" {
             let warning = if let Some(details) = details_ref {

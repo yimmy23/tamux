@@ -15,6 +15,64 @@ In practice that means:
 - the built-in runtime can plan work, run tools, spawn bounded sub-agents, pause for approval, and learn over time
 - memory, queue state, and operational history stay durable instead of vanishing with a single terminal tab
 
+## Quick Start
+
+### Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mkurman/tamux/main/scripts/install.sh | sh
+tamux --help
+```
+
+The quick installer downloads the same native release bundle family that the npm package uses, installs the binaries into `~/.local/bin` by default, and works without Node.js or npm.
+
+After a quick-install or direct-binary install, `tamux upgrade` reuses the direct installer path for the current install directory. If you installed through npm, `tamux upgrade` continues to use npm.
+
+### NPM
+
+```bash
+npm install -g tamux
+tamux --help
+
+# or install locally in a project:
+npm install tamux
+npx tamux --help
+```
+
+If `npm install -g tamux` succeeds but `tamux` is still not found on macOS, your npm global bin directory is not on `PATH` yet:
+
+```bash
+export PATH="$(npm config get prefix)/bin:$PATH"
+exec $SHELL -l
+tamux --help
+```
+
+If the bin directory is already on `PATH`, opening a new shell is still useful because `zsh` and `bash` can cache command lookups.
+
+When tamux is installed through npm, `tamux upgrade` upgrades through npm as well.
+
+### From sources
+
+```bash
+git clone https://github.com/mkurman/tamux.git
+
+cd tamux
+
+# 1. Start the daemon
+cargo run --release --bin tamux-daemon
+
+# 2. Launch the TUI in another terminal
+cargo run --release --bin tamux setup
+
+# or
+cargo run --release --bin tamux-tui
+
+# 3. Or launch the desktop app
+cd frontend && npm install && npm run dev:electron
+```
+
+If you want to test the core loop fast, start a goal run and give Swarog a concrete objective: investigate a failing build, prepare a release checklist, or trace a bug across a workspace.
+
 ## What It Feels Like
 
 tamux is for operators who want a terminal that remembers, an agent that can stay with a task, and a control surface that makes long-running work visible instead of mysterious.
@@ -94,64 +152,6 @@ If the target is not a known built-in persona or registered sub-agent alias, the
 
 
 Together they give the system a little presence without hiding what it is doing.
-
-## Quick Start
-
-### Quick Install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/mkurman/tamux/main/scripts/install.sh | sh
-tamux --help
-```
-
-The quick installer downloads the same native release bundle family that the npm package uses, installs the binaries into `~/.local/bin` by default, and works without Node.js or npm.
-
-After a quick-install or direct-binary install, `tamux upgrade` reuses the direct installer path for the current install directory. If you installed through npm, `tamux upgrade` continues to use npm.
-
-### NPM
-
-```bash
-npm install -g tamux
-tamux --help
-
-# or install locally in a project:
-npm install tamux
-npx tamux --help
-```
-
-If `npm install -g tamux` succeeds but `tamux` is still not found on macOS, your npm global bin directory is not on `PATH` yet:
-
-```bash
-export PATH="$(npm config get prefix)/bin:$PATH"
-exec $SHELL -l
-tamux --help
-```
-
-If the bin directory is already on `PATH`, opening a new shell is still useful because `zsh` and `bash` can cache command lookups.
-
-When tamux is installed through npm, `tamux upgrade` upgrades through npm as well.
-
-### From sources
-
-```bash
-git clone https://github.com/mkurman/tamux.git
-
-cd tamux
-
-# 1. Start the daemon
-cargo run --release --bin tamux-daemon
-
-# 2. Launch the TUI in another terminal
-cargo run --release --bin tamux setup
-
-# or
-cargo run --release --bin tamux-tui
-
-# 3. Or launch the desktop app
-cd frontend && npm install && npm run dev:electron
-```
-
-If you want to test the core loop fast, start a goal run and give Swarog a concrete objective: investigate a failing build, prepare a release checklist, or trace a bug across a workspace.
 
 ## Read More
 

@@ -44,12 +44,16 @@ impl DaemonClient {
                     chunk_buffer.thread_id = None;
                     *thread_detail_chunks = None;
                     match String::from_utf8(bytes) {
-                        Ok(thread_json) => match serde_json::from_str::<Option<AgentThread>>(&thread_json) {
-                            Ok(thread) => {
-                                let _ = event_tx.send(ClientEvent::ThreadDetail(thread)).await;
+                        Ok(thread_json) => {
+                            match serde_json::from_str::<Option<AgentThread>>(&thread_json) {
+                                Ok(thread) => {
+                                    let _ = event_tx.send(ClientEvent::ThreadDetail(thread)).await;
+                                }
+                                Err(err) => {
+                                    warn!("Failed to parse streamed thread detail: {}", err)
+                                }
                             }
-                            Err(err) => warn!("Failed to parse streamed thread detail: {}", err),
-                        },
+                        }
                         Err(err) => warn!("Failed to decode streamed thread detail: {}", err),
                     }
                 }
@@ -114,6 +118,7 @@ impl DaemonClient {
                         );
                         let _ = event_tx
                             .send(ClientEvent::WorkflowNotice {
+                                thread_id: None,
                                 kind: "checkpoint-restored".to_string(),
                                 message: "Checkpoint restored".to_string(),
                                 details: Some(details),
@@ -187,14 +192,12 @@ impl DaemonClient {
             DaemonMessage::AgentModelsResponse {
                 operation_id: _,
                 models_json,
-            } => {
-                match serde_json::from_str::<Vec<FetchedModel>>(&models_json) {
-                    Ok(models) => {
-                        let _ = event_tx.send(ClientEvent::ModelsFetched(models)).await;
-                    }
-                    Err(err) => warn!("Failed to parse models response: {}", err),
+            } => match serde_json::from_str::<Vec<FetchedModel>>(&models_json) {
+                Ok(models) => {
+                    let _ = event_tx.send(ClientEvent::ModelsFetched(models)).await;
                 }
-            }
+                Err(err) => warn!("Failed to parse models response: {}", err),
+            },
             DaemonMessage::AgentHeartbeatItems { items_json } => {
                 match serde_json::from_str::<Vec<HeartbeatItem>>(&items_json) {
                     Ok(items) => {
@@ -509,5 +512,4 @@ impl DaemonClient {
             _ => unreachable!("daemon message part2 should be exhaustive"),
         }
     }
-
 }

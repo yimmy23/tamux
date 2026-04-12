@@ -780,6 +780,7 @@ impl<'a> SendMessageRunner<'a> {
             llm_user_content,
             stream_chunk_timeout_override,
             tid,
+            reuse_existing_user_message,
             config,
             provider_config,
             preferred_session_id,

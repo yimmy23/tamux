@@ -7,6 +7,7 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) llm_user_content: &'a str,
     pub(super) stream_chunk_timeout_override: Option<std::time::Duration>,
     pub(super) tid: String,
+    pub(super) reuse_existing_user_message: bool,
     pub(super) config: AgentConfig,
     pub(super) provider_config: ProviderConfig,
     pub(super) preferred_session_id: Option<amux_protocol::SessionId>,

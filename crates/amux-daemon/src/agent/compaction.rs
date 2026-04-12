@@ -1,6 +1,6 @@
 //! Context compaction — token-aware message compression for LLM requests.
 
-use super::llm_client::messages_to_api_format;
+use super::llm_client::{ApiToolCall, ApiToolCallFunction, messages_to_api_format};
 use super::*;
 use crate::agent::context::structural_memory::{StructuralContextEntry, ThreadStructuralMemory};
 use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
@@ -115,18 +115,98 @@ fn materialize_compaction_message(message: &AgentMessage) -> AgentMessage {
     materialized
 }
 
-fn active_request_messages(messages: &[AgentMessage]) -> Vec<AgentMessage> {
-    let (_, active_messages) = active_compaction_window(messages);
-    active_messages
+fn trailing_dangling_tool_turn_start(messages: &[AgentMessage]) -> Option<usize> {
+    let (assistant_index, assistant_message) =
+        messages.iter().enumerate().rev().find(|(_, message)| {
+            message.role == MessageRole::Assistant
+                && message
+                    .tool_calls
+                    .as_ref()
+                    .is_some_and(|tool_calls| !tool_calls.is_empty())
+        })?;
+
+    let tool_calls = assistant_message.tool_calls.as_ref()?;
+    let expected_ids: std::collections::HashSet<&str> = tool_calls
+        .iter()
+        .map(|tool_call| tool_call.id.as_str())
+        .collect();
+    if expected_ids.is_empty() {
+        return None;
+    }
+
+    let trailing = &messages[assistant_index + 1..];
+    if trailing
+        .iter()
+        .any(|message| message.role != MessageRole::Tool)
+    {
+        return None;
+    }
+
+    let matched_ids: std::collections::HashSet<&str> = trailing
+        .iter()
+        .filter_map(|message| message.tool_call_id.as_deref())
+        .filter(|tool_call_id| expected_ids.contains(*tool_call_id))
+        .collect();
+
+    if !trailing.is_empty() && matched_ids.len() == expected_ids.len() {
+        None
+    } else {
+        Some(assistant_index)
+    }
+}
+
+fn hidden_dangling_tool_turn(messages: &[AgentMessage], window_start: usize) -> Vec<AgentMessage> {
+    if window_start == 0 {
+        return Vec::new();
+    }
+
+    let hidden_messages = &messages[..window_start];
+    let Some(start) = trailing_dangling_tool_turn_start(hidden_messages) else {
+        return Vec::new();
+    };
+
+    hidden_messages[start..]
         .iter()
         .map(materialize_compaction_message)
         .collect()
+}
+
+fn active_request_messages(messages: &[AgentMessage]) -> Vec<AgentMessage> {
+    let (window_start, active_messages) = active_compaction_window(messages);
+    let repaired_hidden_turn = hidden_dangling_tool_turn(messages, window_start);
+
+    if repaired_hidden_turn.is_empty() {
+        return active_messages
+            .iter()
+            .map(materialize_compaction_message)
+            .collect();
+    }
+
+    let mut active_iter = active_messages.iter();
+    let mut request_messages = Vec::new();
+
+    if let Some(first_message) = active_iter.next() {
+        request_messages.push(materialize_compaction_message(first_message));
+    }
+
+    request_messages.extend(repaired_hidden_turn);
+    request_messages.extend(active_iter.map(materialize_compaction_message));
+    request_messages
 }
 
 pub(super) fn prepare_llm_request(
     thread: &AgentThread,
     config: &AgentConfig,
     provider_config: &ProviderConfig,
+) -> PreparedLlmRequest {
+    prepare_llm_request_with_reused_user_message(thread, config, provider_config, None)
+}
+
+pub(super) fn prepare_llm_request_with_reused_user_message(
+    thread: &AgentThread,
+    config: &AgentConfig,
+    provider_config: &ProviderConfig,
+    reused_user_message: Option<&str>,
 ) -> PreparedLlmRequest {
     let mut selected_transport =
         if provider_supports_transport(&config.provider, provider_config.api_transport) {
@@ -201,7 +281,8 @@ pub(super) fn prepare_llm_request(
                         {
                             return None;
                         }
-                        let trailing_messages = messages_to_api_format(trailing);
+                        let trailing_messages =
+                            continuation_api_messages(trailing, reused_user_message);
                         if trailing_messages.is_empty() {
                             None
                         } else {
@@ -213,6 +294,8 @@ pub(super) fn prepare_llm_request(
             };
 
         if let Some((messages, previous_response_id)) = previous_response_id {
+            let mut messages = messages;
+            inject_reused_user_message_if_missing(&mut messages, reused_user_message);
             return PreparedLlmRequest {
                 messages,
                 transport: ApiTransport::Responses,
@@ -240,13 +323,152 @@ pub(super) fn prepare_llm_request(
     }
 }
 
+fn inject_reused_user_message_if_missing(
+    messages: &mut Vec<ApiMessage>,
+    reused_user_message: Option<&str>,
+) {
+    if messages.iter().any(|message| message.role == "user") {
+        return;
+    }
+
+    let Some(reused_user_message) = reused_user_message
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+    else {
+        return;
+    };
+
+    messages.push(ApiMessage {
+        role: "user".to_string(),
+        content: ApiContent::Text(reused_user_message.to_string()),
+        tool_call_id: None,
+        name: None,
+        tool_calls: None,
+    });
+}
+
+fn continuation_api_messages(
+    messages: &[AgentMessage],
+    reused_user_message: Option<&str>,
+) -> Vec<ApiMessage> {
+    if reused_user_message.is_none() {
+        return messages_to_api_format(messages);
+    }
+
+    let mut pending_tool_results = std::collections::VecDeque::new();
+    let mut api_messages = messages
+        .iter()
+        .filter(|message| {
+            matches!(
+                message.role,
+                MessageRole::System
+                    | MessageRole::User
+                    | MessageRole::Assistant
+                    | MessageRole::Tool
+            )
+        })
+        .filter_map(|message| {
+            let mut normalized_tool_calls = None;
+            if message.role == MessageRole::Assistant {
+                pending_tool_results.clear();
+                if let Some(tool_calls) = &message.tool_calls {
+                    let normalized: Vec<ApiToolCall> = tool_calls
+                        .iter()
+                        .enumerate()
+                        .map(|(index, tool_call)| {
+                            let normalized_id = if tool_call.id.trim().is_empty() {
+                                format!(
+                                    "synthetic_tool_call_{}_{}_{}",
+                                    message.timestamp, index, tool_call.function.name
+                                )
+                            } else {
+                                tool_call.id.clone()
+                            };
+                            pending_tool_results.push_back(normalized_id.clone());
+                            ApiToolCall {
+                                id: normalized_id,
+                                call_type: "function".into(),
+                                function: ApiToolCallFunction {
+                                    name: tool_call.function.name.clone(),
+                                    arguments: tool_call.function.arguments.clone(),
+                                },
+                            }
+                        })
+                        .collect();
+                    normalized_tool_calls = Some(normalized);
+                }
+            }
+
+            let mut normalized_tool_call_id = message.tool_call_id.clone();
+            if message.role == MessageRole::Tool {
+                let resolved_tool_call_id = if let Some(tool_call_id) = message
+                    .tool_call_id
+                    .as_ref()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    let position = pending_tool_results
+                        .iter()
+                        .position(|pending_id| pending_id == tool_call_id);
+                    if let Some(position) = position {
+                        pending_tool_results.remove(position).unwrap_or_default()
+                    } else {
+                        tool_call_id.clone()
+                    }
+                } else {
+                    let Some(next_pending) = pending_tool_results.pop_front() else {
+                        return None;
+                    };
+                    next_pending
+                };
+
+                normalized_tool_call_id = Some(resolved_tool_call_id);
+                if normalized_tool_call_id.as_deref().is_none() {
+                    return None;
+                }
+            } else if message.role != MessageRole::Assistant && !pending_tool_results.is_empty() {
+                pending_tool_results.clear();
+            }
+
+            Some(ApiMessage {
+                role: match message.role {
+                    MessageRole::System => "system".into(),
+                    MessageRole::User => "user".into(),
+                    MessageRole::Assistant => "assistant".into(),
+                    MessageRole::Tool => "tool".into(),
+                },
+                content: ApiContent::Text(message.content.clone()),
+                tool_call_id: normalized_tool_call_id,
+                name: message.tool_name.clone(),
+                tool_calls: normalized_tool_calls.or_else(|| {
+                    message.tool_calls.as_ref().map(|tool_calls| {
+                        tool_calls
+                            .iter()
+                            .map(|tool_call| ApiToolCall {
+                                id: tool_call.id.clone(),
+                                call_type: "function".into(),
+                                function: ApiToolCallFunction {
+                                    name: tool_call.function.name.clone(),
+                                    arguments: tool_call.function.arguments.clone(),
+                                },
+                            })
+                            .collect()
+                    })
+                }),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    inject_reused_user_message_if_missing(&mut api_messages, reused_user_message);
+    api_messages
+}
+
 pub(super) fn compact_messages_for_request(
     messages: &[AgentMessage],
     config: &AgentConfig,
     provider_config: &ProviderConfig,
 ) -> Vec<AgentMessage> {
     let runtime_messages = active_request_messages(messages);
-    let Some(candidate) = compaction_candidate(messages, config, provider_config) else {
+    let Some(candidate) = compaction_candidate(&runtime_messages, config, provider_config) else {
         // Even when compaction is disabled, enforce a hard token limit
         // so we never exceed the model's context window.
         let model_window = model_context_window(
@@ -347,6 +569,15 @@ pub(super) fn compaction_candidate(
     while split_at > 0 && active_messages[split_at].role == MessageRole::Tool {
         split_at -= 1;
     }
+
+    while split_at > 0 {
+        let Some(dangling_start) = trailing_dangling_tool_turn_start(&active_messages[..split_at])
+        else {
+            break;
+        };
+        split_at = dangling_start;
+    }
+
     if split_at == 0 {
         return None;
     }
@@ -1435,7 +1666,7 @@ impl AgentEngine {
             )
             .await?;
 
-        {
+        let current_split_at = {
             let mut threads = self.threads.write().await;
             let Some(thread) = threads.get_mut(thread_id) else {
                 return Ok(false);
@@ -1449,7 +1680,15 @@ impl AgentEngine {
             let current_split_at = window_start + current_candidate.split_at;
             thread.messages.insert(current_split_at, artifact);
             thread.updated_at = now_millis();
-        }
+            current_split_at
+        };
+        let compaction_notice_details = serde_json::json!({
+            "split_at": current_split_at,
+            "total_message_count": message_count.saturating_add(1),
+            "target_tokens": candidate.target_tokens,
+            "strategy": strategy_used,
+        })
+        .to_string();
 
         self.persist_thread_by_id(thread_id).await;
         self.record_provenance_event(
@@ -1490,14 +1729,14 @@ impl AgentEngine {
                     .unwrap_or_else(|_| "\"heuristic\"".to_string())
                     .trim_matches('"')
             ),
-            details: None,
+            details: Some(compaction_notice_details.clone()),
         });
         if let Some(fallback_notice) = fallback_notice {
             let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
                 thread_id: thread_id.to_string(),
                 kind: COMPACTION_NOTICE_KIND.to_string(),
                 message: fallback_notice,
-                details: None,
+                details: Some(compaction_notice_details),
             });
         }
         Ok(true)

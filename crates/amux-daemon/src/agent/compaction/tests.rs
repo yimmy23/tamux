@@ -87,6 +87,27 @@ fn collect_workflow_notice_messages(
     notices
 }
 
+fn collect_workflow_notices(
+    receiver: &mut tokio::sync::broadcast::Receiver<AgentEvent>,
+    thread_id: &str,
+) -> Vec<(String, String, Option<String>)> {
+    let mut notices = Vec::new();
+    while let Ok(event) = receiver.try_recv() {
+        if let AgentEvent::WorkflowNotice {
+            thread_id: event_thread_id,
+            kind,
+            message,
+            details,
+        } = event
+        {
+            if event_thread_id == thread_id {
+                notices.push((kind, message, details));
+            }
+        }
+    }
+    notices
+}
+
 #[test]
 fn compaction_candidate_is_none_when_request_is_within_budget() {
     let config = AgentConfig::default();
@@ -626,6 +647,93 @@ fn github_copilot_responses_request_uses_previous_response_id_for_plain_follow_u
 }
 
 #[test]
+fn reused_user_turn_is_injected_when_responses_continuation_only_has_weles_notice() {
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
+
+    let provider = ProviderConfig {
+        base_url: "https://api.githubcopilot.com".to_string(),
+        model: "gpt-5.4".to_string(),
+        api_key: String::new(),
+        assistant_id: String::new(),
+        auth_source: AuthSource::GithubCopilot,
+        api_transport: ApiTransport::Responses,
+        reasoning_effort: "high".to_string(),
+        context_window_tokens: 128_000,
+        response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
+    };
+
+    let mut recovery_notice = AgentMessage::user(
+        "WELES stalled-turn recovery: Your stream went idle before completion. Resume the unfinished turn now.",
+        3,
+    );
+    recovery_notice.role = MessageRole::System;
+
+    let thread = sample_thread(vec![
+        AgentMessage::user("finish the refactor", 1),
+        AgentMessage {
+            id: "assistant-1".to_string(),
+            role: MessageRole::Assistant,
+            content: "I started the refactor but stopped early.".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 11,
+            output_tokens: 7,
+            cost: None,
+            provider: Some(PROVIDER_ID_GITHUB_COPILOT.to_string()),
+            model: Some("gpt-5.4".to_string()),
+            api_transport: Some(ApiTransport::Responses),
+            response_id: Some("resp_123".to_string()),
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            structural_refs: Vec::new(),
+            timestamp: 2,
+        },
+        recovery_notice,
+    ]);
+
+    let prepared = prepare_llm_request_with_reused_user_message(
+        &thread,
+        &config,
+        &provider,
+        Some("finish the refactor"),
+    );
+
+    assert_eq!(prepared.transport, ApiTransport::Responses);
+    assert_eq!(prepared.previous_response_id.as_deref(), Some("resp_123"));
+    assert_eq!(prepared.messages.len(), 2);
+    assert_eq!(prepared.messages[0].role, "system");
+    assert_eq!(prepared.messages[1].role, "user");
+    match &prepared.messages[1].content {
+        ApiContent::Text(content) => assert_eq!(content, "finish the refactor"),
+        other => panic!("expected reused user text content, got {other:?}"),
+    }
+}
+
+#[test]
 fn default_agent_config_exposes_heuristic_compaction_strategy_defaults() {
     let config = AgentConfig::default();
 
@@ -891,10 +999,12 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
         artifact.compaction_strategy,
         Some(CompactionStrategy::Heuristic)
     );
-    assert!(artifact
-        .compaction_payload
-        .as_deref()
-        .is_some_and(|payload| payload.starts_with("# 🤖 Agent Context: State Checkpoint")));
+    assert!(
+        artifact
+            .compaction_payload
+            .as_deref()
+            .is_some_and(|payload| payload.starts_with("# 🤖 Agent Context: State Checkpoint"))
+    );
 
     let compacted = compact_messages_for_request(&thread.messages, &config, &provider);
     assert_eq!(compacted.len(), 2);
@@ -930,6 +1040,70 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
     assert_eq!(
         restored_artifact.compaction_payload,
         artifact.compaction_payload
+    );
+}
+
+#[tokio::test]
+async fn auto_compaction_notice_includes_artifact_location_details() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.auto_compact_context = true;
+    config.max_context_messages = 2;
+    config.keep_recent_on_compact = 1;
+    config.compaction.strategy = CompactionStrategy::Heuristic;
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+    let thread_id = "thread-compaction-notice-details";
+    let mut events = engine.subscribe();
+    let mut thread = sample_thread(Vec::new());
+    thread.id = thread_id.to_string();
+    thread.title = "Compaction Notice".to_string();
+    thread.messages.push(AgentMessage::user("short intro", 1));
+    for idx in 0..80 {
+        let mut message = AgentMessage::user(
+            format!("message {idx} {}", "x".repeat(2_000)),
+            idx as u64 + 2,
+        );
+        if idx % 2 != 0 {
+            message.role = MessageRole::Assistant;
+        }
+        thread.messages.push(message);
+    }
+    engine
+        .threads
+        .write()
+        .await
+        .insert(thread_id.to_string(), thread);
+
+    let provider = sample_provider_config();
+    let persisted = engine
+        .maybe_persist_compaction_artifact(thread_id, None, &config, &provider)
+        .await
+        .expect("compaction should succeed");
+    assert!(persisted, "expected compaction artifact to be persisted");
+
+    let notices = collect_workflow_notices(&mut events, thread_id);
+    let (_, _, details) = notices
+        .into_iter()
+        .find(|(kind, _, _)| kind == "auto-compaction")
+        .expect("expected auto-compaction workflow notice");
+    let details = details.expect("auto-compaction notice should include details");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&details).expect("details should be valid json");
+
+    assert!(
+        parsed
+            .get("split_at")
+            .and_then(serde_json::Value::as_u64)
+            .is_some(),
+        "expected split_at in auto-compaction details: {parsed}"
+    );
+    assert!(
+        parsed
+            .get("total_message_count")
+            .and_then(serde_json::Value::as_u64)
+            .is_some(),
+        "expected total_message_count in auto-compaction details: {parsed}"
     );
 }
 
@@ -1687,18 +1861,24 @@ mod structural_memory {
             crate::agent::context::structural_memory::discover_workspace_seeds(root.path())
                 .expect("workspace seed discovery should succeed");
 
-        assert!(memory
-            .workspace_seeds
-            .iter()
-            .any(|seed| seed.node_id == "node:file:Cargo.toml"));
-        assert!(memory
-            .workspace_seeds
-            .iter()
-            .any(|seed| seed.node_id == "node:file:frontend/package.json"));
-        assert!(memory
-            .workspace_seeds
-            .iter()
-            .any(|seed| seed.node_id == "node:file:frontend/tsconfig.json"));
+        assert!(
+            memory
+                .workspace_seeds
+                .iter()
+                .any(|seed| seed.node_id == "node:file:Cargo.toml")
+        );
+        assert!(
+            memory
+                .workspace_seeds
+                .iter()
+                .any(|seed| seed.node_id == "node:file:frontend/package.json")
+        );
+        assert!(
+            memory
+                .workspace_seeds
+                .iter()
+                .any(|seed| seed.node_id == "node:file:frontend/tsconfig.json")
+        );
         assert_eq!(
             memory.language_hints,
             vec![
@@ -1724,4 +1904,193 @@ mod structural_memory {
                 && edge.kind == "source_root"
         }));
     }
+}
+
+#[test]
+fn compaction_candidate_keeps_unanswered_tool_turn_out_of_summary_boundary() {
+    let mut config = AgentConfig::default();
+    config.auto_compact_context = true;
+    config.max_context_messages = 1;
+    config.keep_recent_on_compact = 1;
+    let provider = sample_provider_config();
+    let messages = vec![
+        AgentMessage::user("older", 1),
+        AgentMessage {
+            id: "assistant-tool-call".to_string(),
+            role: MessageRole::Assistant,
+            content: String::new(),
+            tool_calls: Some(vec![ToolCall {
+                id: "call_read".to_string(),
+                function: ToolFunction {
+                    name: "read_file".to_string(),
+                    arguments: "{\"path\":\"/tmp/spec.md\"}".to_string(),
+                },
+                weles_review: None,
+            }]),
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            structural_refs: Vec::new(),
+            timestamp: 2,
+        },
+        AgentMessage::user("latest", 3),
+    ];
+
+    let candidate =
+        compaction_candidate(&messages, &config, &provider).expect("candidate should exist");
+
+    assert_eq!(candidate.split_at, 1);
+}
+
+#[test]
+fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
+    config.auto_compact_context = false;
+
+    let mut provider = sample_provider_config();
+    provider.base_url = "https://api.githubcopilot.com".to_string();
+    provider.model = "gpt-5.4".to_string();
+    provider.auth_source = AuthSource::GithubCopilot;
+    provider.api_transport = ApiTransport::Responses;
+    provider.reasoning_effort = "high".to_string();
+
+    let thread = sample_thread(vec![
+        AgentMessage::user("older", 1),
+        AgentMessage {
+            id: "assistant-tool-call".to_string(),
+            role: MessageRole::Assistant,
+            content: String::new(),
+            tool_calls: Some(vec![ToolCall {
+                id: "call_read".to_string(),
+                function: ToolFunction {
+                    name: "read_file".to_string(),
+                    arguments: "{\"path\":\"/tmp/spec.md\"}".to_string(),
+                },
+                weles_review: None,
+            }]),
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: Some(PROVIDER_ID_GITHUB_COPILOT.to_string()),
+            model: Some("gpt-5.4".to_string()),
+            api_transport: Some(ApiTransport::Responses),
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            structural_refs: Vec::new(),
+            timestamp: 2,
+        },
+        AgentMessage {
+            id: "compaction-1".to_string(),
+            role: MessageRole::Assistant,
+            content: "rule based".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::CompactionArtifact,
+            compaction_strategy: Some(CompactionStrategy::Heuristic),
+            compaction_payload: Some("Older context compacted for continuity".to_string()),
+            offloaded_payload_id: None,
+            structural_refs: Vec::new(),
+            timestamp: 3,
+        },
+        AgentMessage {
+            id: "tool-read".to_string(),
+            role: MessageRole::Tool,
+            content: "file contents".to_string(),
+            tool_calls: None,
+            tool_call_id: Some("call_read".to_string()),
+            tool_name: Some("read_file".to_string()),
+            tool_arguments: Some("{\"path\":\"/tmp/spec.md\"}".to_string()),
+            tool_status: Some("done".to_string()),
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            structural_refs: Vec::new(),
+            timestamp: 4,
+        },
+        AgentMessage::user("continue", 5),
+    ]);
+
+    let prepared = prepare_llm_request(&thread, &config, &provider);
+
+    assert_eq!(prepared.transport, ApiTransport::Responses);
+    assert!(prepared.previous_response_id.is_none());
+    assert_eq!(prepared.messages.len(), 4);
+    assert_eq!(prepared.messages[0].role, "assistant");
+    assert_eq!(prepared.messages[1].role, "assistant");
+    assert_eq!(
+        prepared.messages[1]
+            .tool_calls
+            .as_ref()
+            .and_then(|tool_calls| tool_calls.first())
+            .map(|tool_call| tool_call.id.as_str()),
+        Some("call_read")
+    );
+    assert_eq!(prepared.messages[2].role, "tool");
+    assert_eq!(
+        prepared.messages[2].tool_call_id.as_deref(),
+        Some("call_read")
+    );
+    assert_eq!(prepared.messages[3].role, "user");
 }

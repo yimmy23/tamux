@@ -201,6 +201,7 @@ pub enum ClientEvent {
         provider_final_result_json: Option<String>,
     },
     WorkflowNotice {
+        thread_id: Option<String>,
         kind: String,
         message: String,
         details: Option<String>,

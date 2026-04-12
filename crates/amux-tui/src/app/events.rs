@@ -530,11 +530,12 @@ impl TuiModel {
                 );
             }
             ClientEvent::WorkflowNotice {
+                thread_id,
                 kind,
                 message,
                 details,
             } => {
-                self.handle_workflow_notice_event(kind, message, details);
+                self.handle_workflow_notice_event(thread_id, kind, message, details);
             }
             ClientEvent::WelesHealthUpdate {
                 state,
