@@ -193,6 +193,7 @@ async fn make_test_engine(
         ),
         handoff_broker: RwLock::new(super::handoff::HandoffBroker::default()),
         divergent_sessions: RwLock::new(HashMap::new()),
+        debate_sessions: RwLock::new(HashMap::new()),
         cost_trackers: Mutex::new(HashMap::new()),
     })
 }

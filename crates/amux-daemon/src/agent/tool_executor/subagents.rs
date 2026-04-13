@@ -812,6 +812,205 @@ async fn execute_get_divergent_session(
     }
 }
 
+async fn execute_run_debate(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<String> {
+    let topic = args
+        .get("topic")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'topic' argument"))?
+        .to_string();
+
+    let custom_framings = args
+        .get("custom_framings")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let label = item.get("label")?.as_str()?.trim().to_string();
+                    let prompt = item
+                        .get("system_prompt_override")?
+                        .as_str()?
+                        .trim()
+                        .to_string();
+                    if label.is_empty() || prompt.is_empty() {
+                        return None;
+                    }
+                    Some(super::handoff::divergent::Framing {
+                        label,
+                        system_prompt_override: prompt,
+                        task_id: None,
+                        contribution_id: None,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|v| v.len() >= 2);
+
+    let goal_run_id = task_id.and_then(|_tid| None::<&str>);
+
+    match agent
+        .start_debate_session(&topic, custom_framings, thread_id, goal_run_id)
+        .await
+    {
+        Ok(session_id) => {
+            let response = serde_json::json!({
+                "status": "started",
+                "session_id": session_id,
+                "topic": topic,
+                "message": "Debate session started. Use get_debate_session with this session_id to retrieve the debate state and verdict as it progresses."
+            });
+            Ok(serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string()))
+        }
+        Err(e) => Ok(format!("Debate session failed: {e}")),
+    }
+}
+
+async fn execute_get_debate_session(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'session_id' argument"))?;
+
+    match agent.get_debate_session_payload(session_id).await {
+        Ok(payload) => {
+            Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+        }
+        Err(error) => Ok(format!("Failed to fetch debate session: {error}")),
+    }
+}
+
+async fn execute_append_debate_argument(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'session_id' argument"))?;
+    let role = match args
+        .get("role")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .ok_or_else(|| anyhow::anyhow!("missing 'role' argument"))?
+    {
+        "proponent" => crate::agent::debate::types::RoleKind::Proponent,
+        "skeptic" => crate::agent::debate::types::RoleKind::Skeptic,
+        "synthesizer" => crate::agent::debate::types::RoleKind::Synthesizer,
+        other => anyhow::bail!("invalid 'role' argument: {other}"),
+    };
+    let agent_id = args
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'agent_id' argument"))?
+        .to_string();
+    let content = args
+        .get("content")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?
+        .to_string();
+    let evidence_refs = args
+        .get("evidence_refs")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let responds_to = args
+        .get("responds_to")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+
+    let session = agent
+        .get_persisted_debate_session(session_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("unknown debate session: {session_id}"))?;
+    let argument = crate::agent::debate::types::Argument {
+        id: format!("arg_{}", uuid::Uuid::new_v4()),
+        round: session.current_round,
+        role,
+        agent_id,
+        content,
+        evidence_refs,
+        responds_to,
+        timestamp_ms: crate::agent::debate::protocol::now_millis(),
+    };
+
+    agent.append_debate_argument(session_id, argument).await?;
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "status": "appended",
+        "session_id": session_id,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_advance_debate_round(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'session_id' argument"))?;
+
+    match agent.advance_debate_round(session_id).await {
+        Ok(session) => Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "status": "advanced",
+            "session_id": session.id,
+            "current_round": session.current_round,
+            "roles": session.roles,
+        }))
+        .unwrap_or_else(|_| "{}".to_string())),
+        Err(error) => Ok(format!("Failed to advance debate round: {error}")),
+    }
+}
+
+async fn execute_complete_debate_session(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'session_id' argument"))?;
+
+    match agent.complete_debate_session(session_id).await {
+        Ok(payload) => {
+            Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+        }
+        Err(error) => Ok(format!("Failed to complete debate session: {error}")),
+    }
+}
+
 async fn execute_handoff_thread_agent(
     args: &serde_json::Value,
     agent: &AgentEngine,

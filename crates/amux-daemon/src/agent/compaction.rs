@@ -727,15 +727,22 @@ fn build_compaction_visible_content(
     target_tokens: usize,
     trigger: CompactionTrigger,
     strategy_used: CompactionStrategy,
+    payload: &str,
 ) -> String {
-    format!(
+    let header = format!(
         "Pre-compaction context: ~{} / {} tokens (threshold {})\nTrigger: {}\nStrategy: {}",
         format_token_count(pre_compaction_total_tokens),
         format_token_count(effective_context_window_tokens),
         format_token_count(target_tokens),
         compaction_visible_trigger_label(trigger),
         compaction_visible_strategy_label(strategy_used),
-    )
+    );
+
+    if payload.trim().is_empty() {
+        header
+    } else {
+        format!("{header}\n\nContent:\n{payload}")
+    }
 }
 
 fn strategy_target_cap_tokens(
@@ -1766,6 +1773,7 @@ impl AgentEngine {
             candidate.target_tokens,
             candidate.trigger,
             strategy_used,
+            artifact.compaction_payload.as_deref().unwrap_or(""),
         );
 
         let current_split_at = {
@@ -1945,6 +1953,7 @@ impl AgentEngine {
             target_tokens,
             trigger,
             strategy_used,
+            &payload,
         );
 
         Ok((

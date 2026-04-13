@@ -36,7 +36,7 @@ describe("MessageBubble participant authorship", () => {
           createdAt: 1,
           role: "assistant",
           content:
-            "Pre-compaction context: ~182,400 / 200,000 tokens (threshold 160,000)\nTrigger: message-count\nStrategy: rule based",
+            "Pre-compaction context: ~182,400 / 200,000 tokens (threshold 160,000)\nTrigger: message-count\nStrategy: rule based\n\nContent:\n# Compact summary\n- preserved goals",
           inputTokens: 0,
           outputTokens: 0,
           totalTokens: 0,
@@ -51,5 +51,7 @@ describe("MessageBubble participant authorship", () => {
     expect(html).toContain("Pre-compaction context: ~182,400 / 200,000 tokens");
     expect(html).toContain("Trigger: message-count");
     expect(html).toContain("Strategy: rule based");
+    expect(html).toContain("Content:");
+    expect(html).toContain("Compact summary");
   });
 });

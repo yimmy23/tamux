@@ -411,6 +411,61 @@ Use this workflow for cross-document architecture synthesis and implementation p
 }
 
 #[tokio::test]
+async fn compact_rust_compile_patch_queries_still_match_build_debugging_skill() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+
+    write_skill(
+        &skills_root,
+        "debug-rust-build",
+        r#"---
+name: debug-rust-build
+description: Debug Rust build and cargo test failures.
+keywords: [rust, cargo, build]
+triggers: [build failure, cargo test]
+---
+
+# Debug Rust Build
+
+Use this workflow when Rust compilation or cargo builds fail and need investigation before patching.
+"#,
+    )?;
+
+    for query in [
+        "rust compile patch",
+        "cargo compile fix",
+        "compile error rust patch",
+    ] {
+        let result = discover_local_skills(
+            &store,
+            &skills_root,
+            query,
+            &["rust".to_string()],
+            3,
+            &SkillRecommendationConfig::default(),
+        )
+        .await?;
+
+        assert_ne!(
+            result.confidence,
+            SkillRecommendationConfidence::None,
+            "query `{query}` should find a local skill"
+        );
+        assert_eq!(
+            result
+                .recommendations
+                .first()
+                .map(|item| item.record.skill_name.as_str()),
+            Some("debug-rust-build"),
+            "query `{query}` should rank the rust build skill first"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn long_verbose_query_still_surfaces_relevant_audit_skill() -> Result<()> {
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;

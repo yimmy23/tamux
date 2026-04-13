@@ -364,10 +364,21 @@ fn normalize_token(token: &str) -> String {
         "brainstorm".to_string()
     } else if lower.starts_with("debug") {
         "debug".to_string()
+    } else if lower.starts_with("compile") || lower.starts_with("compil") {
+        "build".to_string()
+    } else if lower.starts_with("build") {
+        "build".to_string()
     } else if lower.starts_with("design") {
         "design".to_string()
     } else if lower.starts_with("diff") {
         "diff".to_string()
+    } else if lower == "err" || lower.starts_with("error") {
+        "failure".to_string()
+    } else if lower.starts_with("fail") {
+        "failure".to_string()
+    } else if lower.starts_with("patch") || lower.starts_with("fix") || lower.starts_with("repair")
+    {
+        "fix".to_string()
     } else if lower.starts_with("implement") {
         "implement".to_string()
     } else if lower.starts_with("investigat") {

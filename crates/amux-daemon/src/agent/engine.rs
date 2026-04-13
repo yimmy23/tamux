@@ -217,6 +217,8 @@ pub struct AgentEngine {
     /// Active divergent sessions for parallel framing mode (Phase v3.0: DIVR-01).
     pub(super) divergent_sessions:
         RwLock<HashMap<String, super::handoff::divergent::DivergentSession>>,
+    /// Active debate sessions for structured multi-round debate mode (Spec-04).
+    pub(super) debate_sessions: RwLock<HashMap<String, super::debate::types::DebateSession>>,
     /// Per-goal-run cost trackers, keyed by goal_run_id (Phase v3.0: COST-01).
     pub(super) cost_trackers: Mutex<HashMap<String, super::cost::CostTracker>>,
 }
@@ -386,6 +388,7 @@ impl AgentEngine {
             ),
             handoff_broker: RwLock::new(super::handoff::HandoffBroker::default()),
             divergent_sessions: RwLock::new(HashMap::new()),
+            debate_sessions: RwLock::new(HashMap::new()),
             cost_trackers: Mutex::new(HashMap::new()),
         });
 

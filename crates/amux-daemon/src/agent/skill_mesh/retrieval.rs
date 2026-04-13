@@ -179,8 +179,26 @@ fn tokenize(text: &str) -> BTreeSet<String> {
     text.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_')
         .map(str::trim)
         .filter(|token| token.len() >= 2)
-        .map(|token| token.to_ascii_lowercase())
+        .map(normalize_token)
         .collect()
+}
+
+fn normalize_token(token: &str) -> String {
+    let lower = token.to_ascii_lowercase();
+    if lower.starts_with("compile") || lower.starts_with("compil") {
+        "build".to_string()
+    } else if lower.starts_with("build") {
+        "build".to_string()
+    } else if lower == "err" || lower.starts_with("error") {
+        "failure".to_string()
+    } else if lower.starts_with("fail") {
+        "failure".to_string()
+    } else if lower.starts_with("patch") || lower.starts_with("fix") || lower.starts_with("repair")
+    {
+        "fix".to_string()
+    } else {
+        lower
+    }
 }
 
 fn score_history(record: &SkillVariantRecord) -> f64 {
