@@ -153,6 +153,33 @@ impl AgentEngine {
         })
     }
 
+    async fn latest_visible_participant_message(
+        &self,
+        thread_id: &str,
+    ) -> Option<(String, String, String)> {
+        let threads = self.threads.read().await;
+        threads.get(thread_id).and_then(|thread| {
+            thread.messages.iter().rev().find_map(|message| {
+                if message.role != MessageRole::Assistant {
+                    return None;
+                }
+                let participant_id = message.author_agent_id.as_ref()?;
+                let content = message.content.trim();
+                if content.is_empty() {
+                    return None;
+                }
+                Some((
+                    participant_id.clone(),
+                    message
+                        .author_agent_name
+                        .clone()
+                        .unwrap_or_else(|| canonical_agent_name(participant_id).to_string()),
+                    content.to_string(),
+                ))
+            })
+        })
+    }
+
     pub(in crate::agent) async fn build_internal_delegate_payload(
         &self,
         thread_id: Option<&str>,
@@ -234,6 +261,36 @@ impl AgentEngine {
                 target_agent_name,
                 sender_name,
                 content.trim(),
+                latest_operator_request.trim()
+            )
+        }
+    }
+
+    pub(in crate::agent) async fn build_participant_follow_up_continuation_prompt(
+        &self,
+        thread_id: &str,
+        target_agent_id: &str,
+        participant_name: &str,
+        participant_message: &str,
+    ) -> String {
+        let target_agent_name = canonical_agent_name(target_agent_id);
+        let latest_operator_request = self
+            .latest_visible_user_message_content(thread_id)
+            .await
+            .unwrap_or_default();
+        if latest_operator_request.trim().is_empty() {
+            format!(
+                "Continue the visible operator thread as {}. A thread participant ({}) just posted a visible message. Treat that participant contribution as the latest actionable context and continue the same task flow from there instead of restarting from an older user turn.\n\nLatest participant contribution:\n{}",
+                target_agent_name,
+                participant_name.trim(),
+                participant_message.trim()
+            )
+        } else {
+            format!(
+                "Continue the visible operator thread as {}. A thread participant ({}) just posted a visible message. Treat that participant contribution as the latest actionable context and continue the same task flow from there instead of restarting from an older user turn.\n\nLatest participant contribution:\n{}\n\nLatest operator request already on this thread:\n{}",
+                target_agent_name,
+                participant_name.trim(),
+                participant_message.trim(),
                 latest_operator_request.trim()
             )
         }
@@ -660,45 +717,44 @@ impl AgentEngine {
     }
 
     pub(crate) async fn continue_thread_after_participant_post_or_notice(&self, thread_id: &str) {
-        let (prior_user_message, latest_participant_author_id) = self
-            .threads
-            .read()
-            .await
-            .get(thread_id)
-            .map_or((None, None), |thread| {
-                let prior_user_message = thread
-                    .messages
-                    .iter()
-                    .rev()
-                    .find(|message| message.role == MessageRole::User)
-                    .map(|message| message.content.clone());
-                let latest_participant_author_id = thread.messages.last().and_then(|message| {
-                    (message.role == MessageRole::Assistant)
-                        .then(|| message.author_agent_id.clone())
-                        .flatten()
-                });
-                (prior_user_message, latest_participant_author_id)
-            });
-        let Some(prior_user_message) = prior_user_message.filter(|value| !value.trim().is_empty())
+        let Some((
+            latest_participant_author_id,
+            latest_participant_author_name,
+            participant_message,
+        )) = self.latest_visible_participant_message(thread_id).await
         else {
             return;
         };
 
-        if let Some(latest_participant_author_id) = latest_participant_author_id {
-            if self.active_agent_id_for_thread(thread_id).await.as_deref()
-                == Some(latest_participant_author_id.as_str())
-            {
-                tracing::info!(
-                    thread_id = %thread_id,
-                    participant = %latest_participant_author_id,
-                    "skipping participant follow-up continuation because the participant is already the active responder"
-                );
-                return;
-            }
+        let continuation_agent_id = self
+            .active_agent_id_for_thread(thread_id)
+            .await
+            .unwrap_or_else(|| MAIN_AGENT_ID.to_string());
+
+        if continuation_agent_id.eq_ignore_ascii_case(&latest_participant_author_id) {
+            tracing::info!(
+                thread_id = %thread_id,
+                participant = %latest_participant_author_id,
+                "skipping participant follow-up continuation because the participant is already the active responder"
+            );
+            return;
         }
 
+        let continuation_prompt = self
+            .build_participant_follow_up_continuation_prompt(
+                thread_id,
+                &continuation_agent_id,
+                &latest_participant_author_name,
+                &participant_message,
+            )
+            .await;
         if let Err(error) = self
-            .continue_existing_user_message_without_queue_drain(thread_id, &prior_user_message)
+            .continue_visible_thread_as_agent(
+                thread_id,
+                &continuation_agent_id,
+                None,
+                &continuation_prompt,
+            )
             .await
         {
             tracing::warn!(

@@ -7,8 +7,10 @@
 use anyhow::{Context, Result};
 use uuid::Uuid;
 
-use super::profiles::match_specialist;
-use super::{AcceptanceCriteria, ContextBundle, EpisodeRef, HandoffResult, ValidationResult};
+use super::profiles::select_specialist;
+use super::{
+    AcceptanceCriteria, ContextBundle, EpisodeRef, HandoffResult, ValidationResult,
+};
 use crate::agent::engine::AgentEngine;
 
 /// Maximum handoff depth before escalating to operator (HAND-08).
@@ -19,6 +21,16 @@ const CONTEXT_BUNDLE_TOKEN_CEILING: u32 = 2000;
 
 /// Maximum episodic refs to include in a context bundle.
 const MAX_EPISODIC_REFS: usize = 3;
+
+fn validate_match_threshold(threshold: f64) -> Result<()> {
+    if !threshold.is_finite() {
+        anyhow::bail!("handoff match_threshold must be finite");
+    }
+    if !(0.0..=1.0).contains(&threshold) {
+        anyhow::bail!("handoff match_threshold must be within 0.0..=1.0, got {threshold}");
+    }
+    Ok(())
+}
 
 impl AgentEngine {
     /// Assemble a context bundle for a specialist handoff.
@@ -134,16 +146,15 @@ impl AgentEngine {
         let broker = self.handoff_broker.read().await;
         let profiles = &broker.profiles;
         let threshold = broker.match_threshold;
+        validate_match_threshold(threshold)?;
 
         // Match specialist
-        let (profile_idx, _score) = match match_specialist(profiles, capability_tags, threshold) {
-            Some(result) => result,
-            None => {
-                // Fallback to generalist (last profile)
-                let generalist_idx = profiles.len().saturating_sub(1);
-                (generalist_idx, 0.0)
-            }
-        };
+        let selection = select_specialist(profiles, capability_tags, threshold)
+            .context("selecting specialist profile for handoff")?;
+        let profile_idx = selection.profile_idx;
+        let routing_method = selection.routing_method;
+        let routing_score = selection.routing_score;
+        let fallback_used = selection.fallback_used;
 
         let specialist = &profiles[profile_idx];
         let specialist_id = specialist.id.clone();
@@ -178,6 +189,8 @@ impl AgentEngine {
             require_llm_validation: false,
         })
         .unwrap_or_else(|_| "{}".to_string());
+        let capability_tags_json =
+            serde_json::to_string(capability_tags).unwrap_or_else(|_| "[]".to_string());
 
         // Log detailed handoff record
         if let Err(e) = self
@@ -189,9 +202,13 @@ impl AgentEngine {
                 task_description,
                 &criteria_json,
                 &bundle_json,
+                &capability_tags_json,
                 current_depth,
                 "dispatched",
                 None,
+                routing_method.as_str(),
+                routing_score,
+                fallback_used,
             )
             .await
         {
@@ -209,6 +226,10 @@ impl AgentEngine {
                 None,
                 None,
                 &handoff_log_id,
+                routing_method.as_str(),
+                &capability_tags_json,
+                routing_score,
+                fallback_used,
             )
             .await
         {
@@ -283,6 +304,9 @@ impl AgentEngine {
             specialist_name,
             handoff_log_id,
             context_bundle_tokens: bundle_tokens,
+            routing_method,
+            routing_score,
+            fallback_used,
         })
     }
 
@@ -339,6 +363,10 @@ impl AgentEngine {
                         None,
                         None,
                         handoff_log_id,
+                        "deterministic",
+                        "[]",
+                        0.0,
+                        false,
                     )
                     .await
                 {
@@ -383,6 +411,10 @@ impl AgentEngine {
                 None,
                 None,
                 handoff_log_id,
+                "deterministic",
+                "[]",
+                0.0,
+                false,
             )
             .await
         {

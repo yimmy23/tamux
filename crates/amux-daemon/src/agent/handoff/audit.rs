@@ -17,6 +17,10 @@ fn now_ts() -> u64 {
         .as_secs()
 }
 
+fn is_terminal_handoff_outcome(outcome: &str) -> bool {
+    matches!(outcome, "accepted" | "rejected" | "completed" | "failed")
+}
+
 /// Format the JSON payload for a WORM handoff audit entry.
 ///
 /// This is a pure function suitable for unit testing without I/O.
@@ -29,6 +33,10 @@ pub fn format_handoff_audit_payload(
     duration_ms: Option<u64>,
     confidence_band: Option<&str>,
     handoff_log_id: &str,
+    routing_method: &str,
+    capability_tags_json: &str,
+    routing_score: f64,
+    fallback_used: bool,
 ) -> Value {
     json!({
         "kind": "handoff",
@@ -41,6 +49,10 @@ pub fn format_handoff_audit_payload(
         "duration_ms": duration_ms,
         "confidence_band": confidence_band,
         "handoff_log_id": handoff_log_id,
+        "routing_method": routing_method,
+        "capability_tags_json": capability_tags_json,
+        "routing_score": routing_score,
+        "fallback_used": fallback_used,
     })
 }
 
@@ -56,6 +68,10 @@ impl AgentEngine {
         duration_ms: Option<u64>,
         confidence_band: Option<&str>,
         handoff_log_id: &str,
+        routing_method: &str,
+        capability_tags_json: &str,
+        routing_score: f64,
+        fallback_used: bool,
     ) -> Result<()> {
         let payload = format_handoff_audit_payload(
             from_task_id,
@@ -66,6 +82,10 @@ impl AgentEngine {
             duration_ms,
             confidence_band,
             handoff_log_id,
+            routing_method,
+            capability_tags_json,
+            routing_score,
+            fallback_used,
         );
         self.history.append_telemetry("handoff", payload).await
     }
@@ -81,9 +101,13 @@ impl AgentEngine {
         task_description: &str,
         acceptance_criteria_json: &str,
         context_bundle_json: &str,
+        capability_tags_json: &str,
         handoff_depth: u8,
         outcome: &str,
         confidence_band: Option<&str>,
+        routing_method: &str,
+        routing_score: f64,
+        fallback_used: bool,
     ) -> Result<()> {
         let handoff_log_id = handoff_log_id.to_string();
         let from_task_id = from_task_id.to_string();
@@ -92,8 +116,10 @@ impl AgentEngine {
         let task_description = task_description.to_string();
         let acceptance_criteria_json = acceptance_criteria_json.to_string();
         let context_bundle_json = context_bundle_json.to_string();
+        let capability_tags_json = capability_tags_json.to_string();
         let outcome = outcome.to_string();
         let confidence_band = confidence_band.map(str::to_string);
+        let routing_method = routing_method.to_string();
         let now = now_ts() as i64;
 
         self.history
@@ -103,8 +129,9 @@ impl AgentEngine {
                     "INSERT INTO handoff_log (
                         id, from_task_id, to_specialist_id, to_task_id,
                         task_description, acceptance_criteria_json, context_bundle_json,
-                        handoff_depth, outcome, confidence_band, created_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                        capability_tags_json, handoff_depth, outcome, confidence_band,
+                        routing_method, routing_score, fallback_used, created_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                     params![
                         handoff_log_id,
                         from_task_id,
@@ -113,9 +140,13 @@ impl AgentEngine {
                         task_description,
                         acceptance_criteria_json,
                         context_bundle_json,
+                        capability_tags_json,
                         handoff_depth as i64,
                         outcome,
                         confidence_band,
+                        routing_method,
+                        routing_score,
+                        fallback_used as i64,
                         now,
                     ],
                 )?;
@@ -136,7 +167,7 @@ impl AgentEngine {
         let handoff_log_id = handoff_log_id.to_string();
         let outcome = outcome.to_string();
         let error_message = error_message.map(str::to_string);
-        let now = now_ts() as i64;
+        let completed_at = is_terminal_handoff_outcome(&outcome).then(|| now_ts() as i64);
 
         self.history
             .conn
@@ -147,7 +178,7 @@ impl AgentEngine {
                     params![
                         outcome,
                         duration_ms.map(|d| d as i64),
-                        now,
+                        completed_at,
                         error_message,
                         handoff_log_id,
                     ],
@@ -219,6 +250,10 @@ mod tests {
             None,
             Some("confident"),
             "hlog-001",
+            "probabilistic",
+            r#"["rust","backend"]"#,
+            0.92,
+            false,
         );
 
         assert_eq!(payload["from_task_id"], "task-001");
@@ -228,6 +263,10 @@ mod tests {
         assert_eq!(payload["outcome"], "dispatched");
         assert_eq!(payload["confidence_band"], "confident");
         assert_eq!(payload["handoff_log_id"], "hlog-001");
+        assert_eq!(payload["routing_method"], "probabilistic");
+        assert_eq!(payload["capability_tags_json"], r#"["rust","backend"]"#);
+        assert_eq!(payload["routing_score"], 0.92);
+        assert_eq!(payload["fallback_used"], false);
         assert!(payload["timestamp"].is_number());
         assert_eq!(payload["kind"], "handoff");
     }
@@ -243,6 +282,10 @@ mod tests {
             Some(5000),
             Some("likely"),
             "hlog-002",
+            "deterministic",
+            r#"["research"]"#,
+            1.0,
+            false,
         );
 
         assert_eq!(payload["duration_ms"], 5000);
@@ -260,9 +303,31 @@ mod tests {
             None,
             None,
             "hlog-003",
+            "deterministic",
+            "[]",
+            0.0,
+            true,
         );
 
         assert!(payload["duration_ms"].is_null());
         assert!(payload["confidence_band"].is_null());
+        assert_eq!(payload["routing_method"], "deterministic");
+        assert_eq!(payload["capability_tags_json"], "[]");
+        assert_eq!(payload["routing_score"], 0.0);
+        assert_eq!(payload["fallback_used"], true);
+    }
+
+    #[test]
+    fn test_dispatched_is_not_terminal_handoff_outcome() {
+        assert!(!is_terminal_handoff_outcome("dispatched"));
+        assert!(!is_terminal_handoff_outcome("pending"));
+    }
+
+    #[test]
+    fn test_terminal_handoff_outcomes_are_finalizing() {
+        assert!(is_terminal_handoff_outcome("accepted"));
+        assert!(is_terminal_handoff_outcome("rejected"));
+        assert!(is_terminal_handoff_outcome("completed"));
+        assert!(is_terminal_handoff_outcome("failed"));
     }
 }

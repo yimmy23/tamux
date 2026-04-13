@@ -1053,6 +1053,34 @@ fn selected_message_tracks_same_message_when_append_trims_latest_window() {
 }
 
 #[test]
+fn resolve_message_ref_ignores_absolute_indexes_before_loaded_window() {
+    let thread = AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 8,
+        loaded_message_start: 5,
+        loaded_message_end: 8,
+        messages: (5..8)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+
+    let message_ref = StoredMessageRef {
+        thread_id: "t1".into(),
+        message_id: None,
+        absolute_index: 2,
+    };
+
+    assert_eq!(resolve_message_ref(&thread, &message_ref), None);
+}
+
+#[test]
 fn expanded_reasoning_and_tools_track_same_messages_across_window_updates() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadDetailReceived(AgentThread {

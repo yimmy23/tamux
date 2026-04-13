@@ -716,6 +716,9 @@ async fn execute_route_to_specialist(
                 "specialist_profile_id": result.specialist_profile_id,
                 "handoff_log_id": result.handoff_log_id,
                 "context_bundle_tokens": result.context_bundle_tokens,
+                "routing_method": result.routing_method.as_str(),
+                "routing_score": result.routing_score,
+                "fallback_used": result.fallback_used,
             });
             Ok(serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string()))
         }

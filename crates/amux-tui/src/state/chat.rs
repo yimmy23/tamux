@@ -209,9 +209,13 @@ fn resolve_message_ref(thread: &AgentThread, message_ref: &StoredMessageRef) -> 
     }
 
     let loaded_end = thread.loaded_message_start + thread.messages.len();
-    (message_ref.absolute_index >= thread.loaded_message_start
-        && message_ref.absolute_index < loaded_end)
-        .then_some(message_ref.absolute_index - thread.loaded_message_start)
+    if message_ref.absolute_index >= thread.loaded_message_start
+        && message_ref.absolute_index < loaded_end
+    {
+        Some(message_ref.absolute_index - thread.loaded_message_start)
+    } else {
+        None
+    }
 }
 
 fn adjust_message_ref_for_deleted_absolute(

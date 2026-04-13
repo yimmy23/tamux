@@ -770,6 +770,235 @@ async fn participant_runner_skips_narrated_no_suggestion() {
 }
 
 #[tokio::test]
+async fn participant_observer_runs_after_thread_owner_assistant_message() {
+    let recorded_bodies = Arc::new(StdMutex::new(Vec::new()));
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+
+    tokio::spawn({
+        let recorded_bodies = recorded_bodies.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let body = read_http_request_body(&mut socket)
+                    .await
+                    .expect("read request");
+                recorded_bodies.lock().expect("lock request log").push(body);
+                let response_body = concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_owner_tail\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"NO_SUGGESTION\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_owner_tail\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":4,\"output_tokens\":2},\"error\":null}}\n\n"
+                );
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write response");
+            }
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let (engine, _temp_dir) = make_runner_test_engine(config).await;
+    let thread_id = "thread_participant_owner_tail";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Participant owner tail".to_string(),
+            messages: vec![
+                AgentMessage::user("Keep going", 1),
+                AgentMessage {
+                    id: "owner-assistant-tail".to_string(),
+                    role: MessageRole::Assistant,
+                    content: "I will continue with the next implementation step.".to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    weles_review: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost: None,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
+                    author_agent_id: Some(crate::agent::agent_identity::MAIN_AGENT_ID.to_string()),
+                    author_agent_name: Some(
+                        crate::agent::agent_identity::MAIN_AGENT_NAME.to_string(),
+                    ),
+                    reasoning: None,
+                    message_kind: AgentMessageKind::Normal,
+                    compaction_strategy: None,
+                    compaction_payload: None,
+                    offloaded_payload_id: None,
+                    structural_refs: Vec::new(),
+                    timestamp: 2,
+                },
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 2,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register");
+
+    engine
+        .run_participant_observers(thread_id)
+        .await
+        .expect("participant observers should run");
+
+    let request_bodies = recorded_bodies.lock().expect("lock request log").clone();
+    assert_eq!(request_bodies.len(), 1);
+    assert!(request_bodies[0].contains("Role: participant observer"));
+}
+
+#[tokio::test]
+async fn participant_observer_skips_cycle_when_latest_visible_message_is_participant_authored() {
+    let recorded_bodies = Arc::new(StdMutex::new(Vec::new()));
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+
+    tokio::spawn({
+        let recorded_bodies = recorded_bodies.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let body = read_http_request_body(&mut socket)
+                    .await
+                    .expect("read request");
+                recorded_bodies.lock().expect("lock request log").push(body);
+                let response_body = concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_self_tail\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"NO_SUGGESTION\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_self_tail\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":4,\"output_tokens\":2},\"error\":null}}\n\n"
+                );
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write response");
+            }
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let (engine, _temp_dir) = make_runner_test_engine(config).await;
+    let thread_id = "thread_participant_self_tail";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Participant self tail".to_string(),
+            messages: vec![
+                AgentMessage::user("Keep going", 1),
+                AgentMessage {
+                    id: "participant-assistant-tail".to_string(),
+                    role: MessageRole::Assistant,
+                    content: "I checked that claim already.".to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    weles_review: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost: None,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
+                    author_agent_id: Some("weles".to_string()),
+                    author_agent_name: Some("Weles".to_string()),
+                    reasoning: None,
+                    message_kind: AgentMessageKind::Normal,
+                    compaction_strategy: None,
+                    compaction_payload: None,
+                    offloaded_payload_id: None,
+                    structural_refs: Vec::new(),
+                    timestamp: 2,
+                },
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 2,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register");
+
+    engine
+        .run_participant_observers(thread_id)
+        .await
+        .expect("participant observers should run");
+
+    assert!(
+        recorded_bodies.lock().expect("lock request log").is_empty(),
+        "participant-authored tail messages should not reopen the observer cycle"
+    );
+}
+
+#[tokio::test]
 async fn apply_participant_command_runs_initial_observer_review() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
@@ -1108,6 +1337,89 @@ async fn participant_prompt_compacts_older_visible_messages() {
     assert!(
         !prompt.contains("older assistant detail that should compact away"),
         "older visible assistant content should be compacted out of the observer prompt: {prompt}"
+    );
+}
+
+#[tokio::test]
+async fn participant_prompt_requires_continuing_after_latest_assistant_message_until_work_finishes()
+{
+    let (engine, _temp_dir) = make_runner_test_engine(AgentConfig::default()).await;
+    let thread_id = "thread_participant_prompt_requires_assistant_continuation";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Prompt continuation semantics".to_string(),
+            messages: vec![
+                AgentMessage::user(
+                    "Implement the recovery fix and keep going until it's done",
+                    1,
+                ),
+                AgentMessage {
+                    id: "assistant-latest-action-plan".to_string(),
+                    role: MessageRole::Assistant,
+                    content: "I will inspect recovery.rs next, then patch the daemon flow."
+                        .to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    weles_review: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost: None,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
+                    author_agent_id: None,
+                    author_agent_name: None,
+                    reasoning: None,
+                    message_kind: AgentMessageKind::Normal,
+                    compaction_strategy: None,
+                    compaction_payload: None,
+                    offloaded_payload_id: None,
+                    structural_refs: Vec::new(),
+                    timestamp: 2,
+                },
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 2,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims and keep task momentum")
+        .await
+        .expect("participant should register");
+
+    let prompt = engine
+        .build_participant_prompt(thread_id, "weles")
+        .await
+        .expect("prompt should build");
+    assert!(
+        prompt.contains("Evaluate the thread after the latest visible message, even if that message is from the assistant."),
+        "observer prompt should explicitly treat the latest assistant message as actionable context: {prompt}"
+    );
+    assert!(
+        prompt.contains("If the operator asked for autonomous progress and work is still pending, you should suggest the next concrete participant action instead of NO_SUGGESTION."),
+        "observer prompt should forbid premature NO_SUGGESTION while autonomous work remains: {prompt}"
+    );
+    assert!(
+        prompt.contains("Return NO_SUGGESTION only when the visible thread is naturally complete, blocked on external input, or the participant truly has nothing useful to add."),
+        "observer prompt should only allow NO_SUGGESTION for truly finished or blocked threads: {prompt}"
     );
 }
 

@@ -89,6 +89,28 @@ fn should_hide_participant_prompt_message(message: &AgentMessage) -> bool {
             .unwrap_or(false)
 }
 
+fn latest_visible_message_allows_participant_observers(
+    visible_messages: &[AgentMessage],
+    participants: &[ThreadParticipantState],
+) -> bool {
+    let Some(latest_message) = visible_messages.last() else {
+        return false;
+    };
+
+    match latest_message.role {
+        MessageRole::User => true,
+        MessageRole::Assistant => latest_message
+            .author_agent_id
+            .as_ref()
+            .is_none_or(|author_id| {
+                !participants
+                    .iter()
+                    .any(|participant| participant.agent_id.eq_ignore_ascii_case(author_id))
+            }),
+        MessageRole::System | MessageRole::Tool => false,
+    }
+}
+
 fn build_participant_prompt_from_snapshot(
     participant: &ThreadParticipantState,
     visible_messages: &[AgentMessage],
@@ -100,6 +122,18 @@ fn build_participant_prompt_from_snapshot(
     prompt.push_str("Respond with either:\n");
     prompt.push_str("- NO_SUGGESTION\n");
     prompt.push_str("- FORCE: yes|no\n  MESSAGE: <text>\n\n");
+    prompt.push_str(
+        "Evaluate the thread after the latest visible message, even if that message is from the assistant.\n",
+    );
+    prompt.push_str(
+        "If the operator asked for autonomous progress and work is still pending, you should suggest the next concrete participant action instead of NO_SUGGESTION.\n",
+    );
+    prompt.push_str(
+        "If the latest assistant message proposes next steps, ongoing work, or an unfinished plan, continue that flow when your participant role can help.\n",
+    );
+    prompt.push_str(
+        "Return NO_SUGGESTION only when the visible thread is naturally complete, blocked on external input, or the participant truly has nothing useful to add.\n\n",
+    );
     prompt.push_str("Visible thread:\n");
     for message in visible_messages {
         let role = match message.role {
@@ -516,6 +550,13 @@ impl AgentEngine {
             .into_iter()
             .filter(|message| !should_hide_participant_prompt_message(message))
             .collect::<Vec<_>>();
+        if !latest_visible_message_allows_participant_observers(&visible_messages, &participants) {
+            tracing::info!(
+                thread_id = %thread_id,
+                "skipping participant observers because the latest visible message is participant-authored"
+            );
+            return Ok(());
+        }
 
         for participant in participants.into_iter().filter(|participant| {
             participant.status == ThreadParticipantStatus::Active

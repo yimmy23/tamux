@@ -854,7 +854,9 @@ fn compaction_artifact_message_roundtrip_preserves_runtime_metadata() {
     let message = AgentMessage {
         id: "compaction-1".to_string(),
         role: MessageRole::Assistant,
-        content: "rule based".to_string(),
+        content:
+            "Pre-compaction context: ~182,400 / 200,000 tokens (threshold 160,000)\nStrategy: rule based"
+                .to_string(),
         tool_calls: None,
         tool_call_id: None,
         tool_name: None,
@@ -900,7 +902,7 @@ fn compaction_artifact_message_roundtrip_preserves_runtime_metadata() {
         decoded.compaction_payload.as_deref(),
         Some("Older context compacted for continuity")
     );
-    assert_eq!(decoded.content, "rule based");
+    assert_eq!(decoded.content, message.content);
 }
 
 #[test]
@@ -994,10 +996,18 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
     assert_eq!(thread.messages.len(), 4);
     let artifact = &thread.messages[2];
     assert_eq!(artifact.message_kind, AgentMessageKind::CompactionArtifact);
-    assert_eq!(artifact.content, "rule based");
     assert_eq!(
         artifact.compaction_strategy,
         Some(CompactionStrategy::Heuristic)
+    );
+    assert!(
+        artifact.content.contains("Pre-compaction context:"),
+        "expected a visible trigger summary on the compaction artifact"
+    );
+    assert!(
+        artifact.content.contains("Strategy: rule based"),
+        "expected the visible content to mention the compaction strategy: {}",
+        artifact.content
     );
     assert!(artifact
         .compaction_payload
@@ -1030,7 +1040,7 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
         restored_artifact.message_kind,
         AgentMessageKind::CompactionArtifact
     );
-    assert_eq!(restored_artifact.content, "rule based");
+    assert_eq!(restored_artifact.content, artifact.content);
     assert_eq!(
         restored_artifact.compaction_strategy,
         Some(CompactionStrategy::Heuristic)
@@ -1081,7 +1091,7 @@ async fn auto_compaction_notice_includes_artifact_location_details() {
     assert!(persisted, "expected compaction artifact to be persisted");
 
     let notices = collect_workflow_notices(&mut events, thread_id);
-    let (_, _, details) = notices
+    let (_, message, details) = notices
         .into_iter()
         .find(|(kind, _, _)| kind == "auto-compaction")
         .expect("expected auto-compaction workflow notice");
@@ -1102,6 +1112,31 @@ async fn auto_compaction_notice_includes_artifact_location_details() {
             .and_then(serde_json::Value::as_u64)
             .is_some(),
         "expected total_message_count in auto-compaction details: {parsed}"
+    );
+    assert!(
+        parsed
+            .get("pre_compaction_total_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .is_some(),
+        "expected pre_compaction_total_tokens in auto-compaction details: {parsed}"
+    );
+    assert!(
+        parsed
+            .get("effective_context_window_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .is_some(),
+        "expected effective_context_window_tokens in auto-compaction details: {parsed}"
+    );
+    assert!(
+        parsed
+            .get("target_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .is_some(),
+        "expected target_tokens in auto-compaction details: {parsed}"
+    );
+    assert!(
+        message.contains("Pre-compaction context:"),
+        "expected trigger summary in auto-compaction message: {message}"
     );
 }
 

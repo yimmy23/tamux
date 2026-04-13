@@ -26,6 +26,37 @@ fn compaction_artifact_lines_use_standard_message_left_padding() {
 }
 
 #[test]
+fn compaction_artifact_renders_trigger_summary_above_payload_preview() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Assistant,
+        content:
+            "Pre-compaction context: ~182,400 / 200,000 tokens (threshold 160,000)\nrule based"
+                .into(),
+        message_kind: "compaction_artifact".into(),
+        ..Default::default()
+    }]);
+
+    let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+    let plain_lines = lines
+        .iter()
+        .map(rendered_line_plain_text)
+        .collect::<Vec<_>>();
+
+    assert!(
+        plain_lines
+            .iter()
+            .any(|line| line.contains("Pre-compaction context: ~182,400 / 200,000 tokens")),
+        "expected compaction trigger summary in rendered lines: {plain_lines:?}"
+    );
+    assert!(
+        plain_lines
+            .iter()
+            .any(|line| line.contains("rule based")),
+        "expected compaction payload preview in rendered lines: {plain_lines:?}"
+    );
+}
+
+#[test]
 fn long_retry_status_message_wraps_across_multiple_lines() {
     let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Assistant,

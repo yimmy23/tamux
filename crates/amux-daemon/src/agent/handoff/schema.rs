@@ -6,6 +6,38 @@
 
 use anyhow::Result;
 
+fn table_has_column(
+    conn: &rusqlite::Connection,
+    table: &str,
+    column: &str,
+) -> std::result::Result<bool, rusqlite::Error> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut stmt = conn.prepare(&pragma)?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for row in rows {
+        if row? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn ensure_column(
+    conn: &rusqlite::Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> std::result::Result<(), rusqlite::Error> {
+    if table_has_column(conn, table, column)? {
+        return Ok(());
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+        [],
+    )?;
+    Ok(())
+}
+
 /// Full SQL schema for the handoff subsystem.
 pub const HANDOFF_SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS specialist_profiles (
@@ -28,9 +60,13 @@ pub const HANDOFF_SCHEMA: &str = "
         task_description        TEXT NOT NULL,
         acceptance_criteria_json TEXT,
         context_bundle_json     TEXT,
+        capability_tags_json    TEXT,
         handoff_depth           INTEGER NOT NULL DEFAULT 0,
         outcome                 TEXT NOT NULL DEFAULT 'dispatched',
         confidence_band         TEXT,
+        routing_method          TEXT NOT NULL DEFAULT 'deterministic',
+        routing_score           REAL NOT NULL DEFAULT 0.0,
+        fallback_used           INTEGER NOT NULL DEFAULT 0,
         duration_ms             INTEGER,
         error_message           TEXT,
         created_at              INTEGER NOT NULL,
@@ -48,5 +84,24 @@ pub const HANDOFF_SCHEMA: &str = "
 /// Safe to call multiple times (all statements use IF NOT EXISTS).
 pub fn init_handoff_schema(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(HANDOFF_SCHEMA)?;
+    ensure_column(conn, "handoff_log", "capability_tags_json", "TEXT")?;
+    ensure_column(
+        conn,
+        "handoff_log",
+        "routing_method",
+        "TEXT NOT NULL DEFAULT 'deterministic'",
+    )?;
+    ensure_column(
+        conn,
+        "handoff_log",
+        "routing_score",
+        "REAL NOT NULL DEFAULT 0.0",
+    )?;
+    ensure_column(
+        conn,
+        "handoff_log",
+        "fallback_used",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     Ok(())
 }

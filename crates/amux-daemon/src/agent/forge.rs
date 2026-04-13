@@ -3,9 +3,10 @@
 //! Analyzes execution traces to detect recurring patterns (fallback loops,
 //! revision triggers, timeout patterns, approval friction) and generates
 //! strategy hints. High-priority hints are appended to MEMORY.md with a
-//! `[forge]` provenance prefix.
+//! timestamped `[forge]` provenance prefix.
 
 use super::*;
+use chrono::{SecondsFormat, Utc};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -179,7 +180,7 @@ pub async fn run_forge_pass(
     Ok(result)
 }
 
-/// Apply forge hints to MEMORY.md (append with [forge] prefix).
+/// Apply forge hints to MEMORY.md (append with timestamped [forge] prefix).
 pub async fn apply_forge_hints(
     hints: &[StrategyHint],
     min_priority: u8,
@@ -199,11 +200,11 @@ pub async fn apply_forge_hints(
         .filter(|hint| hint.priority >= min_priority)
         .take(max_entries)
     {
-        let line = format!("- [forge] {}", hint.hint.trim());
-        if existing.contains(&line) {
+        if content_contains_equivalent_hint(&existing, &hint.hint) {
             continue;
         }
 
+        let line = format_forge_note(&hint.hint, now_millis());
         let next = if existing.trim().is_empty() {
             line.clone()
         } else {
@@ -223,6 +224,74 @@ pub async fn apply_forge_hints(
     }
 
     Ok(applied)
+}
+
+fn format_forge_note(hint: &str, timestamp_ms: u64) -> String {
+    let timestamp = chrono::DateTime::<Utc>::from_timestamp_millis(timestamp_ms as i64)
+        .map(|dt| dt.to_rfc3339_opts(SecondsFormat::Secs, true))
+        .unwrap_or_else(|| timestamp_ms.to_string());
+    format!("- [forge][{timestamp}] {}", hint.trim())
+}
+
+fn content_contains_equivalent_hint(content: &str, hint: &str) -> bool {
+    let normalized_hint = normalize_forge_hint(hint);
+    if normalized_hint.is_empty() {
+        return false;
+    }
+
+    content.lines().any(|line| {
+        normalized_line_hint(line)
+            .as_ref()
+            .is_some_and(|existing| existing == &normalized_hint)
+    })
+}
+
+fn normalized_line_hint(line: &str) -> Option<String> {
+    let cleaned = strip_forge_markup(line);
+    if cleaned.is_empty() || cleaned.starts_with('#') {
+        return None;
+    }
+
+    let normalized = normalize_forge_hint(&cleaned);
+    (!normalized.is_empty()).then_some(normalized)
+}
+
+fn strip_forge_markup(line: &str) -> String {
+    let mut cleaned = line.trim();
+    while let Some(rest) = cleaned.strip_prefix(['-', '*', '>', ' ']) {
+        cleaned = rest.trim_start();
+    }
+
+    while let Some(rest) = cleaned.strip_prefix('[') {
+        if let Some(end_idx) = rest.find(']') {
+            cleaned = rest[end_idx + 1..].trim_start();
+        } else {
+            break;
+        }
+    }
+
+    cleaned
+        .trim_matches('`')
+        .trim_matches('*')
+        .trim_matches('_')
+        .trim()
+        .to_string()
+}
+
+fn normalize_forge_hint(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '/' || ch == '.' || ch == '-' {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 async fn list_recent_trace_rows(
@@ -466,6 +535,8 @@ async fn log_forge_pass(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use uuid::Uuid;
 
     #[test]
     fn pattern_type_display() {
@@ -519,5 +590,95 @@ mod tests {
         assert!(patterns
             .iter()
             .any(|pattern| pattern.pattern_type == PatternType::ToolFallbackLoop));
+    }
+
+    #[test]
+    fn formatted_forge_note_includes_rfc3339_timestamp() {
+        let note = format_forge_note(
+            "Prefer bounded reads before shelling out for large files.",
+            0,
+        );
+        assert_eq!(
+            note,
+            "- [forge][1970-01-01T00:00:00Z] Prefer bounded reads before shelling out for large files."
+        );
+    }
+
+    #[test]
+    fn equivalent_hint_detection_ignores_forge_provenance_tags() {
+        let content = concat!(
+            "# Memory\n",
+            "- [forge] Timeout-prone traces are recurring; prefer bounded reads, shorter commands, and non-blocking execution for long-running work.\n",
+            "- [forge][2026-04-12T09:10:11Z] When the same fallback chain appears repeatedly, prefer the later successful tool earlier in the plan and justify the switch explicitly.\n"
+        );
+
+        assert!(content_contains_equivalent_hint(
+            content,
+            "Timeout-prone traces are recurring; prefer bounded reads, shorter commands, and non-blocking execution for long-running work."
+        ));
+        assert!(content_contains_equivalent_hint(
+            content,
+            "When the same fallback chain appears repeatedly, prefer the later successful tool earlier in the plan and justify the switch explicitly."
+        ));
+        assert!(!content_contains_equivalent_hint(
+            content,
+            "Approval friction is recurring; choose lower-blast-radius tools first and avoid unnecessary approval-triggering actions."
+        ));
+    }
+
+    #[tokio::test]
+    async fn apply_forge_hints_adds_timestamp_and_skips_equivalent_duplicates(
+    ) -> anyhow::Result<()> {
+        crate::agent::agent_identity::run_with_agent_scope(
+            crate::agent::agent_identity::RADOGOST_AGENT_ID.to_string(),
+            async {
+                let root = std::env::temp_dir().join(format!("tamux-forge-test-{}", Uuid::new_v4()));
+                let scope_id = current_agent_scope_id();
+                ensure_memory_files_for_scope(&root, &scope_id).await?;
+                let memory_path = memory_paths_for_scope(&root, &scope_id).memory_path;
+                tokio::fs::write(&memory_path, "# Memory\n").await?;
+
+                let hints = vec![
+                    StrategyHint {
+                        for_agent: "svarog".into(),
+                        target: "bash_command -> read_file".into(),
+                        hint: "When the same fallback chain appears repeatedly, prefer the later successful tool earlier in the plan and justify the switch explicitly.".into(),
+                        priority: 4,
+                        source_pattern: "tool_fallback_loop".into(),
+                    },
+                    StrategyHint {
+                        for_agent: "svarog".into(),
+                        target: "approval_risk".into(),
+                        hint: "Approval friction is recurring; choose lower-blast-radius tools first and avoid unnecessary approval-triggering actions.".into(),
+                        priority: 2,
+                        source_pattern: "approval_friction".into(),
+                    },
+                ];
+
+                let applied = apply_forge_hints(&hints, 3, &root, 10).await?;
+                assert_eq!(applied.len(), 1);
+                assert!(applied[0].starts_with("- [forge]["));
+
+                let initial = tokio::fs::read_to_string(&memory_path).await?;
+                assert!(initial.contains("- [forge]["));
+                assert!(initial.contains("prefer the later successful tool earlier in the plan"));
+                assert!(!initial.contains("Approval friction is recurring"));
+
+                let reapplied = apply_forge_hints(&hints, 3, &root, 10).await?;
+                assert!(reapplied.is_empty());
+
+                let final_content = tokio::fs::read_to_string(&memory_path).await?;
+                assert_eq!(
+                    final_content
+                        .matches("prefer the later successful tool earlier in the plan")
+                        .count(),
+                    1
+                );
+
+                fs::remove_dir_all(root)?;
+                Ok(())
+            },
+        )
+        .await
     }
 }

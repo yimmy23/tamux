@@ -1,6 +1,19 @@
 //! Default specialist profiles and capability-based matching.
 
-use super::{CapabilityTag, HandoffEscalationRule, Proficiency, SpecialistProfile};
+use rand::distributions::{Distribution, WeightedIndex};
+use rand::thread_rng;
+
+use super::{
+    CapabilityTag, HandoffEscalationRule, Proficiency, RoutingMethod, SpecialistProfile,
+};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoutingSelection {
+    pub profile_idx: usize,
+    pub routing_method: RoutingMethod,
+    pub routing_score: f64,
+    pub fallback_used: bool,
+}
 
 /// Returns the 5 built-in specialist profiles.
 pub fn default_specialist_profiles() -> Vec<SpecialistProfile> {
@@ -246,6 +259,77 @@ pub fn match_specialist(
     }
 }
 
+/// Select a specialist using a probabilistic pass across all non-zero matches,
+/// with deterministic fallback when no candidate clears the threshold.
+pub fn select_specialist(
+    profiles: &[SpecialistProfile],
+    required_tags: &[String],
+    threshold: f64,
+) -> Option<RoutingSelection> {
+    if profiles.is_empty() || required_tags.is_empty() {
+        return None;
+    }
+
+    let scored: Vec<(usize, f64)> = profiles
+        .iter()
+        .enumerate()
+        .map(|(idx, profile)| {
+            let total_weight = required_tags
+                .iter()
+                .filter_map(|req_tag| {
+                    profile
+                        .capabilities
+                        .iter()
+                        .find(|cap| cap.tag == *req_tag)
+                        .map(|cap| cap.proficiency.weight())
+                })
+                .sum::<f64>();
+            let score = total_weight / required_tags.len() as f64;
+            (idx, score)
+        })
+        .collect();
+
+    let probabilistic_candidates: Vec<(usize, f64)> = scored
+        .iter()
+        .copied()
+        .filter(|(_, score)| *score > 0.0)
+        .collect();
+
+    if probabilistic_candidates.len() >= 2 {
+        let weights: Vec<f64> = probabilistic_candidates
+            .iter()
+            .map(|(_, score)| *score)
+            .collect();
+        if let Ok(dist) = WeightedIndex::new(&weights) {
+            let selected = probabilistic_candidates[dist.sample(&mut thread_rng())];
+            if selected.1 >= threshold {
+                return Some(RoutingSelection {
+                    profile_idx: selected.0,
+                    routing_method: RoutingMethod::Probabilistic,
+                    routing_score: selected.1,
+                    fallback_used: false,
+                });
+            }
+        }
+    }
+
+    if let Some((idx, score)) = match_specialist(profiles, required_tags, threshold) {
+        return Some(RoutingSelection {
+            profile_idx: idx,
+            routing_method: RoutingMethod::Deterministic,
+            routing_score: score,
+            fallback_used: false,
+        });
+    }
+
+    Some(RoutingSelection {
+        profile_idx: profiles.len().saturating_sub(1),
+        routing_method: RoutingMethod::Deterministic,
+        routing_score: 0.0,
+        fallback_used: true,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,6 +484,31 @@ mod tests {
         let tags = vec!["quantum-physics".to_string(), "neurosurgery".to_string()];
         let result = match_specialist(&profiles, &tags, 0.3);
         assert!(result.is_none(), "should return None when below threshold");
+    }
+
+    #[test]
+    fn select_specialist_uses_generalist_fallback_for_zero_match() {
+        let profiles = default_specialist_profiles();
+        let tags = vec!["quantum-physics".to_string(), "neurosurgery".to_string()];
+        let result = select_specialist(&profiles, &tags, 0.3).expect("selection result");
+        assert_eq!(profiles[result.profile_idx].id, "generalist");
+        assert_eq!(result.routing_method, RoutingMethod::Deterministic);
+        assert!(result.fallback_used);
+        assert!((result.routing_score - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn select_specialist_returns_probabilistic_when_multiple_candidates_clear_threshold() {
+        let profiles = default_specialist_profiles();
+        let tags = vec!["research".to_string()];
+        let result = select_specialist(&profiles, &tags, 0.3).expect("selection result");
+        assert_eq!(result.routing_method, RoutingMethod::Probabilistic);
+        assert!(result.routing_score >= 0.5);
+        assert!(!result.fallback_used);
+        assert!(matches!(
+            profiles[result.profile_idx].id.as_str(),
+            "researcher" | "generalist"
+        ));
     }
 
     #[test]

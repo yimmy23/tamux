@@ -165,6 +165,27 @@ pub struct AcceptanceCriteria {
 }
 
 // ---------------------------------------------------------------------------
+// Routing metadata
+// ---------------------------------------------------------------------------
+
+/// How the handoff broker selected the final specialist.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingMethod {
+    Probabilistic,
+    Deterministic,
+}
+
+impl RoutingMethod {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Probabilistic => "probabilistic",
+            Self::Deterministic => "deterministic",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Handoff result
 // ---------------------------------------------------------------------------
 
@@ -176,6 +197,9 @@ pub struct HandoffResult {
     pub specialist_name: String,
     pub handoff_log_id: String,
     pub context_bundle_tokens: u32,
+    pub routing_method: RoutingMethod,
+    pub routing_score: f64,
+    pub fallback_used: bool,
 }
 
 // ---------------------------------------------------------------------------
