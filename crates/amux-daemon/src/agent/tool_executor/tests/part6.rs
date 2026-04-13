@@ -301,6 +301,120 @@
 	}
 
 	#[tokio::test]
+	async fn compaction_resets_participant_playground_threads_for_visible_thread() {
+	    let root = tempdir().expect("tempdir should succeed");
+	    let manager = SessionManager::new_test(root.path()).await;
+	    let mut config = AgentConfig::default();
+	    config.max_context_messages = 4;
+	    config.keep_recent_on_compact = 2;
+	    let assistant_message = |content: &str, timestamp: u64| crate::agent::types::AgentMessage {
+	        id: crate::agent::types::generate_message_id(),
+	        role: crate::agent::MessageRole::Assistant,
+	        content: content.to_string(),
+	        tool_calls: None,
+	        tool_call_id: None,
+	        tool_name: None,
+	        tool_arguments: None,
+	        tool_status: None,
+	        weles_review: None,
+	        input_tokens: 0,
+	        output_tokens: 0,
+	        cost: None,
+	        provider: None,
+	        model: None,
+	        api_transport: None,
+	        response_id: None,
+	        upstream_message: None,
+	        provider_final_result: None,
+	        author_agent_id: None,
+	        author_agent_name: None,
+	        reasoning: None,
+	        message_kind: crate::agent::types::AgentMessageKind::Normal,
+	        compaction_strategy: None,
+	        compaction_payload: None,
+	        offloaded_payload_id: None,
+	        structural_refs: Vec::new(),
+	        timestamp,
+	    };
+	    let provider_config = {
+	        let engine = AgentEngine::new_test(manager.clone(), config.clone(), root.path()).await;
+	        engine.resolve_provider_config(&config).expect("provider config")
+	    };
+	    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+	    let thread_id = "thread-participant-compaction-reset";
+	    let playground_thread_id =
+	        crate::agent::agent_identity::participant_playground_thread_id(thread_id, "weles");
+
+	    {
+	        let mut threads = engine.threads.write().await;
+	        threads.insert(
+	            thread_id.to_string(),
+	            crate::agent::types::AgentThread {
+	                id: thread_id.to_string(),
+	                agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+	                title: "Participant compaction reset".to_string(),
+	                messages: vec![
+	                    crate::agent::types::AgentMessage::user("hello", 1),
+	                    assistant_message("step 1", 2),
+	                    assistant_message("step 2", 3),
+	                    assistant_message("step 3", 4),
+	                    assistant_message("step 4", 5),
+	                ],
+	                pinned: false,
+	                upstream_thread_id: None,
+	                upstream_transport: None,
+	                upstream_provider: None,
+	                upstream_model: None,
+	                upstream_assistant_id: None,
+	                total_input_tokens: 0,
+	                total_output_tokens: 0,
+	                created_at: 1,
+	                updated_at: 5,
+	            },
+	        );
+	        threads.insert(
+	            playground_thread_id.clone(),
+	            crate::agent::types::AgentThread {
+	                id: playground_thread_id.clone(),
+	                agent_name: Some("Weles".to_string()),
+	                title: "Participant Playground".to_string(),
+	                messages: vec![
+	                    crate::agent::types::AgentMessage::user("draft prompt", 1),
+	                    assistant_message("draft reply", 2),
+	                ],
+	                pinned: false,
+	                upstream_thread_id: None,
+	                upstream_transport: None,
+	                upstream_provider: None,
+	                upstream_model: None,
+	                upstream_assistant_id: None,
+	                total_input_tokens: 11,
+	                total_output_tokens: 7,
+	                created_at: 1,
+	                updated_at: 2,
+	            },
+	        );
+	    }
+
+	    let compacted = engine
+	        .maybe_persist_compaction_artifact(thread_id, None, &config, &provider_config)
+	        .await
+	        .expect("compaction should succeed");
+	    assert!(compacted, "expected compaction artifact to be persisted");
+
+	    let threads = engine.threads.read().await;
+	    let playground = threads
+	        .get(&playground_thread_id)
+	        .expect("playground thread should still exist after compaction");
+	    assert!(
+	        playground.messages.is_empty(),
+	        "compaction should reset participant playground history"
+	    );
+	    assert_eq!(playground.total_input_tokens, 0);
+	    assert_eq!(playground.total_output_tokens, 0);
+	}
+
+	#[tokio::test]
 	async fn execute_managed_command_auto_approves_learned_git_category() {
         let recorded_bodies = Arc::new(Mutex::new(std::collections::VecDeque::new()));
         let root = tempdir().expect("tempdir should succeed");

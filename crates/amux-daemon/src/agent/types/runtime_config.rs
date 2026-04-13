@@ -201,6 +201,7 @@ impl Default for AgentConfig {
             operator_model: OperatorModelConfig::default(),
             collaboration: CollaborationConfig::default(),
             debate: DebateConfig::default(),
+            critique: CritiqueConfig::default(),
             compliance: ComplianceConfig::default(),
             tool_synthesis: ToolSynthesisConfig::default(),
             managed_execution: ManagedExecutionConfig::default(),

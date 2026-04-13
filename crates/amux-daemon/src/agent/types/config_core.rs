@@ -180,6 +180,9 @@ pub struct AgentConfig {
     /// Multi-round debate protocol controls.
     #[serde(default)]
     pub debate: DebateConfig,
+    /// Adversarial self-critique controls.
+    #[serde(default)]
+    pub critique: CritiqueConfig,
     /// Trusted provenance and compliance controls.
     #[serde(default)]
     pub compliance: ComplianceConfig,
@@ -428,6 +431,34 @@ impl Default for OperatorModelConfig {
 pub struct CollaborationConfig {
     #[serde(default)]
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CritiqueConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub mode: CritiqueMode,
+    #[serde(default = "default_true")]
+    pub guard_suspicious_tool_calls_only: bool,
+}
+
+impl Default for CritiqueConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: CritiqueMode::Disabled,
+            guard_suspicious_tool_calls_only: default_true(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CritiqueMode {
+    #[default]
+    Disabled,
+    Deterministic,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -29,6 +29,8 @@ mod compaction;
 mod config;
 mod consolidation;
 pub(crate) mod copilot_auth;
+#[cfg(feature = "experimental_critique")]
+mod critique;
 mod debate;
 mod dispatcher;
 mod engine;

@@ -801,14 +801,19 @@ impl AgentEngine {
                 &participant_message,
             )
             .await;
+        self.enqueue_visible_thread_continuation(
+            thread_id,
+            DeferredVisibleThreadContinuation {
+                agent_id: continuation_agent_id.clone(),
+                preferred_session_hint: None,
+                llm_user_content: continuation_prompt,
+                force_compaction: false,
+            },
+        )
+        .await;
+
         if let Err(error) = self
-            .continue_visible_thread_as_agent(
-                thread_id,
-                &continuation_agent_id,
-                None,
-                &continuation_prompt,
-                false,
-            )
+            .flush_deferred_visible_thread_continuations(thread_id)
             .await
         {
             tracing::warn!(
@@ -829,62 +834,88 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Result<bool> {
-        {
-            let streams = self.stream_cancellations.lock().await;
-            if streams.contains_key(thread_id) {
-                return Ok(false);
-            }
+        let acquired_drain_slot = {
+            let mut active = self
+                .active_thread_participant_suggestion_drains
+                .lock()
+                .await;
+            active.insert(thread_id.to_string())
+        };
+        if !acquired_drain_slot {
+            return Ok(false);
         }
 
-        let participants = self.list_thread_participants(thread_id).await;
-        let active_participant_ids = participants
-            .into_iter()
-            .filter(|participant| participant.status == ThreadParticipantStatus::Active)
-            .map(|participant| participant.agent_id)
-            .collect::<HashSet<_>>();
-        let mut stale_suggestion_ids = Vec::new();
-        let next_suggestion = self
-            .list_thread_participant_suggestions(thread_id)
-            .await
-            .into_iter()
-            .find(|suggestion| {
-                if suggestion.status != ThreadParticipantSuggestionStatus::Queued {
-                    return false;
+        let result = async {
+            let mut sent_any = false;
+
+            loop {
+                {
+                    let streams = self.stream_cancellations.lock().await;
+                    if streams.contains_key(thread_id) {
+                        break;
+                    }
                 }
-                let target_is_active = active_participant_ids
-                    .iter()
-                    .any(|agent_id| agent_id.eq_ignore_ascii_case(&suggestion.target_agent_id));
-                let looks_like_no_suggestion =
-                    crate::agent::thread_participant_runner::participant_response_is_no_suggestion(
-                        &suggestion.instruction,
-                    )
-                        || crate::agent::thread_participant_runner::parse_participant_suggestion_response(
+
+                let participants = self.list_thread_participants(thread_id).await;
+                let active_participant_ids = participants
+                    .into_iter()
+                    .filter(|participant| participant.status == ThreadParticipantStatus::Active)
+                    .map(|participant| participant.agent_id)
+                    .collect::<HashSet<_>>();
+                let mut stale_suggestion_ids = Vec::new();
+                let next_suggestion = self
+                    .list_thread_participant_suggestions(thread_id)
+                    .await
+                    .into_iter()
+                    .find(|suggestion| {
+                        if suggestion.status != ThreadParticipantSuggestionStatus::Queued {
+                            return false;
+                        }
+                        let target_is_active = active_participant_ids.iter().any(|agent_id| {
+                            agent_id.eq_ignore_ascii_case(&suggestion.target_agent_id)
+                        });
+                        let looks_like_no_suggestion = crate::agent::thread_participant_runner::participant_response_is_no_suggestion(
+                            &suggestion.instruction,
+                        ) || crate::agent::thread_participant_runner::parse_participant_suggestion_response(
                             &suggestion.instruction,
                         )
                         .is_none();
-                if !target_is_active || looks_like_no_suggestion {
-                    stale_suggestion_ids.push(suggestion.id.clone());
-                    return false;
+                        if !target_is_active || looks_like_no_suggestion {
+                            stale_suggestion_ids.push(suggestion.id.clone());
+                            return false;
+                        }
+                        true
+                    });
+                for stale_suggestion_id in stale_suggestion_ids {
+                    let _ = self
+                        .dismiss_thread_participant_suggestion(thread_id, &stale_suggestion_id)
+                        .await?;
                 }
-                true
-            });
-        for stale_suggestion_id in stale_suggestion_ids {
-            let _ = self
-                .dismiss_thread_participant_suggestion(thread_id, &stale_suggestion_id)
-                .await?;
-        }
-        let Some(next_suggestion) = next_suggestion else {
-            return Ok(false);
-        };
 
-        tracing::info!(
-            thread_id = %thread_id,
-            participant = %next_suggestion.target_agent_id,
-            suggestion_id = %next_suggestion.id,
-            "auto-sending queued participant suggestion after thread became idle"
-        );
-        self.send_thread_participant_suggestion(thread_id, &next_suggestion.id, None)
+                let Some(next_suggestion) = next_suggestion else {
+                    break;
+                };
+
+                tracing::info!(
+                    thread_id = %thread_id,
+                    participant = %next_suggestion.target_agent_id,
+                    suggestion_id = %next_suggestion.id,
+                    "auto-sending queued participant suggestion after thread became idle"
+                );
+                sent_any |= self
+                    .send_thread_participant_suggestion(thread_id, &next_suggestion.id, None)
+                    .await?;
+            }
+
+            Ok(sent_any)
+        }
+        .await;
+
+        self.active_thread_participant_suggestion_drains
+            .lock()
             .await
+            .remove(thread_id);
+        result
     }
 
     pub async fn upsert_thread_participant(

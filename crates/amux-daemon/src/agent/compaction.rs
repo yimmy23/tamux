@@ -1894,6 +1894,8 @@ impl AgentEngine {
         .to_string();
 
         self.persist_thread_by_id(thread_id).await;
+        self.reset_participant_playground_threads_for_visible_thread(thread_id)
+            .await;
         self.record_provenance_event(
             "context_compressed",
             match mode {
