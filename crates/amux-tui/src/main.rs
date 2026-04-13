@@ -342,6 +342,9 @@ fn start_daemon_bridge(
                             DaemonCommand::StopStream { thread_id } => {
                                 let _ = client.stop_stream(thread_id);
                             }
+                            DaemonCommand::ForceCompact { thread_id } => {
+                                let _ = client.force_compact(thread_id);
+                            }
                             DaemonCommand::RetryStreamNow { thread_id } => {
                                 let _ = client.retry_stream_now(thread_id);
                             }

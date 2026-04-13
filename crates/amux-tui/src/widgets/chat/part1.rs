@@ -28,12 +28,8 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
 
     let arguments = message.tool_arguments.as_deref()?;
     let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
-    let path = value
-        .get("path")
-        .or_else(|| value.get("filePath"))
-        .or_else(|| value.get("file_path"))
-        .and_then(|value| value.as_str())
-        .map(|value| value.to_string())
+    let path = direct_tool_path(&value)
+        .or_else(|| tool_path_from_cwd_and_filename(&value))
         .or_else(|| {
             if tool_name == "apply_patch" {
                 first_apply_patch_path(arguments)
@@ -48,6 +44,30 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
         label,
         tool_name: tool_name.to_string(),
     })
+}
+
+fn direct_tool_path(value: &serde_json::Value) -> Option<String> {
+    ["path", "filePath", "file_path"]
+        .iter()
+        .find_map(|key| non_empty_string_field(value, key))
+}
+
+fn tool_path_from_cwd_and_filename(value: &serde_json::Value) -> Option<String> {
+    let filename = non_empty_string_field(value, "filename")?;
+    if let Some(cwd) = non_empty_string_field(value, "cwd") {
+        Some(Path::new(&cwd).join(&filename).display().to_string())
+    } else {
+        Some(filename)
+    }
+}
+
+fn non_empty_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn file_name_label(path: &str) -> String {

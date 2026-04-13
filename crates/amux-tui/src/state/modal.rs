@@ -436,6 +436,10 @@ fn default_command_items() -> Vec<CommandItem> {
             description: "Show thread participants".into(),
         },
         CommandItem {
+            command: "compact".into(),
+            description: "Force compact current thread".into(),
+        },
+        CommandItem {
             command: "settings".into(),
             description: "Open settings panel".into(),
         },

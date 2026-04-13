@@ -145,3 +145,26 @@ fn apply_plan_defaults_truncates_and_normalizes_plan_fields() {
         Some("deterministic fix path")
     );
 }
+
+#[test]
+fn goal_plan_json_accepts_debate_step_kind() {
+    let json = r#"
+    {
+      "title": "Debate Plan",
+      "summary": "Use debate for a contentious decision",
+      "steps": [
+        {
+          "title": "Debate rollout tradeoffs",
+          "instructions": "Debate the rollout strategy for the migration",
+          "kind": "debate",
+          "success_criteria": "Debate session started",
+          "session_id": null
+        }
+      ]
+    }
+    "#;
+
+    let parsed: GoalPlanResponse = parse_json_block(json).expect("json should parse");
+    assert_eq!(parsed.steps.len(), 1);
+    assert_eq!(parsed.steps[0].kind, GoalRunStepKind::Debate);
+}

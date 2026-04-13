@@ -157,32 +157,14 @@ fn add_available_tools_part_a(
 
         tools.push(tool_def(
             "apply_patch",
-            "Apply a harness-style patch with `*** Begin Patch` / `*** End Patch` markers, supporting Add/Update/Delete file actions. Update hunks must include `@@` and at least one `-old` / `+new` line pair. Accepts `input` and legacy alias `patch`, plus the legacy `path` + `edits` exact-replacement shape for compatibility.",
+            "Apply a harness-style patch with `*** Begin Patch` / `*** End Patch` markers, supporting Add/Update/Delete file actions. Update hunks must include `@@` and at least one `-old` / `+new` line pair. Use `input` or legacy alias `patch` for the full patch text. For exact text replacements, use `apply_file_patch` instead.",
             serde_json::json!({
                 "type": "object",
                 "minProperties": 1,
-                "dependencies": {
-                    "path": ["edits"],
-                    "edits": ["path"]
-                },
                 "properties": {
                     "input": { "type": "string", "description": "Harness-style patch text in the apply_patch format. Prefer this form for provider compatibility." },
                     "patch": { "type": "string", "description": "Legacy alias for `input` containing the same harness-style patch text." },
-                    "explanation": { "type": "string", "description": "Optional short explanation for why the patch is being applied." },
-                    "path": { "type": "string", "description": "Legacy compatibility path for exact-replacement patch mode. Supply together with `edits`." },
-                    "edits": {
-                        "type": "array",
-                        "description": "Legacy compatibility exact-replacement edits. Supply together with `path` when not using `input`.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "old_text": { "type": "string", "description": "Exact existing text to replace" },
-                                "new_text": { "type": "string", "description": "Replacement text" },
-                                "replace_all": { "type": "boolean", "description": "Replace all occurrences for this edit (default: false)" }
-                            },
-                            "required": ["old_text", "new_text"]
-                        }
-                    }
+                    "explanation": { "type": "string", "description": "Optional short explanation for why the patch is being applied." }
                 }
             }),
         ));

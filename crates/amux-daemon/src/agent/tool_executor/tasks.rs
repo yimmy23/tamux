@@ -28,9 +28,9 @@ async fn execute_list_subagents(
         .map(|value| value as usize)
         .unwrap_or(20);
 
-    let mut subagents = agent
-        .list_tasks()
-        .await
+    let all_tasks = agent.list_tasks().await;
+    let mut subagents = all_tasks
+        .clone()
         .into_iter()
         .filter(|task| {
             if task.source != "subagent" {
@@ -58,7 +58,59 @@ async fn execute_list_subagents(
     }
 
     subagents.truncate(limit);
-    Ok(serde_json::to_string_pretty(&subagents).unwrap_or_else(|_| "[]".to_string()))
+    let mut payload = Vec::with_capacity(subagents.len());
+    for task in subagents {
+        let depth = compute_task_delegation_depth(&task, &all_tasks);
+        let max_depth = parse_subagent_containment_scope(task.containment_scope.as_deref())
+            .map(|(_, max_depth)| max_depth)
+            .unwrap_or_else(|| effective_subagent_max_depth(&task, &all_tasks));
+        let metrics = agent.history.get_subagent_metrics(&task.id).await.ok().flatten();
+        let tool_call_limit = extract_tool_call_limit(task.termination_conditions.as_deref());
+
+        let tokens_remaining_fraction = match (task.context_budget_tokens, metrics.as_ref()) {
+            (Some(max_tokens), Some(metrics)) if max_tokens > 0 => {
+                let consumed = metrics.tokens_consumed.max(0) as u64;
+                let remaining = max_tokens as u64 - consumed.min(max_tokens as u64);
+                Some(remaining as f64 / max_tokens as f64)
+            }
+            (Some(_), None) => Some(1.0),
+            _ => None,
+        };
+        let time_remaining_fraction = match task.max_duration_secs {
+            Some(max_duration_secs) if max_duration_secs > 0 => {
+                let started_at = task.started_at.unwrap_or(task.created_at);
+                let elapsed_secs = crate::agent::now_millis().saturating_sub(started_at) / 1000;
+                let remaining = max_duration_secs.saturating_sub(elapsed_secs);
+                Some(remaining as f64 / max_duration_secs as f64)
+            }
+            _ => None,
+        };
+        let tool_calls_remaining = match (tool_call_limit, metrics.as_ref()) {
+            (Some(limit), Some(metrics)) => {
+                let limit: u32 = limit;
+                let used = (metrics.tool_calls_total.max(0) as i64).min(u32::MAX as i64) as u32;
+                Some::<u32>(limit.saturating_sub(used))
+            }
+            (Some(limit), None) => Some::<u32>(limit),
+            _ => None,
+        };
+
+        let mut value = serde_json::to_value(&task).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("depth".to_string(), serde_json::json!(depth));
+            obj.insert("max_depth".to_string(), serde_json::json!(max_depth));
+            obj.insert(
+                "budget_remaining".to_string(),
+                serde_json::json!({
+                    "tokens_pct": tokens_remaining_fraction,
+                    "time_pct": time_remaining_fraction,
+                    "tool_calls_remaining": tool_calls_remaining,
+                }),
+            );
+        }
+        payload.push(value);
+    }
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
 async fn execute_broadcast_contribution(

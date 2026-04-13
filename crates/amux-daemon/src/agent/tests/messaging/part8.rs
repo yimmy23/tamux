@@ -579,6 +579,119 @@ async fn queued_participant_suggestion_auto_sends_when_thread_is_already_idle() 
 }
 
 #[tokio::test]
+async fn hydrated_idle_participant_auto_send_is_visible_in_thread_detail() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let base_url = spawn_recording_openai_server(recorded_bodies.clone()).await;
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = base_url.clone();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+    let thread_id = "thread_participant_queue_auto_send_idle_rehydrated";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Participant queue auto send idle hydrated".to_string(),
+            messages: vec![AgentMessage::user("hello", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register before restart");
+    engine.persist_thread_by_id(thread_id).await;
+
+    drop(engine);
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let reloaded = AgentEngine::new_test(manager, config, root.path()).await;
+    reloaded.hydrate().await.expect("hydrate");
+
+    reloaded
+        .queue_thread_participant_suggestion(
+            thread_id,
+            "weles",
+            "Hydrated idle participant note.",
+            false,
+        )
+        .await
+        .expect("queue participant suggestion after hydrate");
+
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let thread_messages = {
+                let threads = reloaded.threads.read().await;
+                threads
+                    .get(thread_id)
+                    .expect("thread should still exist after hydrate")
+                    .messages
+                    .clone()
+            };
+            let has_participant_note = thread_messages.iter().any(|message| {
+                message.role == MessageRole::Assistant
+                    && message.author_agent_id.as_deref() == Some("weles")
+                    && message.content == "Hydrated idle participant note."
+            });
+            let has_main_follow_up = thread_messages.iter().any(|message| {
+                message.role == MessageRole::Assistant
+                    && message.author_agent_id.as_deref() != Some("weles")
+                    && message.content == "Gateway reply ok"
+            });
+            if has_participant_note && has_main_follow_up {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("participant note and follow-up should appear after hydrate");
+
+    let thread_json = reloaded
+        .agent_thread_detail_json(thread_id, None, None)
+        .await;
+    let detail: serde_json::Value =
+        serde_json::from_str(&thread_json).expect("decode hydrated thread detail");
+    let messages = detail
+        .get("messages")
+        .and_then(|entry| entry.as_array())
+        .expect("thread detail should include messages");
+    assert!(messages.iter().any(|message| {
+        message.get("content").and_then(|entry| entry.as_str())
+            == Some("Hydrated idle participant note.")
+            && message
+                .get("author_agent_id")
+                .and_then(|entry| entry.as_str())
+                == Some("weles")
+    }));
+    assert!(messages.iter().any(|message| {
+        message.get("content").and_then(|entry| entry.as_str()) == Some("Gateway reply ok")
+    }));
+}
+
+#[tokio::test]
 async fn participant_failed_suggestions_reload() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

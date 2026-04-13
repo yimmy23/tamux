@@ -52,6 +52,7 @@ pub fn classify_step_kind(kind: &GoalRunStepKind) -> DomainClassification {
         GoalRunStepKind::Reason => DomainClassification::Research,
         GoalRunStepKind::Specialist(_) => DomainClassification::Business,
         GoalRunStepKind::Divergent => DomainClassification::Research,
+        GoalRunStepKind::Debate => DomainClassification::Research,
         GoalRunStepKind::Unknown => DomainClassification::Business,
     }
 }

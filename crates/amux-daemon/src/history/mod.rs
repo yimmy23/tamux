@@ -92,6 +92,27 @@ pub struct CollaborationSessionRow {
 }
 
 #[derive(Debug, Clone)]
+pub struct DebateSessionRow {
+    pub session_id: String,
+    pub session_json: String,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct DebateArgumentRow {
+    pub session_id: String,
+    pub argument_json: String,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct DebateVerdictRow {
+    pub session_id: String,
+    pub verdict_json: String,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct OperatorProfileSessionRow {
     pub session_id: String,
     pub kind: String,
@@ -559,6 +580,7 @@ mod command_log;
 mod consolidation;
 mod context_archive;
 mod core;
+mod debate;
 mod gateway_state;
 mod goal_runs;
 mod governance;

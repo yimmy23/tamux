@@ -88,12 +88,13 @@ pub(in crate::agent) fn detect_disagreements(session: &mut CollaborationSession)
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default(),
+            debate_session_id: preserved.and_then(|item| item.debate_session_id.clone()),
         });
     }
     session.disagreements = next;
 }
 
-fn normalize_position(position: &str) -> String {
+pub(in crate::agent) fn normalize_position(position: &str) -> String {
     let lowered = position.trim().to_ascii_lowercase();
     if lowered.contains("reject") || lowered.contains("avoid") || lowered.contains("no") {
         "reject".to_string()

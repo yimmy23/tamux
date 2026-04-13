@@ -114,6 +114,46 @@
     }
 
     #[test]
+    fn resolve_skill_path_maps_builtin_variant_record_to_seeded_superpowers_path() {
+        let root = std::env::temp_dir().join(format!("tamux-skill-test-{}", uuid::Uuid::new_v4()));
+        let canonical = root
+            .join("development")
+            .join("superpowers")
+            .join("subagent-driven-development")
+            .join("SKILL.md");
+        fs::create_dir_all(canonical.parent().expect("skill parent"))
+            .expect("skill test directory should be created");
+        fs::write(&canonical, "# Subagent-Driven Development\n")
+            .expect("canonical skill file should be written");
+
+        let resolved = resolve_skill_path(
+            &root,
+            "subagent-driven-development",
+            Some(&SkillVariantRecord {
+                variant_id: "variant-1".to_string(),
+                skill_name: "subagent-driven-development".to_string(),
+                variant_name: "canonical".to_string(),
+                relative_path: "builtin/superpowers/subagent-driven-development/SKILL.md"
+                    .to_string(),
+                parent_variant_id: None,
+                version: "v1.0".to_string(),
+                context_tags: vec!["rust".to_string()],
+                use_count: 0,
+                success_count: 0,
+                failure_count: 0,
+                status: "active".to_string(),
+                last_used_at: None,
+                created_at: 0,
+                updated_at: 0,
+            }),
+        )
+        .expect("seeded superpowers skill should resolve from builtin variant path");
+        assert_eq!(resolved, canonical);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn list_sessions_tool_requires_workspace_topology() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();
@@ -553,8 +593,8 @@
         );
     }
 
-    #[test]
-    fn apply_patch_tool_uses_top_level_object_schema() {
+#[test]
+fn apply_patch_tool_uses_top_level_object_schema() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();
         let tools = get_available_tools(&config, &temp_dir, false);
@@ -583,8 +623,14 @@
 
         assert!(properties.get("input").is_some(), "schema should include harness patch input");
         assert!(properties.get("patch").is_some(), "schema should include patch alias");
-        assert!(properties.get("path").is_some(), "schema should include legacy patch path");
-        assert!(properties.get("edits").is_some(), "schema should include legacy edits");
+        assert!(
+            properties.get("path").is_none(),
+            "apply_patch schema should not advertise legacy exact-replacement path mode"
+        );
+        assert!(
+            properties.get("edits").is_none(),
+            "apply_patch schema should not advertise legacy exact-replacement edits mode"
+        );
     }
 
     #[test]
@@ -692,6 +738,71 @@
             .get("framing_progress")
             .expect("framing_progress should exist");
         assert_eq!(progress.get("completed").and_then(|v| v.as_u64()), Some(0));
+    }
+
+    #[tokio::test]
+    async fn debate_tools_are_exposed_with_expected_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+
+        for tool_name in [
+            "run_debate",
+            "get_debate_session",
+            "append_debate_argument",
+            "advance_debate_round",
+            "complete_debate_session",
+        ] {
+            assert!(
+                tools.iter().any(|tool| tool.function.name == tool_name),
+                "{tool_name} tool should be available"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn debate_tool_run_and_get_session_round_trip() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let response = execute_run_debate(
+            &serde_json::json!({ "topic": "choose rollout strategy" }),
+            &engine,
+            "thread-tool-debate",
+            None,
+        )
+        .await
+        .expect("run_debate should succeed");
+        let payload: serde_json::Value =
+            serde_json::from_str(&response).expect("run_debate payload should be valid JSON");
+        assert_eq!(payload.get("status").and_then(|v| v.as_str()), Some("started"));
+        let session_id = payload
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .expect("session_id should exist")
+            .to_string();
+
+        let get_response = execute_get_debate_session(
+            &serde_json::json!({ "session_id": session_id }),
+            &engine,
+        )
+        .await
+        .expect("get_debate_session should succeed");
+        let get_payload: serde_json::Value = serde_json::from_str(&get_response)
+            .expect("get_debate_session payload should be valid JSON");
+        assert_eq!(
+            get_payload.get("status").and_then(|v| v.as_str()),
+            Some("in_progress")
+        );
+        assert_eq!(
+            get_payload.get("current_round").and_then(|v| v.as_u64()),
+            Some(1)
+        );
+        assert!(get_payload
+            .get("roles")
+            .and_then(|v| v.as_array())
+            .is_some_and(|roles| !roles.is_empty()));
     }
 
     #[tokio::test]

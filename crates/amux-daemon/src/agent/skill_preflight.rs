@@ -2193,6 +2193,58 @@ triggers: [isolated workspace, dirty checkout, parallel feature work]
     }
 
     #[tokio::test]
+    async fn discover_skill_recommendations_public_matches_compact_rust_compile_patch_queries() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+
+        write_skill(
+            root.path(),
+            "development/debug-rust-build",
+            r#"---
+name: debug-rust-build
+description: Debug Rust build and cargo test failures.
+keywords: [rust, cargo, build]
+triggers: [build failure, cargo test]
+---
+
+# Debug Rust Build
+
+Use this workflow when Rust compilation or cargo builds fail and need investigation before patching.
+"#,
+        );
+
+        let mut config = AgentConfig::default();
+        config.skill_recommendation.llm_normalize_on_no_match = false;
+        config.skill_recommendation.llm_semantic_search_on_no_match = false;
+
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        for query in [
+            "rust compile patch",
+            "cargo compile fix",
+            "compile error rust patch",
+        ] {
+            let result = engine
+                .discover_skill_recommendations_public(query, None, 3, None)
+                .await
+                .expect("skill discovery should succeed");
+
+            assert_ne!(
+                result.confidence_tier, "none",
+                "query `{query}` should produce a skill recommendation"
+            );
+            assert_eq!(
+                result
+                    .candidates
+                    .first()
+                    .map(|candidate| candidate.skill_name.as_str()),
+                Some("debug-rust-build"),
+                "query `{query}` should rank the rust build skill first"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn discover_skill_recommendations_public_uses_weles_fallback_for_governance_queries() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;

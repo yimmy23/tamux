@@ -167,6 +167,7 @@ fn format_tensions_with_disagreements_produces_markdown() {
             confidence_gap: 0.3,
             resolution: "pending".to_string(),
             votes: Vec::new(),
+            debate_session_id: None,
         },
         Disagreement {
             id: "d2".to_string(),
@@ -180,6 +181,7 @@ fn format_tensions_with_disagreements_produces_markdown() {
                 position: "recommend".to_string(),
                 weight: 0.9,
             }],
+            debate_session_id: None,
         },
     ];
     let framings = make_framings(2);

@@ -161,6 +161,31 @@ fn slash_statistics_opens_loading_modal_and_requests_all_time_statistics() {
 }
 
 #[test]
+fn slash_compact_requests_forced_compaction_for_active_thread() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Compaction Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.input.set_text("/compact");
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!quit);
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::ForceCompact { thread_id }) => {
+            assert_eq!(thread_id, "thread-1");
+        }
+        other => panic!("expected force-compaction request, got {:?}", other),
+    }
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
 fn slash_prompt_opens_loading_modal_and_requests_main_prompt() {
     let (mut model, mut daemon_rx) = make_model();
     model.connected = true;

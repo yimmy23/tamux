@@ -91,7 +91,7 @@ pub(super) fn collect_plan_issues(plan: &GoalPlanResponse) -> Vec<String> {
             issues.push(format!("Step {n}: missing success_criteria."));
         }
         if step.kind == GoalRunStepKind::Unknown {
-            issues.push(format!("Step {n}: kind is empty or unknown — must be one of: command, research, reason, memory, skill, specialist, divergent."));
+            issues.push(format!("Step {n}: kind is empty or unknown — must be one of: command, research, reason, memory, skill, specialist, divergent, debate."));
         }
     }
 

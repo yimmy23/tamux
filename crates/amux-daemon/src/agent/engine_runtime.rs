@@ -299,7 +299,7 @@ impl AgentEngine {
             .collect())
     }
 
-    pub(super) async fn begin_stream_cancellation(
+    pub(crate) async fn begin_stream_cancellation(
         &self,
         thread_id: &str,
     ) -> (u64, CancellationToken, Arc<tokio::sync::Notify>) {

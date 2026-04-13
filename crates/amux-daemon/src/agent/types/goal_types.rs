@@ -30,6 +30,9 @@ pub enum GoalRunStepKind {
     /// Spawn a divergent session with parallel framings for this step.
     /// The step instructions become the problem statement.
     Divergent,
+    /// Start a structured debate session for this step.
+    /// The step instructions become the debate topic.
+    Debate,
     /// Fallback for unknown/empty kind values from LLM output.
     #[serde(other)]
     Unknown,

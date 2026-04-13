@@ -2088,6 +2088,93 @@ async fn read_skill_resolves_nested_skill_by_frontmatter_name() {
 }
 
 #[tokio::test]
+async fn read_skill_falls_back_when_selected_variant_path_is_stale() {
+    let root = tempdir().expect("tempdir");
+    let agent_data_dir = root.path().join("agent");
+    fs::create_dir_all(&agent_data_dir).expect("create agent data dir");
+    let skill_path = root
+        .path()
+        .join("skills")
+        .join("development")
+        .join("superpowers")
+        .join("subagent-driven-development")
+        .join("SKILL.md");
+    fs::create_dir_all(skill_path.parent().expect("skill directory"))
+        .expect("create skill directory");
+    fs::write(
+        &skill_path,
+        "---\nname: subagent-driven-development\ndescription: Execute implementation work through subagents.\n---\n# Subagent-Driven Development\n",
+    )
+    .expect("write skill");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let variant = engine
+        .history
+        .register_skill_document(&skill_path)
+        .await
+        .expect("register skill variant");
+    let stale_variant_id = variant.variant_id.clone();
+
+    engine
+        .history
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE skill_variants SET relative_path = ?2 WHERE variant_id = ?1",
+                rusqlite::params![
+                    stale_variant_id,
+                    "development/superpowers/missing-subagent-driven-development/SKILL.md"
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("overwrite variant path with stale entry");
+
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-read-skill-stale-variant-path".to_string(),
+        ToolFunction {
+            name: "read_skill".to_string(),
+            arguments: serde_json::json!({
+                "skill": "subagent-driven-development",
+                "max_lines": 50
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-read-skill-stale-variant-path",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "read_skill should fall back to the on-disk match when the selected variant path is stale: {}",
+        result.content
+    );
+    assert!(
+        result
+            .content
+            .contains("subagent-driven-development/SKILL.md"),
+        "read_skill should still resolve the real skill document after stale variant fallback: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
 async fn list_tools_tool_returns_paginated_catalog() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

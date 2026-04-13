@@ -85,6 +85,27 @@ pub(super) fn extended_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_collaboration_sessions_updated ON collaboration_sessions(updated_at DESC);
 
+            CREATE TABLE IF NOT EXISTS debate_sessions (
+                session_id   TEXT PRIMARY KEY,
+                session_json TEXT NOT NULL,
+                updated_at   INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_debate_sessions_updated ON debate_sessions(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS debate_arguments (
+                session_id     TEXT NOT NULL,
+                argument_json  TEXT NOT NULL,
+                created_at     INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_debate_arguments_session_created ON debate_arguments(session_id, created_at ASC);
+
+            CREATE TABLE IF NOT EXISTS debate_verdicts (
+                session_id    TEXT PRIMARY KEY,
+                verdict_json  TEXT NOT NULL,
+                updated_at    INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_debate_verdicts_updated ON debate_verdicts(updated_at DESC);
+
             CREATE TABLE IF NOT EXISTS gateway_threads (
                 channel_key TEXT PRIMARY KEY,
                 thread_id   TEXT NOT NULL,

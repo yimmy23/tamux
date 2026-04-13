@@ -326,6 +326,66 @@ impl AgentEngine {
                     .await
                 }
             }
+        } else if step.kind == GoalRunStepKind::Debate {
+            // Route Debate steps through start_debate_session.
+            // The step instructions become the debate topic.
+            let thread_id = snapshot.thread_id.clone().unwrap_or_default();
+            match self
+                .start_debate_session(&step.instructions, None, &thread_id, Some(&snapshot.id))
+                .await
+            {
+                Ok(session_id) => {
+                    tracing::info!(
+                        session_id = %session_id,
+                        step = step.title.as_str(),
+                        "debate session started for goal step"
+                    );
+                    self.enqueue_task(
+                        format!("Debate: {}", step.title),
+                        format!(
+                            "Debate session {} started for: {}\n\n\
+                             Retrieve the debate state, append arguments, advance rounds, and complete the verdict when ready.",
+                            session_id, step.instructions
+                        ),
+                        task_priority_to_str(snapshot.priority),
+                        None,
+                        step.session_id
+                            .clone()
+                            .or_else(|| snapshot.session_id.clone()),
+                        Vec::new(),
+                        None,
+                        "debate",
+                        Some(snapshot.id.clone()),
+                        None,
+                        snapshot.thread_id.clone(),
+                        None,
+                    )
+                    .await
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "debate session failed for step '{}': {e} — falling back to normal enqueue",
+                        step.title
+                    );
+                    self.enqueue_task(
+                        step.title.clone(),
+                        step.instructions.clone(),
+                        task_priority_to_str(snapshot.priority),
+                        None,
+                        step.session_id
+                            .clone()
+                            .or_else(|| snapshot.session_id.clone()),
+                        Vec::new(),
+                        None,
+                        "goal_run",
+                        Some(snapshot.id.clone()),
+                        None,
+                        snapshot.thread_id.clone(),
+                        None,
+                    )
+                    .await
+                }
+            }
         } else {
             self.enqueue_task(
                 step.title.clone(),

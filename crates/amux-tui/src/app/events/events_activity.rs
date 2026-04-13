@@ -133,6 +133,14 @@ impl TuiModel {
         }
     }
 
+    fn thread_needs_authoritative_refresh_after_done(&self, thread_id: &str) -> bool {
+        self.chat.threads().iter().any(|thread| {
+            thread.id == thread_id
+                && (!thread.thread_participants.is_empty()
+                    || !thread.queued_participant_suggestions.is_empty())
+        })
+    }
+
     fn should_accept_retry_status_event(&self, thread_id: &str) -> bool {
         if self.chat.is_streaming()
             || self.chat.retry_status().is_some()
@@ -282,7 +290,7 @@ impl TuiModel {
             }
         }
         self.chat.reduce(chat::ChatAction::TurnDone {
-            thread_id,
+            thread_id: thread_id.clone(),
             input_tokens,
             output_tokens,
             cost,
@@ -293,6 +301,9 @@ impl TuiModel {
             reasoning,
             provider_final_result_json,
         });
+        if self.thread_needs_authoritative_refresh_after_done(&thread_id) {
+            self.request_latest_thread_page(thread_id, false);
+        }
 
         self.dispatch_next_queued_prompt_if_ready();
     }
@@ -684,7 +695,7 @@ impl TuiModel {
                 message.clone()
             };
         }
-        if kind == "auto-compaction" {
+        if kind == "auto-compaction" || kind == "manual-compaction" {
             if let (Some(thread_id), Some(active_thread_id), Some(message_offset)) = (
                 thread_id.as_deref(),
                 self.chat.active_thread_id(),

@@ -22,6 +22,7 @@ if matches!(
         ClientMessage::AgentSendMessage{ .. } |
         ClientMessage::AgentDirectMessage{ .. } |
         ClientMessage::AgentStopStream{ .. } |
+        ClientMessage::AgentForceCompact{ .. } |
         ClientMessage::AgentInternalDelegate{ .. } |
         ClientMessage::AgentThreadParticipantCommand{ .. } |
         ClientMessage::AgentSendParticipantSuggestion{ .. } |
@@ -505,6 +506,15 @@ if matches!(
                 ClientMessage::AgentStopStream { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
                     let _ = agent.stop_stream(&thread_id).await;
+                }
+                ClientMessage::AgentForceCompact { thread_id } => {
+                    client_agent_threads.insert(thread_id.clone());
+                    let agent = agent.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = agent.force_compact_and_continue(&thread_id).await {
+                            tracing::warn!(thread_id = %thread_id, error = %error, "agent force compact failed");
+                        }
+                    });
                 }
                 ClientMessage::AgentInternalDelegate {
                     thread_id,

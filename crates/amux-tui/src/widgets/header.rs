@@ -96,7 +96,7 @@ pub fn render(
             "\u{2591}\u{2592}\u{2593}",
             Style::default().fg(Color::Indexed(24)),
         ),
-        Span::styled("TAMUX", theme.accent_primary),
+        Span::styled(" TAMUX ", theme.accent_primary),
         Span::styled(
             "\u{2593}\u{2592}\u{2591} ",
             Style::default().fg(Color::Indexed(24)),

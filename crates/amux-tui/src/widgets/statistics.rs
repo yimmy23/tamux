@@ -1,3 +1,4 @@
+use chrono::{Local, TimeZone};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::{Frame, Position, Style};
 use ratatui::text::{Line, Span};
@@ -227,13 +228,13 @@ fn format_overview(snapshot: &amux_protocol::AgentStatisticsSnapshot) -> String 
     body.push_str("------\n");
     body.push_str(&format!(
         "Input tokens:      {}\nOutput tokens:     {}\nTotal tokens:      {}\nTotal cost:        ${:.6}\nProviders:         {}\nModels:            {}\nGenerated at:      {}\n",
-        snapshot.totals.input_tokens,
-        snapshot.totals.output_tokens,
-        snapshot.totals.total_tokens,
+        format_statistics_token_count(snapshot.totals.input_tokens),
+        format_statistics_token_count(snapshot.totals.output_tokens),
+        format_statistics_token_count(snapshot.totals.total_tokens),
         snapshot.totals.cost_usd,
         snapshot.totals.provider_count,
         snapshot.totals.model_count,
-        snapshot.generated_at,
+        format_generated_at(snapshot.generated_at),
     ));
     body.push('\n');
     if snapshot.has_incomplete_cost_history {
@@ -248,7 +249,7 @@ fn format_overview(snapshot: &amux_protocol::AgentStatisticsSnapshot) -> String 
             index + 1,
             row.provider,
             row.model,
-            row.total_tokens,
+            format_statistics_token_value(row.total_tokens),
             row.cost_usd,
         ));
     }
@@ -262,19 +263,24 @@ fn format_overview(snapshot: &amux_protocol::AgentStatisticsSnapshot) -> String 
             row.provider,
             row.model,
             row.cost_usd,
-            row.total_tokens,
+            format_statistics_token_value(row.total_tokens),
         ));
     }
     body
 }
 
 fn format_providers(snapshot: &amux_protocol::AgentStatisticsSnapshot) -> String {
-    let mut body = String::from("Provider            In         Out        Total      Cost\n");
-    body.push_str("---------------------------------------------------------\n");
+    let mut body =
+        String::from("Provider                 In           Out         Total        Cost\n");
+    body.push_str("------------------------------------------------------------------\n");
     for row in &snapshot.providers {
         body.push_str(&format!(
-            "{:<18} {:>10} {:>10} {:>10}  ${:>9.6}\n",
-            row.provider, row.input_tokens, row.output_tokens, row.total_tokens, row.cost_usd,
+            "{:<22} {:>12} {:>12} {:>12}  ${:>9.6}\n",
+            row.provider,
+            format_statistics_token_count(row.input_tokens),
+            format_statistics_token_count(row.output_tokens),
+            format_statistics_token_count(row.total_tokens),
+            row.cost_usd,
         ));
     }
     body
@@ -282,19 +288,19 @@ fn format_providers(snapshot: &amux_protocol::AgentStatisticsSnapshot) -> String
 
 fn format_models(snapshot: &amux_protocol::AgentStatisticsSnapshot) -> String {
     let mut body = String::from(
-        "Provider         Model                      In         Out        Total      Cost\n",
+        "Provider         Model                         In           Out         Total        Cost\n",
     );
     body.push_str(
-        "---------------------------------------------------------------------------------\n",
+        "---------------------------------------------------------------------------------------\n",
     );
     for row in &snapshot.models {
         body.push_str(&format!(
-            "{:<16} {:<26} {:>10} {:>10} {:>10}  ${:>9.6}\n",
+            "{:<16} {:<28} {:>12} {:>12} {:>12}  ${:>9.6}\n",
             row.provider,
             row.model,
-            row.input_tokens,
-            row.output_tokens,
-            row.total_tokens,
+            format_statistics_token_count(row.input_tokens),
+            format_statistics_token_count(row.output_tokens),
+            format_statistics_token_count(row.total_tokens),
             row.cost_usd,
         ));
     }
@@ -306,11 +312,11 @@ fn format_rankings(snapshot: &amux_protocol::AgentStatisticsSnapshot) -> String 
     body.push_str("---------------------\n");
     for (index, row) in snapshot.top_models_by_tokens.iter().enumerate() {
         body.push_str(&format!(
-            "{}. {:<16} {:<24} {:>10} tok  ${:>9.6}\n",
+            "{}. {:<16} {:<24} {:>12}  ${:>9.6}\n",
             index + 1,
             row.provider,
             row.model,
-            row.total_tokens,
+            format_statistics_token_count(row.total_tokens),
             row.cost_usd,
         ));
     }
@@ -319,13 +325,155 @@ fn format_rankings(snapshot: &amux_protocol::AgentStatisticsSnapshot) -> String 
     body.push_str("-------------\n");
     for (index, row) in snapshot.top_models_by_cost.iter().enumerate() {
         body.push_str(&format!(
-            "{}. {:<16} {:<24} ${:>9.6}  {:>10} tok\n",
+            "{}. {:<16} {:<24} ${:>9.6}  {:>12}\n",
             index + 1,
             row.provider,
             row.model,
             row.cost_usd,
-            row.total_tokens,
+            format_statistics_token_count(row.total_tokens),
         ));
     }
     body
+}
+
+fn format_statistics_token_count(tokens: u64) -> String {
+    format!("{} tok", format_statistics_token_value(tokens))
+}
+
+fn format_statistics_token_value(tokens: u64) -> String {
+    const TOKEN_UNITS: [&str; 6] = ["", "k", "M", "B", "T", "P"];
+
+    if tokens < 1_000 {
+        return tokens.to_string();
+    }
+
+    let mut value = tokens as f64;
+    let mut unit_index = 0usize;
+
+    while value >= 999.995 && unit_index + 1 < TOKEN_UNITS.len() {
+        value /= 1_000.0;
+        unit_index += 1;
+    }
+
+    format!("{value:.2}{}", TOKEN_UNITS[unit_index])
+}
+
+fn format_generated_at(timestamp_ms: u64) -> String {
+    let Some(timestamp_ms) = i64::try_from(timestamp_ms).ok() else {
+        return timestamp_ms.to_string();
+    };
+    let Some(local_time) = Local.timestamp_millis_opt(timestamp_ms).single() else {
+        return timestamp_ms.to_string();
+    };
+    local_time.format("%Y-%m-%d %H:%M:%S %Z").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_snapshot() -> amux_protocol::AgentStatisticsSnapshot {
+        amux_protocol::AgentStatisticsSnapshot {
+            window: amux_protocol::AgentStatisticsWindow::All,
+            generated_at: 1_704_198_896_000,
+            has_incomplete_cost_history: false,
+            totals: amux_protocol::AgentStatisticsTotals {
+                input_tokens: 1_234,
+                output_tokens: 5_678_901,
+                total_tokens: 9_876_543_210,
+                cost_usd: 12.34,
+                provider_count: 2,
+                model_count: 3,
+            },
+            providers: vec![amux_protocol::ProviderStatisticsRow {
+                provider: "openai".to_string(),
+                input_tokens: 12_345,
+                output_tokens: 67_890,
+                total_tokens: 80_235,
+                cost_usd: 0.42,
+            }],
+            models: vec![amux_protocol::ModelStatisticsRow {
+                provider: "openai".to_string(),
+                model: "gpt-5.4".to_string(),
+                input_tokens: 1_234_567,
+                output_tokens: 8_765_432,
+                total_tokens: 9_999_999,
+                cost_usd: 1.23,
+            }],
+            top_models_by_tokens: vec![amux_protocol::ModelStatisticsRow {
+                provider: "github-copilot".to_string(),
+                model: "gpt-5.4".to_string(),
+                input_tokens: 10,
+                output_tokens: 20,
+                total_tokens: 31_077_560,
+                cost_usd: 0.0,
+            }],
+            top_models_by_cost: vec![amux_protocol::ModelStatisticsRow {
+                provider: "alibaba-coding-plan".to_string(),
+                model: "qwen3.6-plus".to_string(),
+                input_tokens: 10,
+                output_tokens: 20,
+                total_tokens: 36_022_724,
+                cost_usd: 0.5,
+            }],
+        }
+    }
+
+    #[test]
+    fn overview_formats_compact_tokens_and_local_timestamp() {
+        let snapshot = sample_snapshot();
+        let expected_generated_at = Local
+            .timestamp_millis_opt(snapshot.generated_at as i64)
+            .single()
+            .expect("valid local timestamp")
+            .format("%Y-%m-%d %H:%M:%S %Z")
+            .to_string();
+
+        let body = format_statistics_body(&snapshot, StatisticsTab::Overview);
+
+        assert!(body.contains("Input tokens:      1.23k tok"));
+        assert!(body.contains("Output tokens:     5.68M tok"));
+        assert!(body.contains("Total tokens:      9.88B tok"));
+        assert!(body.contains("31.08M tok"));
+        assert!(body.contains("36.02M tok"));
+        assert!(!body.contains(&snapshot.generated_at.to_string()));
+        assert!(body.contains(&format!("Generated at:      {expected_generated_at}")));
+    }
+
+    #[test]
+    fn providers_tab_formats_compact_token_columns() {
+        let snapshot = sample_snapshot();
+
+        let body = format_statistics_body(&snapshot, StatisticsTab::Providers);
+
+        assert!(body.contains("12.35k tok"));
+        assert!(body.contains("67.89k tok"));
+        assert!(body.contains("80.23k tok"));
+    }
+
+    #[test]
+    fn models_tab_formats_compact_token_columns() {
+        let snapshot = sample_snapshot();
+
+        let body = format_statistics_body(&snapshot, StatisticsTab::Models);
+
+        assert!(body.contains("1.23M tok"));
+        assert!(body.contains("8.77M tok"));
+        assert!(body.contains("10.00M tok"));
+    }
+
+    #[test]
+    fn rankings_tab_formats_compact_token_columns() {
+        let snapshot = sample_snapshot();
+
+        let body = format_statistics_body(&snapshot, StatisticsTab::Rankings);
+
+        assert!(body.contains("31.08M tok"));
+        assert!(body.contains("36.02M tok"));
+    }
+
+    #[test]
+    fn statistics_token_value_keeps_small_counts_plain() {
+        assert_eq!(format_statistics_token_value(999), "999");
+    }
 }

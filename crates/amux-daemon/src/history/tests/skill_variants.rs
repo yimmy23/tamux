@@ -84,6 +84,63 @@ async fn register_skill_document_prefers_explicit_frontmatter_name() -> Result<(
 }
 
 #[tokio::test]
+async fn resolve_skill_variant_prefers_existing_document_over_stale_legacy_row() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let skill_path = root
+        .join("skills")
+        .join("development")
+        .join("superpowers")
+        .join("subagent-driven-development")
+        .join("SKILL.md");
+    fs::create_dir_all(skill_path.parent().expect("skill directory"))?;
+    fs::write(
+        &skill_path,
+        "---\nname: subagent-driven-development\ndescription: Execute implementation work through subagents.\n---\n# Subagent-Driven Development\n",
+    )?;
+
+    let record = store.register_skill_document(&skill_path).await?;
+    let stale_skill_name = record.skill_name.clone();
+    let stale_variant_name = record.variant_name.clone();
+    let stale_context_tags_json = serde_json::to_string(&record.context_tags)?;
+    let stale_variant_id = "stale-builtin-row".to_string();
+
+    store
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "INSERT INTO skill_variants \
+                 (variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, 99, 99, 0, 'active', NULL, 10, 20)",
+                params![
+                    stale_variant_id,
+                    stale_skill_name,
+                    stale_variant_name,
+                    "builtin/superpowers/subagent-driven-development/SKILL.md",
+                    "v99.0",
+                    stale_context_tags_json,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let resolved = store
+        .resolve_skill_variant("subagent-driven-development", &[])
+        .await?
+        .expect("variant should resolve");
+
+    assert_eq!(
+        resolved.relative_path, "development/superpowers/subagent-driven-development/SKILL.md",
+        "existing on-disk skill should outrank stale legacy rows"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn resolve_skill_variant_prefers_context_overlap_and_tracks_usage() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;

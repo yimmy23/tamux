@@ -315,6 +315,37 @@ fn all_file_mutation_tool_rows_use_filename_chip() {
 }
 
 #[test]
+fn create_file_tool_row_uses_filename_when_path_is_missing() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("create_file".into()),
+        tool_arguments: Some(
+            serde_json::json!({
+                "cwd": "/tmp/project/src",
+                "filename": "types.rs",
+                "path": "",
+                "content": "pub struct Demo;"
+            })
+            .to_string(),
+        ),
+        tool_status: Some("done".into()),
+        content: "created".into(),
+        ..Default::default()
+    }]);
+
+    let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+    let tool_line = lines
+        .iter()
+        .find(|line| line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ToolToggle))
+        .expect("tool row should be rendered");
+    let text = rendered_line_plain_text(tool_line);
+
+    assert!(text.contains("create_file"));
+    assert!(text.contains("[types.rs]"), "expected filename chip, got: {text}");
+    assert!(!text.contains("[]"), "unexpected empty filename chip: {text}");
+}
+
+#[test]
 fn apply_file_patch_tool_row_uses_filename_chip() {
     let chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Tool,

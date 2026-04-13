@@ -3,9 +3,11 @@
         concierge_welcome_fingerprint, enqueue_gateway_incoming_event, handle_connection,
         is_expected_disconnect_error, persist_gateway_health_update,
     };
+    use crate::agent::{StreamCancellationEntry, StreamProgressKind};
     use crate::agent::types::AgentConfig;
     use crate::agent::types::{
-        AgentEvent, ConciergeAction, ConciergeActionType, ConciergeDetailLevel,
+        AgentEvent, AgentMessage, AgentThread, ConciergeAction, ConciergeActionType,
+        ConciergeDetailLevel,
     };
     use crate::agent::AgentEngine;
     use crate::history::HistoryStore;

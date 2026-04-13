@@ -235,6 +235,7 @@ impl HistoryStore {
             return Ok(None);
         }
         let context_tags = context_tags.to_vec();
+        let skills_root = self.skills_root();
 
         let skill = skill.to_string();
         self.conn.call(move |conn| {
@@ -250,6 +251,14 @@ impl HistoryStore {
                 .collect::<Vec<_>>();
             if candidates.is_empty() {
                 return Ok(None);
+            }
+            let live_candidates = candidates
+                .iter()
+                .filter(|record| skill_variant_document_exists(&skills_root, record))
+                .cloned()
+                .collect::<Vec<_>>();
+            if !live_candidates.is_empty() {
+                candidates = live_candidates;
             }
             candidates.sort_by(|left, right| compare_skill_variants(left, right, &context_tags));
             Ok(candidates.into_iter().next())
@@ -347,6 +356,106 @@ impl HistoryStore {
         .await?;
         Ok(())
     }
+}
+
+fn skill_variant_document_exists(skills_root: &Path, record: &SkillVariantRecord) -> bool {
+    let root_canonical =
+        std::fs::canonicalize(skills_root).unwrap_or_else(|_| skills_root.to_path_buf());
+    let candidate = resolve_skill_variant_document_path(skills_root, &record.relative_path);
+    let Ok(canonical) = std::fs::canonicalize(candidate) else {
+        return false;
+    };
+    canonical.starts_with(root_canonical)
+}
+
+fn resolve_skill_variant_document_path(skills_root: &Path, relative_path: &str) -> PathBuf {
+    let normalized = relative_path.replace('\\', "/");
+    let candidate = skills_root.join(&normalized);
+    if candidate.exists() {
+        return candidate;
+    }
+
+    if let Some(stripped) = normalized.strip_prefix("builtin/") {
+        let migrated = skills_root.join(stripped);
+        if migrated.exists() {
+            return migrated;
+        }
+    }
+
+    resolve_skill_variant_document_by_suffix(skills_root, &normalized).unwrap_or(candidate)
+}
+
+fn resolve_skill_variant_document_by_suffix(
+    skills_root: &Path,
+    relative_path: &str,
+) -> Option<PathBuf> {
+    let mut files = Vec::new();
+    collect_skill_documents(skills_root, &mut files).ok()?;
+
+    for suffix in relative_path_suffixes(relative_path) {
+        let matches = files
+            .iter()
+            .filter_map(|path| {
+                let relative = path
+                    .strip_prefix(skills_root)
+                    .ok()?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if relative == suffix || relative.ends_with(&format!("/{suffix}")) {
+                    Some(path.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        if matches.len() == 1 {
+            return matches.into_iter().next();
+        }
+    }
+
+    None
+}
+
+fn relative_path_suffixes(relative_path: &str) -> Vec<String> {
+    let mut suffixes = Vec::new();
+    let mut current = relative_path.trim_matches('/').to_string();
+    while !current.is_empty() {
+        suffixes.push(current.clone());
+        let Some((_, tail)) = current.split_once('/') else {
+            break;
+        };
+        current = tail.to_string();
+    }
+    suffixes
+}
+
+fn collect_skill_documents(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_skill_documents(&path, out)?;
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let is_md = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("md"));
+        if is_md {
+            out.push(path);
+        }
+    }
+
+    Ok(())
 }
 
 impl HistoryStore {

@@ -201,6 +201,10 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Open approvals center", theme.fg_dim),
         ]),
         Line::from(vec![
+            Span::styled("  /compact         ", theme.fg_active),
+            Span::styled("Force compact current thread", theme.fg_dim),
+        ]),
+        Line::from(vec![
             Span::styled("  /help            ", theme.fg_active),
             Span::styled("This help screen", theme.fg_dim),
         ]),
@@ -289,5 +293,17 @@ mod tests {
 
         assert!(text.contains("/notifications"));
         assert!(text.contains("/approvals"));
+    }
+
+    #[test]
+    fn help_modal_lists_compact_command() {
+        let text = help_modal_lines(&ThemeTokens::default())
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("/compact"));
+        assert!(text.contains("Force compact current thread"));
     }
 }

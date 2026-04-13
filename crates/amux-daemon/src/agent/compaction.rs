@@ -7,6 +7,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
 const HEURISTIC_COMPACTION_VISIBLE_TEXT: &str = "rule based";
 const COMPACTION_NOTICE_KIND: &str = "auto-compaction";
+const MANUAL_COMPACTION_NOTICE_KIND: &str = "manual-compaction";
 const COMPACTION_EXACT_MESSAGE_MAX: usize = 24;
 const COMPACTION_MODEL_RECENT_CONTENT_MESSAGES: usize = 6;
 const COMPACTION_MODEL_REQUEST_HEADROOM_TOKENS: usize = 8_192;
@@ -75,6 +76,13 @@ pub(super) enum CompactionTrigger {
     MessageCount,
     TokenThreshold,
     MessageCountAndTokenThreshold,
+    ManualRequest,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompactionCandidateMode {
+    Automatic,
+    Forced,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -549,21 +557,55 @@ pub(super) fn compaction_candidate(
     config: &AgentConfig,
     provider_config: &ProviderConfig,
 ) -> Option<CompactionCandidate> {
+    compaction_candidate_with_mode(
+        messages,
+        config,
+        provider_config,
+        CompactionCandidateMode::Automatic,
+    )
+}
+
+pub(super) fn forced_compaction_candidate(
+    messages: &[AgentMessage],
+    config: &AgentConfig,
+    provider_config: &ProviderConfig,
+) -> Option<CompactionCandidate> {
+    compaction_candidate_with_mode(
+        messages,
+        config,
+        provider_config,
+        CompactionCandidateMode::Forced,
+    )
+}
+
+fn compaction_candidate_with_mode(
+    messages: &[AgentMessage],
+    config: &AgentConfig,
+    provider_config: &ProviderConfig,
+    mode: CompactionCandidateMode,
+) -> Option<CompactionCandidate> {
     let (_, active_messages) = active_compaction_window(messages);
-    if active_messages.is_empty() || !config.auto_compact_context {
+    if active_messages.is_empty()
+        || (mode == CompactionCandidateMode::Automatic && !config.auto_compact_context)
+    {
         return None;
     }
 
     let max_messages = config.max_context_messages.max(1) as usize;
     let target_tokens = effective_context_target_tokens(config, provider_config);
-    let over_message_limit = config.compaction.strategy == CompactionStrategy::Heuristic
-        && active_messages.len() > max_messages;
-    let over_token_limit = estimate_message_tokens(active_messages) > target_tokens;
-    let trigger = match (over_message_limit, over_token_limit) {
-        (false, false) => return None,
-        (true, false) => CompactionTrigger::MessageCount,
-        (false, true) => CompactionTrigger::TokenThreshold,
-        (true, true) => CompactionTrigger::MessageCountAndTokenThreshold,
+    let trigger = match mode {
+        CompactionCandidateMode::Forced => CompactionTrigger::ManualRequest,
+        CompactionCandidateMode::Automatic => {
+            let over_message_limit = config.compaction.strategy == CompactionStrategy::Heuristic
+                && active_messages.len() > max_messages;
+            let over_token_limit = estimate_message_tokens(active_messages) > target_tokens;
+            match (over_message_limit, over_token_limit) {
+                (false, false) => return None,
+                (true, false) => CompactionTrigger::MessageCount,
+                (false, true) => CompactionTrigger::TokenThreshold,
+                (true, true) => CompactionTrigger::MessageCountAndTokenThreshold,
+            }
+        }
     };
 
     let keep_recent = config
@@ -710,6 +752,7 @@ fn compaction_visible_trigger_label(trigger: CompactionTrigger) -> &'static str 
         CompactionTrigger::MessageCount => "message-count",
         CompactionTrigger::TokenThreshold => "token-threshold",
         CompactionTrigger::MessageCountAndTokenThreshold => "message-count + token-threshold",
+        CompactionTrigger::ManualRequest => "manual-request",
     }
 }
 
@@ -718,6 +761,7 @@ fn compaction_trigger_detail_value(trigger: CompactionTrigger) -> &'static str {
         CompactionTrigger::MessageCount => "message_count",
         CompactionTrigger::TokenThreshold => "token_threshold",
         CompactionTrigger::MessageCountAndTokenThreshold => "message_count_and_token_threshold",
+        CompactionTrigger::ManualRequest => "manual_request",
     }
 }
 
@@ -727,15 +771,22 @@ fn build_compaction_visible_content(
     target_tokens: usize,
     trigger: CompactionTrigger,
     strategy_used: CompactionStrategy,
+    payload: &str,
 ) -> String {
-    format!(
+    let header = format!(
         "Pre-compaction context: ~{} / {} tokens (threshold {})\nTrigger: {}\nStrategy: {}",
         format_token_count(pre_compaction_total_tokens),
         format_token_count(effective_context_window_tokens),
         format_token_count(target_tokens),
         compaction_visible_trigger_label(trigger),
         compaction_visible_strategy_label(strategy_used),
-    )
+    );
+
+    if payload.trim().is_empty() {
+        header
+    } else {
+        format!("{header}\n\nContent:\n{payload}")
+    }
 }
 
 fn strategy_target_cap_tokens(
@@ -1728,6 +1779,41 @@ impl AgentEngine {
         config: &AgentConfig,
         provider_config: &ProviderConfig,
     ) -> Result<bool> {
+        self.persist_compaction_artifact_with_mode(
+            thread_id,
+            task_id,
+            config,
+            provider_config,
+            CompactionCandidateMode::Automatic,
+        )
+        .await
+    }
+
+    pub(super) async fn force_persist_compaction_artifact(
+        &self,
+        thread_id: &str,
+        task_id: Option<&str>,
+        config: &AgentConfig,
+        provider_config: &ProviderConfig,
+    ) -> Result<bool> {
+        self.persist_compaction_artifact_with_mode(
+            thread_id,
+            task_id,
+            config,
+            provider_config,
+            CompactionCandidateMode::Forced,
+        )
+        .await
+    }
+
+    async fn persist_compaction_artifact_with_mode(
+        &self,
+        thread_id: &str,
+        task_id: Option<&str>,
+        config: &AgentConfig,
+        provider_config: &ProviderConfig,
+        mode: CompactionCandidateMode,
+    ) -> Result<bool> {
         let snapshot = {
             let threads = self.threads.read().await;
             threads.get(thread_id).cloned()
@@ -1736,8 +1822,14 @@ impl AgentEngine {
             return Ok(false);
         };
         let (window_start, _) = active_compaction_window(&thread.messages);
-        let Some(candidate) = compaction_candidate(&thread.messages, config, provider_config)
-        else {
+        let Some(candidate) = (match mode {
+            CompactionCandidateMode::Automatic => {
+                compaction_candidate(&thread.messages, config, provider_config)
+            }
+            CompactionCandidateMode::Forced => {
+                forced_compaction_candidate(&thread.messages, config, provider_config)
+            }
+        }) else {
             return Ok(false);
         };
         let pre_compaction_total_tokens = estimate_message_tokens(&thread.messages[window_start..]);
@@ -1766,6 +1858,7 @@ impl AgentEngine {
             candidate.target_tokens,
             candidate.trigger,
             strategy_used,
+            artifact.compaction_payload.as_deref().unwrap_or(""),
         );
 
         let current_split_at = {
@@ -1774,9 +1867,14 @@ impl AgentEngine {
                 return Ok(false);
             };
             let (window_start, _) = active_compaction_window(&thread.messages);
-            let Some(current_candidate) =
-                compaction_candidate(&thread.messages, config, provider_config)
-            else {
+            let Some(current_candidate) = (match mode {
+                CompactionCandidateMode::Automatic => {
+                    compaction_candidate(&thread.messages, config, provider_config)
+                }
+                CompactionCandidateMode::Forced => {
+                    forced_compaction_candidate(&thread.messages, config, provider_config)
+                }
+            }) else {
                 return Ok(false);
             };
             let current_split_at = window_start + current_candidate.split_at;
@@ -1798,7 +1896,14 @@ impl AgentEngine {
         self.persist_thread_by_id(thread_id).await;
         self.record_provenance_event(
             "context_compressed",
-            "thread context was compacted for an LLM request",
+            match mode {
+                CompactionCandidateMode::Automatic => {
+                    "thread context was compacted for an LLM request"
+                }
+                CompactionCandidateMode::Forced => {
+                    "thread context was compacted by operator request"
+                }
+            },
             serde_json::json!({
                 "thread_id": thread_id,
                 "split_at": split_at,
@@ -1806,6 +1911,7 @@ impl AgentEngine {
                 "trigger": compaction_trigger_detail_value(candidate.trigger),
                 "message_count": message_count,
                 "strategy": strategy_used,
+                "forced": mode == CompactionCandidateMode::Forced,
             }),
             None,
             task_id,
@@ -1828,9 +1934,17 @@ impl AgentEngine {
         });
         let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
             thread_id: thread_id.to_string(),
-            kind: COMPACTION_NOTICE_KIND.to_string(),
+            kind: match mode {
+                CompactionCandidateMode::Automatic => COMPACTION_NOTICE_KIND,
+                CompactionCandidateMode::Forced => MANUAL_COMPACTION_NOTICE_KIND,
+            }
+            .to_string(),
             message: format!(
-                "Auto compaction applied using {}. {}",
+                "{} compaction applied using {}. {}",
+                match mode {
+                    CompactionCandidateMode::Automatic => "Auto",
+                    CompactionCandidateMode::Forced => "Manual",
+                },
                 serde_json::to_string(&strategy_used)
                     .unwrap_or_else(|_| "\"heuristic\"".to_string())
                     .trim_matches('"'),
@@ -1841,11 +1955,62 @@ impl AgentEngine {
         if let Some(fallback_notice) = fallback_notice {
             let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
                 thread_id: thread_id.to_string(),
-                kind: COMPACTION_NOTICE_KIND.to_string(),
+                kind: match mode {
+                    CompactionCandidateMode::Automatic => COMPACTION_NOTICE_KIND,
+                    CompactionCandidateMode::Forced => MANUAL_COMPACTION_NOTICE_KIND,
+                }
+                .to_string(),
                 message: fallback_notice,
                 details: Some(compaction_notice_details),
             });
         }
+        Ok(true)
+    }
+
+    pub async fn force_compact_and_continue(self: &Arc<Self>, thread_id: &str) -> Result<bool> {
+        if !self.threads.read().await.contains_key(thread_id) {
+            anyhow::bail!("thread not found: {thread_id}");
+        }
+
+        let latest_user_content = self.latest_visible_user_message_content(thread_id).await;
+        let latest_user_content = latest_user_content
+            .as_deref()
+            .filter(|content| !content.trim().is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                anyhow::anyhow!("no user message available to continue after compaction")
+            })?;
+        let agent_id = self
+            .active_agent_id_for_thread(thread_id)
+            .await
+            .unwrap_or_else(|| MAIN_AGENT_ID.to_string());
+        let continuation = DeferredVisibleThreadContinuation {
+            agent_id,
+            preferred_session_hint: None,
+            llm_user_content: latest_user_content,
+            force_compaction: true,
+        };
+
+        let was_streaming = {
+            let streams = self.stream_cancellations.lock().await;
+            streams.contains_key(thread_id)
+        };
+        self.enqueue_visible_thread_continuation(thread_id, continuation)
+            .await;
+
+        if was_streaming && self.stop_stream(thread_id).await {
+            let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                thread_id: thread_id.to_string(),
+                kind: MANUAL_COMPACTION_NOTICE_KIND.to_string(),
+                message: "Manual compaction requested; waiting for the current stream to stop."
+                    .to_string(),
+                details: None,
+            });
+            return Ok(true);
+        }
+
+        self.flush_deferred_visible_thread_continuations(thread_id)
+            .await?;
         Ok(true)
     }
 
@@ -1945,6 +2110,7 @@ impl AgentEngine {
             target_tokens,
             trigger,
             strategy_used,
+            &payload,
         );
 
         Ok((

@@ -2076,6 +2076,277 @@
     }
 
     #[tokio::test]
+    async fn spawn_subagent_rejects_recursive_spawn_beyond_default_flat_depth() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+
+        engine.tasks.lock().await.push_back(crate::agent::types::AgentTask {
+            id: "task-parent-subagent".to_string(),
+            title: "Parent subagent".to_string(),
+            description: "Already delegated child work".to_string(),
+            status: crate::agent::types::TaskStatus::Queued,
+            priority: crate::agent::types::TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some("thread-parent".to_string()),
+            source: "subagent".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: Some("task-root".to_string()),
+            parent_thread_id: Some("thread-parent".to_string()),
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+        let error = super::execute_spawn_subagent(
+            &serde_json::json!({
+                "title": "Grandchild helper",
+                "description": "Try to recurse under a flat default subagent."
+            }),
+            &engine,
+            "thread-parent",
+            Some("task-parent-subagent"),
+            &manager,
+            None,
+            &event_tx,
+        )
+        .await
+        .expect_err("nested recursion should be rejected by default");
+
+        assert!(error.to_string().contains("max_depth") || error.to_string().contains("depth"));
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_allows_recursive_spawn_when_parent_scope_permits_and_derives_limits() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+
+        engine.tasks.lock().await.push_back(crate::agent::types::AgentTask {
+            id: "task-parent-subagent".to_string(),
+            title: "Parent subagent".to_string(),
+            description: "Allowed to recurse one level deeper".to_string(),
+            status: crate::agent::types::TaskStatus::Queued,
+            priority: crate::agent::types::TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some("thread-parent".to_string()),
+            source: "subagent".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: Some("task-root".to_string()),
+            parent_thread_id: Some("thread-parent".to_string()),
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: Some("subagent-depth:1/2".to_string()),
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: Some(20_000),
+            context_overflow_action: None,
+            termination_conditions: Some("tool_call_count(10)".to_string()),
+            success_criteria: None,
+            max_duration_secs: Some(240),
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+        let result = super::execute_spawn_subagent(
+            &serde_json::json!({
+                "title": "Grandchild helper",
+                "description": "Recurse one level deeper with inherited depth allowance."
+            }),
+            &engine,
+            "thread-parent",
+            Some("task-parent-subagent"),
+            &manager,
+            None,
+            &event_tx,
+        )
+        .await
+        .expect("nested recursion should succeed when parent scope permits it");
+
+        assert!(result.contains("Delegation depth: 2/2"));
+
+        let task = engine
+            .list_tasks()
+            .await
+            .into_iter()
+            .find(|task| result.contains(&task.id))
+            .expect("spawned recursive subagent should exist");
+        assert_eq!(task.containment_scope.as_deref(), Some("subagent-depth:2/2"));
+        assert_eq!(task.context_budget_tokens, Some(20_000));
+        assert_eq!(task.max_duration_secs, Some(180));
+        assert!(task
+            .termination_conditions
+            .as_deref()
+            .is_some_and(|dsl| dsl.contains("tool_call_count(10)")));
+        assert_eq!(
+            task.context_overflow_action,
+            Some(crate::agent::types::ContextOverflowAction::Error)
+        );
+    }
+
+    #[tokio::test]
+    async fn list_subagents_includes_depth_and_budget_remaining() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+
+        let parent = engine
+            .enqueue_task(
+                "Parent coordinator".to_string(),
+                "Coordinate the child work".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some("thread-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+
+        let mut child = engine
+            .enqueue_task(
+                "Depth child".to_string(),
+                "Inspect deployment risks".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                Some(parent.id.clone()),
+                Some("thread-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        child.containment_scope = Some("subagent-depth:1/2".to_string());
+        child.context_budget_tokens = Some(10_000);
+        child.max_duration_secs = Some(100);
+        child.termination_conditions = Some("tool_call_count(15)".to_string());
+        child.started_at = Some(crate::agent::now_millis().saturating_sub(20_000));
+        {
+            let mut tasks = engine.tasks.lock().await;
+            if let Some(existing) = tasks.iter_mut().find(|task| task.id == child.id) {
+                *existing = child.clone();
+            }
+        }
+
+        engine
+            .history
+            .upsert_subagent_metrics(
+                &child.id,
+                Some(&parent.id),
+                Some("thread-parent"),
+                7,
+                5,
+                2,
+                2500,
+                Some(10_000),
+                0.2,
+                Some(crate::agent::now_millis().saturating_sub(5_000)),
+                0.1,
+                "healthy",
+                1,
+                crate::agent::now_millis(),
+            )
+            .await
+            .expect("subagent metrics should persist");
+
+        let result = super::execute_list_subagents(
+            &serde_json::json!({ "parent_task_id": parent.id }),
+            &engine,
+            "thread-parent",
+            None,
+        )
+        .await
+        .expect("list_subagents should succeed");
+
+        let payload: serde_json::Value = serde_json::from_str(&result).expect("valid JSON payload");
+        let items = payload.as_array().expect("list_subagents should return an array");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["depth"].as_u64(), Some(1));
+        assert_eq!(items[0]["max_depth"].as_u64(), Some(2));
+        assert_eq!(
+            items[0]["budget_remaining"]["tool_calls_remaining"].as_u64(),
+            Some(8)
+        );
+        assert!(items[0]["budget_remaining"]["tokens_pct"]
+            .as_f64()
+            .is_some_and(|value| value > 0.7));
+    }
+
+    #[tokio::test]
     async fn handoff_thread_agent_push_updates_active_responder_and_writes_system_event() {
         let root = tempdir().expect("tempdir should succeed");
         let manager = SessionManager::new_test(root.path()).await;

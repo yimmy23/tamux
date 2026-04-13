@@ -1,3 +1,242 @@
+use crate::agent::types::AgentTask;
+
+const MAX_RECURSIVE_SUBAGENT_DEPTH: u8 = 3;
+const RECURSIVE_SUBAGENT_BUDGET_CURVE: [f64; 3] = [1.0, 0.6, 0.3];
+const DEFAULT_SUBAGENT_MAX_DURATION_SECS: u64 = 300;
+const DEFAULT_SUBAGENT_MAX_TOOL_CALLS: u32 = 50;
+
+#[derive(Debug, Clone, Copy, Default)]
+struct RequestedSubagentBudget {
+    max_tokens: Option<u32>,
+    max_wall_time_secs: Option<u64>,
+    max_tool_calls: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DerivedSubagentLimits {
+    child_depth: u8,
+    max_depth: u8,
+    context_budget_tokens: Option<u32>,
+    max_duration_secs: Option<u64>,
+    max_tool_calls: Option<u32>,
+}
+
+fn budget_fraction_for_depth(depth: u8) -> f64 {
+    RECURSIVE_SUBAGENT_BUDGET_CURVE
+        .get(depth.saturating_sub(1) as usize)
+        .copied()
+        .unwrap_or(0.1)
+}
+
+pub(super) fn parse_subagent_containment_scope(scope: Option<&str>) -> Option<(u8, u8)> {
+    let scope = scope?.trim();
+    let payload = scope.strip_prefix("subagent-depth:")?;
+    let (depth, max_depth) = payload.split_once('/')?;
+    let depth = depth.trim().parse::<u8>().ok()?;
+    let max_depth = max_depth.trim().parse::<u8>().ok()?;
+    Some((depth, max_depth))
+}
+
+fn format_subagent_containment_scope(depth: u8, max_depth: u8) -> String {
+    format!("subagent-depth:{depth}/{max_depth}")
+}
+
+pub(super) fn compute_task_delegation_depth(task: &AgentTask, all_tasks: &[AgentTask]) -> u8 {
+    let mut depth = 0u8;
+    let mut current_parent_id = task.parent_task_id.as_deref();
+    while let Some(parent_id) = current_parent_id {
+        depth = depth.saturating_add(1);
+        current_parent_id = all_tasks
+            .iter()
+            .find(|candidate| candidate.id == parent_id)
+            .and_then(|parent| parent.parent_task_id.as_deref());
+    }
+    depth
+}
+
+pub(super) fn effective_subagent_max_depth(task: &AgentTask, all_tasks: &[AgentTask]) -> u8 {
+    parse_subagent_containment_scope(task.containment_scope.as_deref())
+        .map(|(_, max_depth)| max_depth)
+        .unwrap_or_else(|| compute_task_delegation_depth(task, all_tasks).max(1))
+}
+
+pub(super) fn extract_tool_call_limit(dsl: Option<&str>) -> Option<u32> {
+    let mut remaining = dsl?;
+    let mut limit = None::<u32>;
+    let marker = "tool_call_count(";
+    while let Some(idx) = remaining.find(marker) {
+        let after = &remaining[idx + marker.len()..];
+        let Some(close_idx) = after.find(')') else {
+            break;
+        };
+        if let Ok(value) = after[..close_idx].trim().parse::<u32>() {
+            limit = Some(limit.map_or(value, |current| current.min(value)));
+        }
+        remaining = &after[close_idx + 1..];
+    }
+    limit
+}
+
+fn merge_tool_call_limit(existing: Option<String>, max_tool_calls: Option<u32>) -> Option<String> {
+    let Some(max_tool_calls) = max_tool_calls else {
+        return existing;
+    };
+    match existing {
+        Some(existing) if !existing.trim().is_empty() => {
+            Some(format!("({existing}) OR tool_call_count({max_tool_calls})"))
+        }
+        _ => Some(format!("tool_call_count({max_tool_calls})")),
+    }
+}
+
+fn parse_requested_subagent_budget(
+    args: &serde_json::Value,
+) -> Result<Option<RequestedSubagentBudget>> {
+    let Some(budget) = args.get("budget") else {
+        return Ok(None);
+    };
+    let Some(budget) = budget.as_object() else {
+        anyhow::bail!("'budget' must be an object when provided");
+    };
+    let max_tokens = budget
+        .get("max_tokens")
+        .and_then(|value| value.as_u64())
+        .map(|value| value.min(u32::MAX as u64) as u32);
+    let max_wall_time_secs = budget
+        .get("max_wall_time_secs")
+        .and_then(|value| value.as_u64());
+    let max_tool_calls = budget
+        .get("max_tool_calls")
+        .and_then(|value| value.as_u64())
+        .map(|value| value.min(u32::MAX as u64) as u32);
+
+    Ok(Some(RequestedSubagentBudget {
+        max_tokens,
+        max_wall_time_secs,
+        max_tool_calls,
+    }))
+}
+
+fn derive_subagent_limits(
+    current_task: Option<&AgentTask>,
+    all_tasks: &[AgentTask],
+    requested_max_depth: Option<u8>,
+    requested_budget: Option<RequestedSubagentBudget>,
+    default_context_window_tokens: u32,
+) -> Result<DerivedSubagentLimits> {
+    let parent_depth = current_task
+        .map(|task| compute_task_delegation_depth(task, all_tasks))
+        .unwrap_or(0);
+    let parent_max_depth = current_task
+        .map(|task| effective_subagent_max_depth(task, all_tasks))
+        .unwrap_or(1);
+    let child_depth = parent_depth.saturating_add(1);
+    if child_depth > MAX_RECURSIVE_SUBAGENT_DEPTH {
+        anyhow::bail!(
+            "recursive subagent depth limit exceeded: requested depth {} but hard cap is {}",
+            child_depth,
+            MAX_RECURSIVE_SUBAGENT_DEPTH
+        );
+    }
+
+    let max_depth = requested_max_depth.unwrap_or(parent_max_depth);
+    if max_depth == 0 {
+        anyhow::bail!("'max_depth' must be at least 1");
+    }
+    if max_depth > MAX_RECURSIVE_SUBAGENT_DEPTH {
+        anyhow::bail!(
+            "requested max_depth {} exceeds hard cap {}",
+            max_depth,
+            MAX_RECURSIVE_SUBAGENT_DEPTH
+        );
+    }
+    if max_depth < child_depth {
+        anyhow::bail!(
+            "requested max_depth {} is below child delegation depth {}",
+            max_depth,
+            child_depth
+        );
+    }
+    if current_task.is_some() && max_depth > parent_max_depth {
+        anyhow::bail!(
+            "requested max_depth {} exceeds parent allowance {}",
+            max_depth,
+            parent_max_depth
+        );
+    }
+
+    let fraction = budget_fraction_for_depth(child_depth);
+    let derived_context_budget = {
+        let base = (default_context_window_tokens as f64 * fraction).round() as u32;
+        current_task
+            .and_then(|task| task.context_budget_tokens)
+            .map(|parent: u32| parent.min(base))
+            .or(Some(base.max(256)))
+    };
+    let derived_max_duration = {
+        let base = (DEFAULT_SUBAGENT_MAX_DURATION_SECS as f64 * fraction).round() as u64;
+        current_task
+            .and_then(|task| task.max_duration_secs)
+            .map(|parent: u64| parent.min(base.max(30)))
+            .or(Some(base.max(30)))
+    };
+    let derived_max_tool_calls = {
+        let base = (DEFAULT_SUBAGENT_MAX_TOOL_CALLS as f64 * fraction).round() as u32;
+        current_task
+            .and_then(|task| extract_tool_call_limit(task.termination_conditions.as_deref()))
+            .map(|parent: u32| parent.min(base.max(1)))
+            .or(Some(base.max(1)))
+    };
+
+    let requested_budget = requested_budget.unwrap_or_default();
+    if let Some(current_task) = current_task {
+        if let (Some(requested), Some(parent)) = (
+            requested_budget.max_tokens,
+            current_task.context_budget_tokens,
+        ) {
+            if requested > parent {
+                anyhow::bail!(
+                    "requested budget.max_tokens {} exceeds parent context budget {}",
+                    requested,
+                    parent
+                );
+            }
+        }
+        if let (Some(requested), Some(parent)) = (
+            requested_budget.max_wall_time_secs,
+            current_task.max_duration_secs,
+        ) {
+            if requested > parent {
+                anyhow::bail!(
+                    "requested budget.max_wall_time_secs {} exceeds parent max_duration_secs {}",
+                    requested,
+                    parent
+                );
+            }
+        }
+        if let (Some(requested), Some(parent)) = (
+            requested_budget.max_tool_calls,
+            extract_tool_call_limit(current_task.termination_conditions.as_deref()),
+        ) {
+            if requested > parent {
+                anyhow::bail!(
+                    "requested budget.max_tool_calls {} exceeds parent tool-call budget {}",
+                    requested,
+                    parent
+                );
+            }
+        }
+    }
+
+    Ok(DerivedSubagentLimits {
+        child_depth,
+        max_depth,
+        context_budget_tokens: requested_budget.max_tokens.or(derived_context_budget),
+        max_duration_secs: requested_budget.max_wall_time_secs.or(derived_max_duration),
+        max_tool_calls: requested_budget.max_tool_calls.or(derived_max_tool_calls),
+    })
+}
+
 async fn execute_spawn_subagent(
     args: &serde_json::Value,
     agent: &AgentEngine,
@@ -91,15 +330,28 @@ async fn execute_spawn_subagent(
         })
         .unwrap_or_default();
 
+    let existing_tasks = agent.list_tasks().await;
     let task_snapshot = if let Some(current_task_id) = task_id {
-        agent
-            .list_tasks()
-            .await
-            .into_iter()
+        existing_tasks
+            .iter()
             .find(|task| task.id == current_task_id)
+            .cloned()
     } else {
         None
     };
+    let requested_max_depth = args
+        .get("max_depth")
+        .and_then(|value| value.as_u64())
+        .map(|value| value.min(u8::MAX as u64) as u8);
+    let requested_budget = parse_requested_subagent_budget(args)?;
+    let default_context_window_tokens = agent.config.read().await.context_window_tokens;
+    let derived_limits = derive_subagent_limits(
+        task_snapshot.as_ref(),
+        &existing_tasks,
+        requested_max_depth,
+        requested_budget,
+        default_context_window_tokens,
+    )?;
 
     let mut chosen_session = args
         .get("session")
@@ -211,6 +463,20 @@ async fn execute_spawn_subagent(
             .await;
     }
 
+    subagent.containment_scope = Some(format_subagent_containment_scope(
+        derived_limits.child_depth,
+        derived_limits.max_depth,
+    ));
+    subagent.context_budget_tokens = derived_limits.context_budget_tokens;
+    subagent.max_duration_secs = derived_limits.max_duration_secs;
+    if subagent.context_budget_tokens.is_some() {
+        subagent.context_overflow_action = Some(crate::agent::types::ContextOverflowAction::Error);
+    }
+    subagent.termination_conditions = merge_tool_call_limit(
+        subagent.termination_conditions.clone(),
+        derived_limits.max_tool_calls,
+    );
+
     let persona_prompt = if subagent.sub_agent_def_id.as_deref()
         == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
     {
@@ -253,9 +519,19 @@ async fn execute_spawn_subagent(
         .as_ref()
         .map(|id| format!("\nMatched sub-agent definition: {id}"))
         .unwrap_or_default();
+    let depth_suffix = format!(
+        "\nDelegation depth: {}/{}",
+        derived_limits.child_depth, derived_limits.max_depth
+    );
+    let budget_suffix = format!(
+        "\nBudget: {} tokens, {}s, {} tool calls",
+        derived_limits.context_budget_tokens.unwrap_or(0),
+        derived_limits.max_duration_secs.unwrap_or(0),
+        derived_limits.max_tool_calls.unwrap_or(0)
+    );
     Ok(format!(
-        "Spawned subagent {} with runtime {}.{}{}{def_suffix}",
-        subagent.id, runtime, lane_suffix, persona_suffix
+        "Spawned subagent {} with runtime {}.{}{}{}{budget_suffix}{def_suffix}",
+        subagent.id, runtime, lane_suffix, persona_suffix, depth_suffix
     ))
 }
 
@@ -307,10 +583,7 @@ async fn execute_fetch_provider_models(
         .map_err(|error| anyhow::anyhow!("failed to serialize provider models: {error}"))
 }
 
-async fn execute_list_models(
-    args: &serde_json::Value,
-    agent: &AgentEngine,
-) -> Result<String> {
+async fn execute_list_models(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
     execute_fetch_provider_models(args, agent).await
 }
 
@@ -430,10 +703,7 @@ async fn execute_list_participants(agent: &AgentEngine, thread_id: &str) -> Resu
         .map_err(|error| anyhow::anyhow!("failed to serialize thread participants: {error}"))
 }
 
-async fn execute_switch_model(
-    args: &serde_json::Value,
-    agent: &AgentEngine,
-) -> Result<String> {
+async fn execute_switch_model(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
     if current_agent_scope_id() != MAIN_AGENT_ID {
         anyhow::bail!("`switch_model` is only available to svarog");
     }
@@ -473,7 +743,9 @@ async fn validate_spawn_provider_override(
     model_override: Option<&str>,
 ) -> Result<()> {
     let provider_config = resolve_authenticated_provider_config(agent, provider_id).await?;
-    let Some(model_override) = model_override.map(str::trim).filter(|value| !value.is_empty())
+    let Some(model_override) = model_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
     else {
         return Ok(());
     };
@@ -561,7 +833,10 @@ pub(in crate::agent) async fn spawn_weles_internal_subagent(
     };
     let task_snapshot = if let Some(current_task_id) = parent_task_id {
         let tasks = agent.tasks.lock().await;
-        tasks.iter().find(|task| task.id == current_task_id).cloned()
+        tasks
+            .iter()
+            .find(|task| task.id == current_task_id)
+            .cloned()
     } else {
         None
     };
@@ -570,10 +845,9 @@ pub(in crate::agent) async fn spawn_weles_internal_subagent(
         .iter()
         .find(|sa| sa.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
         .cloned()
-            .ok_or_else(|| anyhow::anyhow!("missing daemon-owned WELES definition"))?;
-    let task_health_signals = crate::agent::weles_governance::build_task_health_signals(
-        task_snapshot.as_ref(),
-    );
+        .ok_or_else(|| anyhow::anyhow!("missing daemon-owned WELES definition"))?;
+    let task_health_signals =
+        crate::agent::weles_governance::build_task_health_signals(task_snapshot.as_ref());
 
     let inspection_context = serde_json::json!({
         "tool_name": tool_name,
@@ -598,7 +872,9 @@ pub(in crate::agent) async fn spawn_weles_internal_subagent(
             description,
             "high",
             None,
-            task_snapshot.as_ref().and_then(|task| task.session_id.clone()),
+            task_snapshot
+                .as_ref()
+                .and_then(|task| task.session_id.clone()),
             Vec::new(),
             None,
             "subagent",
@@ -812,6 +1088,205 @@ async fn execute_get_divergent_session(
     }
 }
 
+async fn execute_run_debate(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<String> {
+    let topic = args
+        .get("topic")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'topic' argument"))?
+        .to_string();
+
+    let custom_framings = args
+        .get("custom_framings")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let label = item.get("label")?.as_str()?.trim().to_string();
+                    let prompt = item
+                        .get("system_prompt_override")?
+                        .as_str()?
+                        .trim()
+                        .to_string();
+                    if label.is_empty() || prompt.is_empty() {
+                        return None;
+                    }
+                    Some(super::handoff::divergent::Framing {
+                        label,
+                        system_prompt_override: prompt,
+                        task_id: None,
+                        contribution_id: None,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|v| v.len() >= 2);
+
+    let goal_run_id = task_id.and_then(|_tid| None::<&str>);
+
+    match agent
+        .start_debate_session(&topic, custom_framings, thread_id, goal_run_id)
+        .await
+    {
+        Ok(session_id) => {
+            let response = serde_json::json!({
+                "status": "started",
+                "session_id": session_id,
+                "topic": topic,
+                "message": "Debate session started. Use get_debate_session with this session_id to retrieve the debate state and verdict as it progresses."
+            });
+            Ok(serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string()))
+        }
+        Err(e) => Ok(format!("Debate session failed: {e}")),
+    }
+}
+
+async fn execute_get_debate_session(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'session_id' argument"))?;
+
+    match agent.get_debate_session_payload(session_id).await {
+        Ok(payload) => {
+            Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+        }
+        Err(error) => Ok(format!("Failed to fetch debate session: {error}")),
+    }
+}
+
+async fn execute_append_debate_argument(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'session_id' argument"))?;
+    let role = match args
+        .get("role")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .ok_or_else(|| anyhow::anyhow!("missing 'role' argument"))?
+    {
+        "proponent" => crate::agent::debate::types::RoleKind::Proponent,
+        "skeptic" => crate::agent::debate::types::RoleKind::Skeptic,
+        "synthesizer" => crate::agent::debate::types::RoleKind::Synthesizer,
+        other => anyhow::bail!("invalid 'role' argument: {other}"),
+    };
+    let agent_id = args
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'agent_id' argument"))?
+        .to_string();
+    let content = args
+        .get("content")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?
+        .to_string();
+    let evidence_refs = args
+        .get("evidence_refs")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let responds_to = args
+        .get("responds_to")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+
+    let session = agent
+        .get_persisted_debate_session(session_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("unknown debate session: {session_id}"))?;
+    let argument = crate::agent::debate::types::Argument {
+        id: format!("arg_{}", uuid::Uuid::new_v4()),
+        round: session.current_round,
+        role,
+        agent_id,
+        content,
+        evidence_refs,
+        responds_to,
+        timestamp_ms: crate::agent::debate::protocol::now_millis(),
+    };
+
+    agent.append_debate_argument(session_id, argument).await?;
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "status": "appended",
+        "session_id": session_id,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_advance_debate_round(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'session_id' argument"))?;
+
+    match agent.advance_debate_round(session_id).await {
+        Ok(session) => Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "status": "advanced",
+            "session_id": session.id,
+            "current_round": session.current_round,
+            "roles": session.roles,
+        }))
+        .unwrap_or_else(|_| "{}".to_string())),
+        Err(error) => Ok(format!("Failed to advance debate round: {error}")),
+    }
+}
+
+async fn execute_complete_debate_session(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'session_id' argument"))?;
+
+    match agent.complete_debate_session(session_id).await {
+        Ok(payload) => {
+            Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+        }
+        Err(error) => Ok(format!("Failed to complete debate session: {error}")),
+    }
+}
+
 async fn execute_handoff_thread_agent(
     args: &serde_json::Value,
     agent: &AgentEngine,
@@ -904,7 +1379,9 @@ async fn execute_handoff_thread_agent(
         ));
     }
 
-    let event = agent.apply_thread_handoff_activation(&request, None).await?;
+    let event = agent
+        .apply_thread_handoff_activation(&request, None)
+        .await?;
     Ok((
         format!(
             "Thread handoff complete: {} -> {}.",
@@ -982,15 +1459,17 @@ async fn execute_message_agent(
                 message,
             )
             .await;
-        agent.enqueue_visible_thread_continuation(
-            thread_id,
-            crate::agent::DeferredVisibleThreadContinuation {
-                agent_id: resolved_target_id.clone(),
-                preferred_session_hint: preferred_session_hint.clone(),
-                llm_user_content: continuation_prompt,
-            },
-        )
-        .await;
+        agent
+            .enqueue_visible_thread_continuation(
+                thread_id,
+                crate::agent::DeferredVisibleThreadContinuation {
+                    agent_id: resolved_target_id.clone(),
+                    preferred_session_hint: preferred_session_hint.clone(),
+                    llm_user_content: continuation_prompt,
+                    force_compaction: false,
+                },
+            )
+            .await;
         result
     } else {
         Box::pin(agent.send_internal_agent_message(

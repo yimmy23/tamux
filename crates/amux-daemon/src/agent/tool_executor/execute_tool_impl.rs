@@ -388,6 +388,11 @@ pub fn execute_tool<'a>(
         }
         "run_divergent" => execute_run_divergent(&args, agent, thread_id, task_id).await,
         "get_divergent_session" => execute_get_divergent_session(&args, agent).await,
+        "run_debate" => execute_run_debate(&args, agent, thread_id, task_id).await,
+        "get_debate_session" => execute_get_debate_session(&args, agent).await,
+        "append_debate_argument" => execute_append_debate_argument(&args, agent).await,
+        "advance_debate_round" => execute_advance_debate_round(&args, agent).await,
+        "complete_debate_session" => execute_complete_debate_session(&args, agent).await,
         "broadcast_contribution" => {
             execute_broadcast_contribution(&args, agent, thread_id, task_id).await
         }

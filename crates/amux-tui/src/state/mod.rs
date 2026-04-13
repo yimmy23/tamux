@@ -105,6 +105,9 @@ pub enum DaemonCommand {
     StopStream {
         thread_id: String,
     },
+    ForceCompact {
+        thread_id: String,
+    },
     RetryStreamNow {
         thread_id: String,
     },

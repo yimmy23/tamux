@@ -177,6 +177,9 @@ pub struct AgentConfig {
     /// Multi-agent collaboration controls.
     #[serde(default)]
     pub collaboration: CollaborationConfig,
+    /// Multi-round debate protocol controls.
+    #[serde(default)]
+    pub debate: DebateConfig,
     /// Trusted provenance and compliance controls.
     #[serde(default)]
     pub compliance: ComplianceConfig,
@@ -425,6 +428,48 @@ impl Default for OperatorModelConfig {
 pub struct CollaborationConfig {
     #[serde(default)]
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebateConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_debate_max_rounds")]
+    pub default_max_rounds: u8,
+    #[serde(default = "default_debate_min_evidence_refs")]
+    pub min_evidence_refs: u8,
+    #[serde(default = "default_true")]
+    pub role_rotation: bool,
+    #[serde(default = "default_debate_required_sections")]
+    pub verdict_required_sections: Vec<String>,
+}
+
+fn default_debate_max_rounds() -> u8 {
+    3
+}
+
+fn default_debate_min_evidence_refs() -> u8 {
+    1
+}
+
+fn default_debate_required_sections() -> Vec<String> {
+    vec![
+        "consensus_points".to_string(),
+        "unresolved_tensions".to_string(),
+        "recommended_action".to_string(),
+    ]
+}
+
+impl Default for DebateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_max_rounds: default_debate_max_rounds(),
+            min_evidence_refs: default_debate_min_evidence_refs(),
+            role_rotation: default_true(),
+            verdict_required_sections: default_debate_required_sections(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

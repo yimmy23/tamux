@@ -141,7 +141,10 @@ impl AgentEngine {
         anyhow::bail!("unknown agent target: {trimmed}");
     }
 
-    async fn latest_visible_user_message_content(&self, thread_id: &str) -> Option<String> {
+    pub(crate) async fn latest_visible_user_message_content(
+        &self,
+        thread_id: &str,
+    ) -> Option<String> {
         let threads = self.threads.read().await;
         threads.get(thread_id).and_then(|thread| {
             thread
@@ -308,6 +311,14 @@ impl AgentEngine {
             .push(continuation);
     }
 
+    pub(crate) async fn deferred_visible_thread_continuations_for(
+        &self,
+        thread_id: &str,
+    ) -> Vec<DeferredVisibleThreadContinuation> {
+        let queued = self.deferred_visible_thread_continuations.lock().await;
+        queued.get(thread_id).cloned().unwrap_or_default()
+    }
+
     pub(in crate::agent) async fn flush_deferred_visible_thread_continuations(
         &self,
         thread_id: &str,
@@ -335,6 +346,7 @@ impl AgentEngine {
                         &continuation.agent_id,
                         continuation.preferred_session_hint.as_deref(),
                         &continuation.llm_user_content,
+                        continuation.force_compaction,
                     )
                     .await?;
                 }
@@ -356,9 +368,28 @@ impl AgentEngine {
         agent_id: &str,
         preferred_session_hint: Option<&str>,
         llm_user_content: &str,
+        force_compaction: bool,
     ) -> Result<SendMessageOutcome> {
         if !self.threads.read().await.contains_key(thread_id) {
             anyhow::bail!("thread not found: {thread_id}");
+        }
+
+        if force_compaction {
+            let config = self.config.read().await.clone();
+            let provider_config = self.resolve_provider_config(&config)?;
+            let compacted = self
+                .force_persist_compaction_artifact(thread_id, None, &config, &provider_config)
+                .await?;
+            if !compacted {
+                let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                    thread_id: thread_id.to_string(),
+                    kind: "manual-compaction".to_string(),
+                    message:
+                        "Manual compaction skipped; there was no older context slice to compact."
+                            .to_string(),
+                    details: None,
+                });
+            }
         }
 
         let stored_user_content = self
@@ -776,6 +807,7 @@ impl AgentEngine {
                 &continuation_agent_id,
                 None,
                 &continuation_prompt,
+                false,
             )
             .await
         {
@@ -1097,6 +1129,7 @@ impl AgentEngine {
                 &resolved_target_id,
                 preferred_session_hint,
                 &continuation_prompt,
+                false,
             )
             .await?;
         }

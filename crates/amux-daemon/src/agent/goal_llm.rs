@@ -74,12 +74,13 @@ impl AgentEngine {
         let mut prompt = format!(
             "You are planning a durable autonomous goal runner inside tamux.\n\
              Produce strict JSON only with the shape:\n\
-             {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill|divergent\",\"success_criteria\":\"...\",\"session_id\":null,\"llm_confidence\":\"confident|likely|uncertain|guessing\",\"llm_confidence_rationale\":\"...\"}}],\"rejected_alternatives\":[\"...\"]}}\n\
+             {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill|divergent|debate\",\"success_criteria\":\"...\",\"session_id\":null,\"llm_confidence\":\"confident|likely|uncertain|guessing\",\"llm_confidence_rationale\":\"...\"}}],\"rejected_alternatives\":[\"...\"]}}\n\
              Requirements:\n\
              - 2 to {max_steps} steps.\n\
              - Keep each step actionable and narrow.\n\
              - Use kind=command only when the step should execute via the daemon task queue.\n\
-             - Use kind=divergent when a step involves exploring multiple perspectives or tradeoff analysis.\n\
+             - Use kind=debate when a step needs structured resolution of tradeoffs, conflicting recommendations, or controversial constraints.\n\
+             - Reserve kind=divergent for broader multi-perspective exploration before a concrete disagreement is ready for formal opposition.\n\
              - Use skill only only if a reusable workflow artifact should be generated at the end.\n\
              - Prefer one terminal session unless the goal clearly requires otherwise.\n\
              - All work should be done inside the workspace directory. Do not cd above it.\n\
@@ -277,6 +278,7 @@ impl AgentEngine {
                     GoalRunStepKind::Skill => "execute_command",
                     GoalRunStepKind::Specialist(_) => "execute_command",
                     GoalRunStepKind::Divergent => "read_file",
+                    GoalRunStepKind::Debate => "read_file",
                     GoalRunStepKind::Unknown => "unknown",
                 };
                 super::embodied::dimensions::compute_weight(tool_name)

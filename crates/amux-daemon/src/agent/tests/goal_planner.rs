@@ -251,3 +251,131 @@ async fn fail_goal_run_appends_failure_factor_to_goal_replan_trace() {
         "expected settled goal replan trace to append a final failure factor"
     );
 }
+
+fn sample_goal_run_with_kind(
+    goal_run_id: &str,
+    kind: GoalRunStepKind,
+    instructions: &str,
+) -> GoalRun {
+    GoalRun {
+        id: goal_run_id.to_string(),
+        title: "goal with custom step".to_string(),
+        goal: "validate custom step routing".to_string(),
+        client_request_id: None,
+        status: GoalRunStatus::Running,
+        priority: TaskPriority::Normal,
+        created_at: now_millis(),
+        updated_at: now_millis(),
+        started_at: Some(now_millis()),
+        completed_at: None,
+        thread_id: Some("thread-goal-custom".to_string()),
+        session_id: None,
+        current_step_index: 0,
+        current_step_title: Some("step-1".to_string()),
+        current_step_kind: Some(kind.clone()),
+        replan_count: 0,
+        max_replans: 2,
+        plan_summary: Some("plan".to_string()),
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: None,
+        last_error: None,
+        failure_cause: None,
+        child_task_ids: Vec::new(),
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        active_task_id: None,
+        duration_ms: None,
+        steps: vec![GoalRunStep {
+            id: "step-1".to_string(),
+            position: 0,
+            title: "step-1".to_string(),
+            instructions: instructions.to_string(),
+            kind,
+            success_criteria: "done".to_string(),
+            session_id: None,
+            status: GoalRunStepStatus::Pending,
+            task_id: None,
+            summary: None,
+            error: None,
+            started_at: None,
+            completed_at: None,
+        }],
+        events: Vec::new(),
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        autonomy_level: super::autonomy::AutonomyLevel::Aware,
+        authorship_tag: None,
+    }
+}
+
+#[tokio::test]
+async fn enqueue_goal_run_step_starts_debate_session_for_debate_kind() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.debate.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let goal_run_id = "goal-debate";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(sample_goal_run_with_kind(
+            goal_run_id,
+            GoalRunStepKind::Debate,
+            "Debate the rollout tradeoffs for the migration",
+        ));
+
+    engine
+        .enqueue_goal_run_step(goal_run_id)
+        .await
+        .expect("enqueue should succeed");
+
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    let task_id = goal.steps[0]
+        .task_id
+        .clone()
+        .expect("debate step should create a tracking task");
+    let tasks = engine.tasks.lock().await;
+    let task = tasks
+        .iter()
+        .find(|task| task.id == task_id)
+        .cloned()
+        .expect("tracking task should exist");
+    drop(tasks);
+
+    assert_eq!(task.source, "debate");
+    assert!(task.title.starts_with("Debate:"));
+    assert!(task.description.contains("Debate session"));
+
+    let session_id = task
+        .description
+        .split_whitespace()
+        .nth(2)
+        .expect("session id token should exist")
+        .to_string();
+    let debate_payload = engine
+        .get_debate_session_payload(&session_id)
+        .await
+        .expect("debate session should be retrievable");
+    assert_eq!(
+        debate_payload.get("topic").and_then(|v| v.as_str()),
+        Some("Debate the rollout tradeoffs for the migration")
+    );
+    assert_eq!(
+        debate_payload.get("status").and_then(|v| v.as_str()),
+        Some("in_progress")
+    );
+}

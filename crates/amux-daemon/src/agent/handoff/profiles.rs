@@ -639,7 +639,9 @@ mod tests {
         let tags = vec!["research".to_string()];
 
         let weights = compute_learned_routing_weights(&profiles, &tags, &[], &routing, 1_000_000);
-        assert!(weights.iter().any(|entry| profiles[entry.profile_idx].id == "researcher"));
+        assert!(weights
+            .iter()
+            .any(|entry| profiles[entry.profile_idx].id == "researcher"));
         let researcher = weights
             .iter()
             .find(|entry| profiles[entry.profile_idx].id == "researcher")

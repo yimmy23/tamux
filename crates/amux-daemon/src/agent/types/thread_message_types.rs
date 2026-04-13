@@ -60,9 +60,7 @@ impl LatestSkillDiscoveryState {
         self.discovery_pending || self.confidence_tier.eq_ignore_ascii_case("pending")
     }
 
-    pub fn effective_mesh_next_step(
-        &self,
-    ) -> crate::agent::skill_mesh::types::SkillMeshNextStep {
+    pub fn effective_mesh_next_step(&self) -> crate::agent::skill_mesh::types::SkillMeshNextStep {
         if self.is_discovery_pending() {
             return crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip;
         }
@@ -73,17 +71,17 @@ impl LatestSkillDiscoveryState {
     pub fn requires_skill_read_before_progress(&self) -> bool {
         !self.is_discovery_pending()
             && matches!(
-            self.effective_mesh_next_step(),
-            crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill
-        )
+                self.effective_mesh_next_step(),
+                crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill
+            )
     }
 
     pub fn has_advisory_skill_read(&self) -> bool {
         !self.is_discovery_pending()
             && matches!(
-            self.effective_mesh_next_step(),
-            crate::agent::skill_mesh::types::SkillMeshNextStep::ChooseOrBypass
-        )
+                self.effective_mesh_next_step(),
+                crate::agent::skill_mesh::types::SkillMeshNextStep::ChooseOrBypass
+            )
     }
 
     fn legacy_mesh_next_step(&self) -> crate::agent::skill_mesh::types::SkillMeshNextStep {
@@ -263,6 +261,7 @@ pub struct DeferredVisibleThreadContinuation {
     pub agent_id: String,
     pub preferred_session_hint: Option<String>,
     pub llm_user_content: String,
+    pub force_compaction: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

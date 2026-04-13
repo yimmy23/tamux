@@ -133,6 +133,7 @@ pub(super) fn goal_run_step_kind_to_str(value: &GoalRunStepKind) -> String {
         GoalRunStepKind::Skill => "skill".to_string(),
         GoalRunStepKind::Specialist(role) => format!("specialist:{role}"),
         GoalRunStepKind::Divergent => "divergent".to_string(),
+        GoalRunStepKind::Debate => "debate".to_string(),
         GoalRunStepKind::Unknown => "reason".to_string(),
     }
 }
@@ -147,6 +148,7 @@ pub(super) fn parse_goal_run_step_kind(value: &str) -> GoalRunStepKind {
         "memory" => GoalRunStepKind::Memory,
         "skill" => GoalRunStepKind::Skill,
         "divergent" => GoalRunStepKind::Divergent,
+        "debate" => GoalRunStepKind::Debate,
         _ => GoalRunStepKind::Research,
     }
 }

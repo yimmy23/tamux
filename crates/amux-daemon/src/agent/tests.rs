@@ -785,4 +785,12 @@ async fn request_goal_plan_adapts_prompt_and_truncates_output_when_satisfaction_
         body.contains("search_files, read_file"),
         "expected deduplicated fallback targets in the plan prompt"
     );
+    assert!(
+        body.contains("Use kind=debate when a step needs structured resolution of tradeoffs"),
+        "expected debate guidance in the plan prompt"
+    );
+    assert!(
+        body.contains("Reserve kind=divergent for broader multi-perspective exploration"),
+        "expected divergent guidance in the plan prompt"
+    );
 }

@@ -519,6 +519,7 @@ impl TuiModel {
                 | "notifications"
                 | "approvals"
                 | "participants"
+                | "compact"
                 | "quit"
                 | "prompt"
                 | "goal"
@@ -625,6 +626,14 @@ impl TuiModel {
             "participants" => {
                 self.open_thread_participants_modal();
                 self.status_line = "Viewing thread participants".to_string();
+            }
+            "compact" => {
+                let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
+                    self.status_line = "Open a thread first, then run /compact".to_string();
+                    return;
+                };
+                self.send_daemon_command(DaemonCommand::ForceCompact { thread_id });
+                self.status_line = "Forcing compaction...".to_string();
             }
             "quit" => self.pending_quit = true,
             "prompt" => {

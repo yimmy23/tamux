@@ -957,6 +957,59 @@ fn done_event_persists_final_reasoning_into_chat_message() {
 }
 
 #[test]
+fn done_event_requests_authoritative_thread_refresh_for_participant_threads() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::User,
+            content: "hello".to_string(),
+            timestamp: 1,
+            ..Default::default()
+        }],
+        thread_participants: vec![crate::wire::ThreadParticipantState {
+            agent_id: "weles".to_string(),
+            agent_name: "Weles".to_string(),
+            instruction: "verify claims".to_string(),
+            status: "active".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            last_contribution_at: None,
+            deactivated_at: None,
+        }],
+        created_at: 1,
+        updated_at: 1,
+        ..Default::default()
+    })));
+
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.handle_client_event(ClientEvent::Done {
+        thread_id: "thread-1".to_string(),
+        input_tokens: 10,
+        output_tokens: 20,
+        cost: None,
+        provider: Some(PROVIDER_ID_GITHUB_COPILOT.to_string()),
+        model: Some("gpt-5.4".to_string()),
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+        provider_final_result_json: Some("result_json".to_string()),
+    });
+
+    match next_thread_request(&mut daemon_rx) {
+        Some((thread_id, message_limit, message_offset)) => {
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(message_limit, Some(chat::CHAT_HISTORY_PAGE_SIZE));
+            assert_eq!(message_offset, Some(0));
+        }
+        other => panic!("expected authoritative thread refresh request, got {other:?}"),
+    }
+}
+
+#[test]
 fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
     let mut model = make_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {

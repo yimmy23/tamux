@@ -242,6 +242,48 @@ use amux_shared::providers::{
     }
 
     #[test]
+    fn debate_config_defaults() {
+        let cfg = DebateConfig::default();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.default_max_rounds, 3);
+        assert_eq!(cfg.min_evidence_refs, 1);
+        assert!(cfg.role_rotation);
+        assert_eq!(
+            cfg.verdict_required_sections,
+            vec![
+                "consensus_points".to_string(),
+                "unresolved_tensions".to_string(),
+                "recommended_action".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn agent_config_deserializes_debate_without_disturbing_other_defaults() {
+        let json = serde_json::json!({
+            "debate": {
+                "enabled": true,
+                "default_max_rounds": 4,
+                "min_evidence_refs": 2,
+                "role_rotation": false,
+                "verdict_required_sections": ["consensus_points", "recommended_action"]
+            }
+        })
+        .to_string();
+
+        let cfg: AgentConfig = serde_json::from_str(&json).unwrap();
+        assert!(cfg.debate.enabled);
+        assert_eq!(cfg.debate.default_max_rounds, 4);
+        assert_eq!(cfg.debate.min_evidence_refs, 2);
+        assert!(!cfg.debate.role_rotation);
+        assert_eq!(
+            cfg.debate.verdict_required_sections,
+            vec!["consensus_points".to_string(), "recommended_action".to_string()]
+        );
+        assert!(cfg.skill_recommendation.enabled);
+    }
+
+    #[test]
     fn agent_config_deserializes_routing_without_disturbing_other_defaults() {
         let json = serde_json::json!({
             "routing": {

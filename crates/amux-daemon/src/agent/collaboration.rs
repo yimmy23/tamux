@@ -54,6 +54,8 @@ pub(in crate::agent) struct Disagreement {
     pub resolution: String,
     #[serde(default)]
     pub votes: Vec<Vote>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debate_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

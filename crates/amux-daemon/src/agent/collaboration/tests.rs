@@ -14,6 +14,7 @@ fn apply_vote_to_disagreement_accumulates_votes_before_resolving() {
         confidence_gap: 0.4,
         resolution: "pending".to_string(),
         votes: Vec::new(),
+        debate_session_id: None,
     };
     let agents = vec![
         CollaborativeAgent {
@@ -84,6 +85,7 @@ fn detect_disagreements_preserves_existing_votes() {
                 position: "recommend".to_string(),
                 weight: 1.0,
             }],
+            debate_session_id: None,
         }],
         consensus: None,
         updated_at: 0,
@@ -143,6 +145,7 @@ async fn vote_on_tight_margin_notifies_operator_escalation() {
                     position: "recommend".to_string(),
                     weight: 1.0,
                 }],
+                debate_session_id: None,
             }],
             consensus: None,
             updated_at: now_millis(),
@@ -230,6 +233,132 @@ async fn collaboration_sessions_json_reads_persisted_session_when_memory_is_empt
     assert_eq!(report["parent_task_id"], "parent-task");
     assert_eq!(report["mission"], "recover persisted collaboration");
     assert_eq!(report["agents"][0]["task_id"], "child-1");
+}
+
+#[tokio::test]
+async fn collaboration_disagreement_auto_escalates_into_seeded_debate_session() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    config.debate.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine.collaboration.write().await.insert(
+        "parent-task".to_string(),
+        CollaborationSession {
+            id: "session-1".to_string(),
+            parent_task_id: "parent-task".to_string(),
+            thread_id: Some("thread-collab".to_string()),
+            goal_run_id: Some("goal-collab".to_string()),
+            mission: "decide deployment strategy".to_string(),
+            agents: vec![
+                CollaborativeAgent {
+                    task_id: "a".to_string(),
+                    title: "Research".to_string(),
+                    role: "planning".to_string(),
+                    confidence: 0.82,
+                    status: "running".to_string(),
+                },
+                CollaborativeAgent {
+                    task_id: "b".to_string(),
+                    title: "Review".to_string(),
+                    role: "review".to_string(),
+                    confidence: 0.78,
+                    status: "running".to_string(),
+                },
+            ],
+            contributions: Vec::new(),
+            disagreements: Vec::new(),
+            consensus: None,
+            updated_at: now_millis(),
+        },
+    );
+
+    engine
+        .record_collaboration_contribution(
+            "parent-task",
+            "a",
+            "Deployment Strategy",
+            "recommend canary rollout",
+            vec!["canary rollout limits blast radius".to_string()],
+            0.82,
+        )
+        .await
+        .expect("first contribution should record");
+    engine
+        .record_collaboration_contribution(
+            "parent-task",
+            "b",
+            "Deployment Strategy",
+            "avoid canary rollout",
+            vec!["full rollout avoids operational drift".to_string()],
+            0.78,
+        )
+        .await
+        .expect("second contribution should record");
+
+    let report = engine
+        .collaboration_sessions_json(Some("parent-task"))
+        .await
+        .expect("session report should load");
+    let disagreement = report["disagreements"][0].clone();
+    let debate_session_id = disagreement["debate_session_id"]
+        .as_str()
+        .expect("disagreement should link a debate session")
+        .to_string();
+
+    let debate_payload = engine
+        .get_debate_session_payload(&debate_session_id)
+        .await
+        .expect("debate session should exist");
+    assert_eq!(
+        debate_payload.get("topic").and_then(|value| value.as_str()),
+        Some("deployment strategy")
+    );
+    assert_eq!(
+        debate_payload
+            .get("current_round")
+            .and_then(|value| value.as_u64()),
+        Some(2)
+    );
+    assert_eq!(
+        debate_payload
+            .get("arguments")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(2)
+    );
+    assert_eq!(
+        debate_payload
+            .get("arguments")
+            .and_then(|value| value.as_array())
+            .and_then(|items| items.first())
+            .and_then(|value| value.get("content"))
+            .and_then(|value| value.as_str()),
+        Some("recommend canary rollout")
+    );
+
+    engine
+        .record_collaboration_contribution(
+            "parent-task",
+            "b",
+            "Deployment Strategy",
+            "reject canary rollout",
+            vec!["full rollout avoids operational drift".to_string()],
+            0.8,
+        )
+        .await
+        .expect("refresh contribution should record");
+
+    let refreshed = engine
+        .collaboration_sessions_json(Some("parent-task"))
+        .await
+        .expect("session report should reload");
+    assert_eq!(
+        refreshed["disagreements"][0]["debate_session_id"].as_str(),
+        Some(debate_session_id.as_str())
+    );
 }
 
 #[tokio::test]

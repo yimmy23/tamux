@@ -21,7 +21,7 @@ pub(crate) fn goal_plan_json_schema() -> serde_json::Value {
                     "properties": {
                         "title": { "type": "string" },
                         "instructions": { "type": "string" },
-                        "kind": { "type": "string", "enum": ["reason", "command", "research", "memory", "skill", "divergent"] },
+                        "kind": { "type": "string", "enum": ["reason", "command", "research", "memory", "skill", "divergent", "debate"] },
                         "success_criteria": { "type": "string" },
                         "session_id": { "type": ["string", "null"] },
                         "llm_confidence": { "type": ["string", "null"] },

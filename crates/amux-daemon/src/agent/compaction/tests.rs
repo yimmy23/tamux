@@ -252,6 +252,38 @@ fn weles_message_count_alone_does_not_trigger_compaction() {
 }
 
 #[test]
+fn forced_compaction_candidate_exists_below_threshold() {
+    let mut config = AgentConfig::default();
+    config.compaction.strategy = CompactionStrategy::CustomModel;
+    config.max_context_messages = 100;
+    config.keep_recent_on_compact = 1;
+    config.context_window_tokens = 400_000;
+    config.compact_threshold_pct = 80;
+    config.compaction.custom_model.context_window_tokens = 1_000_000;
+
+    let mut provider = sample_provider_config();
+    provider.context_window_tokens = 400_000;
+
+    let messages = vec![
+        AgentMessage::user("short one", 1),
+        AgentMessage {
+            role: MessageRole::Assistant,
+            content: "short two".to_string(),
+            timestamp: 2,
+            ..sample_message("placeholder")
+        },
+        AgentMessage::user("short three", 3),
+    ];
+
+    let candidate = forced_compaction_candidate(&messages, &config, &provider)
+        .expect("forced candidate should exist");
+
+    assert_eq!(candidate.split_at, 2);
+    assert_eq!(candidate.target_tokens, 320_000);
+    assert_eq!(candidate.trigger, CompactionTrigger::ManualRequest);
+}
+
+#[test]
 fn heuristic_compaction_summary_uses_checkpoint_schema() {
     let summary = build_compaction_summary(
         &[
@@ -920,7 +952,7 @@ fn compaction_artifact_message_roundtrip_preserves_runtime_metadata() {
         id: "compaction-1".to_string(),
         role: MessageRole::Assistant,
         content:
-            "Pre-compaction context: ~182,400 / 200,000 tokens (threshold 160,000)\nTrigger: message-count\nStrategy: rule based"
+            "Pre-compaction context: ~182,400 / 200,000 tokens (threshold 160,000)\nTrigger: message-count\nStrategy: rule based\n\nContent:\nOlder context compacted for continuity"
                 .to_string(),
         tool_calls: None,
         tool_call_id: None,
@@ -1079,10 +1111,24 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
         "expected the visible content to mention the compaction trigger: {}",
         artifact.content
     );
+    assert!(
+        artifact.content.contains("\n\nContent:\n"),
+        "expected the visible content to include the compacted payload section: {}",
+        artifact.content
+    );
     assert!(artifact
         .compaction_payload
         .as_deref()
         .is_some_and(|payload| payload.starts_with("# 🤖 Agent Context: State Checkpoint")));
+    let visible_payload = artifact
+        .compaction_payload
+        .as_deref()
+        .expect("artifact should carry hidden payload");
+    assert!(
+        artifact.content.contains(visible_payload),
+        "expected visible content to render the compacted payload: {}",
+        artifact.content
+    );
 
     let compacted = compact_messages_for_request(&thread.messages, &config, &provider);
     assert_eq!(compacted.len(), 2);

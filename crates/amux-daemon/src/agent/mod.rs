@@ -29,6 +29,7 @@ mod compaction;
 mod config;
 mod consolidation;
 pub(crate) mod copilot_auth;
+mod debate;
 mod dispatcher;
 mod engine;
 mod engine_runtime;

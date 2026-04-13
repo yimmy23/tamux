@@ -1,5 +1,149 @@
-use super::participants::apply_vote_to_disagreement;
+use super::participants::{apply_vote_to_disagreement, normalize_position};
 use super::*;
+use crate::agent::debate::protocol::create_debate_session;
+use crate::agent::debate::types::{Argument, DebateSession, RoleKind};
+use crate::agent::handoff::divergent::Framing;
+use std::collections::{BTreeSet, HashMap};
+
+#[derive(Clone)]
+struct PendingDebateSeed {
+    disagreement_id: String,
+    debate_session: DebateSession,
+    arguments: Vec<Argument>,
+}
+
+#[derive(Clone)]
+struct PendingDebateLaunch {
+    seed: PendingDebateSeed,
+    collaboration_snapshot: CollaborationSession,
+}
+
+fn build_pending_debate_seed(
+    session: &CollaborationSession,
+    debate_config: &DebateConfig,
+) -> Option<PendingDebateSeed> {
+    let thread_id = session.thread_id.as_ref()?.clone();
+
+    for disagreement in &session.disagreements {
+        if disagreement.resolution != "pending" || disagreement.debate_session_id.is_some() {
+            continue;
+        }
+
+        let mut latest_by_task: HashMap<&str, &Contribution> = HashMap::new();
+        for contribution in session.contributions.iter().rev() {
+            if contribution.topic != disagreement.topic {
+                continue;
+            }
+            latest_by_task
+                .entry(contribution.task_id.as_str())
+                .or_insert(contribution);
+        }
+
+        let mut latest = latest_by_task.into_values().collect::<Vec<_>>();
+        latest.sort_by_key(|contribution| contribution.created_at);
+
+        let distinct_positions = latest
+            .iter()
+            .map(|contribution| normalize_position(&contribution.position))
+            .collect::<BTreeSet<_>>();
+        if latest.len() < 2 || distinct_positions.len() < 2 {
+            continue;
+        }
+
+        let mut ordered_positions = Vec::new();
+        for contribution in &latest {
+            let position = normalize_position(&contribution.position);
+            if !ordered_positions
+                .iter()
+                .any(|existing| existing == &position)
+            {
+                ordered_positions.push(position);
+            }
+        }
+        let proponent_position = ordered_positions
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "recommend".to_string());
+        let skeptic_position = ordered_positions
+            .iter()
+            .find(|position| **position != proponent_position)
+            .cloned()
+            .unwrap_or_else(|| "reject".to_string());
+
+        let mut framings = Vec::new();
+        for position in ordered_positions.iter().take(2) {
+            framings.push(Framing {
+                label: format!("{position}-lens"),
+                system_prompt_override: format!(
+                    "Defend the `{position}` position for {} using the imported collaboration evidence.",
+                    disagreement.topic
+                ),
+                task_id: latest
+                    .iter()
+                    .find(|contribution| normalize_position(&contribution.position) == *position)
+                    .map(|contribution| contribution.task_id.clone()),
+                contribution_id: latest
+                    .iter()
+                    .find(|contribution| normalize_position(&contribution.position) == *position)
+                    .map(|contribution| contribution.id.clone()),
+            });
+        }
+        framings.push(Framing {
+            label: "synthesis-lens".to_string(),
+            system_prompt_override: format!(
+                "Synthesize the strongest recommendation for {} without erasing the imported disagreement.",
+                disagreement.topic
+            ),
+            task_id: None,
+            contribution_id: None,
+        });
+
+        let debate_session = create_debate_session(
+            disagreement.topic.clone(),
+            framings,
+            debate_config.default_max_rounds,
+            debate_config.role_rotation,
+            Some(thread_id.clone()),
+            session.goal_run_id.clone(),
+        )
+        .ok()?;
+
+        let arguments = latest
+            .into_iter()
+            .map(|contribution| {
+                let position = normalize_position(&contribution.position);
+                Argument {
+                    id: format!("arg_{}", uuid::Uuid::new_v4()),
+                    round: 1,
+                    role: if position == proponent_position {
+                        RoleKind::Proponent
+                    } else if position == skeptic_position {
+                        RoleKind::Skeptic
+                    } else {
+                        RoleKind::Skeptic
+                    },
+                    agent_id: contribution.task_id.clone(),
+                    content: contribution.position.clone(),
+                    evidence_refs: if contribution.evidence.is_empty() {
+                        vec![format!("collaboration contribution {}", contribution.id)]
+                    } else {
+                        contribution.evidence.clone()
+                    },
+                    responds_to: None,
+                    timestamp_ms: contribution.created_at,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        return Some(PendingDebateSeed {
+            disagreement_id: disagreement.id.clone(),
+            debate_session,
+            arguments,
+        });
+    }
+
+    None
+}
 
 impl AgentEngine {
     async fn ensure_task_collaboration_session(
@@ -213,6 +357,9 @@ impl AgentEngine {
                 });
             }
         }
+
+        self.maybe_auto_escalate_collaboration_debate(parent_task_id)
+            .await?;
         Ok(report)
     }
 
@@ -392,6 +539,80 @@ impl AgentEngine {
                     if outcome == "success" { 0.8 } else { 0.6 },
                 )
                 .await;
+        }
+    }
+
+    async fn maybe_auto_escalate_collaboration_debate(
+        &self,
+        parent_task_id: &str,
+    ) -> Result<Option<String>> {
+        let debate_config = {
+            let config = self.config.read().await;
+            if !config.collaboration.enabled || !config.debate.enabled {
+                return Ok(None);
+            }
+            config.debate.clone()
+        };
+
+        let launch = {
+            let mut collaboration = self.collaboration.write().await;
+            let Some(session) = collaboration.get_mut(parent_task_id) else {
+                return Ok(None);
+            };
+            let Some(seed) = build_pending_debate_seed(session, &debate_config) else {
+                return Ok(None);
+            };
+            let Some(disagreement) = session
+                .disagreements
+                .iter_mut()
+                .find(|item| item.id == seed.disagreement_id)
+            else {
+                return Ok(None);
+            };
+            disagreement.debate_session_id = Some(seed.debate_session.id.clone());
+            session.updated_at = now_millis();
+
+            PendingDebateLaunch {
+                seed,
+                collaboration_snapshot: session.clone(),
+            }
+        };
+
+        self.persist_collaboration_session(&launch.collaboration_snapshot)
+            .await?;
+
+        match self
+            .persist_seeded_debate_session(
+                launch.seed.debate_session.clone(),
+                launch.seed.arguments.clone(),
+            )
+            .await
+        {
+            Ok(session) => Ok(Some(session.id)),
+            Err(error) => {
+                let rollback_snapshot = {
+                    let mut collaboration = self.collaboration.write().await;
+                    let Some(session) = collaboration.get_mut(parent_task_id) else {
+                        return Err(error);
+                    };
+                    if let Some(disagreement) = session
+                        .disagreements
+                        .iter_mut()
+                        .find(|item| item.id == launch.seed.disagreement_id)
+                    {
+                        if disagreement.debate_session_id.as_deref()
+                            == Some(launch.seed.debate_session.id.as_str())
+                        {
+                            disagreement.debate_session_id = None;
+                        }
+                    }
+                    session.updated_at = now_millis();
+                    session.clone()
+                };
+                self.persist_collaboration_session(&rollback_snapshot)
+                    .await?;
+                Err(error)
+            }
         }
     }
 }

@@ -46,6 +46,10 @@ impl DaemonClient {
         self.send(ClientMessage::AgentStopStream { thread_id })
     }
 
+    pub fn force_compact(&self, thread_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentForceCompact { thread_id })
+    }
+
     pub fn send_internal_delegate(
         &self,
         thread_id: Option<String>,
