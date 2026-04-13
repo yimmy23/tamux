@@ -28,6 +28,8 @@ pub struct ThreadParticipantState {
     pub deactivated_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_contribution_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_observed_visible_message_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +142,34 @@ impl AgentEngine {
             suggestions.remove(thread_id);
         }
         changed
+    }
+
+    pub(super) async fn mark_thread_participant_observed_visible_message(
+        &self,
+        thread_id: &str,
+        agent_id: &str,
+        visible_message_timestamp: u64,
+    ) -> bool {
+        let mut participants = self.thread_participants.write().await;
+        let Some(entry) = participants.get_mut(thread_id) else {
+            return false;
+        };
+        let Some(participant) = entry
+            .iter_mut()
+            .find(|participant| participant.agent_id.eq_ignore_ascii_case(agent_id))
+        else {
+            return false;
+        };
+        if participant
+            .last_observed_visible_message_at
+            .is_some_and(|timestamp| timestamp >= visible_message_timestamp)
+        {
+            return false;
+        }
+
+        participant.last_observed_visible_message_at = Some(visible_message_timestamp);
+        participant.updated_at = now_millis();
+        true
     }
 
     pub(in crate::agent) async fn resolve_thread_participant_target(
@@ -986,6 +1016,7 @@ impl AgentEngine {
                 updated_at: now,
                 deactivated_at: None,
                 last_contribution_at: None,
+                last_observed_visible_message_at: None,
             };
             entry.push(state.clone());
             state
@@ -1276,6 +1307,7 @@ impl AgentEngine {
                     .find(|participant| participant.agent_id.eq_ignore_ascii_case(&agent_id))
                 {
                     participant.last_contribution_at = Some(now);
+                    participant.last_observed_visible_message_at = Some(now);
                     participant.updated_at = now;
                     participant.status = ThreadParticipantStatus::Active;
                 }

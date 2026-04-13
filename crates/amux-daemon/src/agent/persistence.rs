@@ -316,6 +316,8 @@ impl AgentEngine {
                         "cleared persisted participant playground threads during hydrate"
                     );
                 }
+                self.restore_participant_observer_state_after_hydrate()
+                    .await;
             }
             Ok(_) => {}
             Err(e) => tracing::warn!("failed to load agent threads from sqlite: {e}"),

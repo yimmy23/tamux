@@ -1327,3 +1327,317 @@ async fn active_participant_responder_completion_does_not_run_self_observer() {
         "active participant responder should not queue a self-observer suggestion after its own turn"
     );
 }
+
+#[tokio::test]
+async fn hydrate_runs_participant_observers_for_restored_main_agent_tail() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind hydrate observer server");
+    let addr = listener.local_addr().expect("hydrate observer addr");
+
+    tokio::spawn({
+        let recorded_bodies = recorded_bodies.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let recorded_bodies = recorded_bodies.clone();
+                tokio::spawn(async move {
+                    let body = read_http_request_body(&mut socket)
+                        .await
+                        .expect("read hydrate observer request");
+                    recorded_bodies
+                        .lock()
+                        .expect("lock hydrate observer log")
+                        .push_back(body.clone());
+
+                    let response_body = if body.contains("Role: participant observer") {
+                        concat!(
+                            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_hydrate_observer\"}}\n\n",
+                            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"FORCE: no\\nMESSAGE: Review the restarted main-agent reply.\"}\n\n",
+                            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_hydrate_observer\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":6,\"output_tokens\":7},\"error\":null}}\n\n"
+                        )
+                    } else {
+                        concat!(
+                            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_hydrate_default\"}}\n\n",
+                            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Gateway reply ok\"}\n\n",
+                            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_hydrate_default\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":4,\"output_tokens\":2},\"error\":null}}\n\n"
+                        )
+                    };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        response_body.len(),
+                        response_body
+                    );
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write hydrate observer response");
+                });
+            }
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+    let thread_id = "thread_hydrate_runs_participant_observers";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Hydrate participant observer restore".to_string(),
+            messages: vec![
+                AgentMessage::user("hello", 1),
+                AgentMessage {
+                    id: generate_message_id(),
+                    role: MessageRole::Assistant,
+                    content: "Main agent reply before restart.".to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    weles_review: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost: None,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
+                    author_agent_id: None,
+                    author_agent_name: None,
+                    reasoning: None,
+                    message_kind: AgentMessageKind::Normal,
+                    compaction_strategy: None,
+                    compaction_payload: None,
+                    offloaded_payload_id: None,
+                    structural_refs: Vec::new(),
+                    timestamp: 2,
+                },
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 2,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register before restart");
+    engine.persist_thread_by_id(thread_id).await;
+
+    drop(engine);
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let reloaded = AgentEngine::new_test(manager, config, root.path()).await;
+    reloaded.hydrate().await.expect("hydrate should succeed");
+
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let thread_messages = {
+                let threads = reloaded.threads.read().await;
+                threads
+                    .get(thread_id)
+                    .expect("thread should still exist after hydrate")
+                    .messages
+                    .clone()
+            };
+            let has_participant_note = thread_messages.iter().any(|message| {
+                message.role == MessageRole::Assistant
+                    && message.author_agent_id.as_deref() == Some("weles")
+                    && message.content == "Review the restarted main-agent reply."
+            });
+            let has_main_follow_up = thread_messages.iter().any(|message| {
+                message.role == MessageRole::Assistant
+                    && message.author_agent_id.as_deref() != Some("weles")
+                    && message.content == "Gateway reply ok"
+            });
+            if has_participant_note && has_main_follow_up {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("hydrate should surface the participant note and main-agent follow-up");
+
+    assert!(
+        reloaded
+            .list_thread_participant_suggestions(thread_id)
+            .await
+            .is_empty(),
+        "idle hydrated participant suggestion should auto-send instead of remaining queued"
+    );
+
+    let request_bodies = recorded_bodies
+        .lock()
+        .expect("lock hydrate observer log")
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        request_bodies
+            .iter()
+            .any(|body| body.contains("Role: participant observer")),
+        "hydrate should trigger a participant observer request for the restored main-agent tail"
+    );
+}
+
+#[tokio::test]
+async fn hydrate_does_not_rerun_participant_observers_for_already_reviewed_message() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let observer_requests = Arc::new(AtomicUsize::new(0));
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind hydrate dedupe server");
+    let addr = listener.local_addr().expect("hydrate dedupe addr");
+
+    tokio::spawn({
+        let observer_requests = observer_requests.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let observer_requests = observer_requests.clone();
+                tokio::spawn(async move {
+                    let body = read_http_request_body(&mut socket)
+                        .await
+                        .expect("read hydrate dedupe request");
+                    if body.contains("Role: participant observer") {
+                        observer_requests.fetch_add(1, Ordering::SeqCst);
+                    }
+
+                    let response_body = concat!(
+                        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_hydrate_dedupe\"}}\n\n",
+                        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"NO_SUGGESTION\"}\n\n",
+                        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_hydrate_dedupe\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":6,\"output_tokens\":1},\"error\":null}}\n\n"
+                    );
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        response_body.len(),
+                        response_body
+                    );
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write hydrate dedupe response");
+                });
+            }
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+    let thread_id = "thread_hydrate_participant_observer_dedupe";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Hydrate participant observer dedupe".to_string(),
+            messages: vec![
+                AgentMessage::user("hello", 1),
+                AgentMessage {
+                    id: generate_message_id(),
+                    role: MessageRole::Assistant,
+                    content: "Main agent reply before restart.".to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    weles_review: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost: None,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
+                    author_agent_id: None,
+                    author_agent_name: None,
+                    reasoning: None,
+                    message_kind: AgentMessageKind::Normal,
+                    compaction_strategy: None,
+                    compaction_payload: None,
+                    offloaded_payload_id: None,
+                    structural_refs: Vec::new(),
+                    timestamp: 2,
+                },
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 2,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify claims")
+        .await
+        .expect("participant should register before initial observer run");
+    engine
+        .run_participant_observers(thread_id)
+        .await
+        .expect("initial participant observer run should succeed");
+    assert_eq!(observer_requests.load(Ordering::SeqCst), 1);
+    engine.persist_thread_by_id(thread_id).await;
+
+    drop(engine);
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let reloaded = AgentEngine::new_test(manager, config, root.path()).await;
+    reloaded.hydrate().await.expect("hydrate should succeed");
+
+    assert_eq!(
+        observer_requests.load(Ordering::SeqCst),
+        1,
+        "hydrate should not rerun participant observers for the same already-reviewed visible message"
+    );
+}

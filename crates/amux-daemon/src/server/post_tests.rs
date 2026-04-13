@@ -134,14 +134,8 @@ async fn run_unix(
     agent: Arc<AgentEngine>,
     plugin_manager: Arc<crate::plugin::PluginManager>,
 ) -> Result<()> {
-    use tokio::net::UnixListener;
-
     let path = socket_path();
-
-    // Remove stale socket file.
-    let _ = std::fs::remove_file(&path);
-
-    let listener = UnixListener::bind(&path)?;
+    let listener = bind_unix_listener(&path)?;
     tracing::info!(?path, "daemon listening on Unix socket");
 
     // Graceful shutdown on SIGINT / SIGTERM.
@@ -158,6 +152,59 @@ async fn run_unix(
     let _ = std::fs::remove_file(&path);
     tracing::info!("daemon shut down");
     Ok(())
+}
+
+#[cfg(unix)]
+fn bind_unix_listener(path: &std::path::Path) -> Result<tokio::net::UnixListener> {
+    use std::io::ErrorKind;
+    use std::os::unix::fs::FileTypeExt;
+
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if !metadata.file_type().is_socket() {
+            anyhow::bail!(
+                "refusing to remove non-socket daemon path {}; delete it manually",
+                path.display()
+            );
+        }
+
+        match std::os::unix::net::UnixStream::connect(path) {
+            Ok(stream) => {
+                drop(stream);
+                anyhow::bail!(
+                    "daemon is already running on {}; stop the existing process before starting another instance",
+                    path.display()
+                );
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::ConnectionRefused | ErrorKind::NotFound
+                ) =>
+            {
+                std::fs::remove_file(path).with_context(|| {
+                    format!("failed to remove stale daemon socket {}", path.display())
+                })?;
+            }
+            Err(error) => {
+                return Err(anyhow::Error::new(error).context(format!(
+                    "failed to probe existing daemon socket {}",
+                    path.display()
+                )));
+            }
+        }
+    }
+
+    tokio::net::UnixListener::bind(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AddrInUse {
+            anyhow::anyhow!(
+                "daemon is already running on {}; stop the existing process before starting another instance",
+                path.display()
+            )
+        } else {
+            anyhow::Error::new(error)
+                .context(format!("failed to bind daemon Unix socket {}", path.display()))
+        }
+    })
 }
 
 #[cfg(unix)]
@@ -189,6 +236,56 @@ async fn accept_loop_unix(
                 tracing::error!(error = %e, "accept error");
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod unix_socket_tests {
+    use super::bind_unix_listener;
+    use std::os::unix::net::UnixListener;
+
+    fn with_io_runtime<T>(f: impl FnOnce() -> T) -> T {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .build()
+            .expect("build tokio runtime");
+        runtime.block_on(async move { f() })
+    }
+
+    #[test]
+    fn bind_unix_listener_rejects_second_live_daemon() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("tamux-daemon.sock");
+        let listener = UnixListener::bind(&path).expect("bind first daemon socket");
+
+        let error = with_io_runtime(|| {
+            bind_unix_listener(&path).expect_err("second daemon should be rejected")
+        });
+        let message = error.to_string();
+        assert!(
+            message.contains("already running"),
+            "expected already-running error, got: {message}"
+        );
+        assert!(path.exists(), "live daemon socket path should remain intact");
+
+        drop(listener);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn bind_unix_listener_replaces_stale_socket_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("tamux-daemon.sock");
+        let listener = UnixListener::bind(&path).expect("bind initial socket");
+        drop(listener);
+
+        let rebound = with_io_runtime(|| {
+            bind_unix_listener(&path).expect("stale socket should be replaced")
+        });
+        assert!(path.exists(), "rebound daemon socket should exist");
+
+        drop(rebound);
+        let _ = std::fs::remove_file(&path);
     }
 }
 

@@ -189,6 +189,26 @@ struct ParticipantObserverResponderConfig {
 }
 
 impl AgentEngine {
+    pub(crate) async fn restore_participant_observer_state_after_hydrate(&self) {
+        let thread_ids = {
+            let participants = self.thread_participants.read().await;
+            participants.keys().cloned().collect::<Vec<_>>()
+        };
+
+        for thread_id in thread_ids {
+            if crate::agent::agent_identity::is_participant_playground_thread(&thread_id) {
+                continue;
+            }
+            if let Err(error) = self.run_participant_observers(&thread_id).await {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "failed to restore participant observer state during hydrate"
+                );
+            }
+        }
+    }
+
     pub(crate) async fn clear_persisted_participant_playground_threads_on_hydrate(&self) -> usize {
         let cleared_thread_ids = {
             let mut threads = self.threads.write().await;
@@ -615,11 +635,31 @@ impl AgentEngine {
             );
             return Ok(());
         }
+        let latest_visible_message_timestamp = visible_messages
+            .last()
+            .map(|message| message.timestamp)
+            .unwrap_or(0);
+        let queued_suggestions = self.list_thread_participant_suggestions(thread_id).await;
+        let mut participant_state_changed = false;
 
         for participant in participants.into_iter().filter(|participant| {
             participant.status == ThreadParticipantStatus::Active
                 && active_responder_agent_id.as_deref() != Some(participant.agent_id.as_str())
         }) {
+            if participant
+                .last_observed_visible_message_at
+                .is_some_and(|timestamp| timestamp >= latest_visible_message_timestamp)
+            {
+                continue;
+            }
+            if queued_suggestions.iter().any(|suggestion| {
+                suggestion
+                    .target_agent_id
+                    .eq_ignore_ascii_case(&participant.agent_id)
+                    && suggestion.status == ThreadParticipantSuggestionStatus::Queued
+            }) {
+                continue;
+            }
             let compacted_messages = self
                 .compact_participant_prompt_messages(&participant.agent_id, &visible_messages)
                 .await?;
@@ -643,6 +683,13 @@ impl AgentEngine {
                     participant = %participant.agent_id,
                     "participant observer returned no suggestion"
                 );
+                participant_state_changed |= self
+                    .mark_thread_participant_observed_visible_message(
+                        thread_id,
+                        &participant.agent_id,
+                        latest_visible_message_timestamp,
+                    )
+                    .await;
                 continue;
             };
             tracing::info!(
@@ -658,6 +705,13 @@ impl AgentEngine {
                     &message,
                 )
                 .await?;
+                participant_state_changed |= self
+                    .mark_thread_participant_observed_visible_message(
+                        thread_id,
+                        &participant.agent_id,
+                        latest_visible_message_timestamp,
+                    )
+                    .await;
                 self.continue_thread_after_participant_post_or_notice(thread_id)
                     .await;
             } else {
@@ -668,7 +722,18 @@ impl AgentEngine {
                     false,
                 )
                 .await?;
+                participant_state_changed |= self
+                    .mark_thread_participant_observed_visible_message(
+                        thread_id,
+                        &participant.agent_id,
+                        latest_visible_message_timestamp,
+                    )
+                    .await;
             }
+        }
+
+        if participant_state_changed {
+            self.persist_thread_by_id(thread_id).await;
         }
 
         Ok(())

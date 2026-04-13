@@ -178,6 +178,7 @@ async fn persisted_thread_metadata_reloads_thread_participants() {
                 updated_at: 11,
                 deactivated_at: None,
                 last_contribution_at: Some(12),
+                last_observed_visible_message_at: Some(12),
             },
             crate::agent::ThreadParticipantState {
                 agent_id: "rarog".to_string(),
@@ -188,6 +189,7 @@ async fn persisted_thread_metadata_reloads_thread_participants() {
                 updated_at: 21,
                 deactivated_at: Some(22),
                 last_contribution_at: None,
+                last_observed_visible_message_at: None,
             },
         ],
     );
@@ -215,12 +217,14 @@ async fn persisted_thread_metadata_reloads_thread_participants() {
         crate::agent::ThreadParticipantStatus::Active
     );
     assert_eq!(participants[0].last_contribution_at, Some(12));
+    assert_eq!(participants[0].last_observed_visible_message_at, Some(12));
     assert_eq!(participants[1].agent_id, "rarog");
     assert_eq!(
         participants[1].status,
         crate::agent::ThreadParticipantStatus::Inactive
     );
     assert_eq!(participants[1].deactivated_at, Some(22));
+    assert_eq!(participants[1].last_observed_visible_message_at, None);
 }
 
 #[tokio::test]
