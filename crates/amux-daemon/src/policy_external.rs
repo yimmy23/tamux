@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! External policy engine integration.
 //! Supports Cerbos PDP for fine-grained ABAC policy evaluation.
 //! Falls back to local regex-based policy when external engine is unavailable.

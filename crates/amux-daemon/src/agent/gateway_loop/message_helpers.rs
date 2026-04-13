@@ -10,7 +10,7 @@ impl AgentEngine {
 
     pub(super) async fn send_gateway_platform_tool(
         &self,
-        thread_id: &str,
+        _thread_id: &str,
         tool_id_prefix: &str,
         reply_tool_name: &str,
         msg: &gateway::IncomingMessage,

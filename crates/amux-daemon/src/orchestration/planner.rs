@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use amux_protocol::{ManagedCommandRequest, ManagedCommandSource};
 
 use super::{

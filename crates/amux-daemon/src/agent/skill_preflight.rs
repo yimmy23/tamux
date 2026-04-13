@@ -1,7 +1,10 @@
+#![allow(dead_code)]
+
 use super::*;
 use crate::agent::types::SkillRecommendationConfig;
 use amux_protocol::SessionId;
 use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::process::Stdio;
 #[cfg(test)]
@@ -16,6 +19,7 @@ const SKILL_DISCOVERY_SEMANTIC_SHORTLIST_MARKER: &str = "[[skill_discovery_seman
 const MAX_NORMALIZED_SKILL_QUERY_CHARS: usize = 160;
 const LOCAL_SKILL_DISCOVERY_NORMALIZER_ID: &str = "local-skill-discovery-heuristic";
 pub(crate) const SKILL_DISCOVERY_WORKER_ARG: &str = "__tamux-skill-discovery-worker";
+const TAMUX_DAEMON_BIN_ENV: &str = "TAMUX_DAEMON_BIN";
 
 #[cfg(test)]
 static FORCE_MESH_DISCOVERY_DEGRADED_FOR_TESTS: AtomicBool = AtomicBool::new(false);
@@ -758,7 +762,7 @@ async fn execute_skill_discovery_backend(
 async fn run_skill_discovery_subprocess(
     request: AsyncSkillDiscoveryRequest,
 ) -> Result<AsyncSkillDiscoveryCompletion> {
-    let executable = std::env::current_exe().context("resolve tamux-daemon executable")?;
+    let executable = resolve_daemon_worker_executable()?;
     let mut child = tokio::process::Command::new(executable)
         .arg(SKILL_DISCOVERY_WORKER_ARG)
         .stdin(Stdio::piped())
@@ -792,6 +796,57 @@ async fn run_skill_discovery_subprocess(
 
     serde_json::from_slice::<AsyncSkillDiscoveryCompletion>(&output.stdout)
         .context("parse async skill discovery subprocess output")
+}
+
+fn platform_daemon_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "tamux-daemon.exe"
+    } else {
+        "tamux-daemon"
+    }
+}
+
+fn resolve_daemon_worker_executable_candidate(
+    current_exe: Option<&std::path::Path>,
+    env_override: Option<&OsStr>,
+) -> Option<PathBuf> {
+    let override_path = env_override
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    if override_path.is_some() {
+        return override_path;
+    }
+
+    let current_exe = current_exe?;
+    let daemon_name = OsStr::new(platform_daemon_binary_name());
+    if current_exe.file_name().is_some_and(|name| name == daemon_name) {
+        return Some(current_exe.to_path_buf());
+    }
+
+    current_exe
+        .parent()
+        .map(|dir| dir.join(platform_daemon_binary_name()))
+        .filter(|candidate| candidate.exists())
+}
+
+pub(crate) fn resolve_daemon_worker_executable() -> Result<PathBuf> {
+    let current_exe = std::env::current_exe().context("resolve current executable")?;
+    if let Some(candidate) = resolve_daemon_worker_executable_candidate(
+        Some(current_exe.as_path()),
+        std::env::var_os(TAMUX_DAEMON_BIN_ENV).as_deref(),
+    ) {
+        return Ok(candidate);
+    }
+
+    if let Ok(path) = which::which(platform_daemon_binary_name()) {
+        return Ok(path);
+    }
+
+    anyhow::bail!(
+        "resolve tamux-daemon executable: set {TAMUX_DAEMON_BIN_ENV} or place {} next to {}",
+        platform_daemon_binary_name(),
+        current_exe.display()
+    );
 }
 
 pub(crate) async fn run_skill_discovery_worker_from_stdio() -> Result<()> {
@@ -1765,6 +1820,52 @@ mod tests {
             ),
             Some("audit git worktree diff rust orchestration safety governance".to_string())
         );
+    }
+
+    #[test]
+    fn resolve_daemon_worker_executable_candidate_prefers_env_override() {
+        let _lock = current_dir_test_lock().lock().expect("cwd lock");
+        let root = tempdir().expect("tempdir");
+        let override_path = root.path().join("custom-daemon");
+        let current_exe = root.path().join("host-process");
+
+        let resolved = resolve_daemon_worker_executable_candidate(
+            Some(current_exe.as_path()),
+            Some(override_path.as_os_str()),
+        )
+        .expect("env override should resolve");
+
+        assert_eq!(resolved, override_path);
+    }
+
+    #[test]
+    fn resolve_daemon_worker_executable_candidate_prefers_sibling_daemon_binary() {
+        let _lock = current_dir_test_lock().lock().expect("cwd lock");
+        let root = tempdir().expect("tempdir");
+        let current_exe = root.path().join("host-process");
+        let sibling = root.path().join(platform_daemon_binary_name());
+        fs::write(&current_exe, []).expect("write host executable");
+        fs::write(&sibling, []).expect("write daemon sibling");
+
+        let resolved =
+            resolve_daemon_worker_executable_candidate(Some(current_exe.as_path()), None)
+                .expect("sibling daemon should resolve");
+
+        assert_eq!(resolved, sibling);
+    }
+
+    #[test]
+    fn resolve_daemon_worker_executable_candidate_accepts_current_daemon_binary() {
+        let _lock = current_dir_test_lock().lock().expect("cwd lock");
+        let root = tempdir().expect("tempdir");
+        let current_exe = root.path().join(platform_daemon_binary_name());
+        fs::write(&current_exe, []).expect("write daemon executable");
+
+        let resolved =
+            resolve_daemon_worker_executable_candidate(Some(current_exe.as_path()), None)
+                .expect("daemon executable should resolve");
+
+        assert_eq!(resolved, current_exe);
     }
 
     #[cfg(test)]

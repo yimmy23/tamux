@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -525,7 +527,7 @@ where
 pub(crate) async fn run_aline_startup_subprocess(
     request: AsyncAlineStartupRequest,
 ) -> Result<AsyncAlineStartupCompletion> {
-    let executable = std::env::current_exe().context("resolve tamux-daemon executable")?;
+    let executable = super::skill_preflight::resolve_daemon_worker_executable()?;
     let mut child = tokio::process::Command::new(executable)
         .arg(ALINE_STARTUP_WORKER_ARG)
         .stdin(Stdio::piped())
@@ -917,7 +919,7 @@ where
 async fn confirm_import_ready<R>(
     runner: &R,
     session_id: &str,
-    policy: StartupSelectionPolicy,
+    _policy: StartupSelectionPolicy,
     started_at: Instant,
 ) -> Result<bool>
 where

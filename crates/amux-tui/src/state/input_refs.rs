@@ -88,6 +88,7 @@ pub(crate) fn resolve_reference_path_with_home(
     expanded.exists().then_some(expanded)
 }
 
+#[cfg(test)]
 pub fn complete_active_at_token(buffer: &str, cursor: usize, cwd: &Path) -> TabCompletionOutcome {
     complete_active_at_token_with_home(buffer, cursor, cwd, home_dir().as_deref())
 }

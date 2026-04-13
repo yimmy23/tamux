@@ -128,7 +128,6 @@ enum RenderedLineKind {
     ToolToggle,
     ToolDetail,
     ActionBar,
-    Separator,
     Padding,
     Streaming,
     RetryStatus,
@@ -190,14 +189,6 @@ impl RenderedChatLine {
             line: Line::raw(""),
             message_index: None,
             kind: RenderedLineKind::Padding,
-        }
-    }
-
-    fn separator() -> Self {
-        Self {
-            line: Line::raw(""),
-            message_index: None,
-            kind: RenderedLineKind::Separator,
         }
     }
 }

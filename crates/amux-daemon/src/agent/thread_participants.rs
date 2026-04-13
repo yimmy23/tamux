@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 use serde::{Deserialize, Serialize};
 
@@ -724,7 +726,7 @@ impl AgentEngine {
         &self,
         thread_id: &str,
         suggestion_id: &str,
-        preferred_session_hint: Option<&str>,
+        _preferred_session_hint: Option<&str>,
     ) -> Result<bool> {
         if !self.threads.read().await.contains_key(thread_id) {
             anyhow::bail!("thread not found: {thread_id}");
@@ -1338,7 +1340,7 @@ impl AgentEngine {
             anyhow::bail!("participant message content cannot be empty");
         }
 
-        let (agent_id, agent_name) = self
+        let (agent_id, _agent_name) = self
             .resolve_thread_participant_target(target_agent_id)
             .await?;
 

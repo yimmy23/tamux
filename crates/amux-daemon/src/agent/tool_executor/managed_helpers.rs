@@ -311,4 +311,3 @@ fn parse_capture_output(output: &[u8], token: &str) -> Option<(i32, String)> {
     let payload = String::from_utf8_lossy(&decoded).into_owned();
     Some((status, payload))
 }
-

@@ -15,21 +15,18 @@
 
 #![recursion_limit = "256"]
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use amux_protocol::{
-    AmuxCodec, ClientMessage, DaemonMessage, ManagedCommandRequest, ManagedCommandSource,
+    ClientMessage, DaemonMessage, ManagedCommandRequest, ManagedCommandSource,
     SecurityLevel,
 };
 use anyhow::{Context, Result};
 use base64::Engine;
 use futures::{SinkExt, StreamExt};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::BufReader;
 use tokio::time::{timeout, Duration};
-use tokio_util::codec::Framed;
 use tracing::{debug, error, info, warn};
 
 #[path = "main/agent_tools.rs"]

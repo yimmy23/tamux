@@ -185,10 +185,3 @@ pub(super) fn known_models_for_provider_auth(
         })
         .collect()
 }
-
-pub fn known_context_window_for(provider: &str, model: &str) -> Option<u32> {
-    known_models_for_provider_auth(provider, "api_key")
-        .into_iter()
-        .find(|entry| entry.id == model)
-        .and_then(|entry| entry.context_window)
-}

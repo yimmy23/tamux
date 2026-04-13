@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::types::AuthSource;
 use amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT;
 use anyhow::{Context, Result};

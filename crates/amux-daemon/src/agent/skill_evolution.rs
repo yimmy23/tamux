@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Skill consultation tracking and outcome attribution.
 
 use super::*;

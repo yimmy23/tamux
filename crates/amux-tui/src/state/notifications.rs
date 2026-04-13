@@ -1,4 +1,4 @@
-use amux_protocol::{InboxNotification, InboxNotificationAction};
+use amux_protocol::InboxNotification;
 
 const MAX_NOTIFICATIONS: usize = 500;
 
@@ -228,12 +228,6 @@ impl NotificationsState {
                 .any(|item| item.read_at.is_some()),
             NotificationsHeaderAction::Close => true,
         }
-    }
-
-    pub fn selected_actions(&self) -> &[InboxNotificationAction] {
-        self.selected_item()
-            .map(|item| item.actions.as_slice())
-            .unwrap_or(&[])
     }
 
     pub fn is_row_action_enabled(&self, index: usize) -> bool {

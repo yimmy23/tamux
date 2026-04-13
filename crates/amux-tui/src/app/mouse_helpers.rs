@@ -535,9 +535,6 @@ impl TuiModel {
                             ) => {
                                 self.resolve_approval(approval_id, "reject");
                             }
-                            widgets::approval_center::ApprovalCenterHitTarget::Close => {
-                                self.close_top_modal();
-                            }
                         }
                     }
                 }

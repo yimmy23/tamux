@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use amux_protocol::{ApprovalPayload, ManagedCommandRequest, SecurityLevel, WorkspaceId};
 use regex::Regex;
 use std::sync::LazyLock;

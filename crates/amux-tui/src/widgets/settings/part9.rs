@@ -13,8 +13,8 @@ fn render_advanced_toggle<'a>(
     } else {
         theme.fg_dim
     };
-    let check = if enabled { "[x]" } else { "[ ]" };
-    let check_style = if enabled {
+    let _check = if enabled { "[x]" } else { "[ ]" };
+    let _check_style = if enabled {
         theme.accent_success
     } else {
         theme.fg_dim

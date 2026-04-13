@@ -1,6 +1,9 @@
 use std::future::Future;
 use std::sync::OnceLock;
-use std::{collections::hash_map::DefaultHasher, hash::{Hash, Hasher}};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 use amux_protocol::{OperationLifecycleState, OperationStatusSnapshot};
 
@@ -26,6 +29,7 @@ pub(crate) struct OperationRecord {
     pub(crate) dedup: Option<String>,
     pub(crate) state: OperationLifecycleState,
     pub(crate) revision: u64,
+    pub(crate) terminal_result: Option<serde_json::Value>,
 }
 
 impl OperationRecord {
@@ -41,7 +45,10 @@ impl OperationRecord {
 }
 
 pub(super) fn concierge_welcome_dedup_key(agent: &Arc<crate::agent::AgentEngine>) -> String {
-    format!("{OPERATION_KIND_CONCIERGE_WELCOME}:{:p}", Arc::as_ptr(agent))
+    format!(
+        "{OPERATION_KIND_CONCIERGE_WELCOME}:{:p}",
+        Arc::as_ptr(agent)
+    )
 }
 
 pub(super) fn provider_validation_dedup_key(

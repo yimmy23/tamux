@@ -11,7 +11,7 @@ use super::types::SkillDiscoveryConfig;
 
 mod helpers;
 use helpers::{
-    extract_tool_sequence_from_json, is_novel_sequence, jaccard_similarity,
+    extract_tool_sequence_from_json, is_novel_sequence,
     meets_complexity_threshold, parse_mental_test_results,
 };
 

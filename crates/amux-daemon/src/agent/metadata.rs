@@ -50,7 +50,7 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
             .and_then(|value| value.get(key).and_then(|entry| entry.as_str()))
             .map(ToOwned::to_owned)
     };
-    let get_string_vec = |key: &str| -> Vec<String> {
+    let _get_string_vec = |key: &str| -> Vec<String> {
         metadata
             .as_ref()
             .and_then(|value| value.get(key))

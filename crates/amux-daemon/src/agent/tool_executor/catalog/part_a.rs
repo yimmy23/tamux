@@ -1,8 +1,8 @@
 fn add_available_tools_part_a(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
-    agent_data_dir: &std::path::Path,
-    has_workspace_topology: bool,
+    _agent_data_dir: &std::path::Path,
+    _has_workspace_topology: bool,
 ) {
     if config.tools.bash {
         tools.push(tool_def(

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Context compaction — token-aware message compression for LLM requests.
 
 use super::llm_client::{messages_to_api_format, ApiToolCall, ApiToolCallFunction};

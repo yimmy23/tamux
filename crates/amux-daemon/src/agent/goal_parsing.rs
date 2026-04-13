@@ -12,7 +12,7 @@ use super::SatisfactionAdaptationMode;
 mod parsing;
 pub(super) use parsing::{
     build_json_retry_prompt, goal_plan_json_schema, parse_json_block, parse_markdown_steps,
-    parse_yaml_block, repair_json,
+    parse_yaml_block,
 };
 
 #[cfg(test)]

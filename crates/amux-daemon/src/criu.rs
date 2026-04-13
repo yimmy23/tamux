@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! CRIU (Checkpoint/Restore In Userspace) integration.
 //! Allows freezing and restoring process state for managed sessions.
 //! Requires `criu` binary with root privileges on Linux.

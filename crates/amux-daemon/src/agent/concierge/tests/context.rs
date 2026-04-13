@@ -366,3 +366,50 @@ async fn context_summary_excludes_internal_dm_threads() {
     assert_eq!(context.recent_threads.len(), 1);
     assert_eq!(context.recent_threads[0].id, "thread-real");
 }
+
+#[tokio::test]
+async fn context_summary_excludes_participant_playground_threads() {
+    let config = Arc::new(RwLock::new(AgentConfig::default()));
+    let (event_tx, _) = broadcast::channel(8);
+    let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+        std::iter::empty(),
+    ));
+    let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+    let now = test_now_millis();
+    let playground_thread_id =
+        crate::agent::agent_identity::participant_playground_thread_id("thread-real", "weles");
+    let threads = RwLock::new(HashMap::from([
+        (
+            "thread-real".to_string(),
+            thread_with_messages(
+                "thread-real",
+                "Actual work",
+                now - 100,
+                vec![
+                    user_message("fix concierge context", now - 120),
+                    assistant_message("working on it", now - 110),
+                ],
+            ),
+        ),
+        (
+            playground_thread_id.clone(),
+            thread_with_messages(
+                &playground_thread_id,
+                "Participant Playground",
+                now,
+                vec![
+                    user_message("hidden drafting prompt", now - 20),
+                    assistant_message("hidden drafting response", now - 10),
+                ],
+            ),
+        ),
+    ]));
+    let tasks = Mutex::new(std::collections::VecDeque::new());
+
+    let context = engine
+        .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+        .await;
+
+    assert_eq!(context.recent_threads.len(), 1);
+    assert_eq!(context.recent_threads[0].id, "thread-real");
+}

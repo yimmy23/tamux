@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 
 pub(crate) fn validate_policy_decision(

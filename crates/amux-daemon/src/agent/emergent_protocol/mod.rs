@@ -1,0 +1,698 @@
+pub(crate) mod compressor;
+pub(crate) mod decoder;
+pub(crate) mod pattern_detector;
+pub(crate) mod types;
+
+use amux_protocol::{AgentDbMessage, AgentEventRow};
+use serde_json::json;
+
+use crate::agent::engine::AgentEngine;
+use crate::history::{EmergentProtocolRow, ProtocolStepRow};
+
+use self::types::{
+    ContextSignature, EmergentProtocolStore, ProtocolCandidate, ProtocolCandidateState,
+    ProtocolCandidateStore, ProtocolRegistryEntry, ProtocolStep, ProtocolUsageRecord,
+};
+
+const ACCEPTANCE_OBSERVATION_THRESHOLD: u32 = 3;
+const SUPPRESSION_OBSERVATION_THRESHOLD: u32 = 2;
+
+impl AgentEngine {
+    pub(crate) async fn get_thread_protocol_candidate_store(
+        &self,
+        thread_id: &str,
+    ) -> anyhow::Result<ProtocolCandidateStore> {
+        Ok(self
+            .history
+            .get_thread_protocol_candidates_state(thread_id)
+            .await?
+            .unwrap_or_default())
+    }
+
+    pub(crate) async fn analyze_emergent_protocol_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> anyhow::Result<Option<EmergentProtocolStore>> {
+        let messages = self.history.list_recent_messages(thread_id, 12).await?;
+        self.analyze_emergent_protocol_from_messages(thread_id, &messages)
+            .await
+    }
+
+    pub(crate) async fn analyze_emergent_protocol_from_messages(
+        &self,
+        thread_id: &str,
+        messages: &[AgentDbMessage],
+    ) -> anyhow::Result<Option<EmergentProtocolStore>> {
+        let detected = pattern_detector::detect_protocol_candidates(thread_id, messages);
+        if detected.candidates.is_empty() {
+            return Ok(None);
+        }
+
+        let mut durable_store = self.get_thread_protocol_candidate_store(thread_id).await?;
+        merge_detected_candidates(&mut durable_store, detected.candidates.clone());
+        durable_store.updated_at_ms = crate::agent::task_prompt::now_millis();
+        self.history
+            .upsert_thread_protocol_candidates_state(
+                thread_id,
+                &durable_store,
+                durable_store.updated_at_ms,
+            )
+            .await?;
+        self.activate_accepted_protocol_candidates(thread_id, &mut durable_store)
+            .await?;
+        self.history
+            .upsert_thread_protocol_candidates_state(
+                thread_id,
+                &durable_store,
+                durable_store.updated_at_ms,
+            )
+            .await?;
+
+        let strongest = durable_store.candidates.first().cloned();
+        if let Some(candidate) = strongest {
+            let row = AgentEventRow {
+                id: format!("emergent_protocol_{}", uuid::Uuid::new_v4()),
+                category: "emergent_protocol".to_string(),
+                kind: "candidate_detected".to_string(),
+                pane_id: Some(thread_id.to_string()),
+                workspace_id: None,
+                surface_id: None,
+                session_id: None,
+                payload_json: serde_json::to_string(&json!({
+                    "thread_id": thread_id,
+                    "candidate": candidate,
+                }))?,
+                timestamp: crate::agent::task_prompt::now_millis() as i64,
+            };
+            self.history.upsert_agent_event(&row).await?;
+        }
+
+        Ok(Some(EmergentProtocolStore {
+            candidates: durable_store.candidates.clone(),
+        }))
+    }
+
+    pub(crate) async fn list_thread_protocol_registry_entries(
+        &self,
+        thread_id: &str,
+    ) -> anyhow::Result<Vec<ProtocolRegistryEntry>> {
+        let rows = self.history.list_emergent_protocols_for_thread(thread_id).await?;
+        let mut entries = Vec::with_capacity(rows.len());
+        for row in rows {
+            entries.push(self.protocol_registry_entry_from_row(row).await?);
+        }
+        Ok(entries)
+    }
+
+    pub(crate) async fn lookup_thread_protocol_registry_entry(
+        &self,
+        thread_id: &str,
+        token: &str,
+    ) -> anyhow::Result<Option<ProtocolRegistryEntry>> {
+        let Some(row) = self.history.get_emergent_protocol_by_token(token).await? else {
+            return Ok(None);
+        };
+        if row.thread_id != thread_id {
+            return Ok(None);
+        }
+        Ok(Some(self.protocol_registry_entry_from_row(row).await?))
+    }
+
+    pub(crate) async fn reload_thread_protocol_registry(
+        &self,
+        thread_id: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let entries = self.list_thread_protocol_registry_entries(thread_id).await?;
+        Ok(json!({
+            "thread_id": thread_id,
+            "protocol_count": entries.len(),
+            "protocols": entries,
+        }))
+    }
+
+    pub(crate) async fn record_protocol_registry_usage(
+        &self,
+        thread_id: &str,
+        token: &str,
+        success: bool,
+        fallback_reason: Option<String>,
+        execution_time_ms: Option<u64>,
+    ) -> anyhow::Result<Option<ProtocolRegistryEntry>> {
+        let Some(mut entry) = self.lookup_thread_protocol_registry_entry(thread_id, token).await? else {
+            return Ok(None);
+        };
+        let used_at_ms = crate::agent::task_prompt::now_millis();
+        let usage = ProtocolUsageRecord {
+            id: format!("proto_usage_{}", uuid::Uuid::new_v4()),
+            protocol_id: entry.protocol_id.clone(),
+            used_at_ms,
+            execution_time_ms,
+            success,
+            fallback_reason: fallback_reason.clone(),
+        };
+
+        self.history
+            .insert_protocol_usage_log(&crate::history::ProtocolUsageLogRow {
+                id: usage.id.clone(),
+                protocol_id: usage.protocol_id.clone(),
+                used_at: usage.used_at_ms,
+                execution_time_ms: usage.execution_time_ms,
+                success: usage.success,
+                fallback_reason: usage.fallback_reason.clone(),
+            })
+            .await?;
+
+        let previous_total = entry.usage_count as f64;
+        let previous_successes = entry.success_rate * previous_total;
+        let next_total = previous_total + 1.0;
+        let next_successes = previous_successes + if success { 1.0 } else { 0.0 };
+        entry.usage_count += 1;
+        entry.last_used_ms = Some(used_at_ms);
+        entry.success_rate = if next_total > 0.0 {
+            (next_successes / next_total).clamp(0.0, 1.0)
+        } else {
+            entry.success_rate
+        };
+
+        self.history
+            .update_emergent_protocol_usage_stats(
+                &entry.protocol_id,
+                used_at_ms,
+                entry.usage_count as u64,
+                entry.success_rate,
+            )
+            .await?;
+
+        let row = AgentEventRow {
+            id: format!("emergent_protocol_usage_{}", uuid::Uuid::new_v4()),
+            category: "emergent_protocol".to_string(),
+            kind: if success {
+                "protocol_usage_recorded".to_string()
+            } else {
+                "protocol_fallback_recorded".to_string()
+            },
+            pane_id: Some(thread_id.to_string()),
+            workspace_id: None,
+            surface_id: None,
+            session_id: None,
+            payload_json: serde_json::to_string(&json!({
+                "thread_id": thread_id,
+                "protocol_id": entry.protocol_id,
+                "token": entry.token,
+                "success": success,
+                "fallback_reason": fallback_reason,
+                "usage_count": entry.usage_count,
+                "success_rate": entry.success_rate,
+            }))?,
+            timestamp: used_at_ms as i64,
+        };
+        self.history.upsert_agent_event(&row).await?;
+
+        Ok(Some(entry))
+    }
+
+    async fn protocol_registry_entry_from_row(
+        &self,
+        row: EmergentProtocolRow,
+    ) -> anyhow::Result<ProtocolRegistryEntry> {
+        let context_signature: ContextSignature =
+            serde_json::from_str(&row.context_signature_json)?;
+        let steps = self
+            .history
+            .list_protocol_steps(&row.protocol_id)
+            .await?
+            .into_iter()
+            .map(|step| ProtocolStep {
+                step_index: step.step_index as u32,
+                intent: step.intent,
+                tool: step.tool_name,
+                args_template: serde_json::from_str(&step.args_template_json)
+                    .unwrap_or_else(|_| serde_json::json!({})),
+            })
+            .collect();
+        Ok(ProtocolRegistryEntry {
+            protocol_id: row.protocol_id,
+            token: row.token,
+            description: row.description,
+            agent_a: row.agent_a,
+            agent_b: row.agent_b,
+            thread_id: row.thread_id,
+            normalized_pattern: row.normalized_pattern,
+            trigger_phrase: context_signature.trigger_phrase.clone(),
+            signal_kind: crate::agent::emergent_protocol::types::ProtocolSignalKind::from_str(
+                &row.signal_kind,
+            )
+            .unwrap_or(crate::agent::emergent_protocol::types::ProtocolSignalKind::RepeatedShorthand),
+            context_signature,
+            steps,
+            created_at_ms: row.created_at,
+            activated_at_ms: row.activated_at,
+            last_used_ms: row.last_used_at,
+            usage_count: row.usage_count as u32,
+            success_rate: row.success_rate,
+            source_candidate_id: row.source_candidate_id,
+        })
+    }
+
+    async fn activate_accepted_protocol_candidates(
+        &self,
+        thread_id: &str,
+        store: &mut ProtocolCandidateStore,
+    ) -> anyhow::Result<()> {
+        let now = crate::agent::task_prompt::now_millis();
+        let accepted_candidates = store
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.state == ProtocolCandidateState::Accepted)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for candidate in accepted_candidates {
+            if self
+                .history
+                .get_emergent_protocol_by_pattern(thread_id, &candidate.normalized_pattern)
+                .await?
+                .is_some()
+            {
+                continue;
+            }
+
+            let token = compressor::stable_protocol_token(&candidate.normalized_pattern, thread_id);
+            let context_signature = build_context_signature(thread_id, &candidate);
+            let entry = ProtocolRegistryEntry {
+                protocol_id: format!("proto_reg_{}", uuid::Uuid::new_v4()),
+                token: token.clone(),
+                description: format!(
+                    "Accepted emergent protocol for '{}' in thread {}",
+                    candidate.normalized_pattern, thread_id
+                ),
+                agent_a: "user".to_string(),
+                agent_b: "assistant".to_string(),
+                thread_id: thread_id.to_string(),
+                normalized_pattern: candidate.normalized_pattern.clone(),
+                trigger_phrase: candidate.trigger_phrase.clone(),
+                signal_kind: candidate.kind,
+                context_signature,
+                steps: vec![ProtocolStep {
+                    step_index: 0,
+                    intent: format!(
+                        "expand '{}' as recurring coordination cue '{}'",
+                        token, candidate.trigger_phrase
+                    ),
+                    tool: None,
+                    args_template: serde_json::json!({
+                        "normalized_pattern": candidate.normalized_pattern,
+                        "trigger_phrase": candidate.trigger_phrase,
+                    }),
+                }],
+                created_at_ms: candidate.first_seen_at_ms,
+                activated_at_ms: now,
+                last_used_ms: None,
+                usage_count: 0,
+                success_rate: 1.0,
+                source_candidate_id: Some(candidate.id.clone()),
+            };
+            self.persist_protocol_registry_entry(&entry).await?;
+
+            let row = AgentEventRow {
+                id: format!("emergent_protocol_activation_{}", uuid::Uuid::new_v4()),
+                category: "emergent_protocol".to_string(),
+                kind: "protocol_activated".to_string(),
+                pane_id: Some(thread_id.to_string()),
+                workspace_id: None,
+                surface_id: None,
+                session_id: None,
+                payload_json: serde_json::to_string(&json!({
+                    "thread_id": thread_id,
+                    "candidate_id": candidate.id,
+                    "token": entry.token,
+                    "protocol_id": entry.protocol_id,
+                }))?,
+                timestamp: now as i64,
+            };
+            self.history.upsert_agent_event(&row).await?;
+        }
+        Ok(())
+    }
+
+    async fn persist_protocol_registry_entry(
+        &self,
+        entry: &ProtocolRegistryEntry,
+    ) -> anyhow::Result<()> {
+        let row = EmergentProtocolRow {
+            protocol_id: entry.protocol_id.clone(),
+            token: entry.token.clone(),
+            description: entry.description.clone(),
+            agent_a: entry.agent_a.clone(),
+            agent_b: entry.agent_b.clone(),
+            thread_id: entry.thread_id.clone(),
+            normalized_pattern: entry.normalized_pattern.clone(),
+            signal_kind: entry.signal_kind.as_str().to_string(),
+            context_signature_json: serde_json::to_string(&entry.context_signature)?,
+            created_at: entry.created_at_ms,
+            activated_at: entry.activated_at_ms,
+            last_used_at: entry.last_used_ms,
+            usage_count: entry.usage_count as u64,
+            success_rate: entry.success_rate,
+            source_candidate_id: entry.source_candidate_id.clone(),
+        };
+        self.history.upsert_emergent_protocol(&row).await?;
+        let steps = entry
+            .steps
+            .iter()
+            .map(|step| ProtocolStepRow {
+                protocol_id: entry.protocol_id.clone(),
+                step_index: step.step_index as u64,
+                intent: step.intent.clone(),
+                tool_name: step.tool.clone(),
+                args_template_json: serde_json::to_string(&step.args_template)
+                    .unwrap_or_else(|_| "{}".to_string()),
+            })
+            .collect::<Vec<_>>();
+        self.history
+            .replace_protocol_steps(&entry.protocol_id, &steps)
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn get_protocol_usage_log_payload(
+        &self,
+        protocol_id: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let usage = self.history.list_protocol_usage_log(protocol_id).await?;
+        let entries = usage
+            .into_iter()
+            .map(|entry| {
+                json!({
+                    "id": entry.id,
+                    "protocol_id": entry.protocol_id,
+                    "used_at": entry.used_at,
+                    "execution_time_ms": entry.execution_time_ms,
+                    "success": entry.success,
+                    "fallback_reason": entry.fallback_reason,
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "protocol_id": protocol_id,
+            "entries": entries,
+        }))
+    }
+}
+
+fn build_context_signature(thread_id: &str, candidate: &ProtocolCandidate) -> ContextSignature {
+    let source_role = candidate
+        .observations
+        .last()
+        .map(|observation| observation.role.clone())
+        .unwrap_or_else(|| "user".to_string());
+    let target_role = if source_role == "assistant" {
+        "user".to_string()
+    } else {
+        "assistant".to_string()
+    };
+    ContextSignature {
+        thread_id: thread_id.to_string(),
+        normalized_pattern: candidate.normalized_pattern.clone(),
+        trigger_phrase: candidate.trigger_phrase.clone(),
+        signal_kind: candidate.kind,
+        source_role,
+        target_role,
+    }
+}
+
+fn merge_detected_candidates(
+    store: &mut ProtocolCandidateStore,
+    detected_candidates: Vec<ProtocolCandidate>,
+) {
+    for detected in detected_candidates {
+        if let Some(existing) = store
+            .candidates
+            .iter_mut()
+            .find(|candidate| candidate.normalized_pattern == detected.normalized_pattern)
+        {
+            existing.trigger_phrase = detected.trigger_phrase.clone();
+            existing.kind = detected.kind;
+            existing.confidence = existing.confidence.max(detected.confidence);
+            existing.observation_count = existing.observation_count.max(detected.observation_count);
+            existing.first_seen_at_ms = existing.first_seen_at_ms.min(detected.first_seen_at_ms);
+            existing.last_seen_at_ms = existing.last_seen_at_ms.max(detected.last_seen_at_ms);
+            existing.observations = detected.observations.clone();
+            existing.state =
+                classify_candidate_state(existing.observation_count, existing.confidence);
+        } else {
+            let mut candidate = detected;
+            candidate.state =
+                classify_candidate_state(candidate.observation_count, candidate.confidence);
+            store.candidates.push(candidate);
+        }
+    }
+
+    store.candidates.sort_by(|a, b| {
+        rank_state(b.state)
+            .cmp(&rank_state(a.state))
+            .then_with(|| {
+                b.confidence
+                    .partial_cmp(&a.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| b.observation_count.cmp(&a.observation_count))
+    });
+}
+
+fn classify_candidate_state(observation_count: u32, confidence: f64) -> ProtocolCandidateState {
+    if observation_count >= ACCEPTANCE_OBSERVATION_THRESHOLD && confidence >= 0.20 {
+        ProtocolCandidateState::Accepted
+    } else if observation_count < SUPPRESSION_OBSERVATION_THRESHOLD && confidence < 0.20 {
+        ProtocolCandidateState::Rejected
+    } else {
+        ProtocolCandidateState::Candidate
+    }
+}
+
+fn rank_state(state: ProtocolCandidateState) -> u8 {
+    match state {
+        ProtocolCandidateState::Accepted => 4,
+        ProtocolCandidateState::Candidate => 3,
+        ProtocolCandidateState::Observing => 2,
+        ProtocolCandidateState::Rejected => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::{types::AgentConfig, AgentEngine};
+    use crate::session_manager::SessionManager;
+    use tempfile::tempdir;
+
+    fn msg(
+        id: &str,
+        thread_id: &str,
+        created_at: i64,
+        role: &str,
+        content: &str,
+    ) -> AgentDbMessage {
+        AgentDbMessage {
+            id: id.to_string(),
+            thread_id: thread_id.to_string(),
+            created_at,
+            role: role.to_string(),
+            content: content.to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn candidate_gets_accepted_after_sufficient_observation() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-emergent-accepted";
+
+        let messages = vec![
+            msg("m1", thread_id, 1, "user", "continue"),
+            msg("m2", thread_id, 2, "assistant", "working"),
+            msg("m3", thread_id, 3, "user", "continue"),
+            msg("m4", thread_id, 4, "assistant", "still working"),
+            msg("m5", thread_id, 5, "user", "continue"),
+        ];
+
+        let analyzed = engine
+            .analyze_emergent_protocol_from_messages(thread_id, &messages)
+            .await
+            .expect("analysis should succeed")
+            .expect("candidate store should be returned");
+
+        assert!(analyzed.candidates.iter().any(|candidate| candidate.state
+            == ProtocolCandidateState::Accepted
+            && candidate.normalized_pattern == "continue"));
+
+        let stored = engine
+            .get_thread_protocol_candidate_store(thread_id)
+            .await
+            .expect("stored protocol candidates should load");
+        assert!(stored.candidates.iter().any(|candidate| candidate.state
+            == ProtocolCandidateState::Accepted
+            && candidate.normalized_pattern == "continue"));
+    }
+
+    #[tokio::test]
+    async fn weak_candidate_gets_suppressed_before_acceptance() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-emergent-suppressed";
+
+        let weak = ProtocolCandidate {
+            id: "proto-weak".to_string(),
+            thread_id: thread_id.to_string(),
+            kind: crate::agent::emergent_protocol::types::ProtocolSignalKind::RepeatedShorthand,
+            trigger_phrase: "k".to_string(),
+            normalized_pattern: "k".to_string(),
+            state: ProtocolCandidateState::Candidate,
+            confidence: 0.05,
+            observation_count: 1,
+            first_seen_at_ms: 1,
+            last_seen_at_ms: 1,
+            observations: vec![],
+        };
+
+        let mut store = ProtocolCandidateStore::default();
+        merge_detected_candidates(&mut store, vec![weak]);
+
+        assert!(store.candidates.iter().any(|candidate| candidate.state
+            == ProtocolCandidateState::Rejected
+            && candidate.normalized_pattern == "k"));
+
+        engine
+            .history
+            .upsert_thread_protocol_candidates_state(thread_id, &store, 10)
+            .await
+            .expect("suppressed store should persist");
+
+        let stored = engine
+            .get_thread_protocol_candidate_store(thread_id)
+            .await
+            .expect("suppressed protocol candidates should load");
+        assert!(stored.candidates.iter().any(|candidate| candidate.state
+            == ProtocolCandidateState::Rejected
+            && candidate.normalized_pattern == "k"));
+    }
+
+    #[tokio::test]
+    async fn accepted_candidate_promotes_into_registry_entry() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-emergent-registry";
+
+        let messages = vec![
+            msg("m1", thread_id, 1, "user", "continue"),
+            msg("m2", thread_id, 2, "assistant", "working"),
+            msg("m3", thread_id, 3, "user", "continue"),
+            msg("m4", thread_id, 4, "assistant", "still working"),
+            msg("m5", thread_id, 5, "user", "continue"),
+        ];
+
+        engine
+            .analyze_emergent_protocol_from_messages(thread_id, &messages)
+            .await
+            .expect("analysis should succeed")
+            .expect("candidate store should be returned");
+
+        let registry = engine
+            .list_thread_protocol_registry_entries(thread_id)
+            .await
+            .expect("registry should load");
+
+        assert_eq!(registry.len(), 1);
+        let entry = &registry[0];
+        assert_eq!(entry.thread_id, thread_id);
+        assert_eq!(entry.normalized_pattern, "continue");
+        assert!(entry.token.starts_with("@proto_"));
+        assert!(entry
+            .source_candidate_id
+            .as_deref()
+            .is_some_and(|value| value.starts_with("proto_")));
+    }
+
+    #[tokio::test]
+    async fn registry_lookup_can_record_usage_and_fallback() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-emergent-usage";
+
+        let messages = vec![
+            msg("m1", thread_id, 1, "user", "continue"),
+            msg("m2", thread_id, 2, "assistant", "working"),
+            msg("m3", thread_id, 3, "user", "continue"),
+            msg("m4", thread_id, 4, "assistant", "still working"),
+            msg("m5", thread_id, 5, "user", "continue"),
+        ];
+
+        engine
+            .analyze_emergent_protocol_from_messages(thread_id, &messages)
+            .await
+            .expect("analysis should succeed")
+            .expect("candidate store should be returned");
+
+        let registry = engine
+            .list_thread_protocol_registry_entries(thread_id)
+            .await
+            .expect("registry should load");
+        let token = registry[0].token.clone();
+        let protocol_id = registry[0].protocol_id.clone();
+
+        let looked_up = engine
+            .lookup_thread_protocol_registry_entry(thread_id, &token)
+            .await
+            .expect("lookup should succeed")
+            .expect("entry should exist");
+        assert_eq!(looked_up.protocol_id, protocol_id);
+        assert_eq!(looked_up.usage_count, 0);
+
+        let updated = engine
+            .record_protocol_registry_usage(
+                thread_id,
+                &token,
+                false,
+                Some("context_mismatch".to_string()),
+                Some(7),
+            )
+            .await
+            .expect("usage recording should succeed")
+            .expect("entry should still exist");
+        assert_eq!(updated.usage_count, 1);
+        assert_eq!(updated.success_rate, 0.0);
+
+        let usage_payload = engine
+            .get_protocol_usage_log_payload(&protocol_id)
+            .await
+            .expect("usage payload should load");
+        let entries = usage_payload["entries"]
+            .as_array()
+            .expect("usage entries should be an array");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["success"].as_bool(), Some(false));
+        assert_eq!(
+            entries[0]["fallback_reason"].as_str(),
+            Some("context_mismatch")
+        );
+
+        let reloaded = engine
+            .reload_thread_protocol_registry(thread_id)
+            .await
+            .expect("reload should succeed");
+        assert_eq!(reloaded["protocol_count"].as_u64(), Some(1));
+    }
+}

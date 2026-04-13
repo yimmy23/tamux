@@ -40,7 +40,6 @@ impl TuiModel {
             openai_auth_status_text: None,
             settings_picker_target: None,
             last_attention_surface: None,
-            pending_g: false,
             show_sidebar_override: None,
             main_pane_view: MainPaneView::Conversation,
             task_view_scroll: 0,
@@ -628,10 +627,6 @@ impl TuiModel {
         }
 
         self.concierge.loading || !self.chat.active_actions().is_empty()
-    }
-
-    fn concierge_banner_visible(&self) -> bool {
-        self.actions_bar_visible()
     }
 
     fn should_show_local_landing(&self) -> bool {

@@ -66,6 +66,7 @@ pub struct GatewayRuntimeCore {
 }
 
 impl GatewayRuntimeCore {
+    #[cfg(test)]
     pub fn new(
         daemon_tx: mpsc::UnboundedSender<ClientMessage>,
         provider_queue_tx: mpsc::UnboundedSender<GatewaySendRequest>,
@@ -89,10 +90,12 @@ impl GatewayRuntimeCore {
         }
     }
 
+    #[cfg(test)]
     pub fn state(&self) -> &GatewayRuntimeState {
         &self.state
     }
 
+    #[cfg(test)]
     pub fn bootstrap_from_daemon_message(&mut self, msg: DaemonMessage) -> Result<()> {
         let DaemonMessage::GatewayBootstrap { payload } = msg else {
             anyhow::bail!("expected gateway bootstrap message");

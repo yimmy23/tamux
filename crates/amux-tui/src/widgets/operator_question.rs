@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use ratatui::prelude::*;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};

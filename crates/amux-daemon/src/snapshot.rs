@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use amux_protocol::{SessionId, SnapshotIndexEntry, SnapshotInfo, WorkspaceId};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -13,11 +15,8 @@ use crate::history::HistoryStore;
 mod detect;
 mod store;
 
-use detect::{detect_snapshot_backend, detect_zfs_dataset, is_btrfs};
-pub use store::{
-    cleanup_orphaned_files, delete_snapshot, enforce_retention, get_snapshot_stats,
-    SnapshotRetentionConfig, SnapshotStats, SnapshotStore,
-};
+use detect::detect_snapshot_backend;
+pub use store::SnapshotStore;
 
 // ---------------------------------------------------------------------------
 // Snapshot backend trait

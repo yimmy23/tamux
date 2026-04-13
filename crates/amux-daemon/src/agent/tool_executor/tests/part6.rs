@@ -927,6 +927,249 @@
     }
 
     #[tokio::test]
+    async fn tui_bash_command_wait_false_returns_immediate_operation_handle() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine =
+            AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let marker = root.path().join("tui-headless-background.txt");
+        let thread_id = "thread-tui-bash-wait-false";
+        engine
+            .set_thread_client_surface(thread_id, amux_protocol::ClientSurface::Tui)
+            .await;
+
+        let command = format!(
+            "python3 -c \"import pathlib, time; time.sleep(1); pathlib.Path(r'{}').write_text('done')\"",
+            marker.display()
+        );
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-tui-bash-wait-false".to_string(),
+            ToolFunction {
+                name: "bash_command".to_string(),
+                arguments: serde_json::json!({
+                    "command": command,
+                    "wait_for_completion": false,
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !result.is_error,
+            "non-blocking TUI bash command should return immediately: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("operation_id: "),
+            "non-blocking TUI bash command should return an operation handle: {}",
+            result.content
+        );
+        assert!(
+            !marker.exists(),
+            "backgrounded headless TUI command should not have finished before returning"
+        );
+
+        let operation_id = result
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("operation_id: "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .expect("backgrounded TUI bash command should expose an operation_id");
+
+        let status_call = ToolCall::with_default_weles_review(
+            "tool-tui-bash-operation-status".to_string(),
+            ToolFunction {
+                name: "get_operation_status".to_string(),
+                arguments: serde_json::json!({
+                    "operation_id": operation_id,
+                })
+                .to_string(),
+            },
+        );
+
+        let mut payload = serde_json::Value::Null;
+        let mut completed = false;
+        for _ in 0..20 {
+            let status = execute_tool(
+                &status_call,
+                &engine,
+                thread_id,
+                None,
+                &manager,
+                None,
+                &event_tx,
+                root.path(),
+                &engine.http_client,
+                None,
+            )
+            .await;
+
+            assert!(
+                !status.is_error,
+                "operation status lookup should succeed: {}",
+                status.content
+            );
+
+            payload = serde_json::from_str(&status.content)
+                .expect("operation status payload should be valid JSON");
+            if payload["state"] == "completed" {
+                completed = true;
+                break;
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        assert!(
+            completed,
+            "backgrounded headless TUI command should complete within the polling window: {}",
+            payload
+        );
+        assert_eq!(payload["operation_id"], operation_id);
+        assert_eq!(payload["state"], "completed");
+        assert!(
+            marker.exists(),
+            "backgrounded headless TUI command should finish after polling"
+        );
+    }
+
+    #[tokio::test]
+    async fn tui_bash_command_wait_false_exposes_failure_payload_via_operation_status() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine =
+            AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-tui-bash-wait-false-failure";
+        engine
+            .set_thread_client_surface(thread_id, amux_protocol::ClientSurface::Tui)
+            .await;
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-tui-bash-wait-false-failure".to_string(),
+            ToolFunction {
+                name: "bash_command".to_string(),
+                arguments: serde_json::json!({
+                    "command": "python3 -c \"import sys, time; print('stdout-line'); print('stderr-line', file=sys.stderr); time.sleep(0.2); sys.exit(7)\"",
+                    "wait_for_completion": false,
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !result.is_error,
+            "non-blocking TUI bash failure should still return an operation handle: {}",
+            result.content
+        );
+
+        let operation_id = result
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("operation_id: "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .expect("backgrounded TUI bash failure should expose an operation_id");
+
+        let status_call = ToolCall::with_default_weles_review(
+            "tool-tui-bash-operation-status-failure".to_string(),
+            ToolFunction {
+                name: "get_operation_status".to_string(),
+                arguments: serde_json::json!({
+                    "operation_id": operation_id,
+                })
+                .to_string(),
+            },
+        );
+
+        let mut payload = serde_json::Value::Null;
+        let mut failed = false;
+        for _ in 0..20 {
+            let status = execute_tool(
+                &status_call,
+                &engine,
+                thread_id,
+                None,
+                &manager,
+                None,
+                &event_tx,
+                root.path(),
+                &engine.http_client,
+                None,
+            )
+            .await;
+
+            assert!(
+                !status.is_error,
+                "operation status lookup should succeed: {}",
+                status.content
+            );
+
+            payload = serde_json::from_str(&status.content)
+                .expect("operation status payload should be valid JSON");
+            if payload["state"] == "failed" {
+                failed = true;
+                break;
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        assert!(
+            failed,
+            "backgrounded headless TUI failure should reach failed state within the polling window: {}",
+            payload
+        );
+        assert_eq!(payload["operation_id"], operation_id);
+        assert_eq!(payload["state"], "failed");
+        assert_eq!(payload["exit_code"], 7);
+        assert!(
+            payload["terminal_result"]["stdout"]
+                .as_str()
+                .is_some_and(|value| value.contains("stdout-line")),
+            "failed background status should include stdout payload: {}",
+            payload
+        );
+        assert!(
+            payload["terminal_result"]["stderr"]
+                .as_str()
+                .is_some_and(|value| value.contains("stderr-line")),
+            "failed background status should include stderr payload: {}",
+            payload
+        );
+    }
+
+    #[tokio::test]
     async fn get_operation_status_returns_server_operation_snapshot() {
         let root = tempdir().expect("tempdir should succeed");
         let manager = SessionManager::new_test(root.path()).await;

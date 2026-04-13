@@ -159,7 +159,7 @@ fn messages_to_responses_input(
     let emitted_tool_output_call_ids: std::collections::HashSet<&str> = messages
         .iter()
         .filter(|message| message.role == "tool")
-        .filter(|message| {
+        .filter(|_message| {
             !(provider == amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT
                 && previous_response_id.is_some())
         })

@@ -167,7 +167,7 @@ impl HistoryStore {
             None
         };
 
-        let record = record.clone();
+        let record = record;
         self.conn.call(move |conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO memory_provenance \

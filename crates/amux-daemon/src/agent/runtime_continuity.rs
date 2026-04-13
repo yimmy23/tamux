@@ -1,7 +1,7 @@
 use super::*;
 use crate::agent::episodic::{
-    ConstraintState, ConstraintType, CorrectionPattern, CounterWhoState, EpisodeOutcome,
-    NegativeConstraint, TriedApproach,
+    CounterWhoState,
+    NegativeConstraint,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

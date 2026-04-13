@@ -130,11 +130,11 @@ impl HistoryStore {
                 }
                 sql.push_str(" ORDER BY timestamp DESC LIMIT ?99");
 
-                let mut stmt = conn.prepare(&sql)?;
+                let stmt = conn.prepare(&sql)?;
 
                 // Bind parameters dynamically
-                let mut param_idx = 1;
-                let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+                let _param_idx = 1;
+                let params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
                 // Rewrite: use a simpler approach with raw SQL and named params
                 drop(stmt);

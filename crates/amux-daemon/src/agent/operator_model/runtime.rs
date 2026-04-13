@@ -283,6 +283,10 @@ impl AgentEngine {
         )
         .await?;
 
+        if let Err(error) = self.analyze_emergent_protocol_for_thread(thread_id).await {
+            tracing::debug!(thread_id = %thread_id, error = %error, "emergent protocol analysis failed after operator message");
+        }
+
         Ok(())
     }
 

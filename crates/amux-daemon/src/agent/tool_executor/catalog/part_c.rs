@@ -1,8 +1,8 @@
 fn add_available_tools_part_c(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
-    agent_data_dir: &std::path::Path,
-    has_workspace_topology: bool,
+    _agent_data_dir: &std::path::Path,
+    _has_workspace_topology: bool,
 ) {
     if config.tools.web_search {
         tools.push(tool_def(
@@ -160,7 +160,7 @@ fn add_available_tools_part_c(
         },
         "required": ["command", "rationale"]
     })));
-    tools.push(tool_def("get_operation_status", "Look up the current lifecycle state of a previously accepted asynchronous operation by its operation_id. For background terminal commands, pass the returned operation_id here; `background_task_id` is the same value for compatibility.", serde_json::json!({
+    tools.push(tool_def("get_operation_status", "Look up the current lifecycle state of a previously accepted asynchronous operation by its operation_id. For background terminal commands, pass the returned operation_id here; `background_task_id` is the same value for compatibility. When a background headless shell command completes or fails, this response includes `terminal_result` with the captured payload and exit code.", serde_json::json!({
         "type": "object",
         "properties": {
             "operation_id": { "type": "string", "description": "Asynchronous operation handle returned by a non-blocking tool or daemon operation" }
@@ -351,25 +351,55 @@ fn add_available_tools_part_c(
         },
         "required": ["session_id", "role", "agent_id", "content"]
     })));
-    tools.push(tool_def("advance_debate_round", "Advance a debate session to the next round and rotate roles when configured.", serde_json::json!({
-        "type": "object",
-        "properties": {
-            "session_id": { "type": "string", "description": "Debate session ID" }
-        },
-        "required": ["session_id"]
-    })));
-    tools.push(tool_def("complete_debate_session", "Finalize a debate session and synthesize a verdict from the accumulated arguments.", serde_json::json!({
-        "type": "object",
-        "properties": {
-            "session_id": { "type": "string", "description": "Debate session ID" }
-        },
-        "required": ["session_id"]
-    })));
+    tools.push(tool_def(
+        "advance_debate_round",
+        "Advance a debate session to the next round and rotate roles when configured.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "string", "description": "Debate session ID" }
+            },
+            "required": ["session_id"]
+        }),
+    ));
+    tools.push(tool_def(
+        "complete_debate_session",
+        "Finalize a debate session and synthesize a verdict from the accumulated arguments.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "string", "description": "Debate session ID" }
+            },
+            "required": ["session_id"]
+        }),
+    ));
     tools.push(tool_def("get_critique_session", "Fetch an auto-generated critique preflight session, including advocate/critic arguments and the arbiter resolution.", serde_json::json!({
         "type": "object",
         "properties": {
             "session_id": { "type": "string", "description": "Critique session ID returned in critique preflight notices or blocking messages" }
         },
         "required": ["session_id"]
+    })));
+    tools.push(tool_def("lookup_emergent_protocol", "Look up an accepted emergent protocol registry entry for the current thread by token and optionally record a usage or fallback outcome.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "token": { "type": "string", "description": "Protocol token to resolve, such as @proto_deadbeef" },
+            "record_usage": { "type": "boolean", "description": "When true, record usage/fallback against the registry entry" },
+            "success": { "type": "boolean", "description": "Usage outcome when record_usage=true" },
+            "fallback_reason": { "type": "string", "description": "Fallback reason when lookup succeeded but the protocol could not be applied cleanly" },
+            "execution_time_ms": { "type": "integer", "description": "Optional execution time for the attempted protocol application" }
+        },
+        "required": ["token"]
+    })));
+    tools.push(tool_def("reload_emergent_protocol_registry", "Reload and return accepted emergent protocol registry entries for the current thread from durable storage.", serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })));
+    tools.push(tool_def("get_emergent_protocol_usage_log", "Fetch recorded usage/fallback entries for an accepted emergent protocol.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "protocol_id": { "type": "string", "description": "Accepted emergent protocol ID" }
+        },
+        "required": ["protocol_id"]
     })));
 }

@@ -7,8 +7,7 @@ mod pure;
 #[path = "consolidation_refinement.rs"]
 mod refinement;
 pub(crate) use pure::{
-    compute_decay_confidence, is_idle_for_consolidation, DEFAULT_BUDGET_SECS,
-    DEFAULT_HALF_LIFE_HOURS, DEFAULT_IDLE_THRESHOLD_MS,
+    compute_decay_confidence, is_idle_for_consolidation,
 };
 
 const DISTILLATION_LAST_RUN_KEY_PREFIX: &str = "distillation_last_run_ms";

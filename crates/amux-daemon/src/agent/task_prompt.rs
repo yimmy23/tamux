@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Task prompt building and session resolution.
 
 use std::sync::Arc;

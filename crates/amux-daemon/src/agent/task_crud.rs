@@ -670,14 +670,10 @@ impl AgentEngine {
             return (projected, false);
         }
 
-        let mut truncated = false;
         let mut capped = Vec::with_capacity(projected.len());
         for goal_run in projected {
-            if let Some((goal_run, goal_truncated)) = cap_goal_run_for_ipc(goal_run) {
-                truncated |= goal_truncated;
+            if let Some((goal_run, _goal_truncated)) = cap_goal_run_for_ipc(goal_run) {
                 capped.push(goal_run);
-            } else {
-                truncated = true;
             }
         }
 

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Workspace sandboxing for managed commands.
 //! Uses bubblewrap (bwrap) on Linux, sandbox-exec on macOS,
 //! or falls back to a passthrough when neither is available.

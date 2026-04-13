@@ -150,7 +150,7 @@ pub fn send_completion_request(
     )
 }
 
-pub fn send_completion_request_with_options(
+pub(crate) fn send_completion_request_with_options(
     client: &reqwest::Client,
     provider: &str,
     config: &ProviderConfig,

@@ -4,7 +4,7 @@
 //! and parent context into a bundle that respects a strict token ceiling.
 //! Token estimation uses a chars/4 approximation consistent with the codebase.
 
-use super::{ContextBundle, EpisodeRef, PartialOutput};
+use super::ContextBundle;
 
 impl ContextBundle {
     /// Create a new context bundle for a handoff.

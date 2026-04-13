@@ -18,11 +18,9 @@ use crate::session_manager::SessionManager;
 
 use super::agent_identity::{
     build_spawned_persona_prompt, canonical_agent_id, canonical_agent_name,
-    current_agent_scope_id, extract_persona_name, sender_name_for_task,
-    CONCIERGE_AGENT_ALIAS, CONCIERGE_AGENT_ID, CONCIERGE_AGENT_NAME, MAIN_AGENT_ALIAS,
+    current_agent_scope_id, extract_persona_name, sender_name_for_task, CONCIERGE_AGENT_ID, CONCIERGE_AGENT_NAME,
     MAIN_AGENT_ID, MAIN_AGENT_NAME,
 };
-pub(super) use super::aline_available;
 use super::memory::{apply_memory_update, MemoryTarget, MemoryUpdateMode, MemoryWriteContext};
 use super::semantic_env::{execute_semantic_query, infer_workspace_context_tags};
 use super::session_recall::execute_session_search as run_session_search;
@@ -33,7 +31,7 @@ use super::tool_synthesis::{
 
 use super::types::{
     AgentConfig, AgentEvent, NotificationSeverity, TodoItem, TodoStatus, ToolCall, ToolDefinition,
-    ToolFunctionDef, ToolPendingApproval, ToolResult, WelesReviewMeta, WelesVerdict,
+    ToolFunctionDef, ToolPendingApproval, ToolResult,
 };
 use super::AgentEngine;
 

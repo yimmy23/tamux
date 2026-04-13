@@ -94,29 +94,97 @@ pub async fn run() -> Result<()> {
     // Wire plugin manager into agent engine for tool executor access (Phase 17)
     let _ = agent.plugin_manager.set(plugin_manager.clone());
 
-    // Hydrate persisted state (threads, tasks, heartbeat, memory)
-    if let Err(e) = agent.hydrate().await {
-        tracing::warn!("failed to hydrate agent engine: {e}");
-    }
-
-    // Initialize the concierge (ensures pinned thread exists after hydration).
-    agent.concierge.initialize(&agent.threads).await;
-
-    #[cfg(not(test))]
-    maybe_autostart_whatsapp_link(agent.clone()).await;
-
-    // Start background loop (tasks + heartbeat)
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let loop_agent = agent.clone();
-    tokio::spawn(async move {
-        Box::pin(loop_agent.run_loop(shutdown_rx)).await;
-    });
+    let startup_readiness = StartupReadiness::new(false);
 
     #[cfg(unix)]
-    let result = run_unix(manager, agent.clone(), plugin_manager.clone()).await;
+    let result = {
+        let path = socket_path();
+        let listener = bind_unix_listener(&path)?;
+        tracing::info!(?path, "daemon listening on Unix socket");
+        let startup_agent = agent.clone();
+        let startup_readiness_for_task = startup_readiness.clone();
+        tokio::spawn(async move {
+            // Hydrate persisted state (threads, tasks, heartbeat, memory) without
+            // delaying socket availability.
+            if let Err(e) = startup_agent.hydrate().await {
+                tracing::warn!("failed to hydrate agent engine: {e}");
+            }
+
+            // Initialize the concierge after hydrated state is available.
+            startup_agent
+                .concierge
+                .initialize(&startup_agent.threads)
+                .await;
+
+            startup_readiness_for_task.mark_ready();
+
+            #[cfg(not(test))]
+            maybe_autostart_whatsapp_link(startup_agent.clone()).await;
+
+            // Start background loop (tasks + heartbeat) once startup restore finishes.
+            Box::pin(startup_agent.run_loop(shutdown_rx)).await;
+        });
+        run_unix(
+            listener,
+            path,
+            manager,
+            agent.clone(),
+            plugin_manager.clone(),
+            startup_readiness.clone(),
+        )
+        .await
+    };
 
     #[cfg(windows)]
-    let result = run_windows(manager, agent.clone(), plugin_manager.clone()).await;
+    let result = {
+        use tokio::net::TcpListener;
+
+        let addr = amux_protocol::default_tcp_addr();
+        let listener = TcpListener::bind(&addr).await.map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AddrInUse {
+                anyhow::anyhow!(
+                    "daemon is already running on {addr}; stop the existing process before starting another instance"
+                )
+            } else {
+                anyhow::Error::new(error)
+                    .context(format!("failed to bind daemon TCP listener on {addr}"))
+            }
+        })?;
+        tracing::info!(%addr, "daemon listening on TCP");
+        let startup_agent = agent.clone();
+        let startup_readiness_for_task = startup_readiness.clone();
+        tokio::spawn(async move {
+            // Hydrate persisted state (threads, tasks, heartbeat, memory) without
+            // delaying socket availability.
+            if let Err(e) = startup_agent.hydrate().await {
+                tracing::warn!("failed to hydrate agent engine: {e}");
+            }
+
+            // Initialize the concierge after hydrated state is available.
+            startup_agent
+                .concierge
+                .initialize(&startup_agent.threads)
+                .await;
+
+            startup_readiness_for_task.mark_ready();
+
+            #[cfg(not(test))]
+            maybe_autostart_whatsapp_link(startup_agent.clone()).await;
+
+            // Start background loop (tasks + heartbeat) once startup restore finishes.
+            Box::pin(startup_agent.run_loop(shutdown_rx)).await;
+        });
+        run_windows(
+            listener,
+            addr,
+            manager,
+            agent.clone(),
+            plugin_manager.clone(),
+            startup_readiness.clone(),
+        )
+        .await
+    };
 
     // Signal agent loop shutdown
     let _ = shutdown_tx.send(true);
@@ -130,14 +198,13 @@ pub async fn run() -> Result<()> {
 
 #[cfg(unix)]
 async fn run_unix(
+    listener: tokio::net::UnixListener,
+    path: std::path::PathBuf,
     manager: Arc<SessionManager>,
     agent: Arc<AgentEngine>,
     plugin_manager: Arc<crate::plugin::PluginManager>,
+    startup_readiness: StartupReadiness,
 ) -> Result<()> {
-    let path = socket_path();
-    let listener = bind_unix_listener(&path)?;
-    tracing::info!(?path, "daemon listening on Unix socket");
-
     // Graceful shutdown on SIGINT / SIGTERM.
     let shutdown = async {
         tokio::signal::ctrl_c().await.ok();
@@ -145,7 +212,7 @@ async fn run_unix(
     };
 
     tokio::select! {
-        _ = accept_loop_unix(listener, manager, agent, plugin_manager) => {}
+        _ = accept_loop_unix(listener, manager, agent, plugin_manager, startup_readiness) => {}
         _ = shutdown => {}
     }
 
@@ -213,6 +280,7 @@ async fn accept_loop_unix(
     manager: Arc<SessionManager>,
     agent: Arc<AgentEngine>,
     plugin_manager: Arc<crate::plugin::PluginManager>,
+    startup_readiness: StartupReadiness,
 ) {
     loop {
         match listener.accept().await {
@@ -220,9 +288,16 @@ async fn accept_loop_unix(
                 let manager = manager.clone();
                 let agent = agent.clone();
                 let plugin_manager = plugin_manager.clone();
+                let startup_readiness = startup_readiness.clone();
                 tokio::spawn(async move {
-                    if let Err(e) =
-                        Box::pin(handle_connection(stream, manager, agent, plugin_manager)).await
+                    if let Err(e) = Box::pin(handle_connection(
+                        stream,
+                        manager,
+                        agent,
+                        plugin_manager,
+                        startup_readiness,
+                    ))
+                    .await
                     {
                         if is_expected_disconnect_error(&e) {
                             tracing::debug!(error = %e, "client disconnected");
@@ -266,7 +341,10 @@ mod unix_socket_tests {
             message.contains("already running"),
             "expected already-running error, got: {message}"
         );
-        assert!(path.exists(), "live daemon socket path should remain intact");
+        assert!(
+            path.exists(),
+            "live daemon socket path should remain intact"
+        );
 
         drop(listener);
         let _ = std::fs::remove_file(&path);
@@ -279,9 +357,8 @@ mod unix_socket_tests {
         let listener = UnixListener::bind(&path).expect("bind initial socket");
         drop(listener);
 
-        let rebound = with_io_runtime(|| {
-            bind_unix_listener(&path).expect("stale socket should be replaced")
-        });
+        let rebound =
+            with_io_runtime(|| bind_unix_listener(&path).expect("stale socket should be replaced"));
         assert!(path.exists(), "rebound daemon socket should exist");
 
         drop(rebound);
@@ -295,43 +372,20 @@ mod unix_socket_tests {
 
 #[cfg(windows)]
 async fn run_windows(
+    listener: tokio::net::TcpListener,
+    addr: String,
     manager: Arc<SessionManager>,
     agent: Arc<AgentEngine>,
     plugin_manager: Arc<crate::plugin::PluginManager>,
+    startup_readiness: StartupReadiness,
 ) -> Result<()> {
-    let addr = amux_protocol::default_tcp_addr();
-    tracing::info!(%addr, "daemon listening on TCP");
-    run_tcp_fallback(manager, agent, plugin_manager).await
-}
-
-/// TCP server used for Windows IPC.
-#[allow(dead_code)]
-async fn run_tcp_fallback(
-    manager: Arc<SessionManager>,
-    agent: Arc<AgentEngine>,
-    plugin_manager: Arc<crate::plugin::PluginManager>,
-) -> Result<()> {
-    use tokio::net::TcpListener;
-
-    let addr = amux_protocol::default_tcp_addr();
-    let listener = TcpListener::bind(&addr).await.map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AddrInUse {
-            anyhow::anyhow!(
-                "daemon is already running on {addr}; stop the existing process before starting another instance"
-            )
-        } else {
-            anyhow::Error::new(error).context(format!("failed to bind daemon TCP listener on {addr}"))
-        }
-    })?;
-    tracing::info!(%addr, "daemon ready on TCP");
-
     let shutdown = async {
         tokio::signal::ctrl_c().await.ok();
         tracing::info!("shutdown signal received");
     };
 
     tokio::select! {
-        _ = accept_loop_tcp(listener, manager, agent, plugin_manager) => {}
+        _ = accept_loop_tcp(listener, manager, agent, plugin_manager, startup_readiness) => {}
         _ = shutdown => {}
     }
 
@@ -345,6 +399,7 @@ async fn accept_loop_tcp(
     manager: Arc<SessionManager>,
     agent: Arc<AgentEngine>,
     plugin_manager: Arc<crate::plugin::PluginManager>,
+    startup_readiness: StartupReadiness,
 ) {
     loop {
         match listener.accept().await {
@@ -353,9 +408,16 @@ async fn accept_loop_tcp(
                 let manager = manager.clone();
                 let agent = agent.clone();
                 let plugin_manager = plugin_manager.clone();
+                let startup_readiness = startup_readiness.clone();
                 tokio::spawn(async move {
-                    if let Err(e) =
-                        Box::pin(handle_connection(stream, manager, agent, plugin_manager)).await
+                    if let Err(e) = Box::pin(handle_connection(
+                        stream,
+                        manager,
+                        agent,
+                        plugin_manager,
+                        startup_readiness,
+                    ))
+                    .await
                     {
                         if is_expected_disconnect_error(&e) {
                             tracing::debug!(%addr, error = %e, "client disconnected");

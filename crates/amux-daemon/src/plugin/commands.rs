@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Plugin command registry: namespaced slash commands declared in plugin manifests.
 
 use std::collections::HashMap;

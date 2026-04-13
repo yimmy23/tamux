@@ -122,37 +122,6 @@ pub async fn get_git_status(path: String) -> Result<amux_protocol::GitInfo> {
     }
 }
 
-pub async fn get_git_diff(repo_path: String, file_path: Option<String>) -> Result<String> {
-    match roundtrip(ClientMessage::GetGitDiff {
-        repo_path,
-        file_path,
-    })
-    .await?
-    {
-        DaemonMessage::GitDiff { diff, .. } => Ok(diff),
-        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
-        other => anyhow::bail!("unexpected response: {other:?}"),
-    }
-}
-
-pub async fn get_file_preview(path: String, max_bytes: Option<usize>) -> Result<serde_json::Value> {
-    match roundtrip(ClientMessage::GetFilePreview { path, max_bytes }).await? {
-        DaemonMessage::FilePreview {
-            path,
-            content,
-            truncated,
-            is_text,
-        } => Ok(serde_json::json!({
-            "path": path,
-            "content": content,
-            "truncated": truncated,
-            "is_text": is_text,
-        })),
-        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
-        other => anyhow::bail!("unexpected response: {other:?}"),
-    }
-}
-
 pub async fn scrub_text(text: String) -> Result<String> {
     match roundtrip(ClientMessage::ScrubSensitive { text }).await? {
         DaemonMessage::ScrubResult { text } => Ok(text),

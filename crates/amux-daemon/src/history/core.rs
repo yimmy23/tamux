@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 
 impl HistoryStore {
@@ -116,7 +118,7 @@ impl HistoryStore {
     ) -> Result<()> {
         let key_path = key_path.to_string();
         let value_json = serde_json::to_string(value)?;
-        let value = value.clone();
+        let _value = value.clone();
         self.conn.call(move |conn| {
             let transaction = conn.unchecked_transaction()?;
             let prefix = format!("{key_path}/%");
@@ -240,7 +242,7 @@ impl HistoryStore {
         let rationale = record.rationale.clone();
         let snapshot_path = record.snapshot_path.clone();
         let excerpt_clone = excerpt.clone();
-        let record = record.clone();
+        let record = record;
         self.conn.call(move |conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO history_entries (id, kind, title, excerpt, content, path, timestamp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",

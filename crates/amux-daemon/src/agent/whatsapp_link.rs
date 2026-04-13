@@ -223,13 +223,9 @@ mod runtime_events;
 mod sidecar_impl;
 
 pub use persistence_impl::{
-    apply_transport_event, clear_persisted_provider_state, load_persisted_provider_state,
-    merge_persisted_state_update, persist_transport_session_update,
-    persisted_state_from_history_row, persisted_state_into_history_row,
-    save_persisted_provider_state, spawn_transport_event_bridge, start_transport_bridge,
+    clear_persisted_provider_state, persist_transport_session_update,
 };
 pub(super) use sidecar_impl::now_millis;
-pub use sidecar_impl::{build_sidecar_launch_spec, normalize_sidecar_stderr, spawn_sidecar};
 
 #[allow(dead_code)]
 pub mod transport {

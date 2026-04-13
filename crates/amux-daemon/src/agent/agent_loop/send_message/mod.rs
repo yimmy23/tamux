@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 use crate::agent::llm_client::{
     parse_structured_upstream_failure, sanitize_upstream_failure_message,

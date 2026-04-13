@@ -173,6 +173,9 @@ impl AgentEngine {
         if let Err(error) = self.maybe_sync_thread_to_honcho(thread_id).await {
             tracing::warn!(thread_id = %thread_id, error = %error, "failed to sync assistant message to Honcho");
         }
+        if let Err(error) = self.analyze_emergent_protocol_for_thread(thread_id).await {
+            tracing::debug!(thread_id = %thread_id, error = %error, "emergent protocol analysis failed after assistant message");
+        }
     }
 
     pub(in crate::agent) async fn emit_turn_error_completion(

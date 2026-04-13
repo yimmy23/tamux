@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Trusted execution provenance helpers built on the local WORM telemetry ledger.
 
 use super::*;

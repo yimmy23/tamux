@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! WORM audit trail and SQLite logging for handoff events.
 //!
 //! Records every handoff to the WORM telemetry ledger (immutable) and

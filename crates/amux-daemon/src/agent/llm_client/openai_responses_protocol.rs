@@ -95,6 +95,7 @@ pub(crate) struct OpenAiResponsesFunctionCall {
 }
 
 impl OpenAiResponsesFunctionCall {
+    #[allow(dead_code)]
     pub(crate) fn new(call_id: String, name: String, arguments: String) -> Self {
         Self {
             item_type: OpenAiResponsesFunctionCallItemType::FunctionCall,
@@ -114,6 +115,7 @@ pub(crate) struct OpenAiResponsesFunctionCallOutput {
 }
 
 impl OpenAiResponsesFunctionCallOutput {
+    #[allow(dead_code)]
     pub(crate) fn new(call_id: String, output: OpenAiResponsesInputContent) -> Self {
         Self {
             item_type: OpenAiResponsesFunctionCallOutputItemType::FunctionCallOutput,
@@ -256,6 +258,7 @@ pub(crate) enum OpenAiResponsesStreamEvent {
 }
 
 impl OpenAiResponsesStreamEvent {
+    #[allow(dead_code)]
     pub(crate) fn event_type(&self) -> &str {
         match self {
             Self::ResponseCreated(_) => "response.created",

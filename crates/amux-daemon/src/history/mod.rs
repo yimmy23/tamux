@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::agent::liveness::state_layers::CheckpointType;
 use crate::agent::types::{
     AgentTask, AgentTaskLogEntry, GoalRun, GoalRunEvent, GoalRunStatus, GoalRunStep,
@@ -137,6 +139,44 @@ pub struct CritiqueResolutionRow {
     pub risk_score: f64,
     pub confidence: f64,
     pub resolved_at: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct EmergentProtocolRow {
+    pub protocol_id: String,
+    pub token: String,
+    pub description: String,
+    pub agent_a: String,
+    pub agent_b: String,
+    pub thread_id: String,
+    pub normalized_pattern: String,
+    pub signal_kind: String,
+    pub context_signature_json: String,
+    pub created_at: u64,
+    pub activated_at: u64,
+    pub last_used_at: Option<u64>,
+    pub usage_count: u64,
+    pub success_rate: f64,
+    pub source_candidate_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProtocolStepRow {
+    pub protocol_id: String,
+    pub step_index: u64,
+    pub intent: String,
+    pub tool_name: Option<String>,
+    pub args_template_json: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProtocolUsageLogRow {
+    pub id: String,
+    pub protocol_id: String,
+    pub used_at: u64,
+    pub execution_time_ms: Option<u64>,
+    pub success: bool,
+    pub fallback_reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -615,6 +655,8 @@ mod governance;
 mod integrity_helpers;
 mod offloaded_payloads;
 mod operator_profile;
+mod protocol_registry;
+mod protocol_candidates;
 mod provenance;
 mod row_mapping;
 mod schema;
@@ -637,11 +679,9 @@ mod threads;
 use integrity_helpers::*;
 pub use offloaded_payloads::OffloadedPayloadMetadataRow;
 use row_mapping::*;
-use schema_helpers::*;
 use skill_metadata::*;
 use skill_tagging::*;
 use task_enums::*;
-pub use thread_structural_memory::ThreadStructuralMemoryRow;
 
 pub(crate) fn now_ts() -> u64 {
     integrity_helpers::now_ts()

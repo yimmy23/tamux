@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Gateway platform health tracking, backoff, and rate limiting.
 //!
 //! Pure-function module — no I/O, no async, fully testable.

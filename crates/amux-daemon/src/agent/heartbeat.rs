@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Heartbeat system — periodic health checks and notifications.
 //!
 //! Contains the structured heartbeat orchestration (`run_structured_heartbeat`) that:
@@ -7,17 +9,15 @@
 //! - Broadcasts HeartbeatDigest only when actionable (BEAT-03/D-14)
 //! - Persists every cycle to SQLite regardless of LLM outcome (D-12/Pitfall 4)
 
-use std::collections::HashMap;
 
 use super::*;
-use crate::history::AuditEntryRow;
 use chrono::Timelike;
 
 mod helpers;
 mod legacy;
 mod postprocess;
 use helpers::{
-    check_quiet_window, check_type_to_action_type, compute_check_priority, enabled_checks,
+    check_quiet_window, check_type_to_action_type,
     heartbeat_persistence_status, is_custom_item_due, parse_digest_items, should_broadcast,
     should_run_check,
 };

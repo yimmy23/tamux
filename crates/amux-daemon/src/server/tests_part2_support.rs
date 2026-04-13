@@ -13,7 +13,7 @@ fn daemon_boxes_large_gateway_hot_path_futures() {
 
     for required in [
         "Box::pin(loop_agent.run_loop(shutdown_rx)).await;",
-        "Box::pin(handle_connection(stream, manager, agent, plugin_manager)).await",
+        "Box::pin(handle_connection(",
         "if let Err(e) = Box::pin(agent.send_message_with_session_surface_and_target(",
         "match Box::pin(agent.send_direct_message(",
         "if let Err(error) = Box::pin(agent\n                            .send_internal_delegate_message(",
@@ -23,6 +23,25 @@ fn daemon_boxes_large_gateway_hot_path_futures() {
             "server hot path should box oversized future: {required}"
         );
     }
+}
+
+#[test]
+fn daemon_binds_ipc_listener_before_hydrate_starts() {
+    let root = repo_root();
+    let source = fs::read_to_string(root.join("crates/amux-daemon/src/server/post_tests.rs"))
+        .expect("read server startup source");
+
+    let bind_idx = source
+        .find("let listener = bind_unix_listener(&path)?;")
+        .expect("startup should bind Unix listener");
+    let hydrate_idx = source
+        .find("if let Err(e) = startup_agent.hydrate().await {")
+        .expect("startup should hydrate agent state");
+
+    assert!(
+        bind_idx < hydrate_idx,
+        "daemon must bind its IPC listener before hydrate work starts"
+    );
 }
 
 use crate::agent::types::SubAgentDefinition;
@@ -71,6 +90,13 @@ impl TestConnection {
 }
 
 async fn spawn_test_connection_with_config(agent_config: AgentConfig) -> TestConnection {
+    spawn_test_connection_with_config_and_startup_ready(agent_config, true).await
+}
+
+async fn spawn_test_connection_with_config_and_startup_ready(
+    agent_config: AgentConfig,
+    startup_ready: bool,
+) -> TestConnection {
     let root = std::env::current_dir()
         .expect("cwd")
         .join("tmp")
@@ -90,6 +116,7 @@ async fn spawn_test_connection_with_config(agent_config: AgentConfig) -> TestCon
     let agent =
         AgentEngine::new_with_shared_history(manager.clone(), agent_config, history.clone());
     let plugin_manager = Arc::new(PluginManager::new(history, root.join("plugins")));
+    let startup_readiness = StartupReadiness::new(startup_ready);
 
     let (client_stream, server_stream) = tokio::io::duplex(128 * 1024);
     let server_task = tokio::spawn(handle_connection(
@@ -97,6 +124,7 @@ async fn spawn_test_connection_with_config(agent_config: AgentConfig) -> TestCon
         manager,
         agent.clone(),
         plugin_manager.clone(),
+        startup_readiness,
     ));
 
     TestConnection {
@@ -110,6 +138,163 @@ async fn spawn_test_connection_with_config(agent_config: AgentConfig) -> TestCon
 
 async fn spawn_test_connection() -> TestConnection {
     spawn_test_connection_with_config(AgentConfig::default()).await
+}
+
+#[tokio::test]
+async fn startup_readiness_blocks_history_requests_until_hydrate_finishes() {
+    let root = std::env::current_dir()
+        .expect("cwd")
+        .join("tmp")
+        .join(format!(
+            "server-startup-readiness-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+    std::fs::create_dir_all(&root).expect("create test root");
+
+    let history = Arc::new(
+        HistoryStore::new_test_store(&root)
+            .await
+            .expect("create test history"),
+    );
+    history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: "persisted-thread".to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("Svarog".to_string()),
+            title: "Persisted Thread".to_string(),
+            created_at: 1_000,
+            updated_at: 1_010,
+            message_count: 1,
+            total_tokens: 12,
+            last_preview: "restored body".to_string(),
+            metadata_json: None,
+        })
+        .await
+        .expect("persist thread row");
+    history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "persisted-message".to_string(),
+            thread_id: "persisted-thread".to_string(),
+            created_at: 1_010,
+            role: "assistant".to_string(),
+            content: "restored body".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(4),
+            output_tokens: Some(8),
+            total_tokens: Some(12),
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("persist thread message");
+
+    let manager = SessionManager::new_with_history(
+        history.clone(),
+        AgentConfig::default().pty_channel_capacity,
+    );
+    let agent = AgentEngine::new_with_shared_history(
+        manager.clone(),
+        AgentConfig::default(),
+        history.clone(),
+    );
+    let plugin_manager = Arc::new(PluginManager::new(history, root.join("plugins")));
+    let startup_readiness = StartupReadiness::new(false);
+
+    let (list_client_stream, list_server_stream) = tokio::io::duplex(128 * 1024);
+    let list_task = tokio::spawn(handle_connection(
+        list_server_stream,
+        manager.clone(),
+        agent.clone(),
+        plugin_manager.clone(),
+        startup_readiness.clone(),
+    ));
+    let mut list_conn = Framed::new(list_client_stream, AmuxCodec);
+
+    let (ping_client_stream, ping_server_stream) = tokio::io::duplex(128 * 1024);
+    let ping_task = tokio::spawn(handle_connection(
+        ping_server_stream,
+        manager,
+        agent.clone(),
+        plugin_manager,
+        startup_readiness.clone(),
+    ));
+    let mut ping_conn = Framed::new(ping_client_stream, AmuxCodec);
+
+    list_conn
+        .send(ClientMessage::AgentListThreads)
+        .await
+        .expect("request thread list before startup is ready");
+
+    let no_history_reply_before_ready = timeout(Duration::from_millis(100), list_conn.next())
+        .await
+        .is_err();
+    assert!(
+        no_history_reply_before_ready,
+        "history-bearing requests should wait for startup readiness"
+    );
+
+    ping_conn
+        .send(ClientMessage::Ping)
+        .await
+        .expect("send ping while startup is blocked");
+    assert!(
+        matches!(
+            timeout(Duration::from_millis(100), ping_conn.next())
+                .await
+                .expect("ping should not wait for startup readiness")
+                .expect("ping connection closed")
+                .expect("codec failure"),
+            DaemonMessage::Pong
+        ),
+        "ping should remain available before hydrate completes"
+    );
+
+    agent.hydrate().await.expect("hydrate should succeed");
+    startup_readiness.mark_ready();
+
+    let DaemonMessage::AgentThreadList { threads_json } =
+        timeout(Duration::from_secs(1), list_conn.next())
+            .await
+            .expect("thread list should resume after startup is ready")
+            .expect("list connection closed")
+            .expect("codec failure")
+    else {
+        panic!("expected thread list response after startup readiness");
+    };
+    assert!(
+        threads_json.contains("persisted-thread"),
+        "hydrated thread list should include persisted history"
+    );
+
+    drop(list_conn);
+    drop(ping_conn);
+
+    let list_join = timeout(Duration::from_secs(2), list_task)
+        .await
+        .expect("list server task did not shut down")
+        .expect("list server join failed");
+    if let Err(error) = list_join {
+        if !is_expected_disconnect_error(&error) {
+            panic!("list server task returned error: {error}");
+        }
+    }
+
+    let ping_join = timeout(Duration::from_secs(2), ping_task)
+        .await
+        .expect("ping server task did not shut down")
+        .expect("ping server join failed");
+    if let Err(error) = ping_join {
+        if !is_expected_disconnect_error(&error) {
+            panic!("ping server task returned error: {error}");
+        }
+    }
+
+    let _ = std::fs::remove_dir_all(root);
 }
 
 fn test_user_sub_agent(id: &str, name: &str) -> SubAgentDefinition {

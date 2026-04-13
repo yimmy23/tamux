@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 
 pub(super) fn task_status_to_str(value: TaskStatus) -> &'static str {

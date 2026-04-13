@@ -378,15 +378,6 @@ impl TuiModel {
         self.sync_queued_prompt_modal_state();
     }
 
-    fn pop_next_queued_prompt(&mut self) -> Option<QueuedPrompt> {
-        if self.queued_prompts.is_empty() {
-            return None;
-        }
-        let prompt = self.queued_prompts.remove(0);
-        self.sync_queued_prompt_modal_state();
-        Some(prompt)
-    }
-
     fn remove_queued_prompt_at(&mut self, index: usize) -> Option<QueuedPrompt> {
         if index >= self.queued_prompts.len() {
             return None;

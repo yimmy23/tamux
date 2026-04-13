@@ -17,7 +17,6 @@ pub enum ApprovalCenterHitTarget {
     AlwaysApprove(String),
     RevokeRule(String),
     Deny(String),
-    Close,
 }
 
 pub fn render(

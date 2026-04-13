@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 
 fn normalize_no_suggestion_candidate(value: &str) -> String {

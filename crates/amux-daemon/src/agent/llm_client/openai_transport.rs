@@ -220,7 +220,7 @@ fn needs_coding_plan_sdk_headers(provider: &str) -> bool {
 fn apply_dashscope_coding_plan_sdk_headers(
     req: reqwest::RequestBuilder,
     provider: &str,
-    base_url: &str,
+    _base_url: &str,
     api_type: ApiType,
 ) -> reqwest::RequestBuilder {
     if !needs_coding_plan_sdk_headers(provider) {

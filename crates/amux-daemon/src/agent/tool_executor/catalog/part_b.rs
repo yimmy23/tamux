@@ -1,7 +1,7 @@
 fn add_available_tools_part_b(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
-    agent_data_dir: &std::path::Path,
+    _agent_data_dir: &std::path::Path,
     has_workspace_topology: bool,
 ) {
     // History search (daemon has SQLite FTS)

@@ -24,7 +24,7 @@ impl HistoryStore {
         let thread_id = thread_id.map(str::to_string);
         let task_id = task_id.map(str::to_string);
         let goal_run_id = goal_run_id.map(str::to_string);
-        let outcome = outcome.to_string();
+        let _outcome = outcome.to_string();
         let (pending_len, skill_names) = self.conn.call(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT usage_id, variant_id FROM skill_variant_usage \

@@ -13,8 +13,7 @@ use super::*;
 mod runtime;
 
 use runtime::{
-    default_parameter_location, default_parameter_type, generated_tools_dir,
-    parse_cli_help_parameters, run_cli_generated_tool, run_generated_tool_json_wrappers,
+    default_parameter_location, default_parameter_type, generated_tools_dir, run_cli_generated_tool,
     run_openapi_generated_tool, synthesize_cli_tool, synthesize_openapi_tool,
 };
 

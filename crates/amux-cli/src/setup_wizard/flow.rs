@@ -423,6 +423,7 @@ pub async fn run_setup_wizard() -> Result<PostSetupAction> {
     )
     .await?;
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    configure_advanced_agents(&mut framed, &tier_string, &mut summary).await?;
 
     if !is_local_provider(&provider.provider_id) && !api_key_saved.is_empty() {
         println!();

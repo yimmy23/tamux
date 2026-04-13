@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 
 const MAX_AUDIT_ENTRIES: usize = 500;

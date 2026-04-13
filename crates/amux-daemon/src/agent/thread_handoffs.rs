@@ -193,25 +193,12 @@ fn resolve_thread_handoff_agent(alias: &str) -> Option<(String, String)> {
             CONCIERGE_AGENT_ID.to_string(),
             CONCIERGE_AGENT_NAME.to_string(),
         )),
-        SWAROZYC_AGENT_ID | "swarozyc" => Some((
-            SWAROZYC_AGENT_ID.to_string(),
-            SWAROZYC_AGENT_NAME.to_string(),
-        )),
-        RADOGOST_AGENT_ID | "radogost" => Some((
-            RADOGOST_AGENT_ID.to_string(),
-            RADOGOST_AGENT_NAME.to_string(),
-        )),
-        DOMOWOJ_AGENT_ID | "domowoj" => {
-            Some((DOMOWOJ_AGENT_ID.to_string(), DOMOWOJ_AGENT_NAME.to_string()))
-        }
-        SWIETOWIT_AGENT_ID | "swietowit" => Some((
-            SWIETOWIT_AGENT_ID.to_string(),
-            SWIETOWIT_AGENT_NAME.to_string(),
-        )),
-        ROD_AGENT_ID | "rod" => Some((ROD_AGENT_ID.to_string(), ROD_AGENT_NAME.to_string())),
-        WELES_AGENT_ID | "weles" => {
-            Some((WELES_AGENT_ID.to_string(), WELES_AGENT_NAME.to_string()))
-        }
+        SWAROZYC_AGENT_ID => Some((SWAROZYC_AGENT_ID.to_string(), SWAROZYC_AGENT_NAME.to_string())),
+        RADOGOST_AGENT_ID => Some((RADOGOST_AGENT_ID.to_string(), RADOGOST_AGENT_NAME.to_string())),
+        DOMOWOJ_AGENT_ID => Some((DOMOWOJ_AGENT_ID.to_string(), DOMOWOJ_AGENT_NAME.to_string())),
+        SWIETOWIT_AGENT_ID => Some((SWIETOWIT_AGENT_ID.to_string(), SWIETOWIT_AGENT_NAME.to_string())),
+        ROD_AGENT_ID => Some((ROD_AGENT_ID.to_string(), ROD_AGENT_NAME.to_string())),
+        WELES_AGENT_ID => Some((WELES_AGENT_ID.to_string(), WELES_AGENT_NAME.to_string())),
         _ => None,
     };
     builtin
@@ -325,7 +312,6 @@ impl AgentEngine {
         let linked_thread_id =
             format!("{INTERNAL_HANDOFF_THREAD_PREFIX}{primary_thread_id}:{event_id}");
         let now = now_millis();
-        let mut should_persist = false;
         {
             let mut threads = self.threads.write().await;
             let thread = threads
@@ -388,7 +374,6 @@ impl AgentEngine {
                 timestamp: now,
             });
             thread.updated_at = now;
-            should_persist = true;
         }
         self.thread_handoff_states.write().await.insert(
             linked_thread_id.clone(),
@@ -398,9 +383,7 @@ impl AgentEngine {
                 now,
             ),
         );
-        if should_persist {
-            self.persist_thread_by_id(&linked_thread_id).await;
-        }
+        self.persist_thread_by_id(&linked_thread_id).await;
         linked_thread_id
     }
 

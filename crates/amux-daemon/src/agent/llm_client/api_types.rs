@@ -174,6 +174,7 @@ fn classify_http_failure_with_retry_after(
     UpstreamFailureError::new(class, summary, diagnostics).into()
 }
 
+#[allow(dead_code)]
 fn classify_http_failure(
     status: reqwest::StatusCode,
     provider: &str,

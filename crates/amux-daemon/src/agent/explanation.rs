@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Template-based explanation generation and confidence band calculation.
 //!
 //! Provides plain-language explanations for autonomous agent actions per D-01/D-03.

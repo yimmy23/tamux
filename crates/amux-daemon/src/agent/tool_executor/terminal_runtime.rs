@@ -299,6 +299,23 @@ fn command_looks_interactive(command: &str) -> bool {
     }
 }
 
+fn compact_background_output(raw: &[u8], max_chars: usize) -> String {
+    let text = String::from_utf8_lossy(raw).trim().to_string();
+    if text.chars().count() <= max_chars {
+        return text;
+    }
+
+    let tail: String = text
+        .chars()
+        .rev()
+        .take(max_chars)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    format!("... truncated ...\n{tail}")
+}
+
 async fn execute_headless_shell_command(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
@@ -312,12 +329,30 @@ async fn execute_headless_shell_command(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("missing 'command' argument"))?;
-    let timeout_secs = args
+    let requested_timeout = args
         .get("timeout_seconds")
         .and_then(|value| value.as_u64())
-        .unwrap_or(30)
-        .min(600);
+        .unwrap_or(30);
+    let auto_background = requested_timeout > 600;
+    let wait_for_completion = if auto_background {
+        false
+    } else {
+        args.get("wait_for_completion")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true)
+    };
+    let timeout_secs = requested_timeout.min(600);
     let cwd = resolve_tool_cwd(args, session_manager, session_id).await?;
+
+    if !wait_for_completion {
+        return spawn_headless_shell_command_background(
+            command,
+            cwd,
+            tool_name,
+            requested_timeout,
+            auto_background,
+        );
+    }
 
     let mut process = tokio::process::Command::new("bash");
     process
@@ -414,6 +449,146 @@ async fn execute_headless_shell_command(
             "Command failed{cwd_suffix} (exit_code: {:?}).{}",
             status.code(),
             details
+        ))
+    }
+}
+
+fn spawn_headless_shell_command_background(
+    command: &str,
+    cwd: Option<std::path::PathBuf>,
+    tool_name: &str,
+    requested_timeout: u64,
+    auto_background: bool,
+) -> Result<(String, Option<ToolPendingApproval>)> {
+    let operation = crate::server::operation_registry().accept_operation(tool_name, None);
+    let operation_id = operation.operation_id.clone();
+
+    let mut process = tokio::process::Command::new("bash");
+    process
+        .arg("-lc")
+        .arg(command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    if let Some(cwd) = cwd.as_deref() {
+        process.current_dir(cwd);
+    }
+
+    let mut child = match process.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            crate::server::operation_registry().mark_failed(&operation_id);
+            return Err(error).with_context(|| format!("failed to spawn {tool_name} subprocess"));
+        }
+    };
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("{tool_name} stdout capture was unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("{tool_name} stderr capture was unavailable"))?;
+    let stdout_task = tokio::spawn(async move {
+        let mut reader = tokio::io::BufReader::new(stdout);
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf).await?;
+        Ok::<Vec<u8>, std::io::Error>(buf)
+    });
+    let stderr_task = tokio::spawn(async move {
+        let mut reader = tokio::io::BufReader::new(stderr);
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf).await?;
+        Ok::<Vec<u8>, std::io::Error>(buf)
+    });
+
+    crate::server::operation_registry().mark_started(&operation_id);
+
+    let operation_id_for_task = operation_id.clone();
+    let command_for_task = command.to_string();
+    let cwd_for_task = cwd.as_ref().map(|path| path.display().to_string());
+    let started_at = std::time::Instant::now();
+    tokio::spawn(async move {
+        let outcome = child.wait().await;
+        let stdout = stdout_task
+            .await
+            .ok()
+            .and_then(|result| result.ok())
+            .map(|bytes| compact_background_output(&bytes, 4000))
+            .filter(|value| !value.is_empty());
+        let stderr = stderr_task
+            .await
+            .ok()
+            .and_then(|result| result.ok())
+            .map(|bytes| compact_background_output(&bytes, 4000))
+            .filter(|value| !value.is_empty());
+        let duration_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+
+        match outcome {
+            Ok(status) if status.success() => {
+                crate::server::operation_registry().mark_completed_with_terminal_result(
+                    &operation_id_for_task,
+                    serde_json::json!({
+                        "command": command_for_task,
+                        "cwd": cwd_for_task,
+                        "exit_code": status.code(),
+                        "duration_ms": duration_ms,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    }),
+                );
+            }
+            Ok(status) => {
+                crate::server::operation_registry().mark_failed_with_terminal_result(
+                    &operation_id_for_task,
+                    serde_json::json!({
+                        "command": command_for_task,
+                        "cwd": cwd_for_task,
+                        "exit_code": status.code(),
+                        "duration_ms": duration_ms,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    }),
+                );
+            }
+            Err(error) => {
+                crate::server::operation_registry().mark_failed_with_terminal_result(
+                    &operation_id_for_task,
+                    serde_json::json!({
+                        "command": command_for_task,
+                        "cwd": cwd_for_task,
+                        "duration_ms": duration_ms,
+                        "spawn_error": error.to_string(),
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    }),
+                );
+            }
+        }
+    });
+
+    let cwd_suffix = cwd
+        .as_ref()
+        .map(|path| format!(" in {}", path.display()))
+        .unwrap_or_default();
+    let queued_summary =
+        format!("Headless command queued{cwd_suffix} as background operation {operation_id}.");
+
+    if auto_background {
+        Ok((
+            format!(
+                "{queued_summary}\noperation_id: {operation_id}\nCommand auto-backgrounded (requested timeout {}s > max 600s). Use get_operation_status with this operation_id for explicit polling.",
+                requested_timeout,
+            ),
+            None,
+        ))
+    } else {
+        Ok((
+            format!(
+                "{queued_summary}\noperation_id: {operation_id}\nNot waiting for completion because wait_for_completion=false. Use get_operation_status with this operation_id for explicit polling."
+            ),
+            None,
         ))
     }
 }

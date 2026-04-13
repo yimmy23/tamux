@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Tool execution for the agent engine.
 //!
 //! Maps tool calls to daemon infrastructure. Tools that require frontend

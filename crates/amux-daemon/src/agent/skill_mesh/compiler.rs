@@ -8,6 +8,7 @@ use crate::agent::skill_recommendation::extract_skill_metadata;
 use super::types::SkillMeshDocument;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SkillMeshCompileMode {
     Deterministic,
     ProviderAssisted,
@@ -23,6 +24,7 @@ pub struct SkillMeshCompileContext {
     pub risk_level: String,
 }
 
+#[allow(dead_code)]
 pub fn sample_compile_context_for_tests(mode: SkillMeshCompileMode) -> SkillMeshCompileContext {
     SkillMeshCompileContext {
         mode,
@@ -64,7 +66,7 @@ pub async fn compile_skill_document(
     let risk_level = context.risk_level;
     let content_hash = format!("compile-v{}:{}", context.compile_version, relative_path);
 
-    let mut document = SkillMeshDocument {
+    let document = SkillMeshDocument {
         skill_id: skill_name.clone(),
         variant_id: None,
         skill_name,

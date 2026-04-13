@@ -3,7 +3,6 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 
 #[cfg(test)]
 use uuid::Uuid;

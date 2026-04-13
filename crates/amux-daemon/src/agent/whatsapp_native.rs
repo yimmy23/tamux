@@ -1,8 +1,6 @@
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use amux_protocol::parse_whatsapp_allowed_contacts;
 use anyhow::{Context, Result};
 use wa_rs::bot::Bot;
 use wa_rs::proto_helpers::MessageExt;
@@ -30,8 +28,7 @@ pub(crate) use helpers::whatsapp_native_store_path;
 use helpers::{
     build_whatsapp_cursor, classify_whatsapp_enqueue_decision, format_outbound_whatsapp_text,
     is_whatsapp_cursor_newer, log_whatsapp_allowlist_suppression,
-    mark_whatsapp_replay_active_if_cursors, parse_tamux_device_version, parse_whatsapp_cursor,
-    should_enqueue_from_me_whatsapp_message, tamux_device_props, tamux_self_chat_prefix,
+    mark_whatsapp_replay_active_if_cursors, tamux_device_props,
     WhatsAppEnqueueDecision,
 };
 pub(super) use helpers::{clear_logged_out_whatsapp_session, now_millis_local};

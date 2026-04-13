@@ -233,6 +233,7 @@ impl TuiModel {
         })
     }
 
+    #[allow(dead_code)]
     fn all_provider_config_values(&self) -> serde_json::Map<String, serde_json::Value> {
         let mut providers_json = serde_json::Map::new();
         for provider in providers::PROVIDERS {

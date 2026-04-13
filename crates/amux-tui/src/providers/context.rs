@@ -1,5 +1,8 @@
-use super::{known_models_for_provider_auth, PROVIDERS};
+use super::known_models_for_provider_auth;
+#[cfg(test)]
+use super::PROVIDERS;
 
+#[cfg(test)]
 pub fn is_known_default_url(url: &str) -> bool {
     PROVIDERS
         .iter()

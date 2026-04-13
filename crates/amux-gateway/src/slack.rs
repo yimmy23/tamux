@@ -23,6 +23,7 @@ pub struct SlackProvider {
 }
 
 impl SlackProvider {
+    #[cfg(test)]
     pub fn from_bootstrap(bootstrap: &GatewayProviderBootstrap) -> Result<Option<Self>> {
         Self::from_bootstrap_with_cursors(bootstrap, &[])
     }

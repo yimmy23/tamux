@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Divergent subagent mode — spawn 2-3 parallel framings of the same problem
 //! with different system prompt perspectives, detect disagreements between their
 //! outputs, surface tensions as the valuable output (not forced consensus), and
@@ -6,7 +8,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use super::super::collaboration::Disagreement;
 
 #[path = "divergent_helpers.rs"]
 mod helpers;

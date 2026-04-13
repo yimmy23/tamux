@@ -116,6 +116,7 @@ pub(crate) fn scrollbar_layout(
     scrollbar_layout_from_metrics(area, all_lines.len(), scroll)
 }
 
+#[cfg(test)]
 pub(crate) fn rendered_line_count(
     area: Rect,
     chat: &ChatState,
@@ -169,6 +170,7 @@ pub(crate) fn scrollbar_scroll_offset_for_pointer(
     ))
 }
 
+#[cfg(test)]
 fn visible_lines(
     all_lines: &[RenderedChatLine],
     inner_height: usize,
@@ -213,6 +215,7 @@ fn visible_window_bounds(
     (0, start, end)
 }
 
+#[cfg(test)]
 fn visible_rendered_lines(
     area: Rect,
     chat: &ChatState,
@@ -373,6 +376,7 @@ fn nearest_message_content_row(all_lines: &[RenderedChatLine], row: usize) -> Op
     None
 }
 
+#[cfg(test)]
 fn normalize_selection(
     inner: Rect,
     start: Position,
@@ -491,6 +495,7 @@ fn highlight_line_range(
     line.spans = spans;
 }
 
+#[cfg(test)]
 pub fn selected_text(
     area: Rect,
     chat: &ChatState,
@@ -559,6 +564,7 @@ pub fn selected_text(
     }
 }
 
+#[cfg(test)]
 pub fn selection_point_from_mouse(
     area: Rect,
     chat: &ChatState,

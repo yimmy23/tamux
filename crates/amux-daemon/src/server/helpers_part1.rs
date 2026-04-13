@@ -277,4 +277,3 @@ async fn enqueue_gateway_incoming_event(
     };
     agent.enqueue_gateway_message(gateway_message).await
 }
-

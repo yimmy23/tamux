@@ -9,6 +9,7 @@ async fn make_test_store() -> Result<(HistoryStore, PathBuf)> {
 }
 
 mod elastic_context;
+mod emergent_protocol;
 mod goal_runs;
 mod governance;
 mod misc;

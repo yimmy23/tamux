@@ -140,7 +140,6 @@ if matches!(
                     let (subscriber_id, rx) = agent.whatsapp_link.subscribe_with_id().await;
                     whatsapp_link_subscriber_guard.set(subscriber_id).await;
                     whatsapp_link_rx = Some(rx);
-                    whatsapp_link_snapshot_replayed = false;
                     let snapshot = agent.whatsapp_link.status_snapshot().await;
                     framed
                         .send(DaemonMessage::AgentWhatsAppLinkStatus {

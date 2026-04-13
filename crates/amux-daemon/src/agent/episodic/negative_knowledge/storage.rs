@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 
 fn constraint_state_to_str(state: &ConstraintState) -> &'static str {

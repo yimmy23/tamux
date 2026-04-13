@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Episode CRUD operations and WORM ledger integration.
 
 use super::privacy::{

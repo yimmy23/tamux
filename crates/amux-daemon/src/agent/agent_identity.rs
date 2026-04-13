@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Shared agent identity helpers for main, concierge, and spawned agents.
 
 use anyhow::anyhow;

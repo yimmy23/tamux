@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -12,7 +14,7 @@ use anyhow::{Context, Result};
 use futures::SinkExt;
 use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio_util::codec::Framed;
 
 use crate::agent::skill_community::{
@@ -39,11 +41,69 @@ mod tests {
 
 include!("server/post_tests.rs");
 
+#[derive(Clone)]
+struct StartupReadiness {
+    tx: watch::Sender<bool>,
+}
+
+impl StartupReadiness {
+    fn new(initial_ready: bool) -> Self {
+        let (tx, _rx) = watch::channel(initial_ready);
+        Self { tx }
+    }
+
+    fn mark_ready(&self) {
+        let _ = self.tx.send(true);
+    }
+
+    async fn wait_until_ready(&self) {
+        if *self.tx.borrow() {
+            return;
+        }
+
+        let mut rx = self.tx.subscribe();
+        if *rx.borrow_and_update() {
+            return;
+        }
+
+        while rx.changed().await.is_ok() {
+            if *rx.borrow_and_update() {
+                return;
+            }
+        }
+    }
+}
+
+fn client_message_requires_startup_readiness(msg: &ClientMessage) -> bool {
+    !matches!(
+        msg,
+        ClientMessage::Ping
+            | ClientMessage::GatewayRegister { .. }
+            | ClientMessage::GatewayAck { .. }
+            | ClientMessage::GatewayIncomingEvent { .. }
+            | ClientMessage::GatewayCursorUpdate { .. }
+            | ClientMessage::GatewayThreadBindingUpdate { .. }
+            | ClientMessage::GatewayRouteModeUpdate { .. }
+            | ClientMessage::GatewaySendResult { .. }
+            | ClientMessage::GatewayHealthUpdate { .. }
+            | ClientMessage::SpawnSession { .. }
+            | ClientMessage::CloneSession { .. }
+            | ClientMessage::AttachSession { .. }
+            | ClientMessage::DetachSession { .. }
+            | ClientMessage::AgentSubscribe
+            | ClientMessage::AgentUnsubscribe
+            | ClientMessage::AgentDeclareAsyncCommandCapability { .. }
+            | ClientMessage::AgentGetOperationStatus { .. }
+            | ClientMessage::AgentGetHealthStatus
+    )
+}
+
 async fn handle_connection<S>(
     stream: S,
     manager: Arc<SessionManager>,
     agent: Arc<AgentEngine>,
     plugin_manager: Arc<crate::plugin::PluginManager>,
+    startup_readiness: StartupReadiness,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -70,6 +130,9 @@ where
         let msg = include!("server/connection_pre_dispatch.rs");
 
         if let Some(msg) = msg {
+            if client_message_requires_startup_readiness(&msg) {
+                startup_readiness.wait_until_ready().await;
+            }
             include!("server/dispatch_part1.rs");
             include!("server/dispatch_part2.rs");
             include!("server/dispatch_part3.rs");

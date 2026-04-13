@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::*;
 
 const TASK_APPROVAL_REASON_PREFIX: &str = "waiting for operator approval: ";

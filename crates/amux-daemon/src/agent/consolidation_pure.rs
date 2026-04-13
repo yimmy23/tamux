@@ -1,4 +1,5 @@
 /// Default memory fact decay half-life in hours (~69h, per D-04).
+#[allow(dead_code)]
 pub(crate) const DEFAULT_HALF_LIFE_HOURS: f64 = 69.0;
 
 /// Default idle threshold in milliseconds (5 minutes, per D-01).

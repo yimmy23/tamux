@@ -78,7 +78,7 @@ impl HistoryStore {
         let skill_name = metadata.skill_name.clone();
         let variant_name = metadata.variant_name.clone();
 
-        let path = path.clone();
+        let _path = path;
         let variant_id = self.conn.call(move |conn| {
             let existing: Option<SkillVariantRecord> = conn
                 .query_row(
@@ -237,7 +237,7 @@ impl HistoryStore {
         let context_tags = context_tags.to_vec();
         let skills_root = self.skills_root();
 
-        let skill = skill.to_string();
+        let _skill = skill.to_string();
         self.conn.call(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
@@ -317,7 +317,7 @@ impl HistoryStore {
         let goal_run_id = record.goal_run_id.map(str::to_string);
         let context_tags_owned: Vec<String> = record.context_tags.to_vec();
 
-        let record = record.clone();
+        let record = record;
         self.conn.call(move |conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO skill_variant_usage \

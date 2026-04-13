@@ -200,7 +200,7 @@ impl AgentEngine {
         Ok(updated_fields)
     }
 
-    pub async fn start_operator_profile_session(
+    pub(crate) async fn start_operator_profile_session(
         &self,
         kind: &str,
     ) -> Result<OperatorProfileSessionStarted> {
@@ -230,7 +230,7 @@ impl AgentEngine {
         })
     }
 
-    pub async fn next_operator_profile_question_for_session(
+    pub(crate) async fn next_operator_profile_question_for_session(
         &self,
         session_id: &str,
     ) -> Result<(
@@ -249,7 +249,7 @@ impl AgentEngine {
         Ok((question, progress))
     }
 
-    pub async fn submit_operator_profile_answer(
+    pub(crate) async fn submit_operator_profile_answer(
         &self,
         session_id: &str,
         question_id: &str,
@@ -285,7 +285,7 @@ impl AgentEngine {
         Ok((question, progress))
     }
 
-    pub async fn skip_operator_profile_question(
+    pub(crate) async fn skip_operator_profile_question(
         &self,
         session_id: &str,
         question_id: &str,
@@ -321,7 +321,7 @@ impl AgentEngine {
         Ok((question, progress))
     }
 
-    pub async fn defer_operator_profile_question(
+    pub(crate) async fn defer_operator_profile_question(
         &self,
         session_id: &str,
         question_id: &str,
@@ -406,7 +406,7 @@ impl AgentEngine {
         Ok(updated_fields)
     }
 
-    pub async fn complete_operator_profile_session(
+    pub(crate) async fn complete_operator_profile_session(
         &self,
         session_id: &str,
     ) -> Result<OperatorProfileCompletionPayload> {

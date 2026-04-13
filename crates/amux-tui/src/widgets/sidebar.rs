@@ -13,9 +13,7 @@ use crate::theme::ThemeTokens;
 #[path = "sidebar/tab_layout.rs"]
 mod tab_layout;
 
-use tab_layout::{tab_cells, tab_hint_line, tab_hit_test, tab_label};
-
-const TAB_LABELS: [&str; 2] = ["Todos", "Files"];
+use tab_layout::{tab_cells, tab_hit_test, tab_label};
 
 #[derive(Debug, Clone)]
 struct SidebarRow {
@@ -288,6 +286,7 @@ fn tier_gated_lines(tier: &TierState) -> Vec<Line<'static>> {
     lines
 }
 
+#[cfg(test)]
 fn agent_status_line(
     activity: Option<&str>,
     tier: &str,
@@ -348,8 +347,8 @@ pub fn render(
     _focused: bool,
     gateway_statuses: &[GatewayStatusVm],
     tier: &TierState,
-    agent_activity: Option<&str>,
-    weles_health: Option<&crate::client::WelesHealthVm>,
+    _agent_activity: Option<&str>,
+    _weles_health: Option<&crate::client::WelesHealthVm>,
     recent_actions: &[RecentActionVm],
 ) {
     if area.height < 3 {

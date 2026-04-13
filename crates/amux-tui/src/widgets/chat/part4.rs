@@ -171,8 +171,7 @@ pub fn hit_test(
         RenderedLineKind::MessageBody
         | RenderedLineKind::ReasoningContent
         | RenderedLineKind::ToolDetail => Some(ChatHitTarget::Message(hit.message_index?)),
-        RenderedLineKind::Separator
-        | RenderedLineKind::Padding
+        RenderedLineKind::Padding
         | RenderedLineKind::Streaming
         | RenderedLineKind::RetryStatus => None,
     }

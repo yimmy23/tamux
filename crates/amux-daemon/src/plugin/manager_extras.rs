@@ -81,7 +81,7 @@ impl PluginManager {
         &self.plugins_dir
     }
 
-    pub async fn resolve_command(&self, input: &str) -> Option<commands::PluginCommandEntry> {
+    pub(crate) async fn resolve_command(&self, input: &str) -> Option<commands::PluginCommandEntry> {
         let registry = self.command_registry.read().await;
         registry.resolve(input).cloned()
     }

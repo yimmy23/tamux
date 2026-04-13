@@ -359,7 +359,7 @@ pub struct CompletionOpenAiResponsesFinalResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub response: Option<OpenAiResponsesTerminalResponse>,
+    pub(crate) response: Option<OpenAiResponsesTerminalResponse>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_json: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

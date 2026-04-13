@@ -433,4 +433,3 @@ async fn run_onecontext_search_subprocess(
         .context("failed to spawn onecontext search subprocess")?;
     child.wait_with_output().await.map_err(Into::into)
 }
-

@@ -279,6 +279,55 @@ pub(super) fn extended_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_thread_structural_memory_updated ON thread_structural_memory(updated_at DESC);
 
+            CREATE TABLE IF NOT EXISTS thread_protocol_candidates (
+                thread_id   TEXT PRIMARY KEY,
+                state_json  TEXT NOT NULL,
+                updated_at  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_thread_protocol_candidates_updated ON thread_protocol_candidates(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS emergent_protocols (
+                protocol_id              TEXT PRIMARY KEY,
+                token                    TEXT NOT NULL UNIQUE,
+                description              TEXT NOT NULL,
+                agent_a                  TEXT NOT NULL,
+                agent_b                  TEXT NOT NULL,
+                thread_id                TEXT NOT NULL,
+                normalized_pattern       TEXT NOT NULL,
+                signal_kind              TEXT NOT NULL,
+                context_signature_json   TEXT NOT NULL,
+                created_at               INTEGER NOT NULL,
+                activated_at             INTEGER NOT NULL,
+                last_used_at             INTEGER,
+                usage_count              INTEGER NOT NULL DEFAULT 0,
+                success_rate             REAL NOT NULL DEFAULT 1.0,
+                source_candidate_id      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_emergent_protocols_thread_activated ON emergent_protocols(thread_id, activated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_emergent_protocols_pattern ON emergent_protocols(normalized_pattern, activated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS protocol_steps (
+                protocol_id          TEXT NOT NULL,
+                step_index           INTEGER NOT NULL,
+                intent               TEXT NOT NULL,
+                tool_name            TEXT,
+                args_template_json   TEXT NOT NULL,
+                PRIMARY KEY (protocol_id, step_index),
+                FOREIGN KEY (protocol_id) REFERENCES emergent_protocols(protocol_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_protocol_steps_protocol ON protocol_steps(protocol_id, step_index ASC);
+
+            CREATE TABLE IF NOT EXISTS protocol_usage_log (
+                id                 TEXT PRIMARY KEY,
+                protocol_id        TEXT NOT NULL,
+                used_at            INTEGER NOT NULL,
+                execution_time_ms  INTEGER,
+                success            INTEGER NOT NULL,
+                fallback_reason    TEXT,
+                FOREIGN KEY (protocol_id) REFERENCES emergent_protocols(protocol_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_protocol_usage_log_protocol_used ON protocol_usage_log(protocol_id, used_at DESC);
+
             CREATE TABLE IF NOT EXISTS plugins (
                 name            TEXT PRIMARY KEY,
                 version         TEXT NOT NULL,

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 const SKILL_MESH_STORAGE_KEY_SEPARATOR: char = '\u{001f}';

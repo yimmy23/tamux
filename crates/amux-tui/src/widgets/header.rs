@@ -187,6 +187,7 @@ fn build_total_usage_label(usage: &HeaderUsageDisplay) -> String {
     label
 }
 
+#[cfg(test)]
 fn build_context_usage_label(usage: &HeaderUsageDisplay) -> String {
     let clamped_pct = usage.utilization_pct.min(100);
     let bar: String = context_bar_cells(usage)

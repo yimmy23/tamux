@@ -49,12 +49,6 @@ pub struct RecentActionVm {
     pub timestamp: u64,
 }
 
-/// Flat representation of a sidebar item for matching selected index to data.
-struct SidebarFlatItem {
-    target: Option<sidebar::SidebarItemTarget>,
-    title: String,
-}
-
 #[derive(Clone, Copy, Debug)]
 struct PaneLayout {
     chat: Rect,
@@ -323,9 +317,6 @@ pub struct TuiModel {
     openai_auth_status_text: Option<String>,
     settings_picker_target: Option<SettingsPickerTarget>,
     last_attention_surface: Option<String>,
-
-    // Vim motion state
-    pending_g: bool,
 
     // Responsive layout override: when Some, overrides breakpoint-based sidebar visibility
     show_sidebar_override: Option<bool>,

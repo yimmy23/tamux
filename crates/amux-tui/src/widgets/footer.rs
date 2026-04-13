@@ -9,7 +9,7 @@ use ratatui_core::widgets::Widget as CoreWidget;
 use ratatui_textarea::{CursorMove, TextArea};
 
 use crate::app::Attachment;
-use crate::state::input::{InputMode, InputState};
+use crate::state::input::InputState;
 use crate::theme::ThemeTokens;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

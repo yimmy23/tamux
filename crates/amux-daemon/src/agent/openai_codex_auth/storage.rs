@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 use super::{
-    auth_runtime, now_millis, tombstone_auth_mode, CodexCliAuthFile, OpenAICodexAuthRuntime,
+    now_millis, tombstone_auth_mode, CodexCliAuthFile,
     OpenAICodexAuthTombstone, StoredOpenAICodexAuth, OPENAI_AUTH_MODE, OPENAI_CODEX_AUTH_PROVIDER,
     OPENAI_PROVIDER_ID,
 };

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};

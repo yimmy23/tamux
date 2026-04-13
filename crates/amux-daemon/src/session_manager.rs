@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use amux_protocol::{
     AgentDbMessage, AgentDbThread, AgentEventRow, ApprovalDecision, CommandLogEntry, DaemonMessage,
     HistorySearchHit, ManagedCommandRequest, SessionId, SessionInfo, SnapshotIndexEntry,

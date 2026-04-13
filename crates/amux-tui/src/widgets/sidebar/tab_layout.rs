@@ -26,6 +26,7 @@ pub(super) fn tab_label(tab: SidebarTab) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn tab_hint_line(theme: &ThemeTokens) -> Line<'static> {
     Line::from(vec![
         Span::styled("[", theme.accent_primary),

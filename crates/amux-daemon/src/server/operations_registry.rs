@@ -34,6 +34,7 @@ impl OperationRegistry {
             dedup: dedup.clone(),
             state: amux_protocol::OperationLifecycleState::Accepted,
             revision: 0,
+            terminal_result: None,
         };
 
         {
@@ -61,6 +62,7 @@ impl OperationRegistry {
         self.update_state(
             operation_id,
             amux_protocol::OperationLifecycleState::Started,
+            None,
         );
     }
 
@@ -68,11 +70,40 @@ impl OperationRegistry {
         self.update_state(
             operation_id,
             amux_protocol::OperationLifecycleState::Completed,
+            None,
         );
     }
 
     pub(crate) fn mark_failed(&self, operation_id: &str) {
-        self.update_state(operation_id, amux_protocol::OperationLifecycleState::Failed);
+        self.update_state(
+            operation_id,
+            amux_protocol::OperationLifecycleState::Failed,
+            None,
+        );
+    }
+
+    pub(crate) fn mark_completed_with_terminal_result(
+        &self,
+        operation_id: &str,
+        terminal_result: serde_json::Value,
+    ) {
+        self.update_state(
+            operation_id,
+            amux_protocol::OperationLifecycleState::Completed,
+            Some(terminal_result),
+        );
+    }
+
+    pub(crate) fn mark_failed_with_terminal_result(
+        &self,
+        operation_id: &str,
+        terminal_result: serde_json::Value,
+    ) {
+        self.update_state(
+            operation_id,
+            amux_protocol::OperationLifecycleState::Failed,
+            Some(terminal_result),
+        );
     }
 
     pub(crate) fn snapshot(
@@ -80,6 +111,11 @@ impl OperationRegistry {
         operation_id: &str,
     ) -> Option<amux_protocol::OperationStatusSnapshot> {
         self.record(operation_id).map(|record| record.snapshot())
+    }
+
+    pub(crate) fn terminal_result(&self, operation_id: &str) -> Option<serde_json::Value> {
+        self.record(operation_id)
+            .and_then(|record| record.terminal_result)
     }
 
     fn record(&self, operation_id: &str) -> Option<OperationRecord> {
@@ -90,7 +126,12 @@ impl OperationRegistry {
         records.get(operation_id).cloned()
     }
 
-    fn update_state(&self, operation_id: &str, state: amux_protocol::OperationLifecycleState) {
+    fn update_state(
+        &self,
+        operation_id: &str,
+        state: amux_protocol::OperationLifecycleState,
+        terminal_result: Option<serde_json::Value>,
+    ) {
         let mut dedup_to_release = None;
         let mut should_record_started = false;
         let mut terminal_failed = None;
@@ -101,30 +142,44 @@ impl OperationRegistry {
                 .lock()
                 .expect("operation records mutex poisoned");
             if let Some(record) = records.get_mut(operation_id) {
-                if record.state != state {
+                let state_changed = record.state != state;
+                let payload_changed = terminal_result
+                    .as_ref()
+                    .is_some_and(|value| record.terminal_result.as_ref() != Some(value));
+
+                if state_changed || payload_changed {
                     record.state = state;
+                    if let Some(terminal_result) = terminal_result {
+                        record.terminal_result = Some(terminal_result);
+                    }
                     record.revision = record.revision.saturating_add(1);
 
-                    if matches!(state, amux_protocol::OperationLifecycleState::Started) {
+                    if state_changed
+                        && matches!(state, amux_protocol::OperationLifecycleState::Started)
+                    {
                         should_record_started = true;
                     }
 
-                    if matches!(
-                        state,
-                        amux_protocol::OperationLifecycleState::Completed
-                            | amux_protocol::OperationLifecycleState::Failed
-                    ) {
+                    if state_changed
+                        && matches!(
+                            state,
+                            amux_protocol::OperationLifecycleState::Completed
+                                | amux_protocol::OperationLifecycleState::Failed
+                        )
+                    {
                         terminal_failed = Some(matches!(
                             state,
                             amux_protocol::OperationLifecycleState::Failed
                         ));
                     }
 
-                    if matches!(
-                        state,
-                        amux_protocol::OperationLifecycleState::Completed
-                            | amux_protocol::OperationLifecycleState::Failed
-                    ) && retention_policy_for_kind(&record.kind).release_dedup_on_terminal
+                    if state_changed
+                        && matches!(
+                            state,
+                            amux_protocol::OperationLifecycleState::Completed
+                                | amux_protocol::OperationLifecycleState::Failed
+                        )
+                        && retention_policy_for_kind(&record.kind).release_dedup_on_terminal
                     {
                         dedup_to_release = record.dedup.clone();
                     }

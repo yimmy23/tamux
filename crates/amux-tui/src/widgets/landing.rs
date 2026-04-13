@@ -1,5 +1,4 @@
 use ratatui::prelude::*;
-use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 

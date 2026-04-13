@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Episode link creation and querying.
 
 use super::{EpisodeLink, LinkType};

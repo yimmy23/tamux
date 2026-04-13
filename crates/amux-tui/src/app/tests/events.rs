@@ -1788,6 +1788,79 @@ fn hidden_handoff_thread_reload_required_is_ignored() {
 }
 
 #[test]
+fn active_thread_reload_required_requests_detail_and_sidebar_context() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 123;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "thread-user".to_string(),
+    });
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestThread {
+            thread_id,
+            message_limit,
+            message_offset,
+        }) => {
+            assert_eq!(thread_id, "thread-user");
+            assert_eq!(message_limit, Some(123));
+            assert_eq!(message_offset, Some(0));
+        }
+        other => panic!("expected thread detail request, got {other:?}"),
+    }
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestThreadTodos(thread_id)) => {
+            assert_eq!(thread_id, "thread-user");
+        }
+        other => panic!("expected todos request, got {other:?}"),
+    }
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestThreadWorkContext(thread_id)) => {
+            assert_eq!(thread_id, "thread-user");
+        }
+        other => panic!("expected work-context request, got {other:?}"),
+    }
+}
+
+#[test]
+fn inactive_thread_reload_required_does_not_interrupt_selected_thread() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-other".to_string(),
+        title: "Other Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.handle_client_event(ClientEvent::ToolCall {
+        thread_id: "thread-user".to_string(),
+        call_id: "user-call".to_string(),
+        name: "bash_command".to_string(),
+        arguments: "{\"command\":\"pwd\"}".to_string(),
+        weles_review: None,
+    });
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "thread-other".to_string(),
+    });
+
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+    assert_eq!(model.chat.active_tool_calls().len(), 1);
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
 fn selected_internal_dm_thread_detail_is_loaded() {
     let mut model = make_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {

@@ -480,7 +480,6 @@ async fn parse_openai_responses_sse(
     let mut response_id: Option<String> = None;
     let mut saw_any_json = false;
     let mut saw_responses_event = false;
-    let mut saw_terminal_event = false;
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.context("failed to read Responses SSE chunk")?;
@@ -586,7 +585,6 @@ async fn parse_openai_responses_sse(
                 }
                 OpenAiResponsesStreamEvent::ResponseCompleted(event)
                 | OpenAiResponsesStreamEvent::ResponseIncomplete(event) => {
-                    saw_terminal_event = true;
                     let terminal_response = canonical_openai_responses_terminal_response(&event.response);
                     apply_openai_responses_terminal_response(
                         &event.response,
@@ -609,7 +607,6 @@ async fn parse_openai_responses_sse(
                     return Ok(());
                 }
                 OpenAiResponsesStreamEvent::ResponseFailed(event) => {
-                    saw_terminal_event = true;
                     apply_openai_responses_terminal_response(
                         &event.response,
                         &mut response_id,
@@ -638,7 +635,6 @@ async fn parse_openai_responses_sse(
                     return Ok(());
                 }
                 OpenAiResponsesStreamEvent::Error(event) => {
-                    saw_terminal_event = true;
                     let failure = classify_openai_responses_stream_failure(
                         provider,
                         "error",
@@ -688,7 +684,7 @@ async fn parse_openai_responses_sse(
         ));
     }
 
-    if saw_responses_event && !saw_terminal_event {
+    if saw_responses_event {
         return Err(openai_responses_stream_parse_error(
             provider,
             "stream ended before a terminal response event",

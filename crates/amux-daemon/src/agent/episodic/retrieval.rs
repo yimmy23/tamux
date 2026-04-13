@@ -1,9 +1,11 @@
+#![allow(dead_code)]
+
 //! FTS5 retrieval engine with multi-signal ranking for episodic memory.
 //!
 //! Provides BM25 + recency-weighted retrieval, temporal and entity-scoped queries,
 //! and episodic context formatting for injection into system prompts and goal planning.
 
-use super::{CausalStep, Episode, EpisodeOutcome, EpisodeType};
+use super::{Episode, EpisodeOutcome, EpisodeType};
 use crate::agent::engine::AgentEngine;
 
 use anyhow::Result;

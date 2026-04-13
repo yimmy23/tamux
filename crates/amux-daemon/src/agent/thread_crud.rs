@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Thread CRUD operations — list, get, delete, planner detection.
 
 use super::*;

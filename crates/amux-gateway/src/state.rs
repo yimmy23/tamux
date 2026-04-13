@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 
 use amux_protocol::{
-    GatewayBootstrapPayload, GatewayCursorState, GatewayHealthState, GatewayProviderBootstrap,
-    GatewayRouteMode, GatewayRouteModeState, GatewayThreadBindingState,
+    GatewayBootstrapPayload, GatewayCursorState, GatewayHealthState, GatewayRouteModeState,
+    GatewayThreadBindingState,
 };
+#[cfg(test)]
+use amux_protocol::GatewayRouteMode;
 
 #[derive(Debug, Clone, Default)]
 pub struct GatewayRuntimeState {
     bootstrap_correlation_id: String,
+    #[cfg(test)]
     feature_flags: Vec<String>,
-    providers: HashMap<String, GatewayProviderBootstrap>,
     cursors: HashMap<String, GatewayCursorState>,
     thread_bindings: HashMap<String, GatewayThreadBindingState>,
     route_modes: HashMap<String, GatewayRouteModeState>,
@@ -18,13 +20,6 @@ pub struct GatewayRuntimeState {
 
 impl GatewayRuntimeState {
     pub fn from_bootstrap(payload: &GatewayBootstrapPayload) -> Self {
-        let providers = payload
-            .providers
-            .iter()
-            .cloned()
-            .map(|provider| (provider.platform.to_ascii_lowercase(), provider))
-            .collect::<HashMap<_, _>>();
-
         let cursors = payload
             .continuity
             .cursors
@@ -58,8 +53,8 @@ impl GatewayRuntimeState {
 
         Self {
             bootstrap_correlation_id: payload.bootstrap_correlation_id.clone(),
+            #[cfg(test)]
             feature_flags: payload.feature_flags.clone(),
-            providers,
             cursors,
             thread_bindings,
             route_modes,
@@ -71,30 +66,31 @@ impl GatewayRuntimeState {
         &self.bootstrap_correlation_id
     }
 
+    #[cfg(test)]
     pub fn feature_flags(&self) -> &[String] {
         &self.feature_flags
     }
 
-    pub fn provider(&self, platform: &str) -> Option<&GatewayProviderBootstrap> {
-        self.providers.get(&platform.to_ascii_lowercase())
-    }
-
+    #[cfg(test)]
     pub fn thread_binding(&self, channel_key: &str) -> Option<String> {
         self.thread_bindings
             .get(&channel_key.to_ascii_lowercase())
             .and_then(|binding| binding.thread_id.clone())
     }
 
+    #[cfg(test)]
     pub fn route_mode(&self, channel_key: &str) -> Option<GatewayRouteMode> {
         self.route_modes
             .get(&channel_key.to_ascii_lowercase())
             .map(|mode| mode.route_mode)
     }
 
+    #[cfg(test)]
     pub fn cursor(&self, platform: &str, channel_id: &str) -> Option<&GatewayCursorState> {
         self.cursors.get(&cursor_key(platform, channel_id))
     }
 
+    #[cfg(test)]
     pub fn health_snapshot(&self, platform: &str) -> Option<&GatewayHealthState> {
         self.health_snapshots.get(&platform.to_ascii_lowercase())
     }

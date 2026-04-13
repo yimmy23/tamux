@@ -438,6 +438,13 @@ async fn dispatch_tool_execution(
         "run_debate" => execute_run_debate(args, agent, thread_id, task_id).await,
         "get_debate_session" => execute_get_debate_session(args, agent).await,
         "get_critique_session" => execute_get_critique_session(args, agent).await,
+        "lookup_emergent_protocol" => execute_lookup_emergent_protocol(args, agent, thread_id).await,
+        "reload_emergent_protocol_registry" => {
+            execute_reload_emergent_protocol_registry(args, agent, thread_id).await
+        }
+        "get_emergent_protocol_usage_log" => {
+            execute_get_emergent_protocol_usage_log(args, agent).await
+        }
         "append_debate_argument" => execute_append_debate_argument(args, agent).await,
         "advance_debate_round" => execute_advance_debate_round(args, agent).await,
         "complete_debate_session" => execute_complete_debate_session(args, agent).await,

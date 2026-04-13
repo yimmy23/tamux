@@ -11,7 +11,6 @@ mod model_catalog;
 
 mod context;
 
-pub use context::is_known_default_url;
 pub use context::known_context_window_for;
 
 pub struct ProviderDef {
@@ -23,6 +22,7 @@ pub struct ProviderDef {
     pub default_transport: &'static str,
     pub supported_auth_sources: &'static [&'static str],
     pub default_auth_source: &'static str,
+    #[allow(dead_code)]
     pub native_base_url: Option<&'static str>,
 }
 
@@ -421,6 +421,7 @@ pub fn default_model_for_provider_auth(provider: &str, auth_source: &str) -> Str
 
 /// Return a hardcoded list of known models for the given provider so the model
 /// picker works without a live daemon fetch.
+#[cfg(test)]
 pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
     known_models_for_provider_auth(provider, "api_key")
 }

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! AgentEngine struct definition and constructor.
 
 use super::circuit_breaker::CircuitBreakerRegistry;

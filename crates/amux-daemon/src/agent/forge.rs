@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Trajectory-Informed Self-Reflection Loop (Spec 02) — Svarog "Forge"
 //!
 //! Analyzes execution traces to detect recurring patterns (fallback loops,

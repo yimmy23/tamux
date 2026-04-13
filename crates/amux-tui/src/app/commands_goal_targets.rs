@@ -24,6 +24,7 @@ impl TuiModel {
         .or_else(|| self.chat.active_thread_id().map(str::to_string))
     }
 
+    #[allow(dead_code)]
     fn preferred_task_target(&self) -> Option<sidebar::SidebarItemTarget> {
         if let MainPaneView::Task(target) = &self.main_pane_view {
             return Some(target.clone());
@@ -76,6 +77,7 @@ impl TuiModel {
             })
     }
 
+    #[allow(dead_code)]
     pub(in super::super) fn open_goal_runner_view(
         &mut self,
         target: Option<sidebar::SidebarItemTarget>,

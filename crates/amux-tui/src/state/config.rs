@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use crate::providers;
-use amux_shared::providers::{PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI};
+use amux_shared::providers::PROVIDER_ID_OPENAI;
 
 #[derive(Debug, Clone, Default)]
 pub struct FetchedModel {

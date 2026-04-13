@@ -2,7 +2,7 @@ fn add_available_tools_part_d(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
     agent_data_dir: &std::path::Path,
-    has_workspace_topology: bool,
+    _has_workspace_topology: bool,
 ) {
     if config.collaboration.enabled {
         tools.push(tool_def("broadcast_contribution", "Publish a structured subagent contribution into the shared collaboration session for the current parent task.", serde_json::json!({

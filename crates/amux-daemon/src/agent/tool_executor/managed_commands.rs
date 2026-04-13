@@ -203,7 +203,9 @@ async fn execute_managed_command(
                         .await?;
                     responses
                         .into_iter()
-                        .find(|message| matches!(message, DaemonMessage::ManagedCommandQueued { .. }))
+                        .find(|message| {
+                            matches!(message, DaemonMessage::ManagedCommandQueued { .. })
+                        })
                         .ok_or_else(|| {
                             anyhow::anyhow!(
                                 "managed command auto-approved but queue response was missing"
@@ -235,7 +237,9 @@ async fn execute_managed_command(
                             }
                             _ => None,
                         })
-                        .unwrap_or_else(|| "execution denied by learned operator policy".to_string());
+                        .unwrap_or_else(|| {
+                            "execution denied by learned operator policy".to_string()
+                        });
                     return Ok((
                         format!(
                             "Managed command auto-denied by learned operator policy for category {}. {}",
@@ -468,7 +472,10 @@ async fn execute_operation_status_lookup(
     session_manager: &Arc<SessionManager>,
     compatibility_alias: bool,
 ) -> Result<String> {
-    if let Some(status) = session_manager.get_background_task_status(operation_id).await? {
+    if let Some(status) = session_manager
+        .get_background_task_status(operation_id)
+        .await?
+    {
         let mut payload = serde_json::json!({
             "operation_id": status.background_task_id,
             "kind": status.kind,
@@ -495,7 +502,9 @@ async fn execute_operation_status_lookup(
             payload["snapshot_path"] = serde_json::Value::String(snapshot_path);
         }
         if !compatibility_alias {
-            payload.as_object_mut().map(|obj| obj.remove("background_task_id"));
+            payload
+                .as_object_mut()
+                .map(|obj| obj.remove("background_task_id"));
         }
 
         return Ok(payload.to_string());
@@ -510,6 +519,25 @@ async fn execute_operation_status_lookup(
         });
         if let Some(dedup) = snapshot.dedup {
             payload["dedup"] = serde_json::Value::String(dedup);
+        }
+        if let Some(terminal_result) =
+            crate::server::operation_registry().terminal_result(operation_id)
+        {
+            if let Some(exit_code) = terminal_result
+                .get("exit_code")
+                .and_then(|value| value.as_i64())
+            {
+                payload["exit_code"] = serde_json::Value::Number(exit_code.into());
+            }
+            payload["terminal_result"] = terminal_result;
+        } else if matches!(
+            payload["kind"].as_str(),
+            Some("bash_command" | "run_terminal_command")
+        ) && matches!(payload["state"].as_str(), Some("accepted" | "started"))
+        {
+            payload["status_hint"] = serde_json::Value::String(
+                "Final terminal payload will appear under `terminal_result` once this background headless command reaches completed or failed. Do not rerun it in foreground just to inspect output.".to_string(),
+            );
         }
         if compatibility_alias {
             payload["background_task_id"] = serde_json::Value::String(operation_id.to_string());

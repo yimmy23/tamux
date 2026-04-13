@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Handlebars template engine for plugin API proxy.
 //!
 //! Provides template rendering with strict mode and 5 custom helpers:
