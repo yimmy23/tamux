@@ -692,6 +692,106 @@ async fn hydrated_idle_participant_auto_send_is_visible_in_thread_detail() {
 }
 
 #[tokio::test]
+async fn hydrate_clears_persisted_participant_playground_threads() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread_participant_playground_hydrate_reset";
+    let playground_thread_id =
+        crate::agent::agent_identity::participant_playground_thread_id(thread_id, "weles");
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Visible thread for playground hydrate reset".to_string(),
+            messages: vec![AgentMessage::user("hello", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+    engine.threads.write().await.insert(
+        playground_thread_id.clone(),
+        AgentThread {
+            id: playground_thread_id.clone(),
+            agent_name: Some("Weles".to_string()),
+            title: "Participant playground".to_string(),
+            messages: vec![
+                AgentMessage::user("scratch prompt", 2),
+                AgentMessage {
+                    id: generate_message_id(),
+                    role: MessageRole::Assistant,
+                    content: "scratch reply".to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    weles_review: None,
+                    input_tokens: 3,
+                    output_tokens: 5,
+                    cost: None,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
+                    author_agent_id: Some("weles".to_string()),
+                    author_agent_name: Some("Weles".to_string()),
+                    reasoning: None,
+                    message_kind: AgentMessageKind::Normal,
+                    compaction_strategy: None,
+                    compaction_payload: None,
+                    offloaded_payload_id: None,
+                    structural_refs: Vec::new(),
+                    timestamp: 3,
+                },
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 3,
+            total_output_tokens: 5,
+            created_at: 2,
+            updated_at: 3,
+        },
+    );
+    engine.persist_thread_by_id(thread_id).await;
+    engine.persist_thread_by_id(&playground_thread_id).await;
+
+    drop(engine);
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let reloaded = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    reloaded.hydrate().await.expect("hydrate");
+
+    let playground = reloaded
+        .get_thread_filtered(&playground_thread_id, true, None, 0)
+        .await
+        .expect("playground thread should still exist after hydrate")
+        .thread;
+    assert!(
+        playground.messages.is_empty(),
+        "hydrate should clear persisted participant playground history"
+    );
+    assert_eq!(playground.total_input_tokens, 0);
+    assert_eq!(playground.total_output_tokens, 0);
+}
+
+#[tokio::test]
 async fn participant_failed_suggestions_reload() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

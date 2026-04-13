@@ -189,6 +189,40 @@ struct ParticipantObserverResponderConfig {
 }
 
 impl AgentEngine {
+    pub(crate) async fn clear_persisted_participant_playground_threads_on_hydrate(&self) -> usize {
+        let cleared_thread_ids = {
+            let mut threads = self.threads.write().await;
+            let updated_at = now_millis();
+            let mut cleared = Vec::new();
+
+            for (thread_id, thread) in threads.iter_mut() {
+                if !crate::agent::agent_identity::is_participant_playground_thread(thread_id) {
+                    continue;
+                }
+                if thread.messages.is_empty()
+                    && thread.total_input_tokens == 0
+                    && thread.total_output_tokens == 0
+                {
+                    continue;
+                }
+
+                thread.messages.clear();
+                thread.total_input_tokens = 0;
+                thread.total_output_tokens = 0;
+                thread.updated_at = updated_at;
+                cleared.push(thread_id.clone());
+            }
+
+            cleared
+        };
+
+        for thread_id in &cleared_thread_ids {
+            self.persist_thread_by_id(thread_id).await;
+        }
+
+        cleared_thread_ids.len()
+    }
+
     pub(crate) async fn reset_participant_playground_threads_for_visible_thread(
         &self,
         visible_thread_id: &str,
