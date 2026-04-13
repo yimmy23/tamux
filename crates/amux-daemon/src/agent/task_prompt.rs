@@ -177,20 +177,7 @@ pub(super) async fn resolve_preferred_session_id(
 // -- Utility functions --
 
 pub(super) fn agent_data_dir() -> std::path::PathBuf {
-    let base = if cfg!(windows) {
-        std::env::var("LOCALAPPDATA")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| {
-                dirs::home_dir()
-                    .unwrap_or_default()
-                    .join("AppData")
-                    .join("Local")
-            })
-            .join("tamux")
-    } else {
-        dirs::home_dir().unwrap_or_default().join(".tamux")
-    };
-    base.join("agent")
+    amux_protocol::tamux_root_dir().join("agent")
 }
 
 pub(super) fn ordered_memory_dirs(agent_data_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
@@ -222,13 +209,13 @@ pub(super) fn memory_paths_for_scope(
     }
 }
 
-pub(super) fn skills_dir(agent_data_dir: &std::path::Path) -> std::path::PathBuf {
-    let local_skills = agent_data_dir.join("skills");
-    if local_skills.exists() {
-        return local_skills;
+pub(super) fn skills_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
+    let default_agent_dir = agent_data_dir();
+    if data_dir == default_agent_dir {
+        return amux_protocol::tamux_skills_dir();
     }
 
-    agent_data_dir
+    data_dir
         .parent()
         .unwrap_or(std::path::Path::new("."))
         .join("skills")

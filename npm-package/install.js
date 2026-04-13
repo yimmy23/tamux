@@ -142,6 +142,26 @@ function getArchiveChecksum(checksumsData, releaseInfo) {
   return parseChecksumFile(checksumsData, releaseInfo.archiveName);
 }
 
+function getRuntimeTamuxRoot(platform, env) {
+  var sourceEnv = env || process.env;
+  if (platform === "win32") {
+    var localAppData = sourceEnv.LOCALAPPDATA;
+    if (localAppData) {
+      return path.win32.join(localAppData, "tamux");
+    }
+
+    var userProfile = sourceEnv.USERPROFILE || "";
+    return path.win32.join(userProfile, "AppData", "Local", "tamux");
+  }
+
+  return path.posix.join(sourceEnv.HOME || "", ".tamux");
+}
+
+function getRuntimeSkillsDir(platform, env) {
+  var pathModule = platform === "win32" ? path.win32 : path.posix;
+  return pathModule.join(getRuntimeTamuxRoot(platform, env), "skills");
+}
+
 function verifyBufferChecksum(buffer, expectedHash) {
   return crypto.createHash("sha256").update(buffer).digest("hex") === expectedHash;
 }
@@ -160,6 +180,7 @@ function getReleaseAssetInfo(platform, arch, version) {
     checksumName: "SHA256SUMS-" + target.checksumPlatform + ".txt",
     bundleChecksumName: "SHA256SUMS.txt",
     requiredBinaries: target.requiredBinaries.slice(),
+    skillsArchiveRoot: "skills",
   };
 }
 
@@ -228,6 +249,31 @@ function extractRequiredBinaries(archiveData, releaseInfo) {
     }
 
     fs.writeFileSync(path.join(BIN_DIR, binaryName), entry.getData());
+  }
+}
+
+function extractBundledSkills(archiveData, releaseInfo, skillsDir) {
+  var AdmZip = require("adm-zip");
+  var archive = new AdmZip(archiveData);
+  var entries = archive.getEntries();
+  var archiveRoot = releaseInfo.skillsArchiveRoot + "/";
+
+  fs.mkdirSync(skillsDir, { recursive: true });
+
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i];
+    if (!entry.entryName.startsWith(archiveRoot) || entry.isDirectory) {
+      continue;
+    }
+
+    var relativePath = entry.entryName.slice(archiveRoot.length);
+    if (!relativePath) {
+      continue;
+    }
+
+    var destinationPath = path.join(skillsDir, relativePath);
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    fs.writeFileSync(destinationPath, entry.getData());
   }
 }
 
@@ -301,6 +347,7 @@ async function main() {
   var checksumsUrl = BASE_URL + "/" + releaseInfo.checksumName;
   var isGlobalInstall = process.env.npm_config_global === "true";
   var globalBinDir = getGlobalBinDir(process.env.npm_config_prefix, os.platform());
+  var runtimeSkillsDir = getRuntimeSkillsDir(os.platform(), process.env);
 
   // 1. Ensure bin directory exists
   fs.mkdirSync(BIN_DIR, { recursive: true });
@@ -324,8 +371,9 @@ async function main() {
     }
 
     // 4. Extract required binaries, then verify against the published manifest
-    console.log("tamux: extracting binaries...");
+    console.log("tamux: extracting binaries and skills...");
     extractRequiredBinaries(archiveData, releaseInfo);
+    extractBundledSkills(archiveData, releaseInfo, runtimeSkillsDir);
 
     if (!archiveChecksum) {
       console.log("tamux: verifying SHA256 checksum...");
@@ -358,6 +406,8 @@ module.exports.getGlobalBinDir = getGlobalBinDir;
 module.exports.getArchiveChecksum = getArchiveChecksum;
 module.exports.getReleaseAssetInfo = getReleaseAssetInfo;
 module.exports.getInstallUsageHint = getInstallUsageHint;
+module.exports.getRuntimeSkillsDir = getRuntimeSkillsDir;
+module.exports.getRuntimeTamuxRoot = getRuntimeTamuxRoot;
 module.exports.parseChecksumFile = parseChecksumFile;
 module.exports.prependDirectoryToPath = prependDirectoryToPath;
 

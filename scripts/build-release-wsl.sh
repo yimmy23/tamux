@@ -104,18 +104,25 @@ create_bundle_zip() {
     shift
     local files=("$@")
 
-    python3 - "$zip_path" "$OUT_DIR" "${files[@]}" <<'PY'
+    python3 - "$zip_path" "$OUT_DIR" "$PROJECT_ROOT" "${files[@]}" <<'PY'
 import pathlib
 import sys
 import zipfile
+import os
 
 zip_path = pathlib.Path(sys.argv[1])
 base_dir = pathlib.Path(sys.argv[2])
-files = sys.argv[3:]
+project_root = pathlib.Path(sys.argv[3])
+files = sys.argv[4:]
 
 with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
     for relative in files:
         archive.write(base_dir / relative, arcname=relative)
+    skills_root = project_root / "skills"
+    if skills_root.exists():
+        for path in sorted(skills_root.rglob("*")):
+            if path.is_file():
+                archive.write(path, arcname=str(path.relative_to(project_root)).replace(os.sep, "/"))
 PY
 }
 

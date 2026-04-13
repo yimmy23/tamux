@@ -7,6 +7,7 @@
 set -eu
 
 INSTALL_DIR="${TAMUX_INSTALL_DIR:-$HOME/.local/bin}"
+SKILLS_DIR="${TAMUX_SKILLS_DIR:-$HOME/.tamux/skills}"
 GITHUB_OWNER="mkurman"
 GITHUB_REPO="tamux"
 GITHUB_API_URL="https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}"
@@ -187,6 +188,16 @@ install_binaries() {
   echo "Installed: ${BINARIES} -> ${INSTALL_DIR}"
 }
 
+install_skills() {
+  if [ ! -d "$EXTRACT_DIR/skills" ]; then
+    die "Release bundle is missing bundled skills"
+  fi
+
+  mkdir -p "$SKILLS_DIR"
+  cp -R "$EXTRACT_DIR/skills/." "$SKILLS_DIR/"
+  echo "Installed bundled skills -> ${SKILLS_DIR}"
+}
+
 print_path_hint() {
   case ":${PATH:-}:" in
     *":$INSTALL_DIR:"*)
@@ -219,6 +230,7 @@ if [ "$DRY_RUN" = true ]; then
   echo "Download URL: ${ARCHIVE_URL}"
   echo "Checksum URL: ${CHECKSUM_URL}"
   echo "Install directory: ${INSTALL_DIR}"
+  echo "Skills directory: ${SKILLS_DIR}"
   echo "Binaries: ${BINARIES}"
   echo "Dry run complete -- no files downloaded or modified."
   exit 0
@@ -237,11 +249,12 @@ echo "Downloading tamux v${VERSION} for ${archive_platform}..."
 download_file "$CHECKSUM_URL" "$CHECKSUM_PATH"
 download_file "$ARCHIVE_URL" "$ARCHIVE_PATH"
 
-echo "Extracting binaries..."
+echo "Extracting binaries and skills..."
 extract_archive
 
 echo "Verifying extracted binaries..."
 install_binaries
+install_skills
 
 echo ""
 echo "tamux installed successfully."

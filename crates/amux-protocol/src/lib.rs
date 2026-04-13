@@ -8,6 +8,7 @@ mod codec;
 mod config;
 mod logging;
 mod messages;
+mod runtime_paths;
 mod update;
 
 pub use codec::{
@@ -22,4 +23,5 @@ pub use config::{
 };
 pub use logging::{dated_log_file_name, dated_log_file_path, DailyLogWriter};
 pub use messages::*;
+pub use runtime_paths::{legacy_agent_skills_dir, tamux_root_dir, tamux_skills_dir};
 pub use update::*;

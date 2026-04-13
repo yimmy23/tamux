@@ -29,3 +29,15 @@ test("shell installer dry-run targets GitHub release zip assets", { skip: proces
   assert.doesNotMatch(output, /gitlab\.com\/api\/v4\/projects/);
   assert.doesNotMatch(output, /tamux-binaries-/);
 });
+
+test("shell installer provisions bundled skills into canonical tamux root", function () {
+  const scriptPath = path.join(__dirname, "..", "scripts", "install.sh");
+  const script = childProcess.execFileSync("sed", ["-n", "1,260p", scriptPath], {
+    cwd: path.join(__dirname, ".."),
+    encoding: "utf8",
+  });
+
+  assert.match(script, /SKILLS_DIR="\$\{TAMUX_SKILLS_DIR:-\$HOME\/\.tamux\/skills\}"/);
+  assert.match(script, /Extracting binaries and skills/);
+  assert.match(script, /cp -R "\$EXTRACT_DIR\/skills\/\." "\$SKILLS_DIR\/"/);
+});

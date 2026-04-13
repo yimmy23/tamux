@@ -33,6 +33,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $InstallDir = if ($env:TAMUX_INSTALL_DIR) { $env:TAMUX_INSTALL_DIR } else { "C:\Program Files\tamux" }
+$SkillsDir = if ($env:TAMUX_SKILLS_DIR) { $env:TAMUX_SKILLS_DIR } else { Join-Path $HOME ".tamux\skills" }
 $GitHubOwner = "mkurman"
 $GitHubRepo = "tamux"
 $GitHubApiUrl = "https://api.github.com/repos/$GitHubOwner/$GitHubRepo"
@@ -171,7 +172,7 @@ function Download-AndVerify {
     Invoke-WebRequest -Uri $script:ArchiveUrl -Headers $RequestHeaders `
         -OutFile $script:ArchivePath -ErrorAction Stop
 
-    Write-Host "Extracting binaries..."
+    Write-Host "Extracting binaries and skills..."
     Expand-Archive -Path $script:ArchivePath -DestinationPath $script:ExtractDir -Force
 
     Write-Host "Verifying extracted binaries..."
@@ -204,6 +205,17 @@ function Install-Binaries {
     ) | Set-Content -Path $DirectInstallMarker
 
     Write-Host "Installed: $($Binaries -join ', ') -> $InstallDir"
+}
+
+function Install-Skills {
+    $skillsSource = Join-Path $script:ExtractDir "skills"
+    if (-not (Test-Path $skillsSource)) {
+        throw "Release bundle is missing bundled skills"
+    }
+
+    New-Item -ItemType Directory -Force -Path $SkillsDir | Out-Null
+    Copy-Item -Path (Join-Path $script:ExtractDir "skills\*") -Destination $SkillsDir -Recurse -Force
+    Write-Host "Installed bundled skills -> $SkillsDir"
 }
 
 # ---------------------------------------------------------------------------
@@ -249,6 +261,7 @@ if ($DryRun) {
     Write-Host "Would download: $script:ArchiveUrl"
     Write-Host "Checksum URL: $script:ChecksumUrl"
     Write-Host "Would install to: $InstallDir"
+    Write-Host "Would install bundled skills to: $SkillsDir"
     Write-Host "Binaries: $($Binaries -join ', ')"
     Write-Host "Dry run complete -- no files downloaded or modified."
     exit 0
@@ -258,6 +271,7 @@ try {
     Wait-ForPreviousTamux
     Download-AndVerify
     Install-Binaries
+    Install-Skills
     Update-Path
 } finally {
     if ($script:TmpDir -and (Test-Path $script:TmpDir)) {

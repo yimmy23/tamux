@@ -13,6 +13,7 @@ test("getReleaseAssetInfo maps linux x64 to published zip asset names", function
     archiveName: "tamux-linux-x86_64.zip",
     checksumName: "SHA256SUMS-linux-x86_64.txt",
     bundleChecksumName: "SHA256SUMS.txt",
+    skillsArchiveRoot: "skills",
     requiredBinaries: [
       "tamux",
       "tamux-daemon",
@@ -30,6 +31,7 @@ test("getReleaseAssetInfo maps linux arm64 to published zip asset names", functi
     archiveName: "tamux-linux-aarch64.zip",
     checksumName: "SHA256SUMS-linux-aarch64.txt",
     bundleChecksumName: "SHA256SUMS.txt",
+    skillsArchiveRoot: "skills",
     requiredBinaries: [
       "tamux",
       "tamux-daemon",
@@ -47,6 +49,7 @@ test("getReleaseAssetInfo maps windows x64 to published zip asset names", functi
     archiveName: "tamux-windows-x64.zip",
     checksumName: "SHA256SUMS-windows-x64.txt",
     bundleChecksumName: "SHA256SUMS.txt",
+    skillsArchiveRoot: "skills",
     requiredBinaries: [
       "tamux.exe",
       "tamux-daemon.exe",
@@ -108,4 +111,37 @@ test("prependDirectoryToPath preserves existing PATH key casing", function () {
   const expected = ["C:\\tamux\\bin", "C:\\Windows\\System32"].join(path.delimiter);
   assert.equal(updated.Path, expected);
   assert.equal(updated.PATH, expected);
+});
+
+test("getRuntimeTamuxRoot uses home on unix hosts", function () {
+  assert.equal(
+    install.getRuntimeTamuxRoot("linux", {
+      HOME: "/home/aline",
+    }),
+    "/home/aline/.tamux"
+  );
+});
+
+test("getRuntimeTamuxRoot uses LOCALAPPDATA on windows hosts", function () {
+  assert.equal(
+    install.getRuntimeTamuxRoot("win32", {
+      LOCALAPPDATA: "C:\\Users\\aline\\AppData\\Local",
+    }),
+    "C:\\Users\\aline\\AppData\\Local\\tamux"
+  );
+});
+
+test("getRuntimeSkillsDir resolves to the canonical tamux skills root", function () {
+  assert.equal(
+    install.getRuntimeSkillsDir("linux", {
+      HOME: "/home/aline",
+    }),
+    "/home/aline/.tamux/skills"
+  );
+});
+
+test("release bundle metadata includes bundled skills payload", function () {
+  const info = install.getReleaseAssetInfo("linux", "x64", "0.2.0");
+
+  assert.equal(info.skillsArchiveRoot, "skills");
 });

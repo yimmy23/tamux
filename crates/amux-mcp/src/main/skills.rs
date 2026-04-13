@@ -3,28 +3,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_yaml::Value;
 
-pub(super) fn tamux_root_dir() -> PathBuf {
-    if cfg!(windows) {
-        std::env::var("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                std::env::var("USERPROFILE")
-                    .map(PathBuf::from)
-                    .unwrap_or_default()
-                    .join("AppData")
-                    .join("Local")
-            })
-            .join("tamux")
-    } else {
-        std::env::var("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default()
-            .join(".tamux")
-    }
-}
-
 pub(super) fn tamux_skills_dir() -> PathBuf {
-    tamux_root_dir().join("skills")
+    amux_protocol::tamux_skills_dir()
 }
 
 pub(super) fn collect_skill_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {

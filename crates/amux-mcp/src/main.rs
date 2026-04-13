@@ -67,7 +67,7 @@ use daemon_tools::{
     tool_verify_integrity,
 };
 use rpc::{handle_initialize, handle_tools_list, JsonRpcRequest, JsonRpcResponse};
-use skills::{collect_skill_documents, resolve_skill_path, tamux_root_dir, tamux_skills_dir};
+use skills::{collect_skill_documents, resolve_skill_path, tamux_skills_dir};
 use tool_definitions::tool_definitions;
 use transport::{read_message, write_message};
 use utils::{default_task_title, parse_scheduled_at, strip_ansi_basic};

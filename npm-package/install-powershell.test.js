@@ -20,3 +20,12 @@ test("powershell installer uses GitHub release zip assets and full binary set", 
   assert.doesNotMatch(script, /gitlab\.com\/api\/v4\/projects/);
   assert.doesNotMatch(script, /tamux-binaries-/);
 });
+
+test("powershell installer provisions bundled skills into canonical tamux root", function () {
+  const scriptPath = path.join(__dirname, "..", "scripts", "install.ps1");
+  const script = fs.readFileSync(scriptPath, "utf8");
+
+  assert.match(script, /\$SkillsDir = if \(\$env:TAMUX_SKILLS_DIR\) \{ \$env:TAMUX_SKILLS_DIR \} else \{ Join-Path \$HOME "\.tamux\\skills" \}/);
+  assert.match(script, /Extracting binaries and skills/);
+  assert.match(script, /Copy-Item -Path \(Join-Path \$script:ExtractDir "skills\\\*"\) -Destination \$SkillsDir -Recurse -Force/);
+});

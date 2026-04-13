@@ -163,11 +163,56 @@ function Verify-Signature([string]$FilePath) {
     }
 }
 
+function Get-FileSha256([string]$FilePath) {
+    return (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
+}
+
+function Write-ChecksumsFile([string]$OutputPath, [string[]]$ArtifactNames) {
+    $lines = foreach ($artifact in $ArtifactNames) {
+        $hash = Get-FileSha256 (Join-Path $OutDir $artifact)
+        "$hash  $artifact"
+    }
+
+    Set-Content -Path $OutputPath -Value $lines
+}
+
+function New-BundleZip([string]$ZipPath, [string[]]$ArtifactNames) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (Test-Path $ZipPath) {
+        Remove-Item $ZipPath -Force
+    }
+
+    $archive = [System.IO.Compression.ZipFile]::Open($ZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($artifact in $ArtifactNames) {
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive,
+                (Join-Path $OutDir $artifact),
+                $artifact
+            ) | Out-Null
+        }
+
+        $skillsRoot = Join-Path $ProjectRoot "skills"
+        if (Test-Path $skillsRoot) {
+            Get-ChildItem $skillsRoot -Recurse -File | ForEach-Object {
+                $relative = [System.IO.Path]::GetRelativePath($ProjectRoot.Path, $_.FullName).Replace("\", "/")
+                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $archive,
+                    $_.FullName,
+                    $relative
+                ) | Out-Null
+            }
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 # ─────────────────────────────────────────────────────
 # Build steps
 # ─────────────────────────────────────────────────────
 
-$totalSteps = 5
+$totalSteps = 6
 $step = 0
 
 Write-Host "`n============================================================" -ForegroundColor White
@@ -319,6 +364,37 @@ if ($Sign) {
     Get-ChildItem $OutDir -Filter "*.exe" | ForEach-Object {
         Verify-Signature $_.FullName
     }
+}
+
+# Step 6: Package bundle + checksums
+$step++
+Write-Step $step $totalSteps "Packaging release bundle..."
+$bundleArtifacts = Get-ChildItem $OutDir -File | Where-Object {
+    $_.Name -notmatch '\.zip$' -and
+    $_.Name -notmatch '^SHA256SUMS.*\.txt$' -and
+    $_.Name -ne 'RELEASE_NOTES.md'
+} | Select-Object -ExpandProperty Name
+
+if ($bundleArtifacts.Count -gt 0) {
+    $checksumsFile = Join-Path $OutDir "SHA256SUMS-windows-x64.txt"
+    $bundleFile = Join-Path $OutDir "tamux-windows-x64.zip"
+    $notesFile = Join-Path $OutDir "RELEASE_NOTES.md"
+
+    if (-not (Test-Path $notesFile)) {
+        @(
+            "# tamux Windows Release Notes",
+            "",
+            "Built on $(Get-Date -AsUTC -Format 'yyyy-MM-dd HH:mm UTC').",
+            "",
+            "Bundled built-in skills are included under the archive skills/ tree."
+        ) | Set-Content -Path $notesFile
+    }
+
+    Write-ChecksumsFile $checksumsFile $bundleArtifacts
+    New-BundleZip $bundleFile ($bundleArtifacts + @((Split-Path $checksumsFile -Leaf), (Split-Path $notesFile -Leaf)))
+    Write-Ok "Created $(Split-Path $checksumsFile -Leaf)"
+    Write-Ok "Created $(Split-Path $notesFile -Leaf)"
+    Write-Ok "Created $(Split-Path $bundleFile -Leaf)"
 }
 
 # ─────────────────────────────────────────────────────

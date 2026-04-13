@@ -16,3 +16,8 @@ Quick start:
 npm install -g tamux
 tamux --help
 ```
+
+The npm installer downloads the platform release bundle and installs:
+
+- launcher binaries under the package `bin/` directory used by `npm` and `npx`
+- built-in skills into the canonical runtime root at `~/.tamux/skills` on Unix or `%LOCALAPPDATA%\\tamux\\skills` on Windows
