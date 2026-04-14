@@ -106,4 +106,26 @@ impl HistoryStore {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
+
+    pub async fn list_recent_implicit_signal_samples(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<(f64, u64)>> {
+        let limit = limit.max(1) as i64;
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT weight, timestamp_ms
+                     FROM implicit_signals
+                     ORDER BY timestamp_ms DESC, id DESC
+                     LIMIT ?1",
+                )?;
+                let rows = stmt.query_map(params![limit], |row| {
+                    Ok((row.get::<_, f64>(0)?, row.get::<_, i64>(1)?.max(0) as u64))
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
 }

@@ -623,3 +623,60 @@ async fn operator_correction_persists_thread_scoped_signal_and_score_snapshot() 
     assert_eq!(scores[0].signal_count, 2);
     assert!((scores[0].score - 0.54).abs() < 1e-9);
 }
+
+#[test]
+fn persisted_satisfaction_decay_uses_recent_signal_history() {
+    let mut model = OperatorModel::default();
+    model.cognitive_style.message_count = 1;
+
+    let now = 1_717_400_000_000u64;
+    let applied = apply_persisted_satisfaction_decay(
+        &mut model,
+        &[
+            PersistedSatisfactionSignalSample {
+                weight: -0.12,
+                timestamp_ms: now - 1_000,
+            },
+            PersistedSatisfactionSignalSample {
+                weight: -0.16,
+                timestamp_ms: now - 2_000,
+            },
+            PersistedSatisfactionSignalSample {
+                weight: -0.18,
+                timestamp_ms: now - 3_000,
+            },
+        ],
+        now,
+    );
+
+    assert!(applied);
+    assert_eq!(model.operator_satisfaction.label, "strained");
+    assert!((model.operator_satisfaction.score - 0.34).abs() < 0.02);
+}
+
+#[test]
+fn persisted_satisfaction_decay_requires_enough_history() {
+    let mut model = OperatorModel::default();
+    model.cognitive_style.message_count = 1;
+    model.operator_satisfaction.score = 0.8;
+    model.operator_satisfaction.label = "strong".to_string();
+
+    let applied = apply_persisted_satisfaction_decay(
+        &mut model,
+        &[
+            PersistedSatisfactionSignalSample {
+                weight: -0.12,
+                timestamp_ms: 10,
+            },
+            PersistedSatisfactionSignalSample {
+                weight: -0.10,
+                timestamp_ms: 20,
+            },
+        ],
+        1_000,
+    );
+
+    assert!(!applied);
+    assert_eq!(model.operator_satisfaction.label, "strong");
+    assert!((model.operator_satisfaction.score - 0.8).abs() < f64::EPSILON);
+}

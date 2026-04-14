@@ -245,3 +245,47 @@ async fn implicit_feedback_rows_round_trip() -> Result<()> {
     std::fs::remove_dir_all(root)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn recent_implicit_signal_samples_return_latest_weights() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_implicit_signal(&ImplicitSignalRow {
+            id: "implicit-a".to_string(),
+            session_id: "thread-a".to_string(),
+            signal_type: "tool_fallback".to_string(),
+            weight: -0.12,
+            timestamp_ms: 100,
+            context_snapshot_json: None,
+        })
+        .await?;
+    store
+        .insert_implicit_signal(&ImplicitSignalRow {
+            id: "implicit-b".to_string(),
+            session_id: "thread-b".to_string(),
+            signal_type: "fast_denial".to_string(),
+            weight: -0.18,
+            timestamp_ms: 300,
+            context_snapshot_json: None,
+        })
+        .await?;
+    store
+        .insert_implicit_signal(&ImplicitSignalRow {
+            id: "implicit-c".to_string(),
+            session_id: "thread-c".to_string(),
+            signal_type: "operator_correction".to_string(),
+            weight: -0.16,
+            timestamp_ms: 200,
+            context_snapshot_json: None,
+        })
+        .await?;
+
+    let samples = store.list_recent_implicit_signal_samples(2).await?;
+    assert_eq!(samples.len(), 2);
+    assert_eq!(samples[0], (-0.18, 300));
+    assert_eq!(samples[1], (-0.16, 200));
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}

@@ -6,6 +6,14 @@ const AUTO_APPROVE_RATE_THRESHOLD: f64 = 0.95;
 const AUTO_DENY_RATE_THRESHOLD: f64 = 0.05;
 const FAST_DENIAL_AUTO_DENY_THRESHOLD: u64 = 3;
 const FAST_DENIAL_MAX_APPROVAL_RATE: f64 = 0.34;
+const PERSISTED_SIGNAL_MIN_COUNT: usize = 3;
+const PERSISTED_SIGNAL_HALF_LIFE_HOURS: f64 = 24.0;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PersistedSatisfactionSignalSample {
+    pub weight: f64,
+    pub timestamp_ms: u64,
+}
 
 pub(crate) fn count_words(content: &str) -> usize {
     content
@@ -366,7 +374,7 @@ fn normalize_satisfaction_score(score: f64) -> f64 {
     (score.clamp(0.0, 1.0) * 100.0).round() / 100.0
 }
 
-pub(crate) fn refresh_operator_satisfaction(model: &mut OperatorModel) {
+fn approval_base_score(model: &OperatorModel) -> f64 {
     let approval_rate = if model.risk_fingerprint.approval_requests > 0 {
         model.risk_fingerprint.approvals as f64 / model.risk_fingerprint.approval_requests as f64
     } else {
@@ -382,21 +390,45 @@ pub(crate) fn refresh_operator_satisfaction(model: &mut OperatorModel) {
         0.0
     };
 
+    0.7 + approval_rate * 0.2 + fast_positive_approval_bonus
+}
+
+pub(crate) fn refresh_operator_satisfaction(model: &mut OperatorModel) {
     let friction = model.implicit_feedback.tool_hesitation_count as f64 * 0.12
         + model.implicit_feedback.revision_message_count as f64 * 0.10
         + model.implicit_feedback.correction_message_count as f64 * 0.16
         + model.implicit_feedback.fast_denial_count as f64 * 0.18
         + model.attention_topology.rapid_switch_count.min(10) as f64 * 0.03;
 
-    let score = normalize_satisfaction_score(
-        0.7 + approval_rate * 0.2 + fast_positive_approval_bonus - friction,
-    );
+    let score = normalize_satisfaction_score(approval_base_score(model) - friction);
     model.operator_satisfaction.score = score;
     model.operator_satisfaction.label = if has_operator_satisfaction_signal(model) {
         satisfaction_label(score).to_string()
     } else {
         "unknown".to_string()
     };
+}
+
+pub(crate) fn apply_persisted_satisfaction_decay(
+    model: &mut OperatorModel,
+    signals: &[PersistedSatisfactionSignalSample],
+    now_ms: u64,
+) -> bool {
+    if signals.len() < PERSISTED_SIGNAL_MIN_COUNT {
+        return false;
+    }
+
+    let half_life_ms = PERSISTED_SIGNAL_HALF_LIFE_HOURS * 60.0 * 60.0 * 1000.0;
+    let decayed_friction = signals.iter().fold(0.0, |acc, signal| {
+        let age_ms = now_ms.saturating_sub(signal.timestamp_ms) as f64;
+        let decay = 2f64.powf(-(age_ms / half_life_ms));
+        acc + signal.weight.abs() * decay
+    });
+
+    let score = normalize_satisfaction_score(approval_base_score(model) - decayed_friction);
+    model.operator_satisfaction.score = score;
+    model.operator_satisfaction.label = satisfaction_label(score).to_string();
+    true
 }
 
 pub(crate) fn has_operator_satisfaction_signal(model: &OperatorModel) -> bool {

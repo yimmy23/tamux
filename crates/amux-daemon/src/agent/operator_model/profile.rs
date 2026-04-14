@@ -10,7 +10,19 @@ impl AgentEngine {
         }
         ensure_operator_model_file(&self.data_dir).await?;
         let raw = tokio::fs::read_to_string(operator_model_path(&self.data_dir)).await?;
-        let parsed = serde_json::from_str::<OperatorModel>(&raw).unwrap_or_default();
+        let mut parsed = serde_json::from_str::<OperatorModel>(&raw).unwrap_or_default();
+        let samples = self.history.list_recent_implicit_signal_samples(64).await?;
+        let persisted_samples = samples
+            .into_iter()
+            .map(|(weight, timestamp_ms)| PersistedSatisfactionSignalSample {
+                weight,
+                timestamp_ms,
+            })
+            .collect::<Vec<_>>();
+        let now = now_millis();
+        if !apply_persisted_satisfaction_decay(&mut parsed, &persisted_samples, now) {
+            refresh_operator_satisfaction(&mut parsed);
+        }
         *self.operator_model.write().await = parsed;
         Ok(())
     }
