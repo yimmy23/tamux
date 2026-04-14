@@ -66,9 +66,8 @@ async fn maybe_emit_cli_wrapper_synthesis_proposal_notice(
     event_tx: &broadcast::Sender<AgentEvent>,
     thread_id: &str,
     dedupe_hint: &str,
-    missing_tool: &str,
-    proposal: CliWrapperSynthesisProposal,
-    reason: &str,
+    message: String,
+    details: serde_json::Value,
 ) {
     if thread_id.trim().is_empty() {
         return;
@@ -87,27 +86,35 @@ async fn maybe_emit_cli_wrapper_synthesis_proposal_notice(
         }
     }
 
-    let synthesize_args = serde_json::json!({
-        "kind": "cli",
-        "target": proposal.target,
-        "name": proposal.tool_name,
-        "activate": false,
-    });
-    let message = format!(
-        "Missing capability around `{missing_tool}` looks like a conservative CLI-wrapper gap. Proposal ready via synthesize_tool."
-    );
-    let details = serde_json::json!({
-        "reason": reason,
-        "missing_tool": missing_tool,
-        "proposal_kind": "cli",
-        "synthesize_tool_args": synthesize_args,
-    });
     let _ = event_tx.send(AgentEvent::WorkflowNotice {
         thread_id: thread_id.to_string(),
         kind: "tool-synthesis-proposal".to_string(),
         message,
         details: Some(details.to_string()),
     });
+}
+
+async fn strongest_repeated_shell_fallback_evidence(
+    agent: &AgentEngine,
+    tool_name: &str,
+) -> Option<(String, u64)> {
+    let model = agent.operator_model.read().await;
+    model
+        .implicit_feedback
+        .fallback_histogram
+        .iter()
+        .filter_map(|(pair, count)| {
+            if *count < 2 {
+                return None;
+            }
+            let (_, to_tool) = pair.split_once("->")?;
+            if to_tool.trim().eq_ignore_ascii_case(tool_name) {
+                Some((pair.clone(), *count))
+            } else {
+                None
+            }
+        })
+        .max_by_key(|(_, count)| *count)
 }
 
 async fn maybe_emit_unknown_tool_synthesis_proposal_notice(
@@ -119,14 +126,28 @@ async fn maybe_emit_unknown_tool_synthesis_proposal_notice(
     let Some(proposal) = detect_cli_wrapper_synthesis_proposal(missing_tool) else {
         return;
     };
+    let synthesize_args = serde_json::json!({
+        "kind": "cli",
+        "target": proposal.target,
+        "name": proposal.tool_name,
+        "activate": false,
+    });
+    let message = format!(
+        "Missing capability around `{missing_tool}` looks like a conservative CLI-wrapper gap. Proposal ready via synthesize_tool."
+    );
+    let details = serde_json::json!({
+        "reason": "unknown_tool_safe_cli_gap",
+        "missing_tool": missing_tool,
+        "proposal_kind": "cli",
+        "synthesize_tool_args": synthesize_args,
+    });
     maybe_emit_cli_wrapper_synthesis_proposal_notice(
         agent,
         event_tx,
         thread_id,
-        missing_tool,
-        missing_tool,
-        proposal,
-        "unknown_tool_safe_cli_gap",
+        &format!("unknown::{missing_tool}"),
+        message,
+        details,
     )
     .await;
 }
@@ -144,14 +165,52 @@ async fn maybe_emit_successful_shell_synthesis_proposal_notice(
     let Some(proposal) = detect_cli_wrapper_synthesis_proposal_from_command(command) else {
         return;
     };
+    let synthesize_args = serde_json::json!({
+        "kind": "cli",
+        "target": proposal.target,
+        "name": proposal.tool_name,
+        "activate": false,
+    });
+    let repeated_fallback = strongest_repeated_shell_fallback_evidence(agent, tool_name).await;
+    let (reason, dedupe_hint, message, details) = if let Some((pair, count)) = repeated_fallback {
+        (
+            "repeated_safe_shell_fallback_cli_gap",
+            format!("repeated-shell::{command}"),
+            format!(
+                "Repeated successful fallback through `{tool_name}` suggests a conservative CLI-wrapper gap. Proposal ready via synthesize_tool."
+            ),
+            serde_json::json!({
+                "reason": "repeated_safe_shell_fallback_cli_gap",
+                "missing_tool": tool_name,
+                "proposal_kind": "cli",
+                "synthesize_tool_args": synthesize_args,
+                "matched_fallback": pair,
+                "fallback_count": count,
+            }),
+        )
+    } else {
+        (
+            "successful_safe_shell_cli_gap",
+            format!("shell::{command}"),
+            format!(
+                "Missing capability around `{tool_name}` looks like a conservative CLI-wrapper gap. Proposal ready via synthesize_tool."
+            ),
+            serde_json::json!({
+                "reason": "successful_safe_shell_cli_gap",
+                "missing_tool": tool_name,
+                "proposal_kind": "cli",
+                "synthesize_tool_args": synthesize_args,
+            }),
+        )
+    };
+    let _ = reason;
     maybe_emit_cli_wrapper_synthesis_proposal_notice(
         agent,
         event_tx,
         thread_id,
-        command,
-        tool_name,
-        proposal,
-        "successful_safe_shell_cli_gap",
+        &dedupe_hint,
+        message,
+        details,
     )
     .await;
 }

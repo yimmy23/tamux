@@ -5518,3 +5518,131 @@ async fn duplicate_successful_shell_gap_notice_is_suppressed_per_thread() {
         "duplicate successful shell gaps in the same thread should emit only one synthesis proposal"
     );
 }
+
+#[tokio::test]
+async fn repeated_shell_fallback_pattern_upgrades_tool_synthesis_proposal_notice() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+
+    let repo_root = root.path().join("repo-shell-gap-repeated");
+    std::fs::create_dir_all(&repo_root).expect("create repo root");
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init should succeed");
+
+    let first = execute_tool(
+        &ToolCall {
+            id: "call-shell-gap-repeated-1".to_string(),
+            function: ToolFunction {
+                name: "bash_command".to_string(),
+                arguments: serde_json::json!({
+                    "command": "git status --short",
+                    "cwd": repo_root,
+                })
+                .to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-shell-gap-repeated",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(!first.is_error, "shell command should succeed: {}", first.content);
+
+    let first_notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected first workflow notice")
+        .expect("workflow notice should be received");
+    match first_notice {
+        AgentEvent::WorkflowNotice {
+            details: Some(details),
+            ..
+        } => {
+            let details: serde_json::Value =
+                serde_json::from_str(&details).expect("notice details should be json");
+            assert_eq!(
+                details.get("reason").and_then(|value| value.as_str()),
+                Some("successful_safe_shell_cli_gap")
+            );
+        }
+        other => panic!("expected workflow notice, got {other:?}"),
+    }
+
+    {
+        let mut model = engine.operator_model.write().await;
+        model
+            .implicit_feedback
+            .fallback_histogram
+            .insert("search_files -> bash_command".to_string(), 3);
+        model.implicit_feedback.top_tool_fallbacks =
+            vec!["search_files -> bash_command".to_string()];
+    }
+
+    let second = execute_tool(
+        &ToolCall {
+            id: "call-shell-gap-repeated-2".to_string(),
+            function: ToolFunction {
+                name: "bash_command".to_string(),
+                arguments: serde_json::json!({
+                    "command": "git status --short",
+                    "cwd": repo_root,
+                })
+                .to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-shell-gap-repeated",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(!second.is_error, "shell command should succeed: {}", second.content);
+
+    let second_notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected repeated-pattern workflow notice")
+        .expect("workflow notice should be received");
+    match second_notice {
+        AgentEvent::WorkflowNotice {
+            kind,
+            details: Some(details),
+            ..
+        } => {
+            assert_eq!(kind, "tool-synthesis-proposal");
+            let details: serde_json::Value =
+                serde_json::from_str(&details).expect("notice details should be json");
+            assert_eq!(
+                details.get("reason").and_then(|value| value.as_str()),
+                Some("repeated_safe_shell_fallback_cli_gap")
+            );
+            assert_eq!(
+                details.get("matched_fallback").and_then(|value| value.as_str()),
+                Some("search_files -> bash_command")
+            );
+            assert_eq!(
+                details.get("fallback_count").and_then(|value| value.as_u64()),
+                Some(3)
+            );
+        }
+        other => panic!("expected workflow notice, got {other:?}"),
+    }
+}
