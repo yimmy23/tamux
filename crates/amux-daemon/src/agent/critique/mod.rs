@@ -8,7 +8,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::agent::engine::AgentEngine;
-use crate::agent::operator_model::RiskTolerance;
+use crate::agent::operator_model::{preferred_tool_fallback_targets, RiskTolerance};
 
 use self::types::{ArgumentPoint, CritiqueSession, Decision, Resolution, SessionStatus};
 
@@ -34,6 +34,44 @@ fn dedupe_argument_points(mut points: Vec<ArgumentPoint>) -> Vec<ArgumentPoint> 
     let mut seen = std::collections::BTreeSet::new();
     points.retain(|point| seen.insert(point.claim.clone()));
     points
+}
+
+fn critique_fallback_argument_points(
+    tool_name: &str,
+    preferred_fallback_targets: &[String],
+) -> Vec<ArgumentPoint> {
+    if preferred_fallback_targets.is_empty() {
+        return Vec::new();
+    }
+
+    let mut points = Vec::new();
+    for target in preferred_fallback_targets {
+        match (tool_name, target.as_str()) {
+            ("bash_command" | "run_terminal_command" | "execute_managed_command", "apply_patch") => {
+                points.push(ArgumentPoint {
+                    claim: "Prefer apply_patch over brittle shell rewrites for this change.".to_string(),
+                    weight: 0.78,
+                    evidence: vec![
+                        "tool_specific:apply_patch:fallback_preference".to_string(),
+                        "fallback_match:apply_patch".to_string(),
+                    ],
+                });
+            }
+            ("bash_command" | "run_terminal_command" | "execute_managed_command", "replace_in_file") => {
+                points.push(ArgumentPoint {
+                    claim: "Prefer replace_in_file over ad-hoc shell rewrites when a narrow textual edit is enough.".to_string(),
+                    weight: 0.74,
+                    evidence: vec![
+                        "tool_specific:replace_in_file:fallback_preference".to_string(),
+                        "fallback_match:replace_in_file".to_string(),
+                    ],
+                });
+            }
+            _ => {}
+        }
+    }
+
+    dedupe_argument_points(points)
 }
 
 impl AgentEngine {
@@ -279,6 +317,21 @@ impl AgentEngine {
             .operator_satisfaction
             .label
             .clone();
+        let preferred_fallback_targets = self
+            .operator_model
+            .read()
+            .await
+            .implicit_feedback
+            .top_tool_fallbacks
+            .clone();
+        let preferred_fallback_targets = preferred_tool_fallback_targets(
+            &preferred_fallback_targets,
+            3,
+        );
+        let fallback_points = critique_fallback_argument_points(
+            tool_name,
+            &preferred_fallback_targets,
+        );
         let (grounded_advocate_points, grounded_critic_points) =
             self.critique_grounded_argument_points(tool_name).await;
         let (
@@ -297,7 +350,7 @@ impl AgentEngine {
             tool_name,
             action_summary,
             reasons,
-            [grounded_critic_points, learned_critic_points].concat(),
+            [grounded_critic_points, learned_critic_points, fallback_points].concat(),
         );
         let mut resolution = arbiter::resolve_with_satisfaction_label(
             &advocate_argument,
@@ -339,7 +392,11 @@ impl AgentEngine {
             if matches!(resolution.decision, Decision::ProceedWithModifications)
                 && resolution.modifications.is_empty()
             {
-                let mut critic_guidance = arbiter::recommended_modifications(&critic_argument, 2);
+                let mut critic_guidance = arbiter::recommended_modifications_with_fallback_targets(
+                    &critic_argument,
+                    &preferred_fallback_targets,
+                    2,
+                );
                 if critic_guidance.is_empty() {
                     critic_guidance
                         .push("Apply the critic's safer constraints before execution.".to_string());

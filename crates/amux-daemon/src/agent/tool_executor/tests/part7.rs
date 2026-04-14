@@ -4241,6 +4241,74 @@ async fn strained_satisfaction_biases_close_critique_toward_proceed_with_modific
 }
 
 #[test]
+fn critique_arbiter_prefers_fallback_aligned_modification_when_history_matches() {
+    let critic = crate::agent::critique::types::Argument {
+        role: crate::agent::critique::types::Role::Critic,
+        points: vec![
+            crate::agent::critique::types::ArgumentPoint {
+                claim: "Prefer apply_patch over brittle shell rewrites for this change.".to_string(),
+                weight: 0.58,
+                evidence: vec![
+                    "tool_specific:apply_patch:fallback_preference".to_string(),
+                    "fallback_match:apply_patch".to_string(),
+                ],
+            },
+            crate::agent::critique::types::ArgumentPoint {
+                claim: "Disable network access before running the shell command.".to_string(),
+                weight: 0.83,
+                evidence: vec!["tool_specific:bash_command:narrower_execution".to_string()],
+            },
+        ],
+        overall_confidence: 0.73,
+    };
+
+    let modifications = crate::agent::critique::arbiter::recommended_modifications(&critic, 2);
+
+    assert_eq!(
+        modifications.first().map(String::as_str),
+        Some("Prefer apply_patch over brittle shell rewrites for this change."),
+        "fallback-aligned critique guidance should outrank generic higher-weight modifications when history says that fallback recovers better"
+    );
+}
+
+#[tokio::test]
+async fn critique_preflight_promotes_fallback_aligned_guidance_from_operator_history() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    {
+        let mut model = engine.operator_model.write().await;
+        model.implicit_feedback.top_tool_fallbacks = vec!["bash_command -> apply_patch".to_string()];
+    }
+
+    let resolution = engine
+        .run_critique_preflight(
+            "action-fallback-aligned-critique",
+            "bash_command",
+            "Rewrite a Rust file using a shell heredoc.",
+            &["shell command includes destructive or high-blast-radius mutation patterns".to_string()],
+            Some("thread-fallback-aligned-critique"),
+            None,
+        )
+        .await
+        .expect("critique preflight should succeed")
+        .resolution
+        .expect("resolution should exist");
+
+    assert!(resolution.modifications.iter().any(|item| item.contains("apply_patch")),
+        "expected fallback-aligned critique guidance to surface when operator history prefers apply_patch: {:?}",
+        resolution.modifications);
+}
+
+#[test]
 fn annotate_review_with_critique_records_applied_adjustments() {
     let mut review = crate::agent::types::WelesReviewMeta {
         weles_reviewed: false,

@@ -17,8 +17,41 @@ fn top_claims(argument: &Argument, limit: usize) -> Vec<String> {
 }
 
 pub(crate) fn recommended_modifications(argument: &Argument, limit: usize) -> Vec<String> {
+    recommended_modifications_with_fallback_targets(argument, &[], limit)
+}
+
+pub(crate) fn recommended_modifications_with_fallback_targets(
+    argument: &Argument,
+    preferred_fallback_targets: &[String],
+    limit: usize,
+) -> Vec<String> {
+    let normalized_targets = preferred_fallback_targets
+        .iter()
+        .map(|target| target.trim().to_ascii_lowercase())
+        .filter(|target| !target.is_empty())
+        .collect::<Vec<_>>();
     let mut points = argument.points.clone();
     points.sort_by(|a, b| {
+        let a_fallback_match = a.evidence.iter().any(|evidence| {
+            evidence
+                .strip_prefix("fallback_match:")
+                .map(|tool| {
+                    let normalized = tool.trim().to_ascii_lowercase();
+                    normalized_targets.is_empty()
+                        || normalized_targets.iter().any(|target| target == &normalized)
+                })
+                .unwrap_or(false)
+        });
+        let b_fallback_match = b.evidence.iter().any(|evidence| {
+            evidence
+                .strip_prefix("fallback_match:")
+                .map(|tool| {
+                    let normalized = tool.trim().to_ascii_lowercase();
+                    normalized_targets.is_empty()
+                        || normalized_targets.iter().any(|target| target == &normalized)
+                })
+                .unwrap_or(false)
+        });
         let a_tool_specific = a
             .evidence
             .iter()
@@ -27,8 +60,12 @@ pub(crate) fn recommended_modifications(argument: &Argument, limit: usize) -> Ve
             .evidence
             .iter()
             .any(|evidence| evidence.starts_with("tool_specific:"));
-        b_tool_specific
+        b_fallback_match
+            .cmp(&a_fallback_match)
+            .then_with(|| {
+                b_tool_specific
             .cmp(&a_tool_specific)
+            })
             .then_with(|| {
                 b.weight
                     .partial_cmp(&a.weight)
