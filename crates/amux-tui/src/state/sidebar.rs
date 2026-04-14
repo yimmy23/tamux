@@ -37,6 +37,7 @@ pub struct SidebarState {
     active_tab: SidebarTab,
     selected_item: usize,
     scroll_offset: usize,
+    files_filter: String,
     expanded_nodes: HashSet<String>,
 }
 
@@ -46,6 +47,7 @@ impl SidebarState {
             active_tab: SidebarTab::Todos,
             selected_item: 0,
             scroll_offset: 0,
+            files_filter: String::new(),
             expanded_nodes: HashSet::new(),
         }
     }
@@ -60,6 +62,10 @@ impl SidebarState {
 
     pub fn scroll_offset(&self) -> usize {
         self.scroll_offset
+    }
+
+    pub fn files_filter(&self) -> &str {
+        &self.files_filter
     }
 
     pub fn is_expanded(&self, node_id: &str) -> bool {
@@ -77,6 +83,41 @@ impl SidebarState {
                 (self.selected_item + delta as usize).min(item_count.saturating_sub(1));
         } else {
             self.selected_item = self.selected_item.saturating_sub((-delta) as usize);
+        }
+    }
+
+    pub fn select(&mut self, index: usize, item_count: usize) {
+        if item_count == 0 {
+            self.selected_item = 0;
+        } else {
+            self.selected_item = index.min(item_count.saturating_sub(1));
+        }
+    }
+
+    pub fn push_files_filter(&mut self, ch: char) {
+        self.files_filter.push(ch);
+        self.selected_item = 0;
+        self.scroll_offset = 0;
+    }
+
+    pub fn pop_files_filter(&mut self) -> bool {
+        if self.files_filter.pop().is_some() {
+            self.selected_item = 0;
+            self.scroll_offset = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn clear_files_filter(&mut self) -> bool {
+        if self.files_filter.is_empty() {
+            false
+        } else {
+            self.files_filter.clear();
+            self.selected_item = 0;
+            self.scroll_offset = 0;
+            true
         }
     }
 
@@ -205,5 +246,26 @@ mod tests {
     fn default_tab_is_todos() {
         let state = SidebarState::new();
         assert_eq!(state.active_tab(), SidebarTab::Todos);
+    }
+
+    #[test]
+    fn files_filter_edits_reset_selection_and_scroll() {
+        let mut state = SidebarState::new();
+        state.reduce(SidebarAction::SwitchTab(SidebarTab::Files));
+        state.reduce(SidebarAction::Navigate(5));
+        state.reduce(SidebarAction::Scroll(3));
+
+        state.push_files_filter('r');
+        assert_eq!(state.files_filter(), "r");
+        assert_eq!(state.selected_item(), 0);
+        assert_eq!(state.scroll_offset(), 0);
+
+        state.push_files_filter('s');
+        assert_eq!(state.files_filter(), "rs");
+        assert!(state.pop_files_filter());
+        assert_eq!(state.files_filter(), "r");
+        assert!(state.clear_files_filter());
+        assert_eq!(state.files_filter(), "");
+        assert!(!state.clear_files_filter());
     }
 }

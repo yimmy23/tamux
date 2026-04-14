@@ -130,7 +130,7 @@ impl TuiModel {
                         }
                     }
                 } else if cursor_in_sidebar {
-                    self.sidebar.reduce(sidebar::SidebarAction::Scroll(3));
+                    self.sidebar.navigate(-3, self.sidebar_item_count());
                 } else if cursor_in_input {
                     for _ in 0..3 {
                         self.input.reduce(input::InputAction::MoveCursorUp);
@@ -184,7 +184,7 @@ impl TuiModel {
                         }
                     }
                 } else if cursor_in_sidebar {
-                    self.sidebar.reduce(sidebar::SidebarAction::Scroll(-3));
+                    self.sidebar.navigate(3, self.sidebar_item_count());
                 } else if cursor_in_input {
                     for _ in 0..3 {
                         self.input.reduce(input::InputAction::MoveCursorDown);
@@ -421,25 +421,19 @@ impl TuiModel {
                             if let Some(thread_id) =
                                 self.chat.active_thread_id().map(str::to_string)
                             {
-                                let index = self
-                                    .tasks
-                                    .work_context_for_thread(&thread_id)
-                                    .and_then(|context| {
-                                        context.entries.iter().position(|entry| entry.path == path)
-                                    })
-                                    .unwrap_or(0);
-                                self.sidebar.navigate(
-                                    index as i32 - self.sidebar.selected_item() as i32,
-                                    self.sidebar_item_count(),
-                                );
+                                let index = widgets::sidebar::filtered_file_index(
+                                    &self.tasks,
+                                    &self.sidebar,
+                                    Some(thread_id.as_str()),
+                                    &path,
+                                )
+                                .unwrap_or(0);
+                                self.sidebar.select(index, self.sidebar_item_count());
                                 self.handle_sidebar_enter();
                             }
                         }
                         Some(widgets::sidebar::SidebarHitTarget::Todo(index)) => {
-                            self.sidebar.navigate(
-                                index as i32 - self.sidebar.selected_item() as i32,
-                                self.sidebar_item_count(),
-                            );
+                            self.sidebar.select(index, self.sidebar_item_count());
                             self.handle_sidebar_enter();
                         }
                         None => {}

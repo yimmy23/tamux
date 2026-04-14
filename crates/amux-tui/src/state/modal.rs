@@ -33,14 +33,16 @@ pub enum ThreadPickerTab {
     Swarog,
     Rarog,
     Weles,
+    Playgrounds,
     Internal,
 }
 
 impl ThreadPickerTab {
-    const ALL: [ThreadPickerTab; 4] = [
+    const ALL: [ThreadPickerTab; 5] = [
         ThreadPickerTab::Swarog,
         ThreadPickerTab::Rarog,
         ThreadPickerTab::Weles,
+        ThreadPickerTab::Playgrounds,
         ThreadPickerTab::Internal,
     ];
 

@@ -40,6 +40,123 @@ fn sidebar_arrow_keys_follow_todos_first_tab_order() {
 }
 
 #[test]
+fn typing_in_files_sidebar_filters_entries_and_escape_clears_query() {
+    let mut model = build_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.tasks.reduce(task::TaskAction::WorkContextReceived(
+        task::ThreadWorkContext {
+            thread_id: "thread-1".to_string(),
+            entries: vec![
+                task::WorkContextEntry {
+                    path: "/tmp/readme.md".to_string(),
+                    is_text: true,
+                    ..Default::default()
+                },
+                task::WorkContextEntry {
+                    path: "/tmp/runtime.rs".to_string(),
+                    is_text: true,
+                    ..Default::default()
+                },
+                task::WorkContextEntry {
+                    path: "/tmp/schema.sql".to_string(),
+                    is_text: true,
+                    ..Default::default()
+                },
+            ],
+        },
+    ));
+    model
+        .sidebar
+        .reduce(SidebarAction::SwitchTab(SidebarTab::Files));
+    model.focus = FocusArea::Sidebar;
+
+    for ch in "runtime".chars() {
+        let handled = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!handled);
+    }
+
+    assert_eq!(model.focus, FocusArea::Sidebar);
+    assert_eq!(model.sidebar_item_count(), 1);
+    assert_eq!(model.sidebar.files_filter(), "runtime");
+
+    let handled = model.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(model.focus, FocusArea::Sidebar);
+    assert_eq!(model.sidebar.files_filter(), "");
+    assert_eq!(model.sidebar_item_count(), 3);
+
+    for ch in "runtime".chars() {
+        let handled = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!handled);
+    }
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::WorkContext));
+    assert_eq!(
+        model.tasks.selected_work_path("thread-1"),
+        Some("/tmp/runtime.rs")
+    );
+}
+
+#[test]
+fn mouse_wheel_over_sidebar_moves_file_selection() {
+    let mut model = build_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.tasks.reduce(task::TaskAction::WorkContextReceived(
+        task::ThreadWorkContext {
+            thread_id: "thread-1".to_string(),
+            entries: (0..12)
+                .map(|idx| task::WorkContextEntry {
+                    path: format!("/tmp/file-{idx}.rs"),
+                    is_text: true,
+                    ..Default::default()
+                })
+                .collect(),
+        },
+    ));
+    model
+        .sidebar
+        .reduce(SidebarAction::SwitchTab(SidebarTab::Files));
+    model.focus = FocusArea::Sidebar;
+
+    let sidebar_area = model
+        .pane_layout()
+        .sidebar
+        .expect("default layout should include a sidebar");
+    let mouse = MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: sidebar_area.x.saturating_add(2),
+        row: sidebar_area.y.saturating_add(3),
+        modifiers: KeyModifiers::NONE,
+    };
+
+    model.handle_mouse(mouse);
+
+    assert_eq!(model.focus, FocusArea::Sidebar);
+    assert_eq!(model.sidebar.selected_item(), 3);
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(
+        model.tasks.selected_work_path("thread-1"),
+        Some("/tmp/file-3.rs")
+    );
+}
+
+#[test]
 fn submit_operator_profile_answer_allows_empty_input_when_question_is_optional() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();

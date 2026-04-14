@@ -66,7 +66,10 @@ async fn execute_get_git_line_statuses(args: &serde_json::Value) -> Result<Strin
     {
         anyhow::bail!("'start_line' must be a positive integer");
     }
-    if args.get("limit").is_some_and(|value| value.as_u64().is_none()) {
+    if args
+        .get("limit")
+        .is_some_and(|value| value.as_u64().is_none())
+    {
         anyhow::bail!("'limit' must be a positive integer");
     }
 
@@ -100,11 +103,7 @@ async fn execute_create_file(args: &serde_json::Value) -> Result<String> {
     if target.exists() && !overwrite {
         anyhow::bail!("file already exists: {}", target.display());
     }
-
-    if let Some(parent) = target.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(target, &content).await?;
+    write_text_file_atomically(&target, &content, overwrite).await?;
     Ok(format!(
         "Created file {} ({} bytes)",
         resolve_tool_path(raw_path, cwd.map(Path::new)).display(),
@@ -135,7 +134,7 @@ async fn execute_append_to_file(args: &serde_json::Value) -> Result<String> {
         String::new()
     };
     existing.push_str(&content);
-    tokio::fs::write(target, existing).await?;
+    write_text_file_atomically(target, &existing, true).await?;
     Ok(format!("Appended {} bytes to {path}", content.len()))
 }
 
@@ -213,6 +212,13 @@ enum HarnessPatchAction {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StagedHarnessPatchFile {
+    path: String,
+    original_content: Option<String>,
+    desired_content: Option<String>,
+}
+
 pub(crate) fn extract_apply_patch_paths(input: &str) -> Result<Vec<String>> {
     let mut paths = Vec::new();
     for action in parse_harness_patch_actions(input)? {
@@ -241,18 +247,20 @@ async fn execute_apply_patch(args: &serde_json::Value) -> Result<String> {
     }
 
     let mut summary = Vec::with_capacity(actions.len());
+    let mut staged_files = Vec::new();
+    let mut staged_indices = std::collections::HashMap::new();
+
     for action in actions {
         match action {
             HarnessPatchAction::Add { path, content } => {
                 validate_write_path(&path)?;
-                let target = PathBuf::from(&path);
-                if target.exists() {
+                let staged_index =
+                    ensure_staged_patch_file(&path, &mut staged_files, &mut staged_indices).await?;
+                let staged_file = &mut staged_files[staged_index];
+                if staged_file.desired_content.is_some() {
                     anyhow::bail!("cannot add file that already exists: {path}");
                 }
-                if let Some(parent) = target.parent() {
-                    tokio::fs::create_dir_all(parent).await?;
-                }
-                tokio::fs::write(&target, content).await?;
+                staged_file.desired_content = Some(content);
                 summary.push(format!("Added file {path}"));
             }
             HarnessPatchAction::Update {
@@ -261,21 +269,36 @@ async fn execute_apply_patch(args: &serde_json::Value) -> Result<String> {
                 new_text,
             } => {
                 validate_write_path(&path)?;
-                apply_exact_replacements(&path, vec![(old_text, new_text, false)]).await?;
+                let staged_index =
+                    ensure_staged_patch_file(&path, &mut staged_files, &mut staged_indices).await?;
+                let staged_file = &mut staged_files[staged_index];
+                let current_content = staged_file
+                    .desired_content
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("cannot update missing file: {path}"))?;
+                let (updated_content, _) = apply_replacements_to_content(
+                    &path,
+                    current_content,
+                    vec![(old_text, new_text, false)],
+                )?;
+                staged_file.desired_content = Some(updated_content);
                 summary.push(format!("Updated file {path}"));
             }
             HarnessPatchAction::Delete { path } => {
                 validate_write_path(&path)?;
-                let target = PathBuf::from(&path);
-                if !target.exists() {
+                let staged_index =
+                    ensure_staged_patch_file(&path, &mut staged_files, &mut staged_indices).await?;
+                let staged_file = &mut staged_files[staged_index];
+                if staged_file.desired_content.is_none() {
                     anyhow::bail!("cannot delete missing file: {path}");
                 }
-                tokio::fs::remove_file(&target).await?;
+                staged_file.desired_content = None;
                 summary.push(format!("Deleted file {path}"));
             }
         }
     }
 
+    commit_staged_harness_patch_files(&staged_files).await?;
     Ok(summary.join("\n"))
 }
 
@@ -434,7 +457,83 @@ async fn apply_exact_replacements(
     replacements: Vec<(String, String, bool)>,
 ) -> Result<String> {
     let target = std::path::Path::new(path);
-    let mut content = tokio::fs::read_to_string(target).await?;
+    let content = tokio::fs::read_to_string(target).await?;
+    let (content, summary) = apply_replacements_to_content(path, content, replacements)?;
+    write_text_file_atomically(target, &content, true).await?;
+    Ok(summary)
+}
+
+async fn write_text_file_atomically(
+    path: &Path,
+    content: &str,
+    overwrite_existing: bool,
+) -> Result<()> {
+    let path = path.to_path_buf();
+    let content = content.to_string();
+    tokio::task::spawn_blocking(move || {
+        stage_text_file_write(
+            &path,
+            &content,
+            overwrite_existing,
+            persist_staged_text_file,
+        )
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("atomic file write task failed: {error}"))??;
+    Ok(())
+}
+
+fn stage_text_file_write<F>(
+    path: &Path,
+    content: &str,
+    overwrite_existing: bool,
+    commit: F,
+) -> Result<()>
+where
+    F: FnOnce(tempfile::NamedTempFile, &Path, bool) -> std::io::Result<()>,
+{
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    if path.exists() && !overwrite_existing {
+        anyhow::bail!("file already exists: {}", path.display());
+    }
+
+    let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+    std::io::Write::write_all(staged.as_file_mut(), content.as_bytes())?;
+    staged.as_file_mut().sync_all()?;
+
+    match commit(staged, path, overwrite_existing) {
+        Ok(()) => Ok(()),
+        Err(error) if !overwrite_existing && error.kind() == std::io::ErrorKind::AlreadyExists => {
+            anyhow::bail!("file already exists: {}", path.display())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn persist_staged_text_file(
+    staged: tempfile::NamedTempFile,
+    path: &Path,
+    overwrite_existing: bool,
+) -> std::io::Result<()> {
+    if overwrite_existing {
+        staged
+            .persist(path)
+            .map(|_| ())
+            .map_err(|error| error.error)
+    } else {
+        staged
+            .persist_noclobber(path)
+            .map(|_| ())
+            .map_err(|error| error.error)
+    }
+}
+
+fn apply_replacements_to_content(
+    path: &str,
+    mut content: String,
+    replacements: Vec<(String, String, bool)>,
+) -> Result<(String, String)> {
     let mut summary = Vec::with_capacity(replacements.len());
 
     for (index, (old_text, new_text, replace_all)) in replacements.into_iter().enumerate() {
@@ -467,8 +566,103 @@ async fn apply_exact_replacements(
         ));
     }
 
-    tokio::fs::write(target, content).await?;
-    Ok(format!("Patched {} with {}.", path, summary.join(", ")))
+    Ok((
+        content,
+        format!("Patched {} with {}.", path, summary.join(", ")),
+    ))
+}
+
+async fn ensure_staged_patch_file(
+    path: &str,
+    staged_files: &mut Vec<StagedHarnessPatchFile>,
+    staged_indices: &mut std::collections::HashMap<String, usize>,
+) -> Result<usize> {
+    if let Some(index) = staged_indices.get(path).copied() {
+        return Ok(index);
+    }
+
+    let original_content = match tokio::fs::read_to_string(path).await {
+        Ok(content) => Some(content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+
+    let index = staged_files.len();
+    staged_files.push(StagedHarnessPatchFile {
+        path: path.to_string(),
+        desired_content: original_content.clone(),
+        original_content,
+    });
+    staged_indices.insert(path.to_string(), index);
+    Ok(index)
+}
+
+async fn commit_staged_harness_patch_files(staged_files: &[StagedHarnessPatchFile]) -> Result<()> {
+    let mut committed_indices = Vec::new();
+
+    for (index, staged_file) in staged_files.iter().enumerate() {
+        if staged_file.original_content == staged_file.desired_content {
+            continue;
+        }
+
+        let result = match &staged_file.desired_content {
+            Some(content) => write_staged_patch_file(&staged_file.path, content).await,
+            None => remove_staged_patch_file(&staged_file.path).await,
+        };
+
+        if let Err(error) = result {
+            let rollback_result =
+                rollback_staged_harness_patch_files(staged_files, &committed_indices).await;
+            return match rollback_result {
+                Ok(()) => Err(error),
+                Err(rollback_error) => Err(anyhow::anyhow!(
+                    "failed to apply patch changes: {error}; rollback also failed: {rollback_error}"
+                )),
+            };
+        }
+
+        committed_indices.push(index);
+    }
+
+    Ok(())
+}
+
+async fn rollback_staged_harness_patch_files(
+    staged_files: &[StagedHarnessPatchFile],
+    committed_indices: &[usize],
+) -> Result<()> {
+    let mut rollback_errors = Vec::new();
+
+    for index in committed_indices.iter().rev() {
+        let staged_file = &staged_files[*index];
+        let restore_result = match &staged_file.original_content {
+            Some(content) => write_staged_patch_file(&staged_file.path, content).await,
+            None => remove_staged_patch_file(&staged_file.path).await,
+        };
+
+        if let Err(error) = restore_result {
+            rollback_errors.push(format!("{}: {error}", staged_file.path));
+        }
+    }
+
+    if rollback_errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("rollback failed for {}", rollback_errors.join(", "))
+    }
+}
+
+async fn write_staged_patch_file(path: &str, content: &str) -> Result<()> {
+    write_text_file_atomically(std::path::Path::new(path), content, true).await?;
+    Ok(())
+}
+
+async fn remove_staged_patch_file(path: &str) -> Result<()> {
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 async fn execute_write_file(
@@ -483,10 +677,7 @@ async fn execute_write_file(
 
     let base_dir = resolve_tool_cwd(args, session_manager, preferred_session_id).await?;
     let target = resolve_tool_path(path, base_dir.as_deref());
-    if let Some(parent) = target.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(&target, &content).await?;
+    write_text_file_atomically(&target, &content, true).await?;
     Ok(format!(
         "Written {} bytes to {}",
         content.len(),

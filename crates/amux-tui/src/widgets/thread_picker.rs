@@ -14,6 +14,8 @@ const TAB_GAP: u16 = 1;
 const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
 const INTERNAL_DM_TITLE_PREFIX: &str = "Internal DM";
 const HIDDEN_HANDOFF_THREAD_PREFIX: &str = "handoff:";
+const PLAYGROUND_THREAD_PREFIX: &str = "playground:";
+const PLAYGROUND_THREAD_TITLE_PREFIX: &str = "Participant Playground";
 const WELES_THREAD_TITLE: &str = "WELES";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,11 +38,12 @@ fn thread_picker_layout(inner: Rect) -> [Rect; 5] {
     [chunks[0], chunks[1], chunks[2], chunks[3], chunks[4]]
 }
 
-fn tab_specs() -> [(ThreadPickerTab, String); 4] {
+fn tab_specs() -> [(ThreadPickerTab, String); 5] {
     [
         (ThreadPickerTab::Swarog, format!("[{AGENT_NAME_SWAROG}]")),
         (ThreadPickerTab::Rarog, format!("[{AGENT_NAME_RAROG}]")),
         (ThreadPickerTab::Weles, "[Weles]".to_string()),
+        (ThreadPickerTab::Playgrounds, "[Playgrounds]".to_string()),
         (ThreadPickerTab::Internal, "[Internal]".to_string()),
     ]
 }
@@ -52,6 +55,10 @@ fn thread_matches_query(thread: &AgentThread, query: &str) -> bool {
     let lower = query.to_lowercase();
     thread.title.to_lowercase().contains(&lower)
         || thread_display_title(thread).to_lowercase().contains(&lower)
+        || thread
+            .agent_name
+            .as_deref()
+            .is_some_and(|name| name.to_lowercase().contains(&lower))
 }
 
 pub(crate) fn is_rarog_thread(thread: &AgentThread) -> bool {
@@ -68,6 +75,11 @@ pub(crate) fn is_rarog_thread(thread: &AgentThread) -> bool {
 pub(crate) fn is_internal_thread(thread: &AgentThread) -> bool {
     thread.id.starts_with(INTERNAL_DM_THREAD_PREFIX)
         || thread.title.starts_with(INTERNAL_DM_TITLE_PREFIX)
+}
+
+pub(crate) fn is_playground_thread(thread: &AgentThread) -> bool {
+    thread.id.starts_with(PLAYGROUND_THREAD_PREFIX)
+        || thread.title.starts_with(PLAYGROUND_THREAD_TITLE_PREFIX)
 }
 
 fn is_hidden_handoff_thread(thread: &AgentThread) -> bool {
@@ -120,10 +132,14 @@ pub(crate) fn filtered_threads<'a>(
         .filter(|thread| !is_hidden_handoff_thread(thread))
         .filter(|thread| match modal.thread_picker_tab() {
             ThreadPickerTab::Swarog => {
-                !is_rarog_thread(thread) && !is_internal_thread(thread) && !is_weles_thread(thread)
+                !is_rarog_thread(thread)
+                    && !is_internal_thread(thread)
+                    && !is_weles_thread(thread)
+                    && !is_playground_thread(thread)
             }
             ThreadPickerTab::Rarog => is_rarog_thread(thread),
-            ThreadPickerTab::Weles => is_weles_thread(thread),
+            ThreadPickerTab::Weles => !is_playground_thread(thread) && is_weles_thread(thread),
+            ThreadPickerTab::Playgrounds => is_playground_thread(thread),
             ThreadPickerTab::Internal => is_internal_thread(thread),
         })
         .filter(|thread| thread_matches_query(thread, query))
@@ -158,6 +174,13 @@ pub(crate) fn visible_window(
         .saturating_sub(height.saturating_sub(1))
         .min(max_start);
     (start, height)
+}
+
+fn synthetic_row_label(tab: ThreadPickerTab) -> &'static str {
+    match tab {
+        ThreadPickerTab::Playgrounds => "Playgrounds are created automatically",
+        _ => "+ New conversation",
+    }
 }
 
 pub fn render(
@@ -244,15 +267,15 @@ pub fn render(
             if i < visible_len {
                 let absolute_index = visible_start + i;
                 if absolute_index == 0 {
-                    // "New conversation" item
+                    let row_label = synthetic_row_label(modal.thread_picker_tab());
                     let is_selected = cursor == 0;
                     if is_selected {
-                        ListItem::new(Line::from(vec![Span::raw("  + New conversation")]))
+                        ListItem::new(Line::from(vec![Span::raw(format!("  {row_label}"))]))
                             .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
                     } else {
                         ListItem::new(Line::from(vec![
                             Span::raw("  "),
-                            Span::styled("+ New conversation", theme.fg_dim),
+                            Span::styled(row_label, theme.fg_dim),
                         ]))
                     }
                 } else {
@@ -491,6 +514,40 @@ mod tests {
     }
 
     #[test]
+    fn tab_specs_include_playgrounds_tab() {
+        let tabs = tab_specs();
+
+        assert_eq!(tabs.len(), 5);
+        assert!(
+            tabs.iter()
+                .any(|(_, label)| label.as_str() == "[Playgrounds]"),
+            "expected thread picker tabs to expose a Playgrounds tab"
+        );
+    }
+
+    #[test]
+    fn filtered_threads_default_tab_excludes_playground_threads() {
+        let chat = make_chat(vec![
+            AgentThread {
+                id: "regular-thread".into(),
+                title: "Regular work".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "playground:domowoj:thread-user".into(),
+                title: "Participant Playground · Domowoj @ thread-user".into(),
+                ..Default::default()
+            },
+        ]);
+        let modal = ModalState::new();
+
+        let threads = filtered_threads(&chat, &modal);
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "regular-thread");
+    }
+
+    #[test]
     fn rarog_tab_filters_threads_and_searches_within_tab() {
         let chat = make_chat(vec![
             AgentThread {
@@ -517,6 +574,46 @@ mod tests {
 
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "heartbeat-1");
+    }
+
+    #[test]
+    fn playgrounds_tab_filters_only_playground_threads() {
+        let chat = make_chat(vec![
+            AgentThread {
+                id: "regular-thread".into(),
+                title: "Regular work".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "playground:domowoj:thread-user".into(),
+                title: "Participant Playground · Domowoj @ thread-user".into(),
+                ..Default::default()
+            },
+        ]);
+        let mut modal = ModalState::new();
+        modal.set_thread_picker_tab(ThreadPickerTab::Playgrounds);
+
+        let threads = filtered_threads(&chat, &modal);
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "playground:domowoj:thread-user");
+    }
+
+    #[test]
+    fn search_matches_thread_responder_name() {
+        let chat = make_chat(vec![AgentThread {
+            id: "regular-thread".into(),
+            agent_name: Some("Domowoj".into()),
+            title: "Needs review".into(),
+            ..Default::default()
+        }]);
+        let mut modal = ModalState::new();
+        modal.reduce(ModalAction::SetQuery("domowoj".into()));
+
+        let threads = filtered_threads(&chat, &modal);
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "regular-thread");
     }
 
     #[test]

@@ -729,8 +729,8 @@ mod thread_structural_memory;
 mod threads;
 
 use integrity_helpers::*;
-pub use offloaded_payloads::OffloadedPayloadMetadataRow;
 pub use memory_graph::MemoryGraphNeighborRow;
+pub use offloaded_payloads::OffloadedPayloadMetadataRow;
 use row_mapping::*;
 use skill_metadata::*;
 use skill_tagging::*;

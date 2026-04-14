@@ -587,7 +587,7 @@ async fn load_thread_memory_graph_neighbors(
     let mut neighbors = Vec::new();
     let mut frontier = structural_refs.clone();
 
-    for _depth in 0..2 {
+    for _depth in 0..3 {
         let current_frontier = frontier;
         frontier = Vec::new();
         for node_id in current_frontier.into_iter().take(limit) {

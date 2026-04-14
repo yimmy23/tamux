@@ -1013,12 +1013,11 @@ impl TuiModel {
 
         match self.sidebar.active_tab() {
             sidebar::SidebarTab::Files => {
-                let Some(path) = self
-                    .tasks
-                    .work_context_for_thread(&thread_id)
-                    .and_then(|context| context.entries.get(self.sidebar.selected_item()))
-                    .map(|entry| entry.path.clone())
-                else {
+                let Some(path) = widgets::sidebar::selected_file_path(
+                    &self.tasks,
+                    &self.sidebar,
+                    Some(thread_id.as_str()),
+                ) else {
                     return;
                 };
                 self.main_pane_view = MainPaneView::WorkContext;
@@ -1100,10 +1099,18 @@ impl TuiModel {
 
         let text = match self.sidebar.active_tab() {
             sidebar::SidebarTab::Files => {
-                let Some(context) = self.tasks.work_context_for_thread(&thread_id) else {
+                let Some(path) = widgets::sidebar::selected_file_path(
+                    &self.tasks,
+                    &self.sidebar,
+                    Some(thread_id.as_str()),
+                ) else {
                     return;
                 };
-                let Some(entry) = context.entries.get(self.sidebar.selected_item()) else {
+                let Some(entry) = self
+                    .tasks
+                    .work_context_for_thread(&thread_id)
+                    .and_then(|context| context.entries.iter().find(|entry| entry.path == path))
+                else {
                     return;
                 };
                 if let Some(repo_root) = entry.repo_root.as_deref() {

@@ -98,6 +98,7 @@ impl TuiModel {
             modal::ThreadPickerTab::Swarog => Some(amux_protocol::AGENT_ID_SWAROG),
             modal::ThreadPickerTab::Rarog => Some(amux_protocol::AGENT_ID_RAROG),
             modal::ThreadPickerTab::Weles => Some("weles"),
+            modal::ThreadPickerTab::Playgrounds => None,
             modal::ThreadPickerTab::Internal => None,
         }
     }
@@ -203,13 +204,12 @@ impl TuiModel {
         }
 
         match self.sidebar.active_tab() {
-            SidebarTab::Files => self
-                .tasks
-                .work_context_for_thread(thread_id)
-                .and_then(|context| context.entries.get(self.sidebar.selected_item()))
-                .is_some_and(|entry| {
-                    self.tasks.selected_work_path(thread_id) == Some(entry.path.as_str())
-                }),
+            SidebarTab::Files => widgets::sidebar::selected_file_path(
+                &self.tasks,
+                &self.sidebar,
+                Some(thread_id),
+            )
+            .is_some_and(|path| self.tasks.selected_work_path(thread_id) == Some(path.as_str())),
             SidebarTab::Todos => self
                 .tasks
                 .todos_for_thread(thread_id)

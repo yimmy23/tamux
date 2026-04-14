@@ -152,6 +152,60 @@ fn write_file_multipart_args_parse_path_and_content() {
 }
 
 #[test]
+fn staged_text_file_write_keeps_existing_content_when_commit_fails() {
+    let root = tempdir().expect("tempdir");
+    let target = root.path().join("existing.txt");
+    std::fs::write(&target, "alpha\n").expect("write existing file");
+
+    let error = stage_text_file_write(
+        &target,
+        "beta\n",
+        true,
+        |staged: tempfile::NamedTempFile, _: &std::path::Path, _| {
+            assert_eq!(
+                std::fs::read_to_string(staged.path()).expect("read staged file"),
+                "beta\n"
+            );
+            Err(std::io::Error::other("simulated commit failure"))
+        },
+    )
+    .expect_err("staged write should surface persist failures");
+
+    assert!(error.to_string().contains("simulated commit failure"));
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("read existing file"),
+        "alpha\n"
+    );
+}
+
+#[test]
+fn staged_text_file_write_does_not_leave_new_target_when_commit_fails() {
+    let root = tempdir().expect("tempdir");
+    let target = root.path().join("new.txt");
+
+    let error = stage_text_file_write(
+        &target,
+        "hello\n",
+        false,
+        |staged: tempfile::NamedTempFile, path: &std::path::Path, _| {
+            assert!(!path.exists(), "target should not exist before commit");
+            assert_eq!(
+                std::fs::read_to_string(staged.path()).expect("read staged file"),
+                "hello\n"
+            );
+            Err(std::io::Error::other("simulated commit failure"))
+        },
+    )
+    .expect_err("staged write should surface persist failures");
+
+    assert!(error.to_string().contains("simulated commit failure"));
+    assert!(
+        !target.exists(),
+        "failed staged commit should not create target"
+    );
+}
+
+#[test]
 fn apply_patch_harness_input_updates_adds_and_deletes_files() {
     let root = tempdir().expect("tempdir");
     let existing = root.path().join("existing.txt");
@@ -256,6 +310,40 @@ fn apply_patch_ignores_context_only_hunks_before_real_changes() {
     assert_eq!(
         std::fs::read_to_string(&existing).expect("read existing file"),
         "alpha\ngamma\nomega\n"
+    );
+}
+
+#[test]
+fn apply_patch_rolls_back_prior_changes_when_a_later_action_fails() {
+    let root = tempdir().expect("tempdir");
+    let existing = root.path().join("existing.txt");
+    let added = root.path().join("added.txt");
+    let missing = root.path().join("missing.txt");
+    std::fs::write(&existing, "alpha\nbeta\nomega\n").expect("write existing file");
+
+    let patch = format!(
+        "*** Begin Patch\n*** Update File: {}\n@@\n alpha\n-beta\n+gamma\n omega\n*** Add File: {}\n+hello\n*** Delete File: {}\n*** End Patch\n",
+        existing.display(),
+        added.display(),
+        missing.display(),
+    );
+
+    let error = tokio::runtime::Runtime::new()
+        .expect("runtime")
+        .block_on(execute_apply_patch(&serde_json::json!({
+            "input": patch
+        })))
+        .expect_err("apply_patch should fail when a later delete action targets a missing file");
+
+    assert!(error.to_string().contains("cannot delete missing file"));
+    assert_eq!(
+        std::fs::read_to_string(&existing).expect("read existing file"),
+        "alpha\nbeta\nomega\n",
+        "existing file should be restored when patch execution fails"
+    );
+    assert!(
+        !added.exists(),
+        "added file should not remain on disk when patch execution fails"
     );
 }
 

@@ -27,6 +27,62 @@ pub enum SidebarHitTarget {
     Todo(usize),
 }
 
+fn file_entry_matches(entry: &crate::state::task::WorkContextEntry, filter: &str) -> bool {
+    let query = filter.trim();
+    if query.is_empty() {
+        return true;
+    }
+    let query = query.to_ascii_lowercase();
+    entry.path.to_ascii_lowercase().contains(&query)
+        || entry
+            .previous_path
+            .as_deref()
+            .is_some_and(|path| path.to_ascii_lowercase().contains(&query))
+        || entry
+            .change_kind
+            .as_deref()
+            .is_some_and(|kind| kind.to_ascii_lowercase().contains(&query))
+}
+
+fn filtered_file_entries<'a>(
+    tasks: &'a TaskState,
+    thread_id: Option<&str>,
+    sidebar: &SidebarState,
+) -> Vec<&'a crate::state::task::WorkContextEntry> {
+    let Some(thread_id) = thread_id else {
+        return Vec::new();
+    };
+    let Some(context) = tasks.work_context_for_thread(thread_id) else {
+        return Vec::new();
+    };
+    context
+        .entries
+        .iter()
+        .filter(|entry| file_entry_matches(entry, sidebar.files_filter()))
+        .collect()
+}
+
+pub fn selected_file_path(
+    tasks: &TaskState,
+    sidebar: &SidebarState,
+    thread_id: Option<&str>,
+) -> Option<String> {
+    let entries = filtered_file_entries(tasks, thread_id, sidebar);
+    let selected = sidebar.selected_item().min(entries.len().saturating_sub(1));
+    entries.get(selected).map(|entry| entry.path.clone())
+}
+
+pub fn filtered_file_index(
+    tasks: &TaskState,
+    sidebar: &SidebarState,
+    thread_id: Option<&str>,
+    path: &str,
+) -> Option<usize> {
+    filtered_file_entries(tasks, thread_id, sidebar)
+        .iter()
+        .position(|entry| entry.path == path)
+}
+
 fn rows_for_thread(
     tasks: &TaskState,
     sidebar: &SidebarState,
@@ -46,22 +102,23 @@ fn rows_for_thread(
 
     match sidebar.active_tab() {
         SidebarTab::Files => {
-            let Some(context) = tasks.work_context_for_thread(thread_id) else {
+            let entries = filtered_file_entries(tasks, Some(thread_id), sidebar);
+            if entries.is_empty() {
                 return vec![SidebarRow {
-                    line: Line::from(Span::styled(" No files", theme.fg_dim)),
-                    file_path: None,
-                }];
-            };
-            if context.entries.is_empty() {
-                return vec![SidebarRow {
-                    line: Line::from(Span::styled(" No files", theme.fg_dim)),
+                    line: Line::from(Span::styled(
+                        if sidebar.files_filter().is_empty() {
+                            " No files"
+                        } else {
+                            " No files match filter"
+                        },
+                        theme.fg_dim,
+                    )),
                     file_path: None,
                 }];
             }
 
-            context
-                .entries
-                .iter()
+            entries
+                .into_iter()
                 .enumerate()
                 .map(|(idx, entry)| {
                     let label = entry.change_kind.as_deref().unwrap_or_else(|| {
@@ -344,7 +401,7 @@ pub fn render(
     tasks: &TaskState,
     thread_id: Option<&str>,
     theme: &ThemeTokens,
-    _focused: bool,
+    focused: bool,
     gateway_statuses: &[GatewayStatusVm],
     tier: &TierState,
     _agent_activity: Option<&str>,
@@ -361,6 +418,11 @@ pub fn render(
         Vec::new()
     };
     let gw_height = gw_lines.len() as u16;
+    let filter_height = if sidebar.active_tab() == SidebarTab::Files {
+        1
+    } else {
+        0
+    };
 
     let ra_lines = recent_actions_lines(recent_actions, theme);
     let ra_height = ra_lines.len() as u16;
@@ -372,7 +434,8 @@ pub fn render(
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // tab bar
-            Constraint::Min(1),    // body
+            Constraint::Length(filter_height),
+            Constraint::Min(1), // body
             Constraint::Length(gw_height),
             Constraint::Length(ra_height),
             Constraint::Length(tier_height),
@@ -397,22 +460,46 @@ pub fn render(
         );
     }
 
-    let rows = rows_for_thread(tasks, sidebar, thread_id, theme, chunks[1].width as usize);
-    let scroll = resolved_scroll(&rows, sidebar, chunks[1].height as usize);
+    if filter_height > 0 {
+        let filter_text = if sidebar.files_filter().is_empty() {
+            " Filter: type to search".to_string()
+        } else {
+            format!(" Filter: {}", sidebar.files_filter())
+        };
+        let style = if focused && sidebar.active_tab() == SidebarTab::Files {
+            theme.fg_active.bg(Color::Indexed(236))
+        } else {
+            theme.fg_dim
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(filter_text, style))),
+            chunks[1],
+        );
+    }
+
+    let body_idx = if filter_height > 0 { 2 } else { 1 };
+    let rows = rows_for_thread(
+        tasks,
+        sidebar,
+        thread_id,
+        theme,
+        chunks[body_idx].width as usize,
+    );
+    let scroll = resolved_scroll(&rows, sidebar, chunks[body_idx].height as usize);
     let paragraph = Paragraph::new(rows.into_iter().map(|row| row.line).collect::<Vec<_>>())
         .scroll((scroll as u16, 0));
-    frame.render_widget(paragraph, chunks[1]);
+    frame.render_widget(paragraph, chunks[body_idx]);
 
     if !gw_lines.is_empty() {
-        frame.render_widget(Paragraph::new(gw_lines), chunks[2]);
+        frame.render_widget(Paragraph::new(gw_lines), chunks[body_idx + 1]);
     }
 
     if !ra_lines.is_empty() {
-        frame.render_widget(Paragraph::new(ra_lines), chunks[3]);
+        frame.render_widget(Paragraph::new(ra_lines), chunks[body_idx + 2]);
     }
 
     if !tier_lines.is_empty() {
-        frame.render_widget(Paragraph::new(tier_lines), chunks[4]);
+        frame.render_widget(Paragraph::new(tier_lines), chunks[body_idx + 3]);
     }
 }
 
@@ -422,10 +509,9 @@ pub fn body_item_count(
     thread_id: Option<&str>,
 ) -> usize {
     match (sidebar.active_tab(), thread_id) {
-        (SidebarTab::Files, Some(thread_id)) => tasks
-            .work_context_for_thread(thread_id)
-            .map(|ctx| ctx.entries.len().max(1))
-            .unwrap_or(1),
+        (SidebarTab::Files, _) => filtered_file_entries(tasks, thread_id, sidebar)
+            .len()
+            .max(1),
         (SidebarTab::Todos, Some(thread_id)) => tasks.todos_for_thread(thread_id).len().max(1),
         _ => 1,
     }
@@ -451,7 +537,12 @@ pub fn hit_test(
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // tab bar
-            Constraint::Min(1),    // body
+            Constraint::Length(if sidebar.active_tab() == SidebarTab::Files {
+                1
+            } else {
+                0
+            }),
+            Constraint::Min(1), // body
         ])
         .split(area);
 
@@ -459,15 +550,24 @@ pub fn hit_test(
         return tab_hit_test(chunks[0], mouse.x).map(SidebarHitTarget::Tab);
     }
 
+    let body_idx = if sidebar.active_tab() == SidebarTab::Files {
+        if mouse.y == chunks[1].y {
+            return None;
+        }
+        2
+    } else {
+        1
+    };
+
     let rows = rows_for_thread(
         tasks,
         sidebar,
         thread_id,
         &ThemeTokens::default(),
-        chunks[1].width as usize,
+        chunks[body_idx].width as usize,
     );
-    let scroll = resolved_scroll(&rows, sidebar, chunks[1].height as usize);
-    let row_idx = scroll + mouse.y.saturating_sub(chunks[1].y) as usize;
+    let scroll = resolved_scroll(&rows, sidebar, chunks[body_idx].height as usize);
+    let row_idx = scroll + mouse.y.saturating_sub(chunks[body_idx].y) as usize;
     let row = rows.get(row_idx)?;
     if let Some(path) = &row.file_path {
         Some(SidebarHitTarget::File(path.clone()))

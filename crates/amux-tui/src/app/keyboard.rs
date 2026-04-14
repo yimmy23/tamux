@@ -99,6 +99,28 @@ impl TuiModel {
             return self.handle_key_modal(code, modifiers, modal_kind);
         }
 
+        if self.focus == FocusArea::Sidebar
+            && self.sidebar.active_tab() == sidebar::SidebarTab::Files
+            && !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            match code {
+                KeyCode::Esc if !self.sidebar.files_filter().is_empty() => {
+                    self.sidebar.clear_files_filter();
+                    return false;
+                }
+                KeyCode::Backspace => {
+                    if self.sidebar.pop_files_filter() {
+                        return false;
+                    }
+                }
+                KeyCode::Char(c) if !c.is_control() && c != '[' && c != ']' => {
+                    self.sidebar.push_files_filter(c);
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
         if !self.chat.active_actions().is_empty() && self.focus == FocusArea::Chat {
             match code {
                 KeyCode::Left | KeyCode::Up => {

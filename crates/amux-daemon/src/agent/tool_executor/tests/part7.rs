@@ -6550,3 +6550,314 @@ async fn search_memory_matches_second_hop_thread_structural_graph_neighbors() {
                 .is_some_and(|snippet| snippet.contains("unique second hop memory graph needle"))
     }));
 }
+
+#[tokio::test]
+async fn read_memory_includes_third_hop_thread_structural_graph_neighbors() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-read-memory-third-hop-graph-neighbors";
+    let agent_data_dir = root.path().join("agent");
+
+    let paths = write_scope_memory_files(
+        &agent_data_dir,
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        "# Soul\n\n- Stable soul fact\n",
+        "# Memory\n\n- Stable memory fact\n",
+        "# User\n\n- Stable user fact\n",
+    );
+    let memory = current_scope_memory(&agent_data_dir).await;
+    engine
+        .set_thread_memory_injection_state(thread_id, build_matching_injection_state(&memory, &paths))
+        .await;
+    engine.thread_structural_memories.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::context::structural_memory::ThreadStructuralMemory {
+            observed_files: vec![crate::agent::context::structural_memory::ObservedFileNode {
+                node_id: "node:file:src/lib.rs".to_string(),
+                relative_path: "src/lib.rs".to_string(),
+            }],
+            ..Default::default()
+        },
+    );
+    engine
+        .history
+        .upsert_memory_node(
+            "node:file:src/lib.rs",
+            "src/lib.rs",
+            "file",
+            Some("observed file"),
+            1_717_180_701,
+        )
+        .await
+        .expect("persist file node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:package:cargo:demo-three-hop",
+            "demo-three-hop",
+            "package",
+            Some("first hop package"),
+            1_717_180_702,
+        )
+        .await
+        .expect("persist package node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:task:graph-middle-hop",
+            "graph-middle-hop",
+            "task",
+            Some("second hop task"),
+            1_717_180_703,
+        )
+        .await
+        .expect("persist middle hop task node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:error:graph-third-hop-needle",
+            "graph-third-hop-needle",
+            "error",
+            Some("third hop graph neighbor target"),
+            1_717_180_704,
+        )
+        .await
+        .expect("persist third hop node");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:file:src/lib.rs",
+            "node:package:cargo:demo-three-hop",
+            "file_in_package",
+            3.0,
+            1_717_180_705,
+        )
+        .await
+        .expect("persist file/package edge");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:package:cargo:demo-three-hop",
+            "node:task:graph-middle-hop",
+            "package_supports_task",
+            2.0,
+            1_717_180_706,
+        )
+        .await
+        .expect("persist package/task edge");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:task:graph-middle-hop",
+            "node:error:graph-third-hop-needle",
+            "task_hit_error",
+            1.0,
+            1_717_180_707,
+        )
+        .await
+        .expect("persist task/error edge");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-read-memory-third-hop-graph-neighbors".to_string(),
+        ToolFunction {
+            name: "read_memory".to_string(),
+            arguments: serde_json::json!({
+                "limit_per_layer": 8,
+                "include_thread_structural_memory": true
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "read_memory should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("read_memory should return JSON");
+    let neighbors = payload
+        .get("results")
+        .and_then(|value| value.get("thread_structural_memory"))
+        .and_then(|value| value.get("graph_neighbors"))
+        .and_then(|value| value.as_array())
+        .expect("graph neighbors should be present");
+    assert!(neighbors.iter().any(|item| {
+        item.get("node_id").and_then(|value| value.as_str())
+            == Some("node:error:graph-third-hop-needle")
+    }));
+}
+
+#[tokio::test]
+async fn search_memory_matches_third_hop_thread_structural_graph_neighbors() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-search-memory-third-hop-graph-neighbors";
+    let agent_data_dir = root.path().join("agent");
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Search memory third hop graph neighbors",
+            false,
+            1,
+            1,
+            vec![crate::agent::types::AgentMessage::user("search third hop graph neighbors", 1)],
+        ),
+    );
+
+    write_scope_memory_files(
+        &agent_data_dir,
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        "# Soul\n\n- Stable soul fact\n",
+        "# Memory\n\n- Stable memory fact\n",
+        "# User\n\n- Stable user fact\n",
+    );
+    engine.thread_structural_memories.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::context::structural_memory::ThreadStructuralMemory {
+            observed_files: vec![crate::agent::context::structural_memory::ObservedFileNode {
+                node_id: "node:file:src/lib.rs".to_string(),
+                relative_path: "src/lib.rs".to_string(),
+            }],
+            ..Default::default()
+        },
+    );
+    engine
+        .history
+        .upsert_memory_node(
+            "node:file:src/lib.rs",
+            "src/lib.rs",
+            "file",
+            Some("observed file"),
+            1_717_180_801,
+        )
+        .await
+        .expect("persist file node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:package:cargo:demo-search-three-hop",
+            "demo-search-three-hop",
+            "package",
+            Some("first hop package"),
+            1_717_180_802,
+        )
+        .await
+        .expect("persist package node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:task:search-third-hop-middle",
+            "search-third-hop-middle",
+            "task",
+            Some("second hop task"),
+            1_717_180_803,
+        )
+        .await
+        .expect("persist middle hop task node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:error:third-hop-search-needle",
+            "third-hop-search-needle",
+            "error",
+            Some("unique third hop memory graph needle"),
+            1_717_180_804,
+        )
+        .await
+        .expect("persist third hop node");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:file:src/lib.rs",
+            "node:package:cargo:demo-search-three-hop",
+            "file_in_package",
+            3.0,
+            1_717_180_805,
+        )
+        .await
+        .expect("persist file/package edge");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:package:cargo:demo-search-three-hop",
+            "node:task:search-third-hop-middle",
+            "package_supports_task",
+            2.0,
+            1_717_180_806,
+        )
+        .await
+        .expect("persist package/task edge");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:task:search-third-hop-middle",
+            "node:error:third-hop-search-needle",
+            "task_hit_error",
+            1.0,
+            1_717_180_807,
+        )
+        .await
+        .expect("persist task/error edge");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-search-memory-third-hop-graph-neighbors".to_string(),
+        ToolFunction {
+            name: "search_memory".to_string(),
+            arguments: serde_json::json!({
+                "query": "unique third hop memory graph needle",
+                "limit": 5,
+                "include_base_markdown": false,
+                "include_operator_profile_json": false,
+                "include_operator_model_summary": false,
+                "include_thread_structural_memory": true
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "search_memory should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("search_memory should return JSON");
+    let matches = payload
+        .get("matches")
+        .and_then(|value| value.as_array())
+        .expect("search_memory should return matches");
+    assert!(matches.iter().any(|item| {
+        item.get("layer").and_then(|value| value.as_str()) == Some("thread_structural_memory")
+            && item
+                .get("snippet")
+                .and_then(|value| value.as_str())
+                .is_some_and(|snippet| snippet.contains("unique third hop memory graph needle"))
+    }));
+}
