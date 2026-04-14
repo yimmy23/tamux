@@ -46,6 +46,35 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn list_recent_critique_sessions_for_tool(
+        &self,
+        tool_name: &str,
+        limit: u32,
+    ) -> Result<Vec<CritiqueSessionRow>> {
+        let tool_name = tool_name.to_string();
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT session_id, session_json, updated_at
+                     FROM critique_sessions
+                     WHERE json_extract(session_json, '$.tool_name') = ?1
+                     ORDER BY updated_at DESC
+                     LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![tool_name, limit], |row| {
+                    Ok(CritiqueSessionRow {
+                        session_id: row.get(0)?,
+                        session_json: row.get(1)?,
+                        updated_at: row.get::<_, i64>(2)? as u64,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn insert_critique_argument(
         &self,
         session_id: &str,

@@ -30,6 +30,12 @@ fn summarize_causal_factor_descriptions(
         .join(" | ")
 }
 
+fn dedupe_argument_points(mut points: Vec<ArgumentPoint>) -> Vec<ArgumentPoint> {
+    let mut seen = std::collections::BTreeSet::new();
+    points.retain(|point| seen.insert(point.claim.clone()));
+    points
+}
+
 impl AgentEngine {
     async fn critique_grounded_argument_points(
         &self,
@@ -154,6 +160,103 @@ impl AgentEngine {
         (advocate_points, critic_points)
     }
 
+    async fn critique_learned_argument_points(
+        &self,
+        tool_name: &str,
+    ) -> (
+        Vec<ArgumentPoint>,
+        Vec<ArgumentPoint>,
+        Vec<String>,
+        Vec<self::types::CritiqueDirective>,
+    ) {
+        let rows = match self
+            .history
+            .list_recent_critique_sessions_for_tool(tool_name, 6)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::warn!(tool = %tool_name, "failed to load recent critique history for learning: {error}");
+                return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            }
+        };
+
+        let mut advocate_points = Vec::new();
+        let mut critic_points = Vec::new();
+        let mut learned_modifications = Vec::new();
+        let mut learned_directives = Vec::new();
+
+        for row in rows {
+            let Ok(session) = serde_json::from_str::<CritiqueSession>(&row.session_json) else {
+                continue;
+            };
+            let Some(resolution) = session.resolution else {
+                continue;
+            };
+
+            match resolution.decision {
+                Decision::ProceedWithModifications => {
+                    for modification in resolution.modifications {
+                        let normalized = modification.trim().to_ascii_lowercase();
+                        if !normalized.is_empty()
+                            && !learned_modifications.iter().any(|existing: &String| {
+                                existing.eq_ignore_ascii_case(&modification)
+                            })
+                        {
+                            learned_modifications.push(modification.clone());
+                            critic_points.push(ArgumentPoint {
+                                claim: format!(
+                                    "Learned from previous critique sessions for `{tool_name}`: {modification}"
+                                ),
+                                weight: 0.61,
+                                evidence: vec![format!(
+                                    "critique_history:modification:{normalized}"
+                                )],
+                            });
+                        }
+                    }
+                    for directive in resolution.directives {
+                        if !learned_directives.contains(&directive) {
+                            learned_directives.push(directive);
+                        }
+                    }
+                }
+                Decision::Proceed => {
+                    if advocate_points.is_empty() {
+                        advocate_points.push(ArgumentPoint {
+                            claim: format!(
+                                "Previous critique sessions for `{tool_name}` resolved cleanly without extra blocking."
+                            ),
+                            weight: 0.41,
+                            evidence: vec!["critique_history:proceed".to_string()],
+                        });
+                    }
+                }
+                Decision::Defer | Decision::Reject => {
+                    if critic_points.is_empty() {
+                        critic_points.push(ArgumentPoint {
+                            claim: format!(
+                                "Previous critique sessions for `{tool_name}` escalated to defer/reject outcomes, so extra caution is warranted."
+                            ),
+                            weight: 0.66,
+                            evidence: vec![format!(
+                                "critique_history:{}",
+                                resolution.decision.as_str()
+                            )],
+                        });
+                    }
+                }
+            }
+        }
+
+        (
+            dedupe_argument_points(advocate_points),
+            dedupe_argument_points(critic_points),
+            learned_modifications,
+            learned_directives,
+        )
+    }
+
     pub(crate) async fn run_critique_preflight(
         &self,
         action_id: &str,
@@ -171,19 +274,41 @@ impl AgentEngine {
             .risk_tolerance;
         let (grounded_advocate_points, grounded_critic_points) =
             self.critique_grounded_argument_points(tool_name).await;
+        let (
+            learned_advocate_points,
+            learned_critic_points,
+            learned_modifications,
+            learned_directives,
+        ) = self.critique_learned_argument_points(tool_name).await;
         let advocate_argument = advocate::build_argument(
             tool_name,
             action_summary,
             reasons,
-            grounded_advocate_points,
+            [grounded_advocate_points, learned_advocate_points].concat(),
         );
         let critic_argument = critic::build_argument(
             tool_name,
             action_summary,
             reasons,
-            grounded_critic_points,
+            [grounded_critic_points, learned_critic_points].concat(),
         );
         let mut resolution = arbiter::resolve(&advocate_argument, &critic_argument, risk_tolerance);
+        if matches!(resolution.decision, Decision::ProceedWithModifications) {
+            for modification in learned_modifications {
+                if !resolution
+                    .modifications
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(&modification))
+                {
+                    resolution.modifications.push(modification);
+                }
+            }
+            for directive in learned_directives {
+                if !resolution.directives.contains(&directive) {
+                    resolution.directives.push(directive);
+                }
+            }
+        }
         if let Some(forced_decision) = self
             .config
             .read()
