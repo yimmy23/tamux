@@ -393,6 +393,16 @@ pub struct DaemonClient {
     request_rx: Mutex<Option<mpsc::UnboundedReceiver<ClientMessage>>>,
 }
 
+#[cfg(test)]
+impl DaemonClient {
+    pub(crate) fn close_request_queue_for_test(&self) {
+        self.request_rx
+            .lock()
+            .expect("request mutex poisoned")
+            .take();
+    }
+}
+
 #[derive(Debug, Default)]
 struct ThreadDetailChunkBuffer {
     thread_id: Option<String>,

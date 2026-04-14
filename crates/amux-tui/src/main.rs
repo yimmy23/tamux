@@ -14,9 +14,10 @@ mod wire;
 use std::io;
 use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use crossterm::{
@@ -73,6 +74,30 @@ fn should_retry_terminal_error(consecutive_errors: usize) -> bool {
     consecutive_errors < MAX_TRANSIENT_TERMINAL_ERRORS
 }
 
+fn tui_runtime_marker_path() -> io::Result<PathBuf> {
+    Ok(amux_protocol::ensure_amux_data_dir()?.join("tamux-tui.last-state"))
+}
+
+fn write_runtime_marker_at(path: &Path, message: &str) -> io::Result<()> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    std::fs::write(
+        path,
+        format!(
+            "timestamp_unix={timestamp}\npid={}\nmessage={message}\n",
+            std::process::id()
+        ),
+    )
+}
+
+fn write_runtime_marker(message: &str) {
+    if let Ok(path) = tui_runtime_marker_path() {
+        let _ = write_runtime_marker_at(&path, message);
+    }
+}
+
 fn best_effort_restore_stdio_terminal() {
     let _ = disable_raw_mode();
     let mut stdout = io::stdout();
@@ -86,6 +111,16 @@ fn best_effort_restore_stdio_terminal() {
 fn install_terminal_panic_hook() {
     panic::set_hook(Box::new(|info| {
         best_effort_restore_stdio_terminal();
+        let mut panic_message = format!("panic: {}", panic_payload_message(info.payload()));
+        if let Some(location) = info.location() {
+            panic_message.push_str(&format!(
+                " @ {}:{}:{}",
+                location.file(),
+                location.line(),
+                location.column()
+            ));
+        }
+        write_runtime_marker(&panic_message);
         eprintln!(
             "tamux-tui panicked: {}",
             panic_payload_message(info.payload())
@@ -150,6 +185,20 @@ fn restore_terminal(
     }
 }
 
+fn forward_bridge_command_result(
+    daemon_event_tx: &mpsc::Sender<client::ClientEvent>,
+    action: &str,
+    result: Result<()>,
+) {
+    if let Err(err) = result {
+        tracing::error!(action, error = %err, "daemon bridge command failed");
+        let _ = daemon_event_tx.send(client::ClientEvent::Error(format!(
+            "daemon bridge command failed ({action}): {err}"
+        )));
+        let _ = daemon_event_tx.send(client::ClientEvent::Disconnected);
+    }
+}
+
 fn main() -> Result<()> {
     let log_writer = amux_protocol::DailyLogWriter::new("tamux-tui.log")?;
     let log_path = log_writer.current_path()?;
@@ -167,6 +216,7 @@ fn main() -> Result<()> {
         .with_ansi(false)
         .init();
     tracing::info!(path = %log_path.display(), "tui log file initialized");
+    write_runtime_marker("startup: logging initialized");
     install_terminal_panic_hook();
 
     // Setup terminal
@@ -190,6 +240,7 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
+    write_runtime_marker("startup: terminal initialized");
 
     let app_result = panic::catch_unwind(AssertUnwindSafe(|| {
         // Setup daemon bridge
@@ -218,10 +269,16 @@ fn main() -> Result<()> {
     };
 
     if let Err(err) = restore_result {
+        write_runtime_marker(&format!("exit: terminal restore failed: {err}"));
         tracing::error!(error = %err, "failed to restore terminal state");
         if app_result.is_ok() {
             return Err(err.into());
         }
+    }
+
+    match &app_result {
+        Ok(_) => write_runtime_marker("exit: clean"),
+        Err(err) => write_runtime_marker(&format!("exit: {err}")),
     }
 
     app_result
@@ -378,33 +435,61 @@ fn start_daemon_bridge(
 
                         match command {
                             DaemonCommand::Refresh => {
-                                let _ = client.refresh();
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "refresh",
+                                    client.refresh(),
+                                );
                             }
                             DaemonCommand::RefreshServices => {
-                                let _ = client.refresh_services();
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "refresh services",
+                                    client.refresh_services(),
+                                );
                             }
                             DaemonCommand::RequestThread {
                                 thread_id,
                                 message_limit,
                                 message_offset,
                             } => {
-                                let _ = client.request_thread(
-                                    thread_id,
-                                    message_limit,
-                                    message_offset,
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request thread",
+                                    client.request_thread(
+                                        thread_id,
+                                        message_limit,
+                                        message_offset,
+                                    ),
                                 );
                             }
                             DaemonCommand::RequestThreadTodos(thread_id) => {
-                                let _ = client.request_todos(thread_id);
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request thread todos",
+                                    client.request_todos(thread_id),
+                                );
                             }
                             DaemonCommand::RequestThreadWorkContext(thread_id) => {
-                                let _ = client.request_work_context(thread_id);
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request thread work context",
+                                    client.request_work_context(thread_id),
+                                );
                             }
                             DaemonCommand::RequestGoalRunDetail(goal_run_id) => {
-                                let _ = client.request_goal_run(goal_run_id);
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request goal run detail",
+                                    client.request_goal_run(goal_run_id),
+                                );
                             }
                             DaemonCommand::RequestGoalRunCheckpoints(goal_run_id) => {
-                                let _ = client.list_checkpoints(goal_run_id);
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request goal run checkpoints",
+                                    client.list_checkpoints(goal_run_id),
+                                );
                             }
                             DaemonCommand::StartGoalRun {
                                 goal,
@@ -434,19 +519,39 @@ fn start_daemon_bridge(
                                 let _ = client.get_divergent_session(session_id);
                             }
                             DaemonCommand::RequestGitDiff { repo_path, file_path } => {
-                                let _ = client.request_git_diff(repo_path, file_path);
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request git diff",
+                                    client.request_git_diff(repo_path, file_path),
+                                );
                             }
                             DaemonCommand::RequestFilePreview { path, max_bytes } => {
-                                let _ = client.request_file_preview(path, max_bytes);
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request file preview",
+                                    client.request_file_preview(path, max_bytes),
+                                );
                             }
                             DaemonCommand::RequestAgentStatus => {
-                                let _ = client.request_agent_status();
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request agent status",
+                                    client.request_agent_status(),
+                                );
                             }
                             DaemonCommand::RequestAgentStatistics { window } => {
-                                let _ = client.request_agent_statistics(window);
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request agent statistics",
+                                    client.request_agent_statistics(window),
+                                );
                             }
                             DaemonCommand::RequestPromptInspection { agent_id } => {
-                                let _ = client.request_prompt_inspection(agent_id);
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request prompt inspection",
+                                    client.request_prompt_inspection(agent_id),
+                                );
                             }
                             DaemonCommand::SendMessage {
                                 thread_id,
@@ -824,6 +929,52 @@ mod tests {
         let filter = build_log_filter(None, None, None);
 
         assert_eq!(filter.to_string(), "error");
+    }
+
+    #[test]
+    fn write_runtime_marker_overwrites_with_latest_message() {
+        let tempdir = tempfile::tempdir().expect("temporary directory should be creatable");
+        let marker_path = tempdir.path().join("tamux-tui.last-state");
+
+        write_runtime_marker_at(&marker_path, "startup: terminal initialized")
+            .expect("first marker write should succeed");
+        write_runtime_marker_at(&marker_path, "exit: clean")
+            .expect("second marker write should succeed");
+
+        let contents =
+            std::fs::read_to_string(&marker_path).expect("marker file should be readable");
+        assert!(contents.contains("message=exit: clean"));
+        assert!(!contents.contains("message=startup: terminal initialized"));
+    }
+
+    #[test]
+    fn bridge_command_failure_surfaces_error_and_disconnect() {
+        let (daemon_event_tx, daemon_event_rx) = mpsc::channel();
+        let (client_event_tx, _client_event_rx) = tokio_mpsc::channel(8);
+        let client = DaemonClient::new(client_event_tx);
+
+        client.close_request_queue_for_test();
+
+        forward_bridge_command_result(&daemon_event_tx, "refresh", client.refresh());
+
+        match daemon_event_rx
+            .recv()
+            .expect("bridge failure should emit an error event")
+        {
+            client::ClientEvent::Error(message) => {
+                assert!(message.contains("refresh"));
+                assert!(message.contains("closed"));
+            }
+            other => panic!("expected error event, got {other:?}"),
+        }
+
+        match daemon_event_rx
+            .recv()
+            .expect("bridge failure should emit a disconnected event")
+        {
+            client::ClientEvent::Disconnected => {}
+            other => panic!("expected disconnected event, got {other:?}"),
+        }
     }
 
     #[test]

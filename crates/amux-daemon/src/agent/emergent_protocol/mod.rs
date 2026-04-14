@@ -882,7 +882,13 @@ mod tests {
         let protocol_id = registry[0].protocol_id.clone();
 
         let decoded = engine
-            .decode_thread_protocol_token(thread_id, &token, Some("assistant"), None, Some("different"))
+            .decode_thread_protocol_token(
+                thread_id,
+                &token,
+                Some("assistant"),
+                None,
+                Some("different"),
+            )
             .await
             .expect("decode should succeed")
             .expect("entry should decode");
@@ -950,7 +956,13 @@ mod tests {
             .expect("entry should persist");
 
         let decoded = engine
-            .decode_thread_protocol_token(thread_id, "@proto_signalkind", Some("user"), None, Some("ok"))
+            .decode_thread_protocol_token(
+                thread_id,
+                "@proto_signalkind",
+                Some("user"),
+                None,
+                Some("ok"),
+            )
             .await
             .expect("decode should succeed")
             .expect("entry should decode");

@@ -1370,6 +1370,95 @@ async fn participant_prompt_compacts_older_visible_messages() {
 }
 
 #[tokio::test]
+async fn participant_prompt_applies_bounded_snapshot_cap_under_large_context_budget() {
+    let mut config = AgentConfig::default();
+    config.auto_compact_context = true;
+    config.max_context_messages = 100;
+    config.keep_recent_on_compact = 10;
+    config.context_window_tokens = 205_000;
+    let (engine, _temp_dir) = make_runner_test_engine(config).await;
+    let thread_id = "thread_participant_prompt_snapshot_cap";
+
+    let mut messages = Vec::new();
+    for index in 0..60 {
+        let timestamp = (index + 1) as u64;
+        if index % 2 == 0 {
+            messages.push(AgentMessage::user(
+                &format!("visible-user-{index:02}"),
+                timestamp,
+            ));
+        } else {
+            messages.push(AgentMessage {
+                id: format!("assistant-{index:02}"),
+                role: MessageRole::Assistant,
+                content: format!("visible-assistant-{index:02}"),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                weles_review: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                cost: None,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
+                author_agent_id: None,
+                author_agent_name: None,
+                reasoning: None,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
+                offloaded_payload_id: None,
+                structural_refs: Vec::new(),
+                timestamp,
+            });
+        }
+    }
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Prompt snapshot cap".to_string(),
+            messages,
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 60,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, "weles", "review current thread")
+        .await
+        .expect("participant should register");
+
+    let prompt = engine
+        .build_participant_prompt(thread_id, "weles")
+        .await
+        .expect("prompt should build");
+    assert!(
+        prompt.contains("visible-assistant-59"),
+        "latest visible content should stay available to participant observers: {prompt}"
+    );
+    assert!(
+        !prompt.contains("visible-user-00"),
+        "participant observer prompts should drop the oldest visible content even when the main context budget is large: {prompt}"
+    );
+}
+
+#[tokio::test]
 async fn participant_prompt_requires_continuing_after_latest_assistant_message_until_work_finishes()
 {
     let (engine, _temp_dir) = make_runner_test_engine(AgentConfig::default()).await;

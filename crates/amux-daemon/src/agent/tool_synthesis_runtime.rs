@@ -319,7 +319,10 @@ fn infer_cli_wrapper_invocation(tool_name: &str) -> Option<Vec<String>> {
         return None;
     }
 
-    let invocation = tokens.iter().map(|token| (*token).to_string()).collect::<Vec<_>>();
+    let invocation = tokens
+        .iter()
+        .map(|token| (*token).to_string())
+        .collect::<Vec<_>>();
     validate_safe_cli_invocation(&invocation).ok()?;
     Some(invocation)
 }
@@ -351,15 +354,15 @@ pub(crate) fn detect_cli_wrapper_synthesis_proposal_from_command(
         return None;
     }
     let subcommand = tokens[1];
-    if subcommand.starts_with('-') || !subcommand.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+    if subcommand.starts_with('-')
+        || !subcommand
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
         return None;
     }
 
-    if tokens
-        .iter()
-        .skip(2)
-        .any(|token| !token.starts_with('-'))
-    {
+    if tokens.iter().skip(2).any(|token| !token.starts_with('-')) {
         return None;
     }
 

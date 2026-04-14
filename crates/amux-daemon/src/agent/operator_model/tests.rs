@@ -600,7 +600,11 @@ async fn operator_correction_persists_thread_scoped_signal_and_score_snapshot() 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
     engine
-        .record_operator_message("thread-correction-persist", "Actually, use ripgrep instead.", true)
+        .record_operator_message(
+            "thread-correction-persist",
+            "Actually, use ripgrep instead.",
+            true,
+        )
         .await
         .expect("record correction message");
 

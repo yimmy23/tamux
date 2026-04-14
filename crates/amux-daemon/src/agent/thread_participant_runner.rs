@@ -2,6 +2,9 @@
 
 use super::*;
 
+const PARTICIPANT_PROMPT_MAX_MESSAGES: usize = 48;
+const PARTICIPANT_PROMPT_MAX_TOKENS: usize = 16_000;
+
 fn normalize_no_suggestion_candidate(value: &str) -> String {
     let mut current = value.trim();
     loop {
@@ -181,6 +184,42 @@ fn build_visible_participant_message_prompt(
         }
     }
     prompt
+}
+
+fn trim_participant_prompt_snapshot(messages: &mut Vec<AgentMessage>) {
+    let mut total_tokens = estimate_message_tokens(messages);
+    while (messages.len() > PARTICIPANT_PROMPT_MAX_MESSAGES
+        || total_tokens > PARTICIPANT_PROMPT_MAX_TOKENS)
+        && messages.len() > 1
+    {
+        let remove_index = if messages
+            .first()
+            .is_some_and(crate::agent::message_is_compaction_summary)
+            && messages.len() > 1
+        {
+            1
+        } else {
+            0
+        };
+        total_tokens =
+            total_tokens.saturating_sub(estimate_single_message_tokens(&messages[remove_index]));
+        messages.remove(remove_index);
+    }
+
+    if messages.len() == 1 && total_tokens > PARTICIPANT_PROMPT_MAX_TOKENS {
+        let content = messages[0].content.clone();
+        let truncated = content
+            .chars()
+            .take(2_000)
+            .collect::<String>()
+            .trim()
+            .to_string();
+        messages[0].content = if truncated.is_empty() {
+            "[Participant prompt snapshot truncated to fit budget.]".to_string()
+        } else {
+            format!("{truncated}\n\n[Participant prompt snapshot truncated to fit budget.]")
+        };
+    }
 }
 
 fn trim_participant_playground_thread_messages(
@@ -378,11 +417,13 @@ impl AgentEngine {
             .await?;
         let mut request_config = self.config.read().await.clone();
         request_config.provider = responder.provider_id;
-        Ok(compact_messages_for_request(
+        let mut compacted = compact_messages_for_request(
             visible_messages,
             &request_config,
             &responder.provider_config,
-        ))
+        );
+        trim_participant_prompt_snapshot(&mut compacted);
+        Ok(compacted)
     }
 
     async fn participant_observer_responder_config(

@@ -5,9 +5,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
-use crate::agent::AgentEngine;
 use crate::agent::semantic_env::scan_workspace_package_summaries_for_memory_graph;
 use crate::agent::types::{AgentTask, TaskStatus};
+use crate::agent::AgentEngine;
 
 const SUPPORTED_TOOL_NAMES: &[&str] = &[
     "read_file",
@@ -425,14 +425,15 @@ pub fn build_memory_graph_updates_for_file_tool(
 
     let repo_root = repo_root.as_ref();
     let mut batch = MemoryGraphUpdateBatch::default();
-    let candidate_paths: Vec<(PathBuf, String)> = extract_tool_file_paths(tool_name, tool_arguments)
-        .into_iter()
-        .filter_map(|raw_path| {
-            let absolute_path = absolutize_tool_path(repo_root, &raw_path)?;
-            let relative_path = normalized_relative_path(repo_root, &absolute_path)?;
-            Some((absolute_path, relative_path))
-        })
-        .collect();
+    let candidate_paths: Vec<(PathBuf, String)> =
+        extract_tool_file_paths(tool_name, tool_arguments)
+            .into_iter()
+            .filter_map(|raw_path| {
+                let absolute_path = absolutize_tool_path(repo_root, &raw_path)?;
+                let relative_path = normalized_relative_path(repo_root, &absolute_path)?;
+                Some((absolute_path, relative_path))
+            })
+            .collect();
 
     if candidate_paths.is_empty() {
         return Ok(batch);
@@ -488,7 +489,10 @@ pub fn build_memory_graph_updates_for_file_tool(
                 id: package_node_id.clone(),
                 label: package.name.clone(),
                 node_type: "package".to_string(),
-                summary_text: Some(format!("{} package from {}", package.ecosystem, package.manifest_path)),
+                summary_text: Some(format!(
+                    "{} package from {}",
+                    package.ecosystem, package.manifest_path
+                )),
             });
             batch.push_edge(MemoryGraphEdgeUpsert {
                 source_node_id: file_node_id.clone(),
@@ -509,7 +513,11 @@ pub fn build_memory_graph_updates_for_tool_failure(
     failure_description: &str,
 ) -> MemoryGraphUpdateBatch {
     let mut batch = MemoryGraphUpdateBatch::default();
-    let error_label = failure_description.trim().chars().take(160).collect::<String>();
+    let error_label = failure_description
+        .trim()
+        .chars()
+        .take(160)
+        .collect::<String>();
     let error_node_id = node_id_for_error(tool_name, &error_label);
     batch.push_node(MemoryGraphNodeUpsert {
         id: error_node_id.clone(),
@@ -579,9 +587,16 @@ pub fn build_memory_graph_updates_for_task(task: &AgentTask) -> MemoryGraphUpdat
     batch
 }
 
-pub fn build_memory_graph_updates_for_task_error(task: &AgentTask, failure_description: &str) -> MemoryGraphUpdateBatch {
+pub fn build_memory_graph_updates_for_task_error(
+    task: &AgentTask,
+    failure_description: &str,
+) -> MemoryGraphUpdateBatch {
     let mut batch = build_memory_graph_updates_for_task(task);
-    let error_label = failure_description.trim().chars().take(160).collect::<String>();
+    let error_label = failure_description
+        .trim()
+        .chars()
+        .take(160)
+        .collect::<String>();
     if error_label.is_empty() {
         return batch;
     }
@@ -603,10 +618,7 @@ pub fn build_memory_graph_updates_for_task_error(task: &AgentTask, failure_descr
 }
 
 impl AgentEngine {
-    pub(crate) async fn apply_memory_graph_updates(
-        &self,
-        batch: MemoryGraphUpdateBatch,
-    ) {
+    pub(crate) async fn apply_memory_graph_updates(&self, batch: MemoryGraphUpdateBatch) {
         if batch.nodes.is_empty() && batch.edges.is_empty() {
             return;
         }
@@ -1116,11 +1128,20 @@ fn node_id_for_error(scope: &str, label: &str) -> String {
         }
     }
     let normalized = normalized.trim_matches('-');
-    format!("node:error:{scope}:{}", if normalized.is_empty() { "failure" } else { normalized })
+    format!(
+        "node:error:{scope}:{}",
+        if normalized.is_empty() {
+            "failure"
+        } else {
+            normalized
+        }
+    )
 }
 
 fn extract_file_like_tokens(text: &str) -> Vec<String> {
-    let Ok(regex) = Regex::new(r"(?P<path>[A-Za-z0-9_./-]+\.(rs|toml|json|ts|tsx|js|jsx|py|md|sh))") else {
+    let Ok(regex) =
+        Regex::new(r"(?P<path>[A-Za-z0-9_./-]+\.(rs|toml|json|ts|tsx|js|jsx|py|md|sh))")
+    else {
         return Vec::new();
     };
     let mut results = Vec::new();
@@ -1128,7 +1149,9 @@ fn extract_file_like_tokens(text: &str) -> Vec<String> {
         let Some(path) = capture.name("path") else {
             continue;
         };
-        let normalized = path.as_str().trim_matches(|ch: char| ch == '.' || ch == ',' || ch == ':' || ch == ';' || ch == ')' || ch == '(');
+        let normalized = path.as_str().trim_matches(|ch: char| {
+            ch == '.' || ch == ',' || ch == ':' || ch == ';' || ch == ')' || ch == '('
+        });
         if normalized.is_empty() {
             continue;
         }

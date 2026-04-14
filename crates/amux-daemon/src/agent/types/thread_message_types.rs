@@ -262,6 +262,7 @@ pub struct DeferredVisibleThreadContinuation {
     pub preferred_session_hint: Option<String>,
     pub llm_user_content: String,
     pub force_compaction: bool,
+    pub rerun_participant_observers_after_turn: bool,
     pub internal_delegate_sender: Option<String>,
     pub internal_delegate_message: Option<String>,
 }

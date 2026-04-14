@@ -19,6 +19,7 @@ use helpers::{
     check_quiet_window, check_type_to_action_type, heartbeat_persistence_status,
     is_custom_item_due, parse_digest_items, should_broadcast, should_run_check,
 };
+#[cfg(test)]
 pub(crate) use helpers::{compute_check_priority, enabled_checks};
 pub(in crate::agent) use helpers::{is_peak_activity_hour, resolve_cron_from_config};
 

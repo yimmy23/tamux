@@ -331,7 +331,11 @@ impl AgentEngine {
             } else {
                 "high_revision_rate"
             };
-            let weight = if revision_kind.is_correction() { -0.16 } else { -0.10 };
+            let weight = if revision_kind.is_correction() {
+                -0.16
+            } else {
+                -0.10
+            };
             self.persist_implicit_feedback_signal(
                 thread_id,
                 signal_type,

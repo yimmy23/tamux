@@ -332,7 +332,8 @@ async fn participant_follow_up_and_later_turn_persist_across_reload() {
 }
 
 #[tokio::test]
-async fn participant_post_continuation_reruns_same_participant_after_main_agent_follow_up() {
+async fn participant_post_continuation_does_not_rerun_same_participant_after_main_agent_follow_up()
+{
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
@@ -373,36 +374,6 @@ async fn participant_post_continuation_reruns_same_participant_after_main_agent_
                             "\r\n",
                             "data: {\"choices\":[{\"delta\":{\"content\":\"Gateway reply ok\"}}]}\n\n",
                             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
-                            "data: [DONE]\n\n"
-                        ),
-                        1 if body.contains("Role: participant observer") => concat!(
-                            "HTTP/1.1 200 OK\r\n",
-                            "content-type: text/event-stream\r\n",
-                            "cache-control: no-cache\r\n",
-                            "connection: close\r\n",
-                            "\r\n",
-                            "data: {\"choices\":[{\"delta\":{\"content\":\"FORCE: no\\nMESSAGE: Second participant follow-up.\"}}]}\n\n",
-                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":6}}\n\n",
-                            "data: [DONE]\n\n"
-                        ),
-                        2 => concat!(
-                            "HTTP/1.1 200 OK\r\n",
-                            "content-type: text/event-stream\r\n",
-                            "cache-control: no-cache\r\n",
-                            "connection: close\r\n",
-                            "\r\n",
-                            "data: {\"choices\":[{\"delta\":{\"content\":\"Gateway follow-up after second participant note.\"}}]}\n\n",
-                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":6}}\n\n",
-                            "data: [DONE]\n\n"
-                        ),
-                        3 if body.contains("Role: participant observer") => concat!(
-                            "HTTP/1.1 200 OK\r\n",
-                            "content-type: text/event-stream\r\n",
-                            "cache-control: no-cache\r\n",
-                            "connection: close\r\n",
-                            "\r\n",
-                            "data: {\"choices\":[{\"delta\":{\"content\":\"NO_SUGGESTION\"}}]}\n\n",
-                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\n",
                             "data: [DONE]\n\n"
                         ),
                         _ => concat!(
@@ -482,19 +453,18 @@ async fn participant_post_continuation_reruns_same_participant_after_main_agent_
         .expect("thread should still exist")
         .messages;
     assert!(
-        thread_messages.iter().any(|message| {
-            message.role == MessageRole::Assistant
-                && message.author_agent_id.as_deref() == Some("weles")
-                && message.content == "Second participant follow-up."
+        thread_messages.iter().all(|message| {
+            message.author_agent_id.as_deref() != Some("weles")
+                || message.content != "Second participant follow-up."
         }),
-        "once the latest visible message is the main-agent follow-up, the participant should be able to post another visible follow-up"
+        "participant-triggered main-agent continuations should not recursively rerun the same participant observer without new visible input"
     );
     assert!(
         engine
             .list_thread_participant_suggestions(thread_id)
             .await
             .is_empty(),
-        "the follow-up participant suggestion should drain cleanly after it is auto-sent"
+        "participant-triggered continuation should not leave behind queued observer work"
     );
 
     let request_bodies = recorded_bodies
@@ -505,16 +475,8 @@ async fn participant_post_continuation_reruns_same_participant_after_main_agent_
         .collect::<Vec<_>>();
     assert_eq!(
         request_bodies.len(),
-        4,
-        "expected the main-agent continuation, a participant observer rerun, the second main-agent continuation, and then a final NO_SUGGESTION observer pass"
-    );
-    assert!(
-        request_bodies[1].contains("Role: participant observer"),
-        "the second request should rerun the participant observer after the main-agent follow-up"
-    );
-    assert!(
-        request_bodies[3].contains("Role: participant observer"),
-        "the final request should still be an observer pass, but only after the latest message is no longer the participant's own post"
+        1,
+        "participant-triggered continuation should stop after the single main-agent follow-up instead of re-entering participant observer loops"
     );
 }
 

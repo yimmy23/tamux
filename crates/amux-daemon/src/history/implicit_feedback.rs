@@ -48,7 +48,8 @@ impl HistoryStore {
                         context_snapshot_json: row.get(5)?,
                     })
                 })?;
-                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
@@ -101,7 +102,8 @@ impl HistoryStore {
                         signal_count: row.get::<_, i64>(5)?.max(0) as u64,
                     })
                 })?;
-                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
@@ -123,7 +125,8 @@ impl HistoryStore {
                 let rows = stmt.query_map(params![limit], |row| {
                     Ok((row.get::<_, f64>(0)?, row.get::<_, i64>(1)?.max(0) as u64))
                 })?;
-                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

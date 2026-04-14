@@ -2004,6 +2004,7 @@ impl AgentEngine {
             preferred_session_hint: None,
             llm_user_content: latest_user_content,
             force_compaction: true,
+            rerun_participant_observers_after_turn: true,
             internal_delegate_sender: None,
             internal_delegate_message: None,
         };

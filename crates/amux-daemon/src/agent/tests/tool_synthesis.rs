@@ -41,9 +41,13 @@ fn detect_cli_wrapper_synthesis_proposal_rejects_mutating_tokens() {
 
 #[test]
 fn detect_cli_wrapper_synthesis_proposal_from_command_rejects_complex_or_mutating_shell() {
-    assert!(super::detect_cli_wrapper_synthesis_proposal_from_command("cargo install ripgrep")
-        .is_none());
-    assert!(super::detect_cli_wrapper_synthesis_proposal_from_command("git status | cat").is_none());
+    assert!(
+        super::detect_cli_wrapper_synthesis_proposal_from_command("cargo install ripgrep")
+            .is_none()
+    );
+    assert!(
+        super::detect_cli_wrapper_synthesis_proposal_from_command("git status | cat").is_none()
+    );
 }
 
 #[test]
@@ -84,7 +88,16 @@ fn equivalent_generated_cli_tool_matches_target_and_ignores_archived_records() -
         },
     )?;
 
-    assert!(super::has_equivalent_generated_cli_tool(&agent_data_dir, &proposal)?);
+    assert!(super::has_equivalent_generated_cli_tool(
+        &agent_data_dir,
+        &proposal
+    )?);
+    let existing = super::find_equivalent_generated_cli_tool(&agent_data_dir, &proposal)?
+        .expect("existing equivalent generated tool metadata");
+    assert_eq!(
+        existing.get("status").and_then(|value| value.as_str()),
+        Some("active")
+    );
 
     save_generated_tool(
         &agent_data_dir,

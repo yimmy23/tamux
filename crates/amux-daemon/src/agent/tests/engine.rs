@@ -725,11 +725,7 @@ async fn task_and_file_tool_paths_populate_cross_thread_memory_graph() {
         "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
     )
     .expect("write cargo manifest");
-    std::fs::write(
-        temp_dir.path().join("src/lib.rs"),
-        "pub fn demo() {}\n",
-    )
-    .expect("write lib.rs");
+    std::fs::write(temp_dir.path().join("src/lib.rs"), "pub fn demo() {}\n").expect("write lib.rs");
 
     let task = engine
         .enqueue_task(
@@ -795,8 +791,7 @@ async fn task_and_file_tool_paths_populate_cross_thread_memory_graph() {
         .await
         .expect("load task edges");
     assert!(task_edges.iter().any(|edge| {
-        edge.relation_type == "task_touches_file"
-            && edge.target_node_id == "node:file:src/lib.rs"
+        edge.relation_type == "task_touches_file" && edge.target_node_id == "node:file:src/lib.rs"
     }));
 
     let file_edges = engine
@@ -805,7 +800,6 @@ async fn task_and_file_tool_paths_populate_cross_thread_memory_graph() {
         .await
         .expect("load file edges");
     assert!(file_edges.iter().any(|edge| {
-        edge.relation_type == "file_in_package"
-            && edge.target_node_id == "node:package:cargo:demo"
+        edge.relation_type == "file_in_package" && edge.target_node_id == "node:package:cargo:demo"
     }));
 }

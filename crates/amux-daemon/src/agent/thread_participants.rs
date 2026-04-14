@@ -127,6 +127,7 @@ impl AgentEngine {
             continuation.preferred_session_hint.as_deref(),
             &continuation.llm_user_content,
             continuation.force_compaction,
+            continuation.rerun_participant_observers_after_turn,
         ))
         .await?;
         Ok(())
@@ -429,6 +430,7 @@ impl AgentEngine {
         preferred_session_hint: Option<&str>,
         llm_user_content: &str,
         force_compaction: bool,
+        rerun_participant_observers_after_turn: bool,
     ) -> Result<SendMessageOutcome> {
         if !self.threads.read().await.contains_key(thread_id) {
             anyhow::bail!("thread not found: {thread_id}");
@@ -498,15 +500,17 @@ impl AgentEngine {
                     self.maybe_auto_send_next_thread_participant_suggestion(&outcome.thread_id),
                 )
                 .await?;
-                if let Err(error) =
-                    Box::pin(self.run_participant_observers(&outcome.thread_id)).await
-                {
-                    let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
-                        thread_id: outcome.thread_id.clone(),
-                        kind: "participant_observer_error".to_string(),
-                        message: "participant observers failed".to_string(),
-                        details: Some(error.to_string()),
-                    });
+                if rerun_participant_observers_after_turn {
+                    if let Err(error) =
+                        Box::pin(self.run_participant_observers(&outcome.thread_id)).await
+                    {
+                        let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                            thread_id: outcome.thread_id.clone(),
+                            kind: "participant_observer_error".to_string(),
+                            message: "participant observers failed".to_string(),
+                            details: Some(error.to_string()),
+                        });
+                    }
                 }
             }
             return Ok(outcome);
@@ -878,6 +882,7 @@ impl AgentEngine {
                 preferred_session_hint: None,
                 llm_user_content: continuation_prompt,
                 force_compaction: false,
+                rerun_participant_observers_after_turn: false,
                 internal_delegate_sender: None,
                 internal_delegate_message: None,
             },
@@ -1227,6 +1232,7 @@ impl AgentEngine {
                     preferred_session_hint: preferred_session_hint.map(str::to_string),
                     llm_user_content: continuation_prompt,
                     force_compaction: false,
+                    rerun_participant_observers_after_turn: true,
                     internal_delegate_sender: Some(sender.clone()),
                     internal_delegate_message: Some(payload),
                 },

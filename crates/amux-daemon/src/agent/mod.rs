@@ -154,23 +154,26 @@ use self::tool_executor::{execute_tool, get_available_tools};
 use self::types::*;
 
 // Public re-exports consumed by sibling modules in this bin crate.
+#[cfg(test)]
+pub(crate) use aline_startup::AlineStartupShortCircuitReason;
 pub(crate) use aline_startup::{
-    run_aline_startup_worker_from_stdio, AlineStartupShortCircuitReason, WatcherState,
-    ALINE_STARTUP_WORKER_ARG,
+    run_aline_startup_worker_from_stdio, WatcherState, ALINE_STARTUP_WORKER_ARG,
 };
-pub(crate) use config::{
-    canonicalize_weles_client_update, ConfigEffectiveRuntimeState, ConfigReconcileState,
-};
+pub(crate) use config::canonicalize_weles_client_update;
+#[cfg(test)]
+pub(crate) use config::{ConfigEffectiveRuntimeState, ConfigReconcileState};
 #[allow(unused_imports)]
 pub use engine::*;
 #[cfg(test)]
 pub(crate) use provider_auth_store::provider_auth_test_env_lock;
 pub use task_prompt::load_config_from_history;
+#[cfg(test)]
 pub(crate) use whatsapp_link::transport::PersistedState as WhatsAppPersistedState;
 pub(crate) use whatsapp_link::{
-    clear_persisted_provider_state, load_persisted_provider_state,
-    persist_transport_session_update, save_persisted_provider_state, WHATSAPP_LINK_PROVIDER_ID,
+    clear_persisted_provider_state, persist_transport_session_update, WHATSAPP_LINK_PROVIDER_ID,
 };
+#[cfg(test)]
+pub(crate) use whatsapp_link::{load_persisted_provider_state, save_persisted_provider_state};
 #[allow(unused_imports)]
 pub(crate) use whatsapp_native::{
     disconnect_native_whatsapp_client, send_native_whatsapp_message, start_whatsapp_link_native,

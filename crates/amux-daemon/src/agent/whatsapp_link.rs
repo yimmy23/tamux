@@ -222,12 +222,16 @@ mod runtime_events;
 #[path = "whatsapp_link/sidecar.rs"]
 mod sidecar_impl;
 
+#[cfg(test)]
 pub use persistence_impl::{
-    apply_transport_event, clear_persisted_provider_state, load_persisted_provider_state,
-    merge_persisted_state_update, persist_transport_session_update, save_persisted_provider_state,
-    spawn_transport_event_bridge, start_transport_bridge,
+    apply_transport_event, merge_persisted_state_update, spawn_transport_event_bridge,
+    start_transport_bridge,
 };
+pub use persistence_impl::{clear_persisted_provider_state, persist_transport_session_update};
+#[cfg(test)]
+pub use persistence_impl::{load_persisted_provider_state, save_persisted_provider_state};
 pub(super) use sidecar_impl::now_millis;
+#[cfg(test)]
 pub use sidecar_impl::{build_sidecar_launch_spec, normalize_sidecar_stderr};
 
 #[allow(dead_code)]

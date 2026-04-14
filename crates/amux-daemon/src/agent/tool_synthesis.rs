@@ -14,13 +14,13 @@ mod runtime;
 
 #[cfg(test)]
 pub(crate) use runtime::parse_cli_help_parameters;
+use runtime::{
+    default_parameter_location, default_parameter_type, generated_tools_dir,
+    run_cli_generated_tool, run_openapi_generated_tool, synthesize_cli_tool,
+    synthesize_openapi_tool, CliWrapperSynthesisProposal,
+};
 pub(crate) use runtime::{
     detect_cli_wrapper_synthesis_proposal, detect_cli_wrapper_synthesis_proposal_from_command,
-};
-use runtime::{
-    CliWrapperSynthesisProposal, default_parameter_location, default_parameter_type,
-    generated_tools_dir, run_cli_generated_tool, run_openapi_generated_tool,
-    synthesize_cli_tool, synthesize_openapi_tool,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,7 +204,18 @@ pub(crate) fn has_equivalent_generated_cli_tool(
     agent_data_dir: &Path,
     proposal: &CliWrapperSynthesisProposal,
 ) -> Result<bool> {
-    let normalized_target = proposal.target.split_whitespace().collect::<Vec<_>>().join(" ");
+    Ok(find_equivalent_generated_cli_tool(agent_data_dir, proposal)?.is_some())
+}
+
+pub(crate) fn find_equivalent_generated_cli_tool(
+    agent_data_dir: &Path,
+    proposal: &CliWrapperSynthesisProposal,
+) -> Result<Option<serde_json::Value>> {
+    let normalized_target = proposal
+        .target
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     for tool in load_generated_tools(agent_data_dir)? {
         if tool.status == "archived" {
             continue;
@@ -223,10 +234,15 @@ pub(crate) fn has_equivalent_generated_cli_tool(
             || normalized_help_source == normalized_target
             || tool.id == proposal.tool_name
         {
-            return Ok(true);
+            return Ok(Some(serde_json::json!({
+                "id": tool.id,
+                "name": tool.name,
+                "status": tool.status,
+                "target": normalized_target,
+            })));
         }
     }
-    Ok(false)
+    Ok(None)
 }
 
 pub(super) async fn execute_generated_tool(

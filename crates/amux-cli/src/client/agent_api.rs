@@ -32,6 +32,7 @@ pub struct AgentStatusSnapshot {
     pub tier: String,
     pub activity: String,
     pub active_thread_id: Option<String>,
+    #[allow(dead_code)]
     pub active_goal_run_id: Option<String>,
     pub active_goal_run_title: Option<String>,
     pub provider_health_json: String,
