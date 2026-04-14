@@ -2569,6 +2569,84 @@ async fn read_skill_falls_back_when_selected_variant_path_is_stale() {
 }
 
 #[tokio::test]
+async fn read_skill_records_graph_links_for_consulted_skill_variant() {
+    let root = tempdir().expect("tempdir");
+    let agent_data_dir = root.path().join("agent");
+    fs::create_dir_all(&agent_data_dir).expect("create agent data dir");
+    let skill_path = root
+        .path()
+        .join("skills")
+        .join("generated")
+        .join("systematic-debugging.md");
+    fs::create_dir_all(skill_path.parent().expect("skill directory"))
+        .expect("create skill directory");
+    fs::write(
+        &skill_path,
+        "---\nname: systematic-debugging\ndescription: Debug backend failures systematically.\nkeywords: [debug, backend]\n---\n# Systematic Debugging\n",
+    )
+    .expect("write skill");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let variant = engine
+        .history
+        .register_skill_document(&skill_path)
+        .await
+        .expect("register skill variant");
+    let thread_id = "thread-read-skill-records-graph-links";
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-read-skill-records-graph-links".to_string(),
+        ToolFunction {
+            name: "read_skill".to_string(),
+            arguments: serde_json::json!({
+                "skill": "systematic-debugging",
+                "max_lines": 50
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "read_skill should succeed: {}", result.content);
+
+    let skill_node_id = format!("skill:{}", variant.variant_id);
+    let skill_node = engine
+        .history
+        .get_memory_node(&skill_node_id)
+        .await
+        .expect("lookup skill graph node")
+        .expect("consulted skill variant should be reflected as a graph node");
+    assert_eq!(skill_node.node_type, "skill_variant");
+
+    let intent_edges = engine
+        .history
+        .list_memory_edges_for_node("intent:systematic-debugging")
+        .await
+        .expect("list intent graph edges");
+    assert!(
+        intent_edges.iter().any(|edge| {
+            edge.target_node_id == skill_node_id || edge.source_node_id == skill_node_id
+        }),
+        "reading a skill should create an intent-to-skill graph edge"
+    );
+}
+
+#[tokio::test]
 async fn list_tools_tool_returns_paginated_catalog() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

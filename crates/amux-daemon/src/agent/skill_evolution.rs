@@ -35,6 +35,70 @@ impl AgentEngine {
                 error = %error,
                 "failed to record skill consultation"
             );
+            return;
+        }
+
+        self.record_skill_consultation_graph_links(variant, context_tags)
+            .await;
+    }
+
+    async fn record_skill_consultation_graph_links(
+        &self,
+        variant: &SkillVariantRecord,
+        context_tags: &[String],
+    ) {
+        let skill_node_id = format!("skill:{}", variant.variant_id);
+        if let Err(error) = self
+            .history
+            .upsert_memory_node(
+                &skill_node_id,
+                &variant.skill_name,
+                "skill_variant",
+                Some(&format!("skill variant {}", variant.relative_path)),
+                now_millis(),
+            )
+            .await
+        {
+            tracing::warn!(
+                variant_id = %variant.variant_id,
+                error = %error,
+                "failed to upsert skill graph node"
+            );
+            return;
+        }
+
+        let mut graph_refs = context_tags
+            .iter()
+            .map(|tag| (format!("intent:{}", tag.to_ascii_lowercase()), tag.clone(), "intent_context_tag"))
+            .collect::<Vec<_>>();
+        graph_refs.push((
+            format!("intent:{}", variant.skill_name.to_ascii_lowercase()),
+            variant.skill_name.clone(),
+            "intent_skill_lookup",
+        ));
+
+        for (node_id, label, relation_type) in graph_refs {
+            if let Err(error) = self
+                .history
+                .upsert_memory_node(
+                    &node_id,
+                    &label,
+                    "intent",
+                    Some("skill consultation intent"),
+                    now_millis(),
+                )
+                .await
+            {
+                tracing::warn!(%error, %node_id, "failed to upsert consultation intent node");
+                continue;
+            }
+            if let Err(error) = self
+                .history
+                .upsert_memory_edge(&node_id, &skill_node_id, relation_type, 1.0, now_millis())
+                .await
+            {
+                tracing::warn!(%error, %node_id, %skill_node_id, "failed to upsert consultation graph edge");
+            }
         }
     }
 
