@@ -255,7 +255,7 @@ async fn persisted_config_is_visible_while_runtime_reconcile_is_still_in_flight(
     let reconcile = {
         let engine = engine.clone();
         tokio::spawn(async move {
-            engine.reconcile_config_runtime_after_commit().await;
+            let _ = engine.reconcile_config_runtime_after_commit().await;
         })
     };
 

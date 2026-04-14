@@ -38,7 +38,7 @@ impl WhatsAppLinkRuntime {
 
     pub async fn stop(&self, reason: Option<String>) -> Result<()> {
         #[cfg(test)]
-        let mut forced_stop_kill_error = None::<String>;
+        let forced_stop_kill_error;
         let (mut child, native_client, native_task) = {
             let mut inner = self.inner.lock().await;
             inner.stopping = true;
@@ -56,16 +56,10 @@ impl WhatsAppLinkRuntime {
         };
 
         let kill_result = if let Some(ref mut proc) = child {
-            let forced_stop_kill_error: Option<String> = {
-                #[cfg(test)]
-                {
-                    forced_stop_kill_error
-                }
-                #[cfg(not(test))]
-                {
-                    None
-                }
-            };
+            #[cfg(test)]
+            let forced_stop_kill_error = forced_stop_kill_error;
+            #[cfg(not(test))]
+            let forced_stop_kill_error: Option<String> = None;
             if let Some(message) = forced_stop_kill_error {
                 Err(anyhow::Error::msg(message))
             } else {

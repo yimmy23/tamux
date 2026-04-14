@@ -641,14 +641,6 @@ fn raw_json_bool(value: &serde_json::Value, path: &[&str]) -> Option<bool> {
     current.as_bool()
 }
 
-fn raw_json_u64(value: &serde_json::Value, path: &[&str]) -> Option<u64> {
-    let mut current = value;
-    for part in path {
-        current = current.get(*part)?;
-    }
-    current.as_u64()
-}
-
 #[test]
 fn feature_toggle_fields_emit_expected_config_updates() {
     let cases = [

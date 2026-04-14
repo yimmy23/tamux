@@ -74,6 +74,7 @@ pub(super) fn mark_whatsapp_replay_active_if_cursors(gw: &mut super::gateway::Ga
     }
 }
 
+#[cfg_attr(test, allow(dead_code))]
 pub(super) fn is_whatsapp_cursor_newer(
     stored_cursor: &str,
     ts_secs: u64,
@@ -142,6 +143,7 @@ fn whatsapp_sender_matches_allowlist(raw_allowlist: &str, sender: &str, chat: &s
         .any(|candidate| allowlist.iter().any(|allowed| allowed == candidate))
 }
 
+#[cfg_attr(test, allow(dead_code))]
 pub(super) fn log_whatsapp_allowlist_suppression(sender: &str, chat: &str) {
     tracing::info!(
         sender = %sender,
@@ -188,6 +190,7 @@ pub(crate) fn classify_whatsapp_enqueue_decision(
     WhatsAppEnqueueDecision::Enqueue
 }
 
+#[cfg_attr(test, allow(dead_code))]
 pub(in crate::agent) fn now_millis_local() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()

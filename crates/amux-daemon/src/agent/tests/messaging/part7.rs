@@ -128,7 +128,7 @@ async fn participant_runner_force_send_posts_visible_message_and_continues_threa
             let Ok((mut socket, _)) = listener.accept().await else {
                 break;
             };
-            let body = read_http_request_body(&mut socket)
+            let _body = read_http_request_body(&mut socket)
                 .await
                 .expect("read request");
             request_count += 1;

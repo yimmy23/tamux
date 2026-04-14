@@ -116,29 +116,6 @@ pub(crate) fn scrollbar_layout(
     scrollbar_layout_from_metrics(area, all_lines.len(), scroll)
 }
 
-#[cfg(test)]
-pub(crate) fn rendered_line_count(
-    area: Rect,
-    chat: &ChatState,
-    theme: &ThemeTokens,
-    current_tick: u64,
-    retry_wait_start_selected: bool,
-) -> usize {
-    if area.width == 0 || area.height == 0 {
-        return 0;
-    }
-
-    let inner = content_inner(area);
-    let (all_lines, _) = build_rendered_lines(
-        chat,
-        theme,
-        inner.width as usize,
-        current_tick,
-        retry_wait_start_selected,
-    );
-    all_lines.len()
-}
-
 pub(crate) fn scrollbar_scroll_offset_for_pointer(
     area: Rect,
     chat: &ChatState,
@@ -374,44 +351,6 @@ fn nearest_message_content_row(all_lines: &[RenderedChatLine], row: usize) -> Op
     }
 
     None
-}
-
-#[cfg(test)]
-fn normalize_selection(
-    inner: Rect,
-    start: Position,
-    end: Position,
-) -> Option<((usize, usize), (usize, usize))> {
-    if inner.width == 0 || inner.height == 0 {
-        return None;
-    }
-
-    let clamp_x = |x: u16| {
-        x.clamp(
-            inner.x,
-            inner.x.saturating_add(inner.width).saturating_sub(1),
-        )
-    };
-    let clamp_y = |y: u16| {
-        y.clamp(
-            inner.y,
-            inner.y.saturating_add(inner.height).saturating_sub(1),
-        )
-    };
-
-    let start_col = clamp_x(start.x).saturating_sub(inner.x) as usize;
-    let start_row = clamp_y(start.y).saturating_sub(inner.y) as usize;
-    let end_col = clamp_x(end.x).saturating_sub(inner.x) as usize;
-    let end_row = clamp_y(end.y).saturating_sub(inner.y) as usize;
-
-    let start_norm = (start_row, start_col);
-    let end_norm = (end_row, end_col);
-
-    if start_norm <= end_norm {
-        Some((start_norm, end_norm))
-    } else {
-        Some((end_norm, start_norm))
-    }
 }
 
 fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {

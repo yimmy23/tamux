@@ -1,5 +1,5 @@
 use super::*;
-use amux_shared::providers::{PROVIDER_ID_ANTHROPIC, PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI};
+use amux_shared::providers::{PROVIDER_ID_ANTHROPIC, PROVIDER_ID_OPENAI};
 
 #[test]
 fn agent_config_serializes_honcho_fields_in_snake_case() {

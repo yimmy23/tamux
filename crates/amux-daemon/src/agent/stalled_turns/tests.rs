@@ -145,7 +145,6 @@ async fn spawn_stub_assistant_server(response_text: &str) -> String {
                     .await
                     .expect("write stub assistant response");
             });
-            use amux_shared::providers::PROVIDER_ID_OPENAI;
         }
     });
 
@@ -153,7 +152,7 @@ async fn spawn_stub_assistant_server(response_text: &str) -> String {
 }
 
 async fn build_test_engine(response_text: &str) -> Arc<crate::agent::AgentEngine> {
-    let root = tempdir().expect("tempdir should succeed").into_path();
+    let root = tempdir().expect("tempdir should succeed").keep();
     let manager = SessionManager::new_test(&root).await;
     let mut config = AgentConfig::default();
     config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();

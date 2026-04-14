@@ -1775,7 +1775,7 @@ async fn auto_retry_wait_escalates_to_fresh_runner_after_repeated_waits() {
         );
     }
 
-    let mut task = tokio::spawn({
+    let task = tokio::spawn({
         let engine = engine.clone();
         async move {
             engine

@@ -27,7 +27,7 @@ enum GeneratedToolKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct GeneratedToolParameter {
+pub(crate) struct GeneratedToolParameter {
     name: String,
     description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

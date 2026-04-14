@@ -35,6 +35,7 @@ use helpers::{
     mark_whatsapp_replay_active_if_cursors, tamux_device_props,
 };
 
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) async fn start_whatsapp_link_native(agent: Arc<AgentEngine>) -> Result<()> {
     let store_path = whatsapp_native_store_path(&agent.data_dir);
     if let Some(parent) = store_path.parent() {
@@ -107,6 +108,7 @@ pub(crate) async fn start_whatsapp_link_native(agent: Arc<AgentEngine>) -> Resul
     Ok(())
 }
 
+#[cfg_attr(test, allow(dead_code))]
 async fn handle_native_event(
     agent: Arc<AgentEngine>,
     client: Arc<wa_rs::Client>,

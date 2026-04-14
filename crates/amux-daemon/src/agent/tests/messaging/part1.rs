@@ -222,7 +222,6 @@ fn tool_execution_hot_path_boxes_large_futures() {
 #[tokio::test]
 async fn delete_thread_messages_updates_live_thread_and_persisted_history() {
     let root = tempdir().unwrap();
-    use amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT;
 
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;

@@ -400,7 +400,9 @@ impl AgentEngine {
             return;
         }
 
+        #[cfg(not(test))]
         let result_tx = self.skill_discovery_result_tx.clone();
+        #[cfg(not(test))]
         tokio::spawn(async move {
             let completion = match run_skill_discovery_subprocess(request.clone()).await {
                 Ok(completion) => completion,

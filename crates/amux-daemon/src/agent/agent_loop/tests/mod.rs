@@ -404,35 +404,6 @@ async fn spawn_transport_incompatibility_server(request_counter: Arc<AtomicUsize
     format!("http://{addr}/v1")
 }
 
-async fn spawn_transient_transport_failure_server(request_counter: Arc<AtomicUsize>) -> String {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind transient transport failure server");
-    let addr = listener
-        .local_addr()
-        .expect("transient transport failure server addr");
-
-    tokio::spawn(async move {
-        loop {
-            let Ok((mut socket, _)) = listener.accept().await else {
-                break;
-            };
-            let request_counter = request_counter.clone();
-            tokio::spawn(async move {
-                request_counter.fetch_add(1, Ordering::SeqCst);
-                let mut buffer = vec![0u8; 65536];
-                let _ = socket
-                    .read(&mut buffer)
-                    .await
-                    .expect("read transient transport request");
-                let _ = socket.shutdown().await;
-            });
-        }
-    });
-
-    format!("http://{addr}/v1")
-}
-
 async fn spawn_transient_failure_then_blocking_server(
     request_counter: Arc<AtomicUsize>,
     release_second_request: Arc<tokio::sync::Notify>,

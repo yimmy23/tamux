@@ -1,5 +1,3 @@
-use super::*;
-
 /// FOUN-05: Channel capacity is configurable via AgentConfig.
 #[test]
 fn configurable_channel_capacity() {

@@ -329,13 +329,6 @@ pub(crate) fn complete_browser_auth() -> OpenAICodexAuthStatus {
 }
 
 #[cfg(test)]
-pub(crate) fn complete_browser_auth_with(
-    exchange: &dyn OpenAICodexExchange,
-) -> OpenAICodexAuthStatus {
-    complete_browser_auth_with_timeout_sync(exchange, OPENAI_CODEX_CALLBACK_TIMEOUT, None)
-}
-
-#[cfg(test)]
 pub(crate) fn current_pending_openai_codex_flow_id_for_tests() -> Option<String> {
     let runtime = auth_runtime()
         .lock()

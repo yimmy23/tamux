@@ -4148,7 +4148,7 @@ fn critique_requires_blocking_review_relaxes_proceed_with_modifications_when_sat
         directives: vec![],
     };
 
-    let mut runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let blocked = runtime.block_on(async {
         {
             let mut model = engine.operator_model.write().await;
