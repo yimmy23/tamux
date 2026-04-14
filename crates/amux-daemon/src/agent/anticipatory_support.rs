@@ -49,6 +49,7 @@ pub(super) fn should_surface_anticipatory_kind(
     match kind {
         "morning_brief" => !(in_settings || in_provider_setup || in_help || in_auth),
         "stuck_hint" => !(in_settings || in_provider_setup || in_help || in_auth || in_approval),
+        "intent_prediction" => !(in_settings || in_provider_setup || in_help || in_auth),
         _ => true,
     }
 }

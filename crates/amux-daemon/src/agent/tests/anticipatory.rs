@@ -373,3 +373,107 @@ async fn strained_satisfaction_skips_predictive_hydration() {
         "strained satisfaction should skip predictive hydration so the daemon reduces background churn"
     );
 }
+
+#[tokio::test]
+async fn anticipatory_tick_surfaces_intent_prediction_for_pending_approval() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.stuck_detection = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut task = sample_task("task-approval", Some("thread-intent"), None);
+    task.title = "Need approval".to_string();
+    task.status = TaskStatus::AwaitingApproval;
+    engine.tasks.lock().await.push_back(task);
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-intent"), None)
+        .await
+        .unwrap();
+
+    engine.run_anticipatory_tick().await;
+
+    let items = engine.anticipatory.read().await.items.clone();
+    let item = items
+        .into_iter()
+        .find(|candidate| candidate.kind == "intent_prediction")
+        .expect("expected an intent prediction item");
+    assert_eq!(item.thread_id.as_deref(), Some("thread-intent"));
+    assert!(item.summary.contains("review pending approval"));
+    assert!(item.confidence >= 0.86);
+}
+
+#[tokio::test]
+async fn anticipatory_tick_surfaces_intent_prediction_for_repo_change_context() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-repo-intent"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-repo-intent".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-repo-intent".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/main.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+
+    engine.run_anticipatory_tick().await;
+
+    let items = engine.anticipatory.read().await.items.clone();
+    let item = items
+        .into_iter()
+        .find(|candidate| candidate.kind == "intent_prediction")
+        .expect("expected an intent prediction item");
+    assert_eq!(item.thread_id.as_deref(), Some("thread-repo-intent"));
+    assert!(item.summary.contains("inspect or test recent repo changes"));
+    assert!(item.bullets.iter().any(|bullet| bullet.contains("repo-linked")));
+}
+
+#[tokio::test]
+async fn strained_satisfaction_suppresses_intent_prediction() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-strained-intent"), None)
+        .await
+        .unwrap();
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 1;
+        model.operator_satisfaction.score = 0.20;
+        model.operator_satisfaction.label = "strained".to_string();
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    assert!(engine
+        .anticipatory
+        .read()
+        .await
+        .items
+        .iter()
+        .all(|item| item.kind != "intent_prediction"));
+}

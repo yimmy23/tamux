@@ -223,6 +223,13 @@ impl AgentEngine {
                 }
             }
         }
+        if adaptation_mode != AnticipatoryAdaptationMode::Minimal {
+            if should_surface_anticipatory_kind("intent_prediction", attention_surface.as_deref()) {
+                if let Some(item) = self.compute_intent_prediction(settings).await {
+                    items.push(item);
+                }
+            }
+        }
         if adaptation_mode == AnticipatoryAdaptationMode::Normal {
             if let Some(item) = self.compute_collaboration_hint(settings).await {
                 items.push(item);
@@ -601,6 +608,101 @@ impl AgentEngine {
             preferred_attention_surface: route.preferred_attention_surface,
             created_at: now_millis(),
             updated_at: now_millis(),
+        })
+    }
+
+    async fn compute_intent_prediction(
+        &self,
+        settings: &AnticipatoryConfig,
+    ) -> Option<AnticipatoryItem> {
+        let now = now_millis();
+        let attention_thread_id = self.current_attention_target().await;
+        let active_surface = self.current_attention_surface().await;
+        let thread_context = {
+            let contexts = self.thread_work_contexts.read().await;
+            attention_thread_id
+                .as_ref()
+                .and_then(|thread_id| contexts.get(thread_id).cloned())
+        };
+
+        let mut predicted_action = None::<(&str, f64, Vec<String>)>;
+
+        if let Some(thread_id) = attention_thread_id.as_deref() {
+            let pending_approval = {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().any(|task| {
+                    matches!(task.status, TaskStatus::AwaitingApproval)
+                        && (task.thread_id.as_deref() == Some(thread_id)
+                            || task.parent_thread_id.as_deref() == Some(thread_id))
+                })
+            };
+            if pending_approval {
+                predicted_action = Some((
+                    "review pending approval",
+                    0.86,
+                    vec![
+                        "This thread has work paused behind approval.".to_string(),
+                        "Resolving approval is the highest-likelihood unblock step.".to_string(),
+                    ],
+                ));
+            }
+        }
+
+        if predicted_action.is_none() {
+            if let Some(context) = thread_context.as_ref() {
+                let has_repo_change = context
+                    .entries
+                    .iter()
+                    .any(|entry| entry.kind == WorkContextEntryKind::RepoChange);
+                if has_repo_change {
+                    predicted_action = Some((
+                        "inspect or test recent repo changes",
+                        0.74,
+                        vec![
+                            format!("{} repo-linked work context item(s) are active.", context.entries.len()),
+                            "Recent repo changes usually lead to verification or inspection next.".to_string(),
+                        ],
+                    ));
+                }
+            }
+        }
+
+        if predicted_action.is_none() {
+            if let Some(surface) = active_surface.as_deref() {
+                if surface == "conversation:chat" || surface == "conversation:input" {
+                    predicted_action = Some((
+                        "continue the active thread",
+                        0.68,
+                        vec![
+                            "Operator attention is on the conversation surface.".to_string(),
+                            "Continuing the active thread is the most likely immediate next step.".to_string(),
+                        ],
+                    ));
+                }
+            }
+        }
+
+        let (action, confidence, bullets) = predicted_action?;
+        if confidence < settings.surfacing_min_confidence {
+            return None;
+        }
+
+        let route = self
+            .resolve_anticipatory_route("intent_prediction", None, attention_thread_id.as_deref())
+            .await;
+        Some(AnticipatoryItem {
+            id: format!("intent_prediction_{}", attention_thread_id.clone().unwrap_or_else(|| "global".to_string())),
+            kind: "intent_prediction".to_string(),
+            title: "Likely Next Action".to_string(),
+            summary: format!("Predicted next step: {action}"),
+            bullets,
+            confidence,
+            goal_run_id: None,
+            thread_id: attention_thread_id,
+            preferred_client_surface: route.preferred_client_surface,
+            preferred_attention_surface: route.preferred_attention_surface,
+            created_at: now,
+            updated_at: now,
         })
     }
 }
