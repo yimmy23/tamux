@@ -3623,11 +3623,10 @@ fn critique_arbiter_can_return_proceed_with_modifications_for_aggressive_operato
         overall_confidence: 0.58,
     };
 
-    let resolution = crate::agent::critique::arbiter::resolve_with_satisfaction_label(
+    let resolution = crate::agent::critique::arbiter::resolve(
         &advocate,
         &critic,
         crate::agent::operator_model::RiskTolerance::Aggressive,
-        None,
     );
 
     assert_eq!(
@@ -4204,11 +4203,10 @@ async fn strained_satisfaction_biases_close_critique_toward_proceed_with_modific
         overall_confidence: 0.62,
     };
 
-    let baseline = crate::agent::critique::arbiter::resolve_with_satisfaction_label(
+    let baseline = crate::agent::critique::arbiter::resolve(
         &advocate,
         &critic,
         crate::agent::operator_model::RiskTolerance::Moderate,
-        None,
     );
     assert_eq!(baseline.decision, crate::agent::critique::types::Decision::Defer);
 
@@ -5163,4 +5161,172 @@ fn apply_critique_modifications_uses_typed_directive_for_sensitive_file_narrowin
 
     assert_eq!(adjusted["path"].as_str(), Some(".env"));
     assert!(changes.iter().any(|item| item == "file:narrow_path:path"));
+}
+
+#[tokio::test]
+async fn unknown_cli_like_tool_emits_tool_synthesis_proposal_notice() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+    let http_client = reqwest::Client::new();
+
+    let result = execute_tool(
+        &ToolCall {
+            id: "call-tool-gap-cargo-check".to_string(),
+            function: ToolFunction {
+                name: "cargo_check".to_string(),
+                arguments: serde_json::json!({}).to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-tool-gap",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &http_client,
+        None,
+    )
+    .await;
+
+    assert!(result.is_error, "unknown tool should still error");
+    assert!(result.content.contains("Unknown tool: cargo_check"));
+
+    let notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected synthesis proposal workflow notice")
+        .expect("workflow notice should be received");
+    match notice {
+        AgentEvent::WorkflowNotice {
+            kind,
+            message,
+            details: Some(details),
+            ..
+        } => {
+            assert_eq!(kind, "tool-synthesis-proposal");
+            assert!(message.contains("cargo_check"));
+            let details: serde_json::Value =
+                serde_json::from_str(&details).expect("notice details should be json");
+            assert_eq!(
+                details.get("missing_tool").and_then(|value| value.as_str()),
+                Some("cargo_check")
+            );
+            let synth_args = details
+                .get("synthesize_tool_args")
+                .expect("proposal should include synthesize_tool args");
+            assert_eq!(synth_args.get("kind").and_then(|value| value.as_str()), Some("cli"));
+            assert_eq!(
+                synth_args.get("target").and_then(|value| value.as_str()),
+                Some("cargo check")
+            );
+            assert_eq!(
+                synth_args.get("name").and_then(|value| value.as_str()),
+                Some("cargo_check")
+            );
+            assert_eq!(
+                synth_args.get("activate").and_then(|value| value.as_bool()),
+                Some(false)
+            );
+        }
+        other => panic!("expected workflow notice, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn risky_unknown_cli_like_tool_does_not_emit_tool_synthesis_proposal_notice() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+    let http_client = reqwest::Client::new();
+
+    let result = execute_tool(
+        &ToolCall {
+            id: "call-tool-gap-cargo-install".to_string(),
+            function: ToolFunction {
+                name: "cargo_install".to_string(),
+                arguments: serde_json::json!({}).to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-tool-gap-risky",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &http_client,
+        None,
+    )
+    .await;
+
+    assert!(result.is_error, "unknown tool should still error");
+    assert!(result.content.contains("Unknown tool: cargo_install"));
+    assert!(
+        timeout(Duration::from_millis(150), event_rx.recv())
+            .await
+            .is_err(),
+        "risky or mutating CLI-like gaps should not emit automatic synthesis proposals"
+    );
+}
+
+#[tokio::test]
+async fn duplicate_unknown_cli_gap_notice_is_suppressed_per_thread() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+    let http_client = reqwest::Client::new();
+
+    for call_id in ["call-tool-gap-1", "call-tool-gap-2"] {
+        let result = execute_tool(
+            &ToolCall {
+                id: call_id.to_string(),
+                function: ToolFunction {
+                    name: "cargo_check".to_string(),
+                    arguments: serde_json::json!({}).to_string(),
+                },
+                weles_review: None,
+            },
+            &engine,
+            "thread-tool-gap-dedupe",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &http_client,
+            None,
+        )
+        .await;
+        assert!(result.is_error, "unknown tool should still error");
+    }
+
+    let first_notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected first synthesis proposal notice")
+        .expect("workflow notice should be received");
+    match first_notice {
+        AgentEvent::WorkflowNotice { kind, .. } => {
+            assert_eq!(kind, "tool-synthesis-proposal");
+        }
+        other => panic!("expected workflow notice, got {other:?}"),
+    }
+
+    assert!(
+        timeout(Duration::from_millis(150), event_rx.recv())
+            .await
+            .is_err(),
+        "duplicate missing-tool proposals in the same thread should be suppressed"
+    );
 }

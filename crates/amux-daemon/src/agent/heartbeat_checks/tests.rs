@@ -135,6 +135,7 @@ async fn make_test_engine(
         meta_cognitive_self_model: RwLock::new(super::metacognitive::types::SelfModel::default()),
         anticipatory: RwLock::new(AnticipatoryRuntime::default()),
         collaboration: RwLock::new(HashMap::new()),
+        tool_synthesis_gap_notices: RwLock::new(HashSet::new()),
         data_dir,
         workspace_root: None,
         gateway_process: Mutex::new(None),

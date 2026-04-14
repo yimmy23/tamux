@@ -61,6 +61,56 @@ async fn maybe_bootstrap_todo_plan_for_background_tool(
     true
 }
 
+async fn maybe_emit_cli_wrapper_synthesis_proposal_notice(
+    agent: &AgentEngine,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
+    missing_tool: &str,
+) {
+    if thread_id.trim().is_empty() {
+        return;
+    }
+
+    let tool_synthesis_enabled = agent.config.read().await.tool_synthesis.enabled;
+    if !tool_synthesis_enabled {
+        return;
+    }
+
+    let Some(proposal) = detect_cli_wrapper_synthesis_proposal(missing_tool) else {
+        return;
+    };
+
+    let dedupe_key = format!("{thread_id}::{missing_tool}");
+    {
+        let mut notices = agent.tool_synthesis_gap_notices.write().await;
+        if !notices.insert(dedupe_key) {
+            return;
+        }
+    }
+
+    let synthesize_args = serde_json::json!({
+        "kind": "cli",
+        "target": proposal.target,
+        "name": proposal.tool_name,
+        "activate": false,
+    });
+    let message = format!(
+        "Missing tool `{missing_tool}` looks like a conservative CLI-wrapper gap. Proposal ready via synthesize_tool."
+    );
+    let details = serde_json::json!({
+        "reason": "unknown_tool_safe_cli_gap",
+        "missing_tool": missing_tool,
+        "proposal_kind": "cli",
+        "synthesize_tool_args": synthesize_args,
+    });
+    let _ = event_tx.send(AgentEvent::WorkflowNotice {
+        thread_id: thread_id.to_string(),
+        kind: "tool-synthesis-proposal".to_string(),
+        message,
+        details: Some(details.to_string()),
+    });
+}
+
 fn should_scrub_successful_tool_result(tool_name: &str) -> bool {
     !matches!(tool_name, "read_offloaded_payload")
 }
@@ -1073,7 +1123,11 @@ async fn dispatch_tool_execution(
         .await
         {
             Ok(Some(content)) => Ok(content),
-            Ok(None) => Err(anyhow::anyhow!("Unknown tool: {other}")),
+            Ok(None) => {
+                maybe_emit_cli_wrapper_synthesis_proposal_notice(agent, event_tx, thread_id, other)
+                    .await;
+                Err(anyhow::anyhow!("Unknown tool: {other}"))
+            }
             Err(error) => Err(error),
         },
     };

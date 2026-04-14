@@ -17,6 +17,20 @@ Options:\n\
 }
 
 #[test]
+fn detect_cli_wrapper_synthesis_proposal_maps_safe_unknown_tool_name() {
+    let proposal = super::detect_cli_wrapper_synthesis_proposal("cargo_check")
+        .expect("safe cargo subcommand should produce a CLI wrapper proposal");
+
+    assert_eq!(proposal.tool_name, "cargo_check");
+    assert_eq!(proposal.target, "cargo check");
+}
+
+#[test]
+fn detect_cli_wrapper_synthesis_proposal_rejects_mutating_tokens() {
+    assert!(super::detect_cli_wrapper_synthesis_proposal("cargo_install").is_none());
+}
+
+#[test]
 fn prune_generated_tools_keeps_active_and_promoted_records() -> Result<()> {
     let agent_data_dir = std::env::temp_dir().join(format!(
         "amux-generated-tools-test-{}",

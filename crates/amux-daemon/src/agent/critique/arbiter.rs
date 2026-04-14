@@ -148,7 +148,27 @@ pub(crate) fn resolve(
     critic: &Argument,
     risk_tolerance: RiskTolerance,
 ) -> Resolution {
-    resolve_with_satisfaction_label(advocate, critic, risk_tolerance, None)
+    let mut resolution = resolve_with_satisfaction_label(advocate, critic, risk_tolerance, None);
+    if matches!(risk_tolerance, RiskTolerance::Aggressive)
+        && matches!(resolution.decision, Decision::Defer)
+    {
+        let modifications = recommended_modifications(critic, 2);
+        if !modifications.is_empty() {
+            let directives = directives_for_modifications(&modifications);
+            resolution = Resolution {
+                decision: Decision::ProceedWithModifications,
+                synthesis: format!(
+                    "Proceed with modifications. Keep the action, but incorporate: {}.",
+                    modifications.join(" | ")
+                ),
+                risk_score: resolution.risk_score,
+                confidence: resolution.confidence,
+                modifications,
+                directives,
+            };
+        }
+    }
+    resolution
 }
 
 pub(crate) fn resolve_with_satisfaction_label(
