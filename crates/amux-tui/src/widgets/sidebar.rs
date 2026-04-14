@@ -477,7 +477,7 @@ pub fn render(
         );
     }
 
-    let body_idx = if filter_height > 0 { 2 } else { 1 };
+    let body_idx = 2;
     let rows = rows_for_thread(
         tasks,
         sidebar,
@@ -550,14 +550,10 @@ pub fn hit_test(
         return tab_hit_test(chunks[0], mouse.x).map(SidebarHitTarget::Tab);
     }
 
-    let body_idx = if sidebar.active_tab() == SidebarTab::Files {
-        if mouse.y == chunks[1].y {
-            return None;
-        }
-        2
-    } else {
-        1
-    };
+    if sidebar.active_tab() == SidebarTab::Files && mouse.y == chunks[1].y {
+        return None;
+    }
+    let body_idx = 2;
 
     let rows = rows_for_thread(
         tasks,
