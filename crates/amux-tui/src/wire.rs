@@ -142,6 +142,8 @@ pub struct ThreadParticipantState {
     pub deactivated_at: Option<u64>,
     #[serde(default)]
     pub last_contribution_at: Option<u64>,
+    #[serde(default)]
+    pub always_auto_response: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -155,6 +157,8 @@ pub struct ThreadParticipantSuggestion {
     #[serde(default)]
     pub instruction: String,
     #[serde(default)]
+    pub suggestion_kind: String,
+    #[serde(default)]
     pub force_send: bool,
     #[serde(default)]
     pub status: String,
@@ -162,6 +166,10 @@ pub struct ThreadParticipantSuggestion {
     pub created_at: u64,
     #[serde(default)]
     pub updated_at: u64,
+    #[serde(default)]
+    pub auto_send_at: Option<u64>,
+    #[serde(default)]
+    pub source_message_timestamp: Option<u64>,
     #[serde(default)]
     pub error: Option<String>,
 }

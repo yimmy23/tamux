@@ -243,14 +243,6 @@ impl TuiModel {
         }
     }
 
-    fn thread_needs_authoritative_refresh_after_done(&self, thread_id: &str) -> bool {
-        self.chat.threads().iter().any(|thread| {
-            thread.id == thread_id
-                && (!thread.thread_participants.is_empty()
-                    || !thread.queued_participant_suggestions.is_empty())
-        })
-    }
-
     fn should_accept_retry_status_event(&self, thread_id: &str) -> bool {
         if self.chat.is_streaming()
             || self.chat.retry_status().is_some()
@@ -429,10 +421,9 @@ impl TuiModel {
             reasoning,
             provider_final_result_json,
         });
-        if self.thread_needs_authoritative_refresh_after_done(&thread_id) {
-            self.request_authoritative_thread_refresh(thread_id, false);
-        }
 
+        let _ = self.maybe_request_auto_response_for_open_thread(&thread_id);
+        let _ = self.maybe_auto_send_always_auto_response();
         self.dispatch_next_queued_prompt_if_ready();
     }
 

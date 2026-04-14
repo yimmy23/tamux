@@ -42,6 +42,14 @@ impl TuiModel {
         self.maybe_schedule_chat_history_collapse();
         self.chat.maybe_collapse_history(self.tick_counter);
         self.clear_expired_queued_prompt_copy_feedback();
+        let _ = self.maybe_auto_send_always_auto_response();
+        if self
+            .active_auto_response_countdown_secs()
+            .is_some_and(|remaining| remaining == 0)
+            && !self.assistant_busy()
+        {
+            let _ = self.execute_active_auto_response_action(AutoResponseActionSelection::Yes);
+        }
         if self.pending_stop && !self.pending_stop_active() {
             self.pending_stop = false;
         }
@@ -138,14 +146,37 @@ impl TuiModel {
                 thread_id,
                 suggestion,
             } => {
-                self.queue_participant_suggestion(
-                    thread_id,
-                    suggestion.id,
-                    suggestion.target_agent_id,
-                    suggestion.target_agent_name,
-                    suggestion.instruction,
-                    suggestion.force_send,
-                );
+                if suggestion
+                    .suggestion_kind
+                    .eq_ignore_ascii_case("auto_response")
+                {
+                    if self.chat.active_thread_id() == Some(thread_id.as_str())
+                        && self.active_always_auto_response_participant().is_some_and(
+                            |participant| {
+                                participant
+                                    .agent_id
+                                    .eq_ignore_ascii_case(&suggestion.target_agent_id)
+                            },
+                        )
+                        && !self.assistant_busy()
+                    {
+                        self.hidden_auto_response_suggestion_ids
+                            .insert(suggestion.id.clone());
+                        self.send_daemon_command(DaemonCommand::SendParticipantSuggestion {
+                            thread_id,
+                            suggestion_id: suggestion.id,
+                        });
+                    }
+                } else {
+                    self.queue_participant_suggestion(
+                        thread_id,
+                        suggestion.id,
+                        suggestion.target_agent_id,
+                        suggestion.target_agent_name,
+                        suggestion.instruction,
+                        suggestion.force_send,
+                    );
+                }
             }
             ClientEvent::TaskList(tasks) => {
                 self.handle_task_list_event(tasks);

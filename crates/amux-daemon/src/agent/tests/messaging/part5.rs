@@ -180,6 +180,7 @@ async fn persisted_thread_metadata_reloads_thread_participants() {
                 deactivated_at: None,
                 last_contribution_at: Some(12),
                 last_observed_visible_message_at: Some(12),
+                always_auto_response: false,
             },
             crate::agent::ThreadParticipantState {
                 agent_id: "rarog".to_string(),
@@ -191,6 +192,7 @@ async fn persisted_thread_metadata_reloads_thread_participants() {
                 deactivated_at: Some(22),
                 last_contribution_at: None,
                 last_observed_visible_message_at: None,
+                always_auto_response: false,
             },
         ],
     );
@@ -1067,10 +1069,13 @@ async fn auto_send_dismisses_stale_non_active_participant_suggestions() {
             target_agent_id: "radogost".to_string(),
             target_agent_name: "Radogost".to_string(),
             instruction: "Old stale suggestion".to_string(),
+            suggestion_kind: ThreadParticipantSuggestionKind::PreparedMessage,
             force_send: false,
             status: ThreadParticipantSuggestionStatus::Queued,
             created_at: 1,
             updated_at: 1,
+            auto_send_at: None,
+            source_message_timestamp: None,
             error: None,
         }],
     );

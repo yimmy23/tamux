@@ -32,6 +32,8 @@ pub struct ThreadParticipantState {
     pub last_contribution_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_observed_visible_message_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub always_auto_response: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +43,14 @@ pub enum ThreadParticipantSuggestionStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadParticipantSuggestionKind {
+    #[default]
+    PreparedMessage,
+    AutoResponse,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThreadParticipantSuggestion {
     pub id: String,
@@ -48,12 +58,24 @@ pub struct ThreadParticipantSuggestion {
     pub target_agent_name: String,
     pub instruction: String,
     #[serde(default)]
+    pub suggestion_kind: ThreadParticipantSuggestionKind,
+    #[serde(default)]
     pub force_send: bool,
     pub status: ThreadParticipantSuggestionStatus,
     pub created_at: u64,
     pub updated_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_send_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_message_timestamp: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+const AUTO_PARTICIPANT_RESPONSE_DELAY_MS: u64 = 60_000;
+
+fn auto_response_request_text() -> &'static str {
+    "Respond to the latest main agent message on this thread and continue the same workstream. Keep the reply concrete, useful, and aligned with your participant instruction."
 }
 
 pub(super) fn normalize_thread_participants(
@@ -104,6 +126,49 @@ fn is_participant_remove_action(action: &str) -> bool {
 }
 
 impl AgentEngine {
+    async fn set_thread_participant_always_auto_response(
+        &self,
+        thread_id: &str,
+        target_agent_id: &str,
+        enabled: bool,
+    ) -> Result<bool> {
+        let mut participants = self.thread_participants.write().await;
+        let Some(entry) = participants.get_mut(thread_id) else {
+            anyhow::bail!("thread not found: {thread_id}");
+        };
+
+        let mut changed = false;
+        let mut found_target = false;
+        let now = now_millis();
+        for participant in entry.iter_mut() {
+            let should_enable = enabled
+                && participant.status == ThreadParticipantStatus::Active
+                && participant.agent_id.eq_ignore_ascii_case(target_agent_id);
+            if participant.agent_id.eq_ignore_ascii_case(target_agent_id)
+                && participant.status == ThreadParticipantStatus::Active
+            {
+                found_target = true;
+            }
+            if participant.always_auto_response != should_enable {
+                participant.always_auto_response = should_enable;
+                participant.updated_at = now;
+                changed = true;
+            }
+        }
+        drop(participants);
+
+        if enabled && !found_target {
+            anyhow::bail!("participant is not active on thread: {target_agent_id}");
+        }
+        if changed {
+            self.persist_thread_by_id(thread_id).await;
+            let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+                thread_id: thread_id.to_string(),
+            });
+        }
+        Ok(changed)
+    }
+
     async fn run_deferred_visible_thread_continuation(
         &self,
         thread_id: &str,
@@ -545,6 +610,109 @@ impl AgentEngine {
         instruction: &str,
         force_send: bool,
     ) -> Result<ThreadParticipantSuggestion> {
+        self.queue_thread_participant_suggestion_entry(
+            thread_id,
+            target_agent_id,
+            instruction,
+            force_send,
+            ThreadParticipantSuggestionKind::PreparedMessage,
+            None,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn queue_thread_auto_response_suggestion(
+        &self,
+        thread_id: &str,
+        target_agent_id: &str,
+        source_message_timestamp: u64,
+    ) -> Result<ThreadParticipantSuggestion> {
+        let due_at = now_millis().saturating_add(AUTO_PARTICIPANT_RESPONSE_DELAY_MS);
+        self.queue_thread_participant_suggestion_entry(
+            thread_id,
+            target_agent_id,
+            auto_response_request_text(),
+            false,
+            ThreadParticipantSuggestionKind::AutoResponse,
+            Some(due_at),
+            Some(source_message_timestamp),
+        )
+        .await
+    }
+
+    pub(crate) async fn request_thread_auto_response_suggestion(
+        &self,
+        thread_id: &str,
+        target_agent_id: &str,
+    ) -> Result<bool> {
+        let Some(source_message_timestamp) = self
+            .latest_visible_main_agent_message_timestamp_for_auto_response(thread_id)
+            .await
+        else {
+            return Ok(false);
+        };
+
+        let participants = self.list_thread_participants(thread_id).await;
+        let Some(participant) = participants.iter().find(|participant| {
+            participant.status == ThreadParticipantStatus::Active
+                && participant.agent_id.eq_ignore_ascii_case(target_agent_id)
+        }) else {
+            anyhow::bail!("participant is not active on thread: {target_agent_id}");
+        };
+
+        if participant
+            .last_observed_visible_message_at
+            .is_some_and(|timestamp| timestamp >= source_message_timestamp)
+        {
+            return Ok(false);
+        }
+
+        let has_matching_auto_response = self
+            .list_thread_participant_suggestions(thread_id)
+            .await
+            .into_iter()
+            .any(|suggestion| {
+                suggestion.suggestion_kind == ThreadParticipantSuggestionKind::AutoResponse
+                    && suggestion.status == ThreadParticipantSuggestionStatus::Queued
+                    && suggestion
+                        .target_agent_id
+                        .eq_ignore_ascii_case(target_agent_id)
+                    && suggestion.source_message_timestamp == Some(source_message_timestamp)
+            });
+        if has_matching_auto_response {
+            return Ok(false);
+        }
+
+        self.queue_thread_auto_response_suggestion(
+            thread_id,
+            &participant.agent_id,
+            source_message_timestamp,
+        )
+        .await?;
+        let state_changed = self
+            .mark_thread_participant_observed_visible_message(
+                thread_id,
+                &participant.agent_id,
+                source_message_timestamp,
+            )
+            .await;
+        if state_changed {
+            self.persist_thread_by_id(thread_id).await;
+        }
+        Ok(true)
+    }
+
+    async fn queue_thread_participant_suggestion_entry(
+        &self,
+        thread_id: &str,
+        target_agent_id: &str,
+        instruction: &str,
+        force_send: bool,
+        suggestion_kind: ThreadParticipantSuggestionKind,
+        auto_send_at: Option<u64>,
+        source_message_timestamp: Option<u64>,
+    ) -> Result<ThreadParticipantSuggestion> {
         if !self.threads.read().await.contains_key(thread_id) {
             anyhow::bail!("thread not found: {thread_id}");
         }
@@ -574,10 +742,13 @@ impl AgentEngine {
             target_agent_id: agent_id,
             target_agent_name: agent_name,
             instruction: trimmed_instruction.to_string(),
+            suggestion_kind,
             force_send,
             status: ThreadParticipantSuggestionStatus::Queued,
             created_at: now,
             updated_at: now,
+            auto_send_at,
+            source_message_timestamp,
             error: None,
         };
 
@@ -757,14 +928,27 @@ impl AgentEngine {
             .find(|entry| entry.id == suggestion_id)
             .ok_or_else(|| anyhow::anyhow!("participant suggestion not found: {suggestion_id}"))?;
 
-        match self
-            .append_visible_thread_participant_message(
-                thread_id,
-                &suggestion.target_agent_id,
-                &suggestion.instruction,
-            )
-            .await
-        {
+        let send_result = match suggestion.suggestion_kind {
+            ThreadParticipantSuggestionKind::PreparedMessage => {
+                self.append_visible_thread_participant_message(
+                    thread_id,
+                    &suggestion.target_agent_id,
+                    &suggestion.instruction,
+                )
+                .await
+            }
+            ThreadParticipantSuggestionKind::AutoResponse => {
+                self.send_visible_thread_participant_message(
+                    thread_id,
+                    &suggestion.target_agent_id,
+                    None,
+                    &suggestion.instruction,
+                )
+                .await
+            }
+        };
+
+        match send_result {
             Ok(()) => {
                 let _ = self
                     .dismiss_thread_participant_suggestion(thread_id, suggestion_id)
@@ -784,8 +968,10 @@ impl AgentEngine {
                         }),
                     )
                     .await;
-                self.continue_thread_after_participant_post_or_notice(thread_id)
-                    .await;
+                if suggestion.suggestion_kind == ThreadParticipantSuggestionKind::PreparedMessage {
+                    self.continue_thread_after_participant_post_or_notice(thread_id)
+                        .await;
+                }
                 Ok(true)
             }
             Err(error) => {
@@ -939,6 +1125,9 @@ impl AgentEngine {
                     .filter(|participant| participant.status == ThreadParticipantStatus::Active)
                     .map(|participant| participant.agent_id)
                     .collect::<HashSet<_>>();
+                let current_auto_response_source = self
+                    .latest_visible_main_agent_message_timestamp_for_auto_response(thread_id)
+                    .await;
                 let mut stale_suggestion_ids = Vec::new();
                 let next_suggestion = self
                     .list_thread_participant_suggestions(thread_id)
@@ -951,14 +1140,26 @@ impl AgentEngine {
                         let target_is_active = active_participant_ids.iter().any(|agent_id| {
                             agent_id.eq_ignore_ascii_case(&suggestion.target_agent_id)
                         });
+                        let stale_auto_response = suggestion.suggestion_kind
+                            == ThreadParticipantSuggestionKind::AutoResponse
+                            && suggestion.source_message_timestamp != current_auto_response_source;
                         let looks_like_no_suggestion = crate::agent::thread_participant_runner::participant_response_is_no_suggestion(
                             &suggestion.instruction,
                         ) || crate::agent::thread_participant_runner::parse_participant_suggestion_response(
                             &suggestion.instruction,
                         )
                         .is_none();
-                        if !target_is_active || looks_like_no_suggestion {
+                        if !target_is_active
+                            || stale_auto_response
+                            || (suggestion.suggestion_kind
+                                == ThreadParticipantSuggestionKind::PreparedMessage
+                                && looks_like_no_suggestion)
+                        {
                             stale_suggestion_ids.push(suggestion.id.clone());
+                            return false;
+                        }
+                        if suggestion.suggestion_kind == ThreadParticipantSuggestionKind::AutoResponse
+                        {
                             return false;
                         }
                         true
@@ -1038,6 +1239,7 @@ impl AgentEngine {
                 deactivated_at: None,
                 last_contribution_at: None,
                 last_observed_visible_message_at: None,
+                always_auto_response: false,
             };
             entry.push(state.clone());
             state
@@ -1148,6 +1350,27 @@ impl AgentEngine {
         action: &str,
         instruction: Option<&str>,
     ) -> Result<()> {
+        if action.trim().eq_ignore_ascii_case("auto_response_always") {
+            let _ = self
+                .set_thread_participant_always_auto_response(thread_id, target_agent_id, true)
+                .await?;
+            let _ = self
+                .request_thread_auto_response_suggestion(thread_id, target_agent_id)
+                .await?;
+            return Ok(());
+        }
+        if action.trim().eq_ignore_ascii_case("auto_response_disable") {
+            let _ = self
+                .set_thread_participant_always_auto_response(thread_id, target_agent_id, false)
+                .await?;
+            return Ok(());
+        }
+        if action.trim().eq_ignore_ascii_case("auto_response") {
+            let _ = self
+                .request_thread_auto_response_suggestion(thread_id, target_agent_id)
+                .await?;
+            return Ok(());
+        }
         if is_participant_stop_action(action) {
             let _ = self
                 .deactivate_thread_participant(thread_id, target_agent_id)

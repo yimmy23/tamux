@@ -68,7 +68,9 @@ async fn load_graph_backed_skill_scores(
     }
 
     let intent_node_id = format!("intent:{}", trimmed.to_ascii_lowercase());
-    let neighbors = history.list_memory_graph_neighbors(&intent_node_id, 64).await?;
+    let neighbors = history
+        .list_memory_graph_neighbors(&intent_node_id, 64)
+        .await?;
     Ok(accumulate_graph_skill_scores(neighbors))
 }
 

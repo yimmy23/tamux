@@ -280,6 +280,55 @@ pub(super) fn chat_action_confirm_button_bounds(area: Rect) -> Option<(Rect, Rec
     Some((confirm, cancel))
 }
 
+pub(super) fn auto_response_button_bounds(
+    area: Rect,
+    countdown_secs: u64,
+) -> Option<(Rect, Rect, Rect)> {
+    use ratatui::widgets::{Block, BorderType, Borders};
+
+    if area.width < 24 || area.height < 4 {
+        return None;
+    }
+
+    let inner = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .inner(area);
+    let prompt_row_y = inner.y.saturating_add(1);
+    if prompt_row_y >= inner.y.saturating_add(inner.height) {
+        return None;
+    }
+
+    let yes_label = format!("[Yes {}s]", countdown_secs);
+    let no_label = "[No]";
+    let always_label = "[Always for this thread]";
+    let yes_width = yes_label.chars().count() as u16;
+    let no_width = no_label.chars().count() as u16;
+    let always_width = always_label.chars().count() as u16;
+    let total_width = yes_width
+        .saturating_add(1)
+        .saturating_add(no_width)
+        .saturating_add(1)
+        .saturating_add(always_width);
+    let start_x = inner
+        .x
+        .saturating_add(inner.width.saturating_sub(total_width) / 2);
+    let yes = Rect::new(start_x, prompt_row_y, yes_width, 1);
+    let no = Rect::new(
+        yes.x.saturating_add(yes.width).saturating_add(1),
+        prompt_row_y,
+        no_width,
+        1,
+    );
+    let always = Rect::new(
+        no.x.saturating_add(no.width).saturating_add(1),
+        prompt_row_y,
+        always_width,
+        1,
+    );
+    Some((yes, no, always))
+}
+
 pub(super) fn render_chat_action_confirm_modal(
     frame: &mut Frame,
     area: Rect,

@@ -47,6 +47,7 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
                 updated_at: participant.updated_at,
                 deactivated_at: participant.deactivated_at,
                 last_contribution_at: participant.last_contribution_at,
+                always_auto_response: participant.always_auto_response,
             })
             .collect(),
         queued_participant_suggestions: t
@@ -57,10 +58,13 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
                 target_agent_id: suggestion.target_agent_id,
                 target_agent_name: suggestion.target_agent_name,
                 instruction: suggestion.instruction,
+                suggestion_kind: suggestion.suggestion_kind,
                 force_send: suggestion.force_send,
                 status: suggestion.status,
                 created_at: suggestion.created_at,
                 updated_at: suggestion.updated_at,
+                auto_send_at: suggestion.auto_send_at,
+                source_message_timestamp: suggestion.source_message_timestamp,
                 error: suggestion.error,
             })
             .collect(),

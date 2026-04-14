@@ -203,10 +203,13 @@ async fn get_thread_includes_failed_participant_suggestions() {
                 target_agent_id: "weles".to_string(),
                 target_agent_name: "Weles".to_string(),
                 instruction: "verify claims".to_string(),
+                suggestion_kind: crate::agent::ThreadParticipantSuggestionKind::PreparedMessage,
                 force_send: false,
                 status: crate::agent::ThreadParticipantSuggestionStatus::Failed,
                 created_at: 10,
                 updated_at: 11,
+                auto_send_at: None,
+                source_message_timestamp: None,
                 error: Some("provider unavailable".to_string()),
             }],
         );

@@ -241,6 +241,51 @@ impl TuiModel {
                             .conversation_participant_summary_area()
                             .is_some_and(|rect| contains_mouse(rect, mouse))
                         {
+                            if let Some((yes_rect, no_rect, always_rect)) = self
+                                .active_auto_response_countdown_secs()
+                                .and_then(|countdown_secs| {
+                                    render_helpers::auto_response_button_bounds(
+                                        self.conversation_participant_summary_area()?,
+                                        countdown_secs,
+                                    )
+                                })
+                            {
+                                let pos = Position::new(mouse.column, mouse.row);
+                                let in_yes = pos.y == yes_rect.y
+                                    && pos.x >= yes_rect.x
+                                    && pos.x < yes_rect.x.saturating_add(yes_rect.width);
+                                let in_no = pos.y == no_rect.y
+                                    && pos.x >= no_rect.x
+                                    && pos.x < no_rect.x.saturating_add(no_rect.width);
+                                let in_always = pos.y == always_rect.y
+                                    && pos.x >= always_rect.x
+                                    && pos.x < always_rect.x.saturating_add(always_rect.width);
+                                if in_yes {
+                                    self.auto_response_selection = AutoResponseActionSelection::Yes;
+                                    let _ = self.execute_active_auto_response_action(
+                                        AutoResponseActionSelection::Yes,
+                                    );
+                                    self.input.set_mode(input::InputMode::Insert);
+                                    return;
+                                }
+                                if in_no {
+                                    self.auto_response_selection = AutoResponseActionSelection::No;
+                                    let _ = self.execute_active_auto_response_action(
+                                        AutoResponseActionSelection::No,
+                                    );
+                                    self.input.set_mode(input::InputMode::Insert);
+                                    return;
+                                }
+                                if in_always {
+                                    self.auto_response_selection =
+                                        AutoResponseActionSelection::Always;
+                                    let _ = self.execute_active_auto_response_action(
+                                        AutoResponseActionSelection::Always,
+                                    );
+                                    self.input.set_mode(input::InputMode::Insert);
+                                    return;
+                                }
+                            }
                             self.open_thread_participants_modal();
                             self.input.set_mode(input::InputMode::Insert);
                             return;

@@ -273,6 +273,7 @@ fn participants_modal_mouse_wheel_scrolls_body() {
                 status: "active".to_string(),
                 last_contribution_at: None,
                 deactivated_at: None,
+                always_auto_response: false,
                 created_at: idx,
                 updated_at: idx,
             })

@@ -144,6 +144,53 @@ impl TuiModel {
                 .chat
                 .retry_status()
                 .is_some_and(|status| matches!(status.phase, chat::RetryPhase::Waiting));
+        let auto_response_waiting = matches!(self.main_pane_view, MainPaneView::Conversation)
+            && self.active_auto_response_suggestion().is_some()
+            && matches!(self.focus, FocusArea::Chat | FocusArea::Input);
+        if auto_response_waiting {
+            let remaining_secs = self.active_auto_response_countdown_secs().unwrap_or(0);
+            match code {
+                KeyCode::Left | KeyCode::Char('h') => {
+                    self.auto_response_selection = match self.auto_response_selection {
+                        AutoResponseActionSelection::Yes => AutoResponseActionSelection::Yes,
+                        AutoResponseActionSelection::No => AutoResponseActionSelection::Yes,
+                        AutoResponseActionSelection::Always => AutoResponseActionSelection::No,
+                    };
+                    self.status_line = match self.auto_response_selection {
+                        AutoResponseActionSelection::Yes => {
+                            format!("Auto response: Yes in {}s", remaining_secs)
+                        }
+                        AutoResponseActionSelection::No => "Auto response: No".to_string(),
+                        AutoResponseActionSelection::Always => {
+                            "Auto response: Always for this thread".to_string()
+                        }
+                    };
+                    return false;
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    self.auto_response_selection = match self.auto_response_selection {
+                        AutoResponseActionSelection::Yes => AutoResponseActionSelection::No,
+                        AutoResponseActionSelection::No => AutoResponseActionSelection::Always,
+                        AutoResponseActionSelection::Always => AutoResponseActionSelection::Always,
+                    };
+                    self.status_line = match self.auto_response_selection {
+                        AutoResponseActionSelection::Yes => {
+                            format!("Auto response: Yes in {}s", remaining_secs)
+                        }
+                        AutoResponseActionSelection::No => "Auto response: No".to_string(),
+                        AutoResponseActionSelection::Always => {
+                            "Auto response: Always for this thread".to_string()
+                        }
+                    };
+                    return false;
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    let _ = self.execute_active_auto_response_action(self.auto_response_selection);
+                    return false;
+                }
+                _ => {}
+            }
+        }
         let retry_wait_accepts_keyboard =
             retry_waiting && matches!(self.focus, FocusArea::Chat | FocusArea::Input);
         if retry_wait_accepts_keyboard {

@@ -243,6 +243,7 @@ fn slash_participants_opens_modal_with_thread_participant_sections() {
                 updated_at: 2,
                 deactivated_at: None,
                 last_contribution_at: Some(3),
+                always_auto_response: false,
             },
             crate::wire::ThreadParticipantState {
                 agent_id: "rarog".to_string(),
@@ -253,6 +254,7 @@ fn slash_participants_opens_modal_with_thread_participant_sections() {
                 updated_at: 2,
                 deactivated_at: Some(4),
                 last_contribution_at: None,
+                always_auto_response: false,
             },
         ],
         queued_participant_suggestions: vec![crate::wire::ThreadParticipantSuggestion {
@@ -260,10 +262,13 @@ fn slash_participants_opens_modal_with_thread_participant_sections() {
             target_agent_id: "weles".to_string(),
             target_agent_name: "Weles".to_string(),
             instruction: "check the final answer".to_string(),
+            suggestion_kind: "prepared_message".to_string(),
             force_send: false,
             status: "queued".to_string(),
             created_at: 5,
             updated_at: 5,
+            auto_send_at: None,
+            source_message_timestamp: None,
             error: None,
         }],
         ..Default::default()
@@ -2017,6 +2022,7 @@ fn clicking_participant_summary_opens_thread_participants_modal() {
             updated_at: 2,
             deactivated_at: None,
             last_contribution_at: Some(3),
+            always_auto_response: false,
         }],
         ..Default::default()
     })));

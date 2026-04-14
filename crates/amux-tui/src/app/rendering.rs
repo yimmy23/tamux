@@ -156,9 +156,16 @@ impl TuiModel {
         }
 
         let chat_area = self.pane_layout().chat;
+        let summary_height = if self.active_auto_response_suggestion().is_some()
+            || self.active_always_auto_response_participant().is_some()
+        {
+            4
+        } else {
+            3
+        };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(3), Constraint::Min(1)])
+            .constraints([Constraint::Length(summary_height), Constraint::Min(1)])
             .split(chat_area);
         Some(chunks[0])
     }
@@ -434,6 +441,8 @@ impl TuiModel {
             return;
         }
 
+        let has_auto_response = self.active_auto_response_suggestion().is_some()
+            || self.active_always_auto_response_participant().is_some();
         let participant_summary = self.chat.active_thread().and_then(|thread| {
             let active: Vec<&str> = thread
                 .thread_participants
@@ -446,8 +455,16 @@ impl TuiModel {
                 .iter()
                 .filter(|participant| !participant.status.eq_ignore_ascii_case("active"))
                 .count();
-            let queued_count = thread.queued_participant_suggestions.len();
-            if active.is_empty() && inactive_count == 0 && queued_count == 0 {
+            let queued_count = thread
+                .queued_participant_suggestions
+                .iter()
+                .filter(|suggestion| {
+                    !suggestion
+                        .suggestion_kind
+                        .eq_ignore_ascii_case("auto_response")
+                })
+                .count();
+            if active.is_empty() && inactive_count == 0 && queued_count == 0 && !has_auto_response {
                 return None;
             }
 
@@ -463,14 +480,68 @@ impl TuiModel {
                 active_summary, inactive_count, queued_count
             ))
         });
+        let auto_response_countdown_secs = self.active_auto_response_countdown_secs();
+        let always_auto_response_participant = self.active_always_auto_response_participant();
 
         let area = if let Some(summary) = participant_summary.as_deref() {
+            let summary_height = if auto_response_countdown_secs.is_some()
+                || always_auto_response_participant.is_some()
+            {
+                4
+            } else {
+                3
+            };
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Length(3), Constraint::Min(1)])
+                .constraints([Constraint::Length(summary_height), Constraint::Min(1)])
                 .split(area);
+            let mut lines = vec![ratatui::text::Line::from(ratatui::text::Span::styled(
+                summary.to_string(),
+                self.theme.fg_dim,
+            ))];
+            if let Some(countdown_secs) = auto_response_countdown_secs {
+                let yes_style = if self.auto_response_selection == AutoResponseActionSelection::Yes
+                {
+                    self.theme.accent_primary
+                } else {
+                    self.theme.fg_dim
+                };
+                let no_style = if self.auto_response_selection == AutoResponseActionSelection::No {
+                    self.theme.accent_danger
+                } else {
+                    self.theme.fg_dim
+                };
+                let always_style =
+                    if self.auto_response_selection == AutoResponseActionSelection::Always {
+                        self.theme.accent_secondary
+                    } else {
+                        self.theme.fg_dim
+                    };
+                lines.push(ratatui::text::Line::from(vec![
+                    ratatui::text::Span::styled("Auto response in ", self.theme.fg_active),
+                    ratatui::text::Span::styled(
+                        format!("{countdown_secs}s"),
+                        self.theme.accent_primary,
+                    ),
+                    ratatui::text::Span::styled("  ", self.theme.fg_dim),
+                    ratatui::text::Span::styled(format!("[Yes {}s]", countdown_secs), yes_style),
+                    ratatui::text::Span::styled(" ", self.theme.fg_dim),
+                    ratatui::text::Span::styled("[No]", no_style),
+                    ratatui::text::Span::styled(" ", self.theme.fg_dim),
+                    ratatui::text::Span::styled("[Always for this thread]", always_style),
+                ]));
+            } else if let Some(participant) = always_auto_response_participant {
+                lines.push(ratatui::text::Line::from(vec![
+                    ratatui::text::Span::styled("Auto response: ", self.theme.fg_active),
+                    ratatui::text::Span::styled("always ", self.theme.accent_secondary),
+                    ratatui::text::Span::styled(
+                        participant.agent_name.clone(),
+                        self.theme.accent_primary,
+                    ),
+                ]));
+            }
             frame.render_widget(
-                ratatui::widgets::Paragraph::new(summary.to_string())
+                ratatui::widgets::Paragraph::new(lines)
                     .block(
                         Block::default()
                             .title(" THREAD PARTICIPANTS ")

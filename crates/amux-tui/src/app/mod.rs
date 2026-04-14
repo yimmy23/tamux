@@ -245,6 +245,13 @@ impl QueuedPromptAction {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AutoResponseActionSelection {
+    Yes,
+    No,
+    Always,
+}
+
 #[derive(Clone, Debug)]
 struct OperatorProfileQuestionVm {
     session_id: String,
@@ -345,6 +352,7 @@ pub struct TuiModel {
     pending_chat_action_confirm: Option<PendingChatActionConfirm>,
     chat_action_confirm_accept_selected: bool,
     retry_wait_start_selected: bool,
+    auto_response_selection: AutoResponseActionSelection,
     held_key_modifiers: KeyModifiers,
 
     // Pending file attachments (prepended to next submitted message)
@@ -353,6 +361,7 @@ pub struct TuiModel {
     // Queue of prompts submitted while tool execution is still in flight.
     queued_prompts: Vec<QueuedPrompt>,
     queued_prompt_action: QueuedPromptAction,
+    hidden_auto_response_suggestion_ids: std::collections::HashSet<String>,
 
     operator_profile: OperatorProfileOnboardingState,
 

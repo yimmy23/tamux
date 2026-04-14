@@ -375,6 +375,7 @@ fn participant_authored_messages_render_with_at_prefixed_responder_label() {
             updated_at: 1,
             deactivated_at: None,
             last_contribution_at: None,
+            always_auto_response: false,
         }],
         messages: vec![AgentMessage {
             role: MessageRole::Assistant,
@@ -421,6 +422,7 @@ fn different_responders_get_distinct_label_colors() {
             updated_at: 1,
             deactivated_at: None,
             last_contribution_at: None,
+            always_auto_response: false,
         }],
         messages: vec![
             AgentMessage {

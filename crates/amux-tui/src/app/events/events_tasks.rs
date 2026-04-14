@@ -181,6 +181,8 @@ impl TuiModel {
             .iter()
             .map(|suggestion| suggestion.id.clone())
             .collect::<std::collections::HashSet<_>>();
+        self.hidden_auto_response_suggestion_ids
+            .retain(|suggestion_id| live_suggestion_ids.contains(suggestion_id));
         let thread_id = thread.id.clone();
         let should_preserve_prepend_anchor = self.chat.active_thread().is_some_and(|existing| {
             let incoming_total = thread.total_message_count.max(thread.messages.len());
@@ -222,6 +224,9 @@ impl TuiModel {
         self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
             conversion::convert_thread(thread),
         ));
+        if self.active_auto_response_suggestion().is_some() {
+            self.auto_response_selection = AutoResponseActionSelection::Yes;
+        }
         self.sync_participant_queued_prompts_for_thread(&thread_id, &live_suggestion_ids);
         if should_preserve_prepend_anchor {
             self.chat.preserve_prepend_scroll_anchor(preserved_scroll);
@@ -232,7 +237,9 @@ impl TuiModel {
         }
         self.sync_pending_approvals_from_tasks();
         self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
-        self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));
+        self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id.clone()));
+        let _ = self.maybe_request_auto_response_for_open_thread(&thread_id);
+        let _ = self.maybe_auto_send_always_auto_response();
     }
 
     pub(in crate::app) fn handle_thread_created_event(

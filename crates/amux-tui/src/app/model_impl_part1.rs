@@ -54,10 +54,12 @@ impl TuiModel {
             pending_chat_action_confirm: None,
             chat_action_confirm_accept_selected: true,
             retry_wait_start_selected: false,
+            auto_response_selection: AutoResponseActionSelection::Yes,
             held_key_modifiers: KeyModifiers::NONE,
             attachments: Vec::new(),
             queued_prompts: Vec::new(),
             queued_prompt_action: QueuedPromptAction::SendNow,
+            hidden_auto_response_suggestion_ids: std::collections::HashSet::new(),
             operator_profile: OperatorProfileOnboardingState::default(),
             cancelled_thread_id: None,
             pending_new_thread_target_agent: None,
@@ -101,6 +103,183 @@ impl TuiModel {
 
     fn send_daemon_command(&self, command: DaemonCommand) {
         let _ = self.daemon_cmd_tx.send(command);
+    }
+
+    pub(crate) fn active_always_auto_response_participant(
+        &self,
+    ) -> Option<&crate::state::chat::ThreadParticipantState> {
+        self.chat.active_thread()?.thread_participants.iter().find(|participant| {
+            participant.status.eq_ignore_ascii_case("active") && participant.always_auto_response
+        })
+    }
+
+    pub(crate) fn queued_active_auto_response_suggestion(
+        &self,
+    ) -> Option<&crate::state::chat::ThreadParticipantSuggestionVm> {
+        let thread = self.chat.active_thread()?;
+        thread
+            .queued_participant_suggestions
+            .iter()
+            .find(|suggestion| {
+                suggestion.suggestion_kind.eq_ignore_ascii_case("auto_response")
+                    && suggestion.status.eq_ignore_ascii_case("queued")
+                    && !self.hidden_auto_response_suggestion_ids.contains(&suggestion.id)
+            })
+    }
+
+    pub(crate) fn active_auto_response_suggestion(
+        &self,
+    ) -> Option<&crate::state::chat::ThreadParticipantSuggestionVm> {
+        if self.assistant_busy() || self.active_always_auto_response_participant().is_some() {
+            return None;
+        }
+        self.queued_active_auto_response_suggestion()
+    }
+
+    pub(crate) fn active_auto_response_countdown_secs(&self) -> Option<u64> {
+        let suggestion = self.active_auto_response_suggestion()?;
+        let due_at = suggestion.auto_send_at?;
+        let now = Self::current_unix_ms().max(0) as u64;
+        Some(due_at.saturating_sub(now).div_ceil(1000))
+    }
+
+    pub(crate) fn execute_active_auto_response_action(
+        &mut self,
+        selection: AutoResponseActionSelection,
+    ) -> bool {
+        let Some(suggestion) = self.queued_active_auto_response_suggestion().cloned() else {
+            return false;
+        };
+        let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
+            return false;
+        };
+        self.hidden_auto_response_suggestion_ids
+            .insert(suggestion.id.clone());
+        self.auto_response_selection = AutoResponseActionSelection::Yes;
+        match selection {
+            AutoResponseActionSelection::Yes => {
+                self.send_daemon_command(DaemonCommand::SendParticipantSuggestion {
+                    thread_id,
+                    suggestion_id: suggestion.id,
+                });
+                self.status_line = format!(
+                    "Auto response requested from {}",
+                    suggestion.target_agent_name
+                );
+            }
+            AutoResponseActionSelection::No => {
+                self.send_daemon_command(DaemonCommand::DismissParticipantSuggestion {
+                    thread_id,
+                    suggestion_id: suggestion.id,
+                });
+                self.status_line = "Auto response dismissed".to_string();
+            }
+            AutoResponseActionSelection::Always => {
+                self.send_daemon_command(DaemonCommand::ThreadParticipantCommand {
+                    thread_id: thread_id.clone(),
+                    target_agent_id: suggestion.target_agent_id.clone(),
+                    action: "auto_response_always".to_string(),
+                    instruction: None,
+                    session_id: None,
+                });
+                self.send_daemon_command(DaemonCommand::SendParticipantSuggestion {
+                    thread_id,
+                    suggestion_id: suggestion.id,
+                });
+                self.status_line =
+                    format!("Auto response always enabled for {}", suggestion.target_agent_name);
+            }
+        }
+        true
+    }
+
+    fn latest_visible_main_agent_message_timestamp_for_auto_response(
+        &self,
+    ) -> Option<(u64, String)> {
+        let thread = self.chat.active_thread()?;
+        let latest_message = thread.messages.last()?;
+        if latest_message.role != chat::MessageRole::Assistant {
+            return None;
+        }
+        if latest_message.content.trim().is_empty() {
+            return None;
+        }
+        let authored_by_participant =
+            latest_message.author_agent_id.as_ref().is_some_and(|author_id| {
+                thread.thread_participants.iter().any(|participant| {
+                    participant.agent_id.eq_ignore_ascii_case(author_id)
+                })
+            });
+        (!authored_by_participant).then(|| {
+            (
+                latest_message.timestamp,
+                latest_message.content.trim().to_string(),
+            )
+        })
+    }
+
+    fn active_auto_response_request_target(
+        &self,
+    ) -> Option<&crate::state::chat::ThreadParticipantState> {
+        let thread = self.chat.active_thread()?;
+        if let Some(always_participant) = self.active_always_auto_response_participant() {
+            return Some(always_participant);
+        }
+        thread
+            .thread_participants
+            .iter()
+            .filter(|participant| participant.status.eq_ignore_ascii_case("active"))
+            .max_by(|left, right| {
+                left.last_contribution_at
+                    .unwrap_or(0)
+                    .cmp(&right.last_contribution_at.unwrap_or(0))
+                    .then_with(|| left.updated_at.cmp(&right.updated_at))
+                    .then_with(|| left.created_at.cmp(&right.created_at))
+                    .then_with(|| left.agent_id.cmp(&right.agent_id))
+            })
+    }
+
+    pub(crate) fn maybe_request_auto_response_for_open_thread(&mut self, thread_id: &str) -> bool {
+        if self.assistant_busy() || self.chat.active_thread_id() != Some(thread_id) {
+            return false;
+        }
+        let Some((source_message_timestamp, _)) =
+            self.latest_visible_main_agent_message_timestamp_for_auto_response()
+        else {
+            return false;
+        };
+        let Some(target_participant) = self.active_auto_response_request_target() else {
+            return false;
+        };
+        let Some(thread) = self.chat.active_thread() else {
+            return false;
+        };
+        let has_matching_suggestion = thread.queued_participant_suggestions.iter().any(|suggestion| {
+            suggestion.suggestion_kind.eq_ignore_ascii_case("auto_response")
+                && suggestion.status.eq_ignore_ascii_case("queued")
+                && suggestion
+                    .target_agent_id
+                    .eq_ignore_ascii_case(&target_participant.agent_id)
+                && suggestion.source_message_timestamp == Some(source_message_timestamp)
+        });
+        if has_matching_suggestion {
+            return false;
+        }
+        self.send_daemon_command(DaemonCommand::ThreadParticipantCommand {
+            thread_id: thread_id.to_string(),
+            target_agent_id: target_participant.agent_id.clone(),
+            action: "auto_response".to_string(),
+            instruction: None,
+            session_id: None,
+        });
+        true
+    }
+
+    pub(crate) fn maybe_auto_send_always_auto_response(&mut self) -> bool {
+        if self.assistant_busy() || self.active_always_auto_response_participant().is_none() {
+            return false;
+        }
+        self.execute_active_auto_response_action(AutoResponseActionSelection::Yes)
     }
 
     pub(crate) fn open_status_modal_loading(&mut self) {

@@ -186,10 +186,13 @@ fn participant_suggestion_events_forward_for_subscribed_thread() {
             target_agent_id: "weles".to_string(),
             target_agent_name: "Weles".to_string(),
             instruction: "Check claim".to_string(),
+            suggestion_kind: crate::agent::ThreadParticipantSuggestionKind::PreparedMessage,
             force_send: false,
             status: crate::agent::ThreadParticipantSuggestionStatus::Queued,
             created_at: 10,
             updated_at: 10,
+            auto_send_at: None,
+            source_message_timestamp: None,
             error: None,
         },
     };

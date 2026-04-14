@@ -32,6 +32,7 @@ pub struct ThreadParticipantState {
     pub updated_at: u64,
     pub deactivated_at: Option<u64>,
     pub last_contribution_at: Option<u64>,
+    pub always_auto_response: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,10 +41,13 @@ pub struct ThreadParticipantSuggestionVm {
     pub target_agent_id: String,
     pub target_agent_name: String,
     pub instruction: String,
+    pub suggestion_kind: String,
     pub force_send: bool,
     pub status: String,
     pub created_at: u64,
     pub updated_at: u64,
+    pub auto_send_at: Option<u64>,
+    pub source_message_timestamp: Option<u64>,
     pub error: Option<String>,
 }
 
