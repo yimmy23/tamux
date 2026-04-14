@@ -564,6 +564,12 @@ pub struct SkillVariantConsultationRecord<'a> {
     pub consulted_at: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct PendingSkillVariantConsultation {
+    pub variant_id: String,
+    pub context_tags: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct MemoryProvenanceRelationship {
     pub related_entry_id: String,

@@ -3,7 +3,9 @@
 //! Skill consultation tracking and outcome attribution.
 
 use super::*;
-use crate::history::{SkillVariantConsultationRecord, SkillVariantRecord};
+use crate::history::{
+    PendingSkillVariantConsultation, SkillVariantConsultationRecord, SkillVariantRecord,
+};
 
 impl AgentEngine {
     pub(super) async fn record_skill_consultation(
@@ -69,7 +71,13 @@ impl AgentEngine {
 
         let mut graph_refs = context_tags
             .iter()
-            .map(|tag| (format!("intent:{}", tag.to_ascii_lowercase()), tag.clone(), "intent_context_tag"))
+            .map(|tag| {
+                (
+                    format!("intent:{}", tag.to_ascii_lowercase()),
+                    tag.clone(),
+                    "intent_context_tag",
+                )
+            })
             .collect::<Vec<_>>();
         graph_refs.push((
             format!("intent:{}", variant.skill_name.to_ascii_lowercase()),
@@ -137,6 +145,15 @@ impl AgentEngine {
         goal_run_id: Option<&str>,
         outcome: &str,
     ) -> usize {
+        let pending_consultations = if outcome.eq_ignore_ascii_case("success") {
+            self.history
+                .list_pending_skill_variant_consultations(thread_id, task_id, goal_run_id)
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         match self
             .history
             .settle_skill_variant_usage(thread_id, task_id, goal_run_id, outcome)
@@ -146,6 +163,10 @@ impl AgentEngine {
                 let _ = self
                     .settle_skill_selection_causal_traces(thread_id, task_id, goal_run_id, outcome)
                     .await;
+                if count > 0 && outcome.eq_ignore_ascii_case("success") {
+                    self.reinforce_skill_consultation_graph_links(&pending_consultations)
+                        .await;
+                }
                 if count > 0 {
                     if let Some(thread_id) = thread_id {
                         let notice_message =
@@ -180,6 +201,56 @@ impl AgentEngine {
                     "failed to settle skill consultations"
                 );
                 0
+            }
+        }
+    }
+
+    async fn reinforce_skill_consultation_graph_links(
+        &self,
+        pending_consultations: &[PendingSkillVariantConsultation],
+    ) {
+        for consultation in pending_consultations {
+            let Some(variant) = self
+                .history
+                .get_skill_variant(&consultation.variant_id)
+                .await
+                .ok()
+                .flatten()
+            else {
+                continue;
+            };
+
+            let skill_node_id = format!("skill:{}", variant.variant_id);
+            let mut graph_refs = consultation
+                .context_tags
+                .iter()
+                .map(|tag| {
+                    (
+                        format!("intent:{}", tag.to_ascii_lowercase()),
+                        "intent_context_tag",
+                    )
+                })
+                .collect::<Vec<_>>();
+            graph_refs.push((
+                format!("intent:{}", variant.skill_name.to_ascii_lowercase()),
+                "intent_skill_lookup",
+            ));
+
+            for (node_id, relation_type) in graph_refs {
+                if let Err(error) = self
+                    .history
+                    .upsert_memory_edge(&node_id, &skill_node_id, relation_type, 1.0, now_millis())
+                    .await
+                {
+                    tracing::warn!(
+                        variant_id = %variant.variant_id,
+                        %node_id,
+                        %skill_node_id,
+                        %relation_type,
+                        error = %error,
+                        "failed to reinforce consultation graph edge"
+                    );
+                }
             }
         }
     }

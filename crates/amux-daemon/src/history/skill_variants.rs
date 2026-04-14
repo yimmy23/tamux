@@ -1,6 +1,40 @@
 use super::*;
 
 impl HistoryStore {
+    pub async fn list_pending_skill_variant_consultations(
+        &self,
+        thread_id: Option<&str>,
+        task_id: Option<&str>,
+        goal_run_id: Option<&str>,
+    ) -> Result<Vec<PendingSkillVariantConsultation>> {
+        let thread_id = thread_id.map(str::to_string);
+        let task_id = task_id.map(str::to_string);
+        let goal_run_id = goal_run_id.map(str::to_string);
+
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT variant_id, context_tags_json FROM skill_variant_usage \
+                 WHERE resolved_at IS NULL AND ( \
+                    (?1 IS NOT NULL AND task_id = ?1) OR \
+                    (?2 IS NOT NULL AND goal_run_id = ?2) OR \
+                    (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3) \
+                 )",
+            )?;
+            let rows = stmt.query_map(params![task_id, goal_run_id, thread_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            let pending = rows
+                .filter_map(|row| row.ok())
+                .map(|(variant_id, context_tags_json)| PendingSkillVariantConsultation {
+                    variant_id,
+                    context_tags: serde_json::from_str::<Vec<String>>(&context_tags_json)
+                        .unwrap_or_default(),
+                })
+                .collect::<Vec<_>>();
+            Ok(pending)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn settle_skill_variant_usage(
         &self,
         thread_id: Option<&str>,

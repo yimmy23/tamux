@@ -2647,6 +2647,252 @@ async fn read_skill_records_graph_links_for_consulted_skill_variant() {
 }
 
 #[tokio::test]
+async fn settled_success_strengthens_skill_consultation_graph_edge() {
+    let root = tempdir().expect("tempdir");
+    let agent_data_dir = root.path().join("agent");
+    fs::create_dir_all(&agent_data_dir).expect("create agent data dir");
+    let skill_path = root
+        .path()
+        .join("skills")
+        .join("generated")
+        .join("systematic-debugging.md");
+    fs::create_dir_all(skill_path.parent().expect("skill directory"))
+        .expect("create skill directory");
+    fs::write(
+        &skill_path,
+        "---\nname: systematic-debugging\ndescription: Debug backend failures systematically.\nkeywords: [debug, backend]\n---\n# Systematic Debugging\n",
+    )
+    .expect("write skill");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let variant = engine
+        .history
+        .register_skill_document(&skill_path)
+        .await
+        .expect("register skill variant");
+    let thread_id = "thread-skill-graph-success-reinforcement";
+    let task_id = "task-skill-graph-success-reinforcement";
+
+    engine
+        .record_skill_consultation(
+            thread_id,
+            Some(task_id),
+            &variant,
+            &["backend".to_string()],
+        )
+        .await;
+
+    let edge_before = engine
+        .history
+        .list_memory_edges_for_node("intent:backend")
+        .await
+        .expect("list graph edges before settle")
+        .into_iter()
+        .find(|edge| {
+            edge.target_node_id == format!("skill:{}", variant.variant_id)
+                || edge.source_node_id == format!("skill:{}", variant.variant_id)
+        })
+        .expect("consultation edge should exist before settle");
+
+    let task = AgentTask {
+        id: task_id.to_string(),
+        title: task_id.to_string(),
+        description: String::new(),
+        status: crate::agent::types::TaskStatus::Queued,
+        priority: crate::agent::types::TaskPriority::Normal,
+        progress: 0,
+        created_at: 0,
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.to_string()),
+        source: "user".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 3,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+    let settled = engine.settle_task_skill_consultations(&task, "success").await;
+    assert_eq!(settled, 1, "expected one settled consultation");
+
+    let edge_after = engine
+        .history
+        .list_memory_edges_for_node("intent:backend")
+        .await
+        .expect("list graph edges after settle")
+        .into_iter()
+        .find(|edge| {
+            edge.target_node_id == format!("skill:{}", variant.variant_id)
+                || edge.source_node_id == format!("skill:{}", variant.variant_id)
+        })
+        .expect("consultation edge should still exist after settle");
+
+    assert!(
+        edge_after.weight > edge_before.weight,
+        "successful settlement should strengthen the consultation graph edge"
+    );
+}
+
+#[tokio::test]
+async fn settled_failure_does_not_strengthen_skill_consultation_graph_edge() {
+    let root = tempdir().expect("tempdir");
+    let agent_data_dir = root.path().join("agent");
+    fs::create_dir_all(&agent_data_dir).expect("create agent data dir");
+    let skill_path = root
+        .path()
+        .join("skills")
+        .join("generated")
+        .join("systematic-debugging.md");
+    fs::create_dir_all(skill_path.parent().expect("skill directory"))
+        .expect("create skill directory");
+    fs::write(
+        &skill_path,
+        "---\nname: systematic-debugging\ndescription: Debug backend failures systematically.\nkeywords: [debug, backend]\n---\n# Systematic Debugging\n",
+    )
+    .expect("write skill");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let variant = engine
+        .history
+        .register_skill_document(&skill_path)
+        .await
+        .expect("register skill variant");
+    let thread_id = "thread-skill-graph-failure-reinforcement";
+    let task_id = "task-skill-graph-failure-reinforcement";
+
+    engine
+        .record_skill_consultation(
+            thread_id,
+            Some(task_id),
+            &variant,
+            &["backend".to_string()],
+        )
+        .await;
+
+    let edge_before = engine
+        .history
+        .list_memory_edges_for_node("intent:backend")
+        .await
+        .expect("list graph edges before settle")
+        .into_iter()
+        .find(|edge| {
+            edge.target_node_id == format!("skill:{}", variant.variant_id)
+                || edge.source_node_id == format!("skill:{}", variant.variant_id)
+        })
+        .expect("consultation edge should exist before settle");
+
+    let task = AgentTask {
+        id: task_id.to_string(),
+        title: task_id.to_string(),
+        description: String::new(),
+        status: crate::agent::types::TaskStatus::Queued,
+        priority: crate::agent::types::TaskPriority::Normal,
+        progress: 0,
+        created_at: 0,
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.to_string()),
+        source: "user".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 3,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+    let settled = engine.settle_task_skill_consultations(&task, "failure").await;
+    assert_eq!(settled, 1, "expected one settled consultation");
+
+    let edge_after = engine
+        .history
+        .list_memory_edges_for_node("intent:backend")
+        .await
+        .expect("list graph edges after settle")
+        .into_iter()
+        .find(|edge| {
+            edge.target_node_id == format!("skill:{}", variant.variant_id)
+                || edge.source_node_id == format!("skill:{}", variant.variant_id)
+        })
+        .expect("consultation edge should still exist after settle");
+
+    assert_eq!(
+        edge_after.weight, edge_before.weight,
+        "failed settlement should not strengthen the consultation graph edge"
+    );
+}
+
+#[tokio::test]
 async fn list_tools_tool_returns_paginated_catalog() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
