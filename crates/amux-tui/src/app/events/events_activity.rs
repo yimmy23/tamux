@@ -392,7 +392,7 @@ impl TuiModel {
     ) {
         if let Some(visible_thread_id) = self.clear_participant_playground_activity(&thread_id) {
             if self.chat.active_thread_id() == Some(visible_thread_id.as_str()) {
-                self.request_latest_thread_page(visible_thread_id, false);
+                self.request_authoritative_thread_refresh(visible_thread_id, false);
             }
             return;
         }
@@ -427,7 +427,7 @@ impl TuiModel {
             provider_final_result_json,
         });
         if self.thread_needs_authoritative_refresh_after_done(&thread_id) {
-            self.request_latest_thread_page(thread_id, false);
+            self.request_authoritative_thread_refresh(thread_id, false);
         }
 
         self.dispatch_next_queued_prompt_if_ready();

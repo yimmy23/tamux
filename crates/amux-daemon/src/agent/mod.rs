@@ -119,8 +119,8 @@ use causal_traces::{
     OutcomeSummary,
 };
 use compaction::*;
-use consolidation::{DEFAULT_HALF_LIFE_HOURS, DEFAULT_IDLE_THRESHOLD_MS};
 pub(crate) use config::ConfigRuntimeProjection;
+use consolidation::{DEFAULT_HALF_LIFE_HOURS, DEFAULT_IDLE_THRESHOLD_MS};
 pub(crate) use explanation::*;
 pub(crate) use gateway_health::GatewayConnectionStatus as RuntimeGatewayConnectionStatus;
 use goal_parsing::*;
@@ -185,11 +185,11 @@ pub use engine::*;
 #[cfg(test)]
 pub(crate) use provider_auth_store::provider_auth_test_env_lock;
 pub use task_prompt::load_config_from_history;
+pub(crate) use whatsapp_link::transport::PersistedState as WhatsAppPersistedState;
 pub(crate) use whatsapp_link::{
     clear_persisted_provider_state, load_persisted_provider_state,
     persist_transport_session_update, save_persisted_provider_state, WHATSAPP_LINK_PROVIDER_ID,
 };
-pub(crate) use whatsapp_link::transport::PersistedState as WhatsAppPersistedState;
 #[allow(unused_imports)]
 pub(crate) use whatsapp_native::{
     disconnect_native_whatsapp_client, send_native_whatsapp_message, start_whatsapp_link_native,

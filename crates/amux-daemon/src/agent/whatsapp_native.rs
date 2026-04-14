@@ -29,11 +29,11 @@ pub(crate) use helpers::{
     should_enqueue_from_me_whatsapp_message, tamux_self_chat_prefix, whatsapp_native_store_path,
     WhatsAppEnqueueDecision,
 };
+pub(super) use helpers::{clear_logged_out_whatsapp_session, now_millis_local};
 use helpers::{
     format_outbound_whatsapp_text, is_whatsapp_cursor_newer, log_whatsapp_allowlist_suppression,
     mark_whatsapp_replay_active_if_cursors, tamux_device_props,
 };
-pub(super) use helpers::{clear_logged_out_whatsapp_session, now_millis_local};
 
 pub(crate) async fn start_whatsapp_link_native(agent: Arc<AgentEngine>) -> Result<()> {
     let store_path = whatsapp_native_store_path(&agent.data_dir);

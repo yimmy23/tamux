@@ -12,6 +12,8 @@ mod widgets;
 mod wire;
 
 use std::io;
+use std::io::Write;
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -32,6 +34,9 @@ use tracing_subscriber::EnvFilter;
 use crate::app::TuiModel;
 use crate::client::DaemonClient;
 use crate::state::DaemonCommand;
+
+const MAX_TRANSIENT_TERMINAL_ERRORS: usize = 5;
+const TERMINAL_ERROR_RETRY_DELAY_MS: u64 = 150;
 
 fn build_log_filter(
     tui_log: Option<&str>,
@@ -54,6 +59,97 @@ fn parse_log_filter(value: &str) -> Option<EnvFilter> {
     EnvFilter::try_new(trimmed).ok()
 }
 
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
+}
+
+fn should_retry_terminal_error(consecutive_errors: usize) -> bool {
+    consecutive_errors < MAX_TRANSIENT_TERMINAL_ERRORS
+}
+
+fn best_effort_restore_stdio_terminal() {
+    let _ = disable_raw_mode();
+    let mut stdout = io::stdout();
+    let _ = stdout.execute(DisableBracketedPaste);
+    let _ = stdout.execute(DisableMouseCapture);
+    let _ = stdout.execute(PopKeyboardEnhancementFlags);
+    let _ = stdout.execute(LeaveAlternateScreen);
+    let _ = stdout.flush();
+}
+
+fn install_terminal_panic_hook() {
+    panic::set_hook(Box::new(|info| {
+        best_effort_restore_stdio_terminal();
+        eprintln!(
+            "tamux-tui panicked: {}",
+            panic_payload_message(info.payload())
+        );
+        if let Some(location) = info.location() {
+            eprintln!(
+                "at {}:{}:{}",
+                location.file(),
+                location.line(),
+                location.column()
+            );
+        }
+    }));
+}
+
+fn restore_terminal(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    supports_keyboard_enhancement: bool,
+) -> io::Result<()> {
+    let mut first_error = None;
+    let mut capture_error = |result: io::Result<()>| {
+        if let Err(err) = result {
+            if first_error.is_none() {
+                first_error = Some(err);
+            }
+        }
+    };
+
+    capture_error(disable_raw_mode());
+    capture_error(
+        terminal
+            .backend_mut()
+            .execute(DisableBracketedPaste)
+            .map(|_| ()),
+    );
+    capture_error(
+        terminal
+            .backend_mut()
+            .execute(DisableMouseCapture)
+            .map(|_| ()),
+    );
+    if supports_keyboard_enhancement {
+        capture_error(
+            terminal
+                .backend_mut()
+                .execute(PopKeyboardEnhancementFlags)
+                .map(|_| ()),
+        );
+    }
+    capture_error(
+        terminal
+            .backend_mut()
+            .execute(LeaveAlternateScreen)
+            .map(|_| ()),
+    );
+    capture_error(terminal.show_cursor());
+
+    if let Some(err) = first_error {
+        Err(err)
+    } else {
+        Ok(())
+    }
+}
+
 fn main() -> Result<()> {
     let log_writer = amux_protocol::DailyLogWriter::new("tamux-tui.log")?;
     let log_path = log_writer.current_path()?;
@@ -71,6 +167,7 @@ fn main() -> Result<()> {
         .with_ansi(false)
         .init();
     tracing::info!(path = %log_path.display(), "tui log file initialized");
+    install_terminal_panic_hook();
 
     // Setup terminal
     enable_raw_mode()?;
@@ -94,31 +191,40 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
 
-    // Setup daemon bridge
-    let (daemon_event_tx, daemon_event_rx) = mpsc::channel();
-    let (daemon_cmd_tx, daemon_cmd_rx) = tokio_mpsc::unbounded_channel();
-    start_daemon_bridge(daemon_event_tx, daemon_cmd_rx);
-    update::spawn_update_check(daemon_cmd_tx.clone());
+    let app_result = panic::catch_unwind(AssertUnwindSafe(|| {
+        // Setup daemon bridge
+        let (daemon_event_tx, daemon_event_rx) = mpsc::channel();
+        let (daemon_cmd_tx, daemon_cmd_rx) = tokio_mpsc::unbounded_channel();
+        start_daemon_bridge(daemon_event_tx, daemon_cmd_rx);
+        update::spawn_update_check(daemon_cmd_tx.clone());
 
-    // Create model
-    let mut model = TuiModel::new(daemon_event_rx, daemon_cmd_tx);
-    model.load_saved_settings();
+        // Create model
+        let mut model = TuiModel::new(daemon_event_rx, daemon_cmd_tx);
+        model.load_saved_settings();
 
-    // Main loop
-    let tick_rate = Duration::from_millis(crate::app::TUI_TICK_RATE_MS);
-    let result = run_loop(&mut terminal, &mut model, tick_rate);
+        // Main loop
+        let tick_rate = Duration::from_millis(crate::app::TUI_TICK_RATE_MS);
+        run_loop(&mut terminal, &mut model, tick_rate)
+    }));
 
-    // Restore terminal
-    disable_raw_mode()?;
-    terminal.backend_mut().execute(DisableBracketedPaste)?;
-    terminal.backend_mut().execute(DisableMouseCapture)?;
-    if supports_keyboard_enhancement {
-        let _ = terminal.backend_mut().execute(PopKeyboardEnhancementFlags);
+    let restore_result = restore_terminal(&mut terminal, supports_keyboard_enhancement);
+
+    let app_result = match app_result {
+        Ok(result) => result,
+        Err(payload) => Err(anyhow::anyhow!(
+            "tamux-tui panicked: {}",
+            panic_payload_message(payload.as_ref())
+        )),
+    };
+
+    if let Err(err) = restore_result {
+        tracing::error!(error = %err, "failed to restore terminal state");
+        if app_result.is_ok() {
+            return Err(err.into());
+        }
     }
-    terminal.backend_mut().execute(LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
 
-    result
+    app_result
 }
 
 fn run_loop(
@@ -127,6 +233,7 @@ fn run_loop(
     tick_rate: Duration,
 ) -> Result<()> {
     let mut next_tick = Instant::now() + tick_rate;
+    let mut terminal_error_streak = 0usize;
 
     loop {
         let now = Instant::now();
@@ -137,16 +244,71 @@ fn run_loop(
 
         model.pump_daemon_events();
 
-        terminal.draw(|frame| {
+        match terminal.draw(|frame| {
             model.render(frame);
-        })?;
+        }) {
+            Ok(_) => terminal_error_streak = 0,
+            Err(err) => {
+                if should_retry_terminal_error(terminal_error_streak) {
+                    terminal_error_streak += 1;
+                    tracing::warn!(
+                        error = %err,
+                        consecutive_errors = terminal_error_streak,
+                        "transient terminal draw error"
+                    );
+                    thread::sleep(Duration::from_millis(TERMINAL_ERROR_RETRY_DELAY_MS));
+                    continue;
+                }
+                return Err(err.into());
+            }
+        }
 
         let now = Instant::now();
         let until_tick = next_tick.saturating_duration_since(now);
         let wait_for = until_tick.min(Duration::from_millis(10));
 
-        if event::poll(wait_for)? {
-            match event::read()? {
+        let polled = match event::poll(wait_for) {
+            Ok(polled) => {
+                terminal_error_streak = 0;
+                polled
+            }
+            Err(err) => {
+                if should_retry_terminal_error(terminal_error_streak) {
+                    terminal_error_streak += 1;
+                    tracing::warn!(
+                        error = %err,
+                        consecutive_errors = terminal_error_streak,
+                        "transient terminal poll error"
+                    );
+                    thread::sleep(Duration::from_millis(TERMINAL_ERROR_RETRY_DELAY_MS));
+                    continue;
+                }
+                return Err(err.into());
+            }
+        };
+
+        if polled {
+            let event = match event::read() {
+                Ok(event) => {
+                    terminal_error_streak = 0;
+                    event
+                }
+                Err(err) => {
+                    if should_retry_terminal_error(terminal_error_streak) {
+                        terminal_error_streak += 1;
+                        tracing::warn!(
+                            error = %err,
+                            consecutive_errors = terminal_error_streak,
+                            "transient terminal read error"
+                        );
+                        thread::sleep(Duration::from_millis(TERMINAL_ERROR_RETRY_DELAY_MS));
+                        continue;
+                    }
+                    return Err(err.into());
+                }
+            };
+
+            match event {
                 Event::Key(key)
                     if matches!(
                         key.kind,
@@ -662,5 +824,22 @@ mod tests {
         let filter = build_log_filter(None, None, None);
 
         assert_eq!(filter.to_string(), "error");
+    }
+
+    #[test]
+    fn panic_payload_message_handles_common_payload_types() {
+        assert_eq!(panic_payload_message(&"plain panic"), "plain panic");
+
+        let owned = String::from("owned panic");
+        assert_eq!(panic_payload_message(&owned), "owned panic");
+    }
+
+    #[test]
+    fn terminal_errors_retry_only_within_threshold() {
+        assert!(should_retry_terminal_error(0));
+        assert!(should_retry_terminal_error(
+            MAX_TRANSIENT_TERMINAL_ERRORS - 1
+        ));
+        assert!(!should_retry_terminal_error(MAX_TRANSIENT_TERMINAL_ERRORS));
     }
 }

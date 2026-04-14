@@ -47,23 +47,17 @@ impl SkillMeshStore {
     }
 
     pub async fn bump_compile_version_for_tests(&self) {
-        self.pending_jobs
-            .lock()
-            .await
-            .push(SkillMeshRecompileJob {
-                path: PathBuf::from("compile-version-change"),
-                kind: super::watcher::SkillMeshRecompileJobKind::Invalidate,
-            });
+        self.pending_jobs.lock().await.push(SkillMeshRecompileJob {
+            path: PathBuf::from("compile-version-change"),
+            kind: super::watcher::SkillMeshRecompileJobKind::Invalidate,
+        });
     }
 
     pub async fn update_trust_inputs_for_tests(&self) {
-        self.pending_jobs
-            .lock()
-            .await
-            .push(SkillMeshRecompileJob {
-                path: PathBuf::from("trust-input-change"),
-                kind: super::watcher::SkillMeshRecompileJobKind::Invalidate,
-            });
+        self.pending_jobs.lock().await.push(SkillMeshRecompileJob {
+            path: PathBuf::from("trust-input-change"),
+            kind: super::watcher::SkillMeshRecompileJobKind::Invalidate,
+        });
     }
 }
 

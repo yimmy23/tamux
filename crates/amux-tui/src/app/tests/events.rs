@@ -1830,6 +1830,53 @@ fn active_thread_reload_required_requests_detail_and_sidebar_context() {
 }
 
 #[test]
+fn participant_managed_thread_reload_requests_expanded_latest_page() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 123;
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        thread_participants: vec![crate::wire::ThreadParticipantState {
+            agent_id: "weles".to_string(),
+            agent_name: "Weles".to_string(),
+            instruction: "verify claims".to_string(),
+            status: "active".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            last_contribution_at: None,
+            deactivated_at: None,
+        }],
+        created_at: 1,
+        updated_at: 1,
+        ..Default::default()
+    })));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "thread-user".to_string(),
+    });
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestThread {
+            thread_id,
+            message_limit,
+            message_offset,
+        }) => {
+            assert_eq!(thread_id, "thread-user");
+            assert_eq!(message_limit, Some(246));
+            assert_eq!(message_offset, Some(0));
+        }
+        other => {
+            panic!("expected expanded participant-managed thread detail request, got {other:?}")
+        }
+    }
+}
+
+#[test]
 fn inactive_thread_reload_required_does_not_interrupt_selected_thread() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.chat.reduce(chat::ChatAction::ThreadCreated {
@@ -2123,7 +2170,7 @@ fn participant_playground_done_refreshes_active_visible_thread_and_surfaces_repl
     match next_thread_request(&mut daemon_rx) {
         Some((thread_id, message_limit, message_offset)) => {
             assert_eq!(thread_id, "thread-user");
-            assert_eq!(message_limit, Some(123));
+            assert_eq!(message_limit, Some(246));
             assert_eq!(message_offset, Some(0));
         }
         other => {

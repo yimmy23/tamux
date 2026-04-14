@@ -261,7 +261,9 @@ impl AgentEngine {
         let previous_state = self.get_thread_skill_discovery_state(thread_id).await;
         if let Some(state) = previous_state.as_ref() {
             if state.is_discovery_pending() && state.query == content {
-                return Ok(Some(build_skill_preflight_context_from_state(state.clone())));
+                return Ok(Some(build_skill_preflight_context_from_state(
+                    state.clone(),
+                )));
             }
         }
 

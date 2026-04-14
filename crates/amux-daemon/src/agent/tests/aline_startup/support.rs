@@ -218,8 +218,7 @@ pub(super) fn session_show_missing_output() -> Result<StartupCommandOutput> {
 }
 
 pub(super) fn recent_timestamp(minutes_ago: i64) -> String {
-    (Utc::now() - ChronoDuration::minutes(minutes_ago))
-        .to_rfc3339_opts(SecondsFormat::Secs, true)
+    (Utc::now() - ChronoDuration::minutes(minutes_ago)).to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
 pub(super) fn single_session_list_output(status: &str) -> Result<StartupCommandOutput> {

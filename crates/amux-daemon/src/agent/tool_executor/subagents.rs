@@ -344,6 +344,7 @@ async fn execute_spawn_subagent(
         .and_then(|value| value.as_u64())
         .map(|value| value.min(u8::MAX as u64) as u8);
     let requested_budget = parse_requested_subagent_budget(args)?;
+    let scheduled_at = parse_scheduled_at(args)?;
     let default_context_window_tokens = agent.config.read().await.context_window_tokens;
     let derived_limits = derive_subagent_limits(
         task_snapshot.as_ref(),
@@ -360,7 +361,7 @@ async fn execute_spawn_subagent(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
     let mut allocated_lane_summary = None;
-    if chosen_session.is_none() {
+    if chosen_session.is_none() && scheduled_at.is_none() {
         let default_source_session = task_snapshot
             .as_ref()
             .and_then(|task| task.session_id.as_deref())
@@ -395,7 +396,7 @@ async fn execute_spawn_subagent(
             command,
             chosen_session,
             dependencies,
-            None,
+            scheduled_at,
             "subagent",
             task_snapshot
                 .as_ref()

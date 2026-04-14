@@ -302,7 +302,7 @@
 	}
 
 	#[tokio::test]
-	async fn compaction_resets_participant_playground_threads_for_visible_thread() {
+	async fn compaction_trims_participant_playground_threads_for_visible_thread() {
 	    let root = tempdir().expect("tempdir should succeed");
 	    let manager = SessionManager::new_test(root.path()).await;
 	    let mut config = AgentConfig::default();
@@ -380,8 +380,12 @@
 	                agent_name: Some("Weles".to_string()),
 	                title: "Participant Playground".to_string(),
 	                messages: vec![
-	                    crate::agent::types::AgentMessage::user("draft prompt", 1),
-	                    assistant_message("draft reply", 2),
+	                    crate::agent::types::AgentMessage::user("draft prompt 1", 1),
+	                    assistant_message("draft reply 1", 2),
+	                    crate::agent::types::AgentMessage::user("draft prompt 2", 3),
+	                    assistant_message("draft reply 2", 4),
+	                    crate::agent::types::AgentMessage::user("draft prompt 3", 5),
+	                    assistant_message("draft reply 3", 6),
 	                ],
 	                pinned: false,
 	                upstream_thread_id: None,
@@ -392,7 +396,7 @@
 	                total_input_tokens: 11,
 	                total_output_tokens: 7,
 	                created_at: 1,
-	                updated_at: 2,
+	                updated_at: 6,
 	            },
 	        );
 	    }
@@ -407,12 +411,17 @@
 	    let playground = threads
 	        .get(&playground_thread_id)
 	        .expect("playground thread should still exist after compaction");
-	    assert!(
-	        playground.messages.is_empty(),
-	        "compaction should reset participant playground history"
+	    assert_eq!(
+	        playground.messages.len(),
+	        4,
+	        "compaction should retain a bounded recent playground tail instead of clearing hidden context"
 	    );
-	    assert_eq!(playground.total_input_tokens, 0);
-	    assert_eq!(playground.total_output_tokens, 0);
+	    assert_eq!(
+	        playground.messages[0].content,
+	        "draft prompt 2",
+	        "compaction should drop the oldest playground turns first"
+	    );
+	    assert_eq!(playground.messages[3].content, "draft reply 3");
 	}
 
 	#[tokio::test]

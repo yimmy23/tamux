@@ -4,7 +4,7 @@ use crate::agent::engine::AgentEngine;
 use crate::agent::explanation::ConfidenceBand;
 use crate::agent::generate_message_id;
 use crate::agent::metacognitive::introspector::{
-    BiasSignal, IntrospectionOutcome, InterventionStrength,
+    BiasSignal, InterventionStrength, IntrospectionOutcome,
 };
 use crate::agent::now_millis;
 use crate::agent::types::{AgentMessage, AgentMessageKind, MessageRole, ToolCall};
@@ -71,11 +71,7 @@ pub fn regulate(outcome: &IntrospectionOutcome, tool_call: &ToolCall) -> Regulat
 }
 
 impl AgentEngine {
-    pub(crate) async fn append_metacognitive_system_message(
-        &self,
-        thread_id: &str,
-        content: &str,
-    ) {
+    pub(crate) async fn append_metacognitive_system_message(&self, thread_id: &str, content: &str) {
         let now = now_millis();
         {
             let mut threads = self.threads.write().await;
@@ -115,10 +111,7 @@ impl AgentEngine {
         self.persist_thread_by_id(thread_id).await;
     }
 
-    pub(crate) async fn reinforce_meta_cognitive_bias_occurrence(
-        &self,
-        bias_name: &str,
-    ) {
+    pub(crate) async fn reinforce_meta_cognitive_bias_occurrence(&self, bias_name: &str) {
         let mut model = self.meta_cognitive_self_model.write().await;
         if let Some(bias) = model.biases.iter_mut().find(|bias| bias.name == bias_name) {
             bias.occurrence_count = bias.occurrence_count.saturating_add(1);
@@ -138,10 +131,11 @@ impl AgentEngine {
             model.last_updated_ms = now;
         }
         let predicted_success = predicted_band != ConfidenceBand::Guessing;
-        self.calibration_tracker
-            .write()
-            .await
-            .record_observation(predicted_band, predicted_success, now);
+        self.calibration_tracker.write().await.record_observation(
+            predicted_band,
+            predicted_success,
+            now,
+        );
     }
 }
 
@@ -157,7 +151,11 @@ fn joined_warnings(signals: &[BiasSignal]) -> String {
         .join(", ")
 }
 
-fn build_reflection_message(tool_call: &ToolCall, signals: &[BiasSignal], hard_block: bool) -> String {
+fn build_reflection_message(
+    tool_call: &ToolCall,
+    signals: &[BiasSignal],
+    hard_block: bool,
+) -> String {
     let header = if hard_block {
         "Meta-cognitive intervention: tool call blocked before execution."
     } else {
@@ -176,9 +174,6 @@ fn build_reflection_message(tool_call: &ToolCall, signals: &[BiasSignal], hard_b
 
     format!(
         "{header}\nPlanned tool: {}\nArguments: {}\nDetected risks:\n{}\n{}",
-        tool_call.function.name,
-        tool_call.function.arguments,
-        warnings,
-        action,
+        tool_call.function.name, tool_call.function.arguments, warnings, action,
     )
 }

@@ -108,9 +108,7 @@ pub(super) fn canonical_agent_id(alias: &str) -> &'static str {
         | MAIN_AGENT_PUBLIC_ALIAS
         | MAIN_AGENT_ALIAS
         | MAIN_AGENT_LEGACY_ALIAS
-        | MAIN_AGENT_FALLBACK_ALIAS => {
-            MAIN_AGENT_ID
-        }
+        | MAIN_AGENT_FALLBACK_ALIAS => MAIN_AGENT_ID,
         CONCIERGE_AGENT_ID | CONCIERGE_AGENT_ALIAS | CONCIERGE_AGENT_LEGACY_ALIAS => {
             CONCIERGE_AGENT_ID
         }
@@ -140,9 +138,7 @@ pub(super) fn canonical_agent_guidance(alias: &str) -> Option<&'static str> {
         | MAIN_AGENT_PUBLIC_ALIAS
         | MAIN_AGENT_ALIAS
         | MAIN_AGENT_LEGACY_ALIAS
-        | MAIN_AGENT_FALLBACK_ALIAS => {
-            None
-        }
+        | MAIN_AGENT_FALLBACK_ALIAS => None,
         CONCIERGE_AGENT_ID | CONCIERGE_AGENT_ALIAS | CONCIERGE_AGENT_LEGACY_ALIAS => None,
         _ => persona_by_alias(&normalized).map(|persona| persona.guidance),
     }

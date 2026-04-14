@@ -332,7 +332,7 @@ async fn participant_follow_up_and_later_turn_persist_across_reload() {
 }
 
 #[tokio::test]
-async fn participant_post_continuation_does_not_rerun_same_participant_observer_immediately() {
+async fn participant_post_continuation_reruns_same_participant_after_main_agent_follow_up() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
@@ -385,13 +385,33 @@ async fn participant_post_continuation_does_not_rerun_same_participant_observer_
                             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":6}}\n\n",
                             "data: [DONE]\n\n"
                         ),
+                        2 => concat!(
+                            "HTTP/1.1 200 OK\r\n",
+                            "content-type: text/event-stream\r\n",
+                            "cache-control: no-cache\r\n",
+                            "connection: close\r\n",
+                            "\r\n",
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"Gateway follow-up after second participant note.\"}}]}\n\n",
+                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":6}}\n\n",
+                            "data: [DONE]\n\n"
+                        ),
+                        3 if body.contains("Role: participant observer") => concat!(
+                            "HTTP/1.1 200 OK\r\n",
+                            "content-type: text/event-stream\r\n",
+                            "cache-control: no-cache\r\n",
+                            "connection: close\r\n",
+                            "\r\n",
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"NO_SUGGESTION\"}}]}\n\n",
+                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\n",
+                            "data: [DONE]\n\n"
+                        ),
                         _ => concat!(
                             "HTTP/1.1 200 OK\r\n",
                             "content-type: text/event-stream\r\n",
                             "cache-control: no-cache\r\n",
                             "connection: close\r\n",
                             "\r\n",
-                            "data: {\"choices\":[{\"delta\":{\"content\":\"unexpected extra request\"}}]}\n\n",
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"NO_SUGGESTION\"}}]}\n\n",
                             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\n",
                             "data: [DONE]\n\n"
                         ),
@@ -456,10 +476,25 @@ async fn participant_post_continuation_does_not_rerun_same_participant_observer_
         .await
         .expect("send initial participant suggestion");
 
-    let suggestions = engine.list_thread_participant_suggestions(thread_id).await;
+    let thread_messages = engine
+        .get_thread(thread_id)
+        .await
+        .expect("thread should still exist")
+        .messages;
     assert!(
-        suggestions.is_empty(),
-        "the assistant turn that directly follows a participant post should not enqueue another immediate suggestion from that same participant"
+        thread_messages.iter().any(|message| {
+            message.role == MessageRole::Assistant
+                && message.author_agent_id.as_deref() == Some("weles")
+                && message.content == "Second participant follow-up."
+        }),
+        "once the latest visible message is the main-agent follow-up, the participant should be able to post another visible follow-up"
+    );
+    assert!(
+        engine
+            .list_thread_participant_suggestions(thread_id)
+            .await
+            .is_empty(),
+        "the follow-up participant suggestion should drain cleanly after it is auto-sent"
     );
 
     let request_bodies = recorded_bodies
@@ -470,8 +505,16 @@ async fn participant_post_continuation_does_not_rerun_same_participant_observer_
         .collect::<Vec<_>>();
     assert_eq!(
         request_bodies.len(),
-        1,
-        "expected only the main-agent continuation request after the visible participant post"
+        4,
+        "expected the main-agent continuation, a participant observer rerun, the second main-agent continuation, and then a final NO_SUGGESTION observer pass"
+    );
+    assert!(
+        request_bodies[1].contains("Role: participant observer"),
+        "the second request should rerun the participant observer after the main-agent follow-up"
+    );
+    assert!(
+        request_bodies[3].contains("Role: participant observer"),
+        "the final request should still be an observer pass, but only after the latest message is no longer the participant's own post"
     );
 }
 
@@ -866,7 +909,7 @@ async fn hydrated_idle_participant_auto_send_is_visible_in_thread_detail() {
 }
 
 #[tokio::test]
-async fn hydrate_clears_persisted_participant_playground_threads() {
+async fn hydrate_trims_persisted_participant_playground_threads_to_recent_tail() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
@@ -893,54 +936,54 @@ async fn hydrate_clears_persisted_participant_playground_threads() {
             updated_at: 1,
         },
     );
+    let playground_messages = (0..120)
+        .map(|index| AgentMessage {
+            id: generate_message_id(),
+            role: MessageRole::Assistant,
+            content: format!("scratch reply {index}"),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 1,
+            output_tokens: 2,
+            cost: None,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: Some("weles".to_string()),
+            author_agent_name: Some("Weles".to_string()),
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            structural_refs: Vec::new(),
+            timestamp: (index + 2) as u64,
+        })
+        .collect::<Vec<_>>();
     engine.threads.write().await.insert(
         playground_thread_id.clone(),
         AgentThread {
             id: playground_thread_id.clone(),
             agent_name: Some("Weles".to_string()),
             title: "Participant playground".to_string(),
-            messages: vec![
-                AgentMessage::user("scratch prompt", 2),
-                AgentMessage {
-                    id: generate_message_id(),
-                    role: MessageRole::Assistant,
-                    content: "scratch reply".to_string(),
-                    tool_calls: None,
-                    tool_call_id: None,
-                    tool_name: None,
-                    tool_arguments: None,
-                    tool_status: None,
-                    weles_review: None,
-                    input_tokens: 3,
-                    output_tokens: 5,
-                    cost: None,
-                    provider: None,
-                    model: None,
-                    api_transport: None,
-                    response_id: None,
-                    upstream_message: None,
-                    provider_final_result: None,
-                    author_agent_id: Some("weles".to_string()),
-                    author_agent_name: Some("Weles".to_string()),
-                    reasoning: None,
-                    message_kind: AgentMessageKind::Normal,
-                    compaction_strategy: None,
-                    compaction_payload: None,
-                    offloaded_payload_id: None,
-                    structural_refs: Vec::new(),
-                    timestamp: 3,
-                },
-            ],
+            total_input_tokens: 120,
+            total_output_tokens: 240,
+            messages: playground_messages,
             pinned: false,
             upstream_thread_id: None,
             upstream_transport: None,
             upstream_provider: None,
             upstream_model: None,
             upstream_assistant_id: None,
-            total_input_tokens: 3,
-            total_output_tokens: 5,
             created_at: 2,
-            updated_at: 3,
+            updated_at: 121,
         },
     );
     engine.persist_thread_by_id(thread_id).await;
@@ -957,12 +1000,27 @@ async fn hydrate_clears_persisted_participant_playground_threads() {
         .await
         .expect("playground thread should still exist after hydrate")
         .thread;
-    assert!(
-        playground.messages.is_empty(),
-        "hydrate should clear persisted participant playground history"
+    assert_eq!(
+        playground.messages.len(),
+        100,
+        "hydrate should retain a bounded recent playground tail instead of wiping all hidden context"
     );
-    assert_eq!(playground.total_input_tokens, 0);
-    assert_eq!(playground.total_output_tokens, 0);
+    assert_eq!(
+        playground
+            .messages
+            .first()
+            .map(|message| message.content.as_str()),
+        Some("scratch reply 20")
+    );
+    assert_eq!(
+        playground
+            .messages
+            .last()
+            .map(|message| message.content.as_str()),
+        Some("scratch reply 119")
+    );
+    assert_eq!(playground.total_input_tokens, 100);
+    assert_eq!(playground.total_output_tokens, 200);
 }
 
 #[tokio::test]

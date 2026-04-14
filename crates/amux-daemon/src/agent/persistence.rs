@@ -320,13 +320,13 @@ impl AgentEngine {
                 *self.thread_memory_injection_state_map().write().await =
                     thread_memory_injection_states;
                 *self.thread_structural_memories.write().await = thread_structural_memories;
-                let cleared_playground_threads = self
-                    .clear_persisted_participant_playground_threads_on_hydrate()
+                let trimmed_playground_threads = self
+                    .trim_persisted_participant_playground_threads_on_hydrate()
                     .await;
-                if cleared_playground_threads > 0 {
+                if trimmed_playground_threads > 0 {
                     tracing::info!(
-                        cleared_playground_threads,
-                        "cleared persisted participant playground threads during hydrate"
+                        trimmed_playground_threads,
+                        "trimmed persisted participant playground threads during hydrate"
                     );
                 }
                 if schedule_participant_observer_restore {

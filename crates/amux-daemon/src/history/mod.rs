@@ -13,9 +13,9 @@ use amux_protocol::{
 };
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
+use schema_helpers::table_has_column;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use schema_helpers::table_has_column;
 use tokio_rusqlite;
 
 /// Helper trait to convert any error into `tokio_rusqlite::Error` inside `.call()` closures.

@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use super::{
     auth_runtime, now_millis, tombstone_auth_mode, CodexCliAuthFile, OpenAICodexAuthRuntime,
-    OpenAICodexAuthTombstone, StoredOpenAICodexAuth, OPENAI_AUTH_MODE,
-    OPENAI_CODEX_AUTH_PROVIDER, OPENAI_PROVIDER_ID,
+    OpenAICodexAuthTombstone, StoredOpenAICodexAuth, OPENAI_AUTH_MODE, OPENAI_CODEX_AUTH_PROVIDER,
+    OPENAI_PROVIDER_ID,
 };
 use crate::agent::provider_auth_store;
 

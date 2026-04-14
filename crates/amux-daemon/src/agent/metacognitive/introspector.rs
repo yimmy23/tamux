@@ -129,7 +129,10 @@ fn detect_sunk_cost(bias: &CognitiveBias, input: &IntrospectionInput) -> Option<
         matched_on.push(format!("tool:{}", input.proposed_tool_name));
     }
     if repeated_loop {
-        matched_on.push(format!("predicted_repeat_count:{}", input.predicted_repeat_count));
+        matched_on.push(format!(
+            "predicted_repeat_count:{}",
+            input.predicted_repeat_count
+        ));
     }
     if failure_loop {
         matched_on.push(format!("recent_same_tool_failures:{}", same_tool_failures));
@@ -154,7 +157,10 @@ fn detect_sunk_cost(bias: &CognitiveBias, input: &IntrospectionInput) -> Option<
     })
 }
 
-fn detect_confirmation_bias(bias: &CognitiveBias, input: &IntrospectionInput) -> Option<BiasSignal> {
+fn detect_confirmation_bias(
+    bias: &CognitiveBias,
+    input: &IntrospectionInput,
+) -> Option<BiasSignal> {
     let investigative_tool = bias
         .trigger_pattern
         .tool_sequence
@@ -177,9 +183,12 @@ fn detect_confirmation_bias(bias: &CognitiveBias, input: &IntrospectionInput) ->
         return None;
     }
 
-    let same_family = recent
-        .iter()
-        .all(|outcome| bias.trigger_pattern.tool_sequence.iter().any(|tool| tool == &outcome.tool_name));
+    let same_family = recent.iter().all(|outcome| {
+        bias.trigger_pattern
+            .tool_sequence
+            .iter()
+            .any(|tool| tool == &outcome.tool_name)
+    });
     let all_success = recent
         .iter()
         .all(|outcome| outcome.outcome.eq_ignore_ascii_case("success"));
@@ -199,14 +208,10 @@ fn detect_confirmation_bias(bias: &CognitiveBias, input: &IntrospectionInput) ->
         .iter()
         .filter(|outcome| contains_positive_evidence(&outcome.summary))
         .count();
-    let selective_validation = confirmatory_reasoning
-        || (input.task_retry_count > 0 && positive_evidence_hits >= 1);
+    let selective_validation =
+        confirmatory_reasoning || (input.task_retry_count > 0 && positive_evidence_hits >= 1);
 
-    if !(same_family
-        && all_success
-        && no_executive_check
-        && repeated_probe
-        && selective_validation)
+    if !(same_family && all_success && no_executive_check && repeated_probe && selective_validation)
     {
         return None;
     }
@@ -269,7 +274,9 @@ fn detect_overconfidence(
         matched_on.push(format!("task_retry_count:{}", input.task_retry_count));
     }
 
-    let rationale = if let Some(profile) = workflow_profile_for_tool(self_model, &input.proposed_tool_name) {
+    let rationale = if let Some(profile) =
+        workflow_profile_for_tool(self_model, &input.proposed_tool_name)
+    {
         format!(
             "Decision reasoning sounds overly certain while `{}` historically succeeds only {:.0}% of the time in workflow `{}`.",
             input.proposed_tool_name,
@@ -305,7 +312,8 @@ fn recent_same_tool_failures(input: &IntrospectionInput) -> usize {
         .rev()
         .take(6)
         .filter(|outcome| {
-            outcome.tool_name == input.proposed_tool_name && outcome.outcome.eq_ignore_ascii_case("failure")
+            outcome.tool_name == input.proposed_tool_name
+                && outcome.outcome.eq_ignore_ascii_case("failure")
         })
         .count()
 }
@@ -390,16 +398,8 @@ fn contains_positive_evidence(summary: &str) -> bool {
     }
 
     [
-        "found",
-        "match",
-        "matches",
-        "present",
-        "exists",
-        "contains",
-        "resolved",
-        "restored",
-        "loaded",
-        "verified",
+        "found", "match", "matches", "present", "exists", "contains", "resolved", "restored",
+        "loaded", "verified",
     ]
     .iter()
     .any(|needle| normalized.contains(needle))

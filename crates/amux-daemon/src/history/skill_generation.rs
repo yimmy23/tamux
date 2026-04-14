@@ -388,7 +388,8 @@ fn skill_variant_matches_current_relative_path(
     let Ok(relative) = canonical.strip_prefix(root_canonical) else {
         return false;
     };
-    normalize_relative_path(&record.relative_path) == normalize_relative_path(&relative.to_string_lossy())
+    normalize_relative_path(&record.relative_path)
+        == normalize_relative_path(&relative.to_string_lossy())
 }
 
 fn normalize_relative_path(path: &str) -> String {

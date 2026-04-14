@@ -512,6 +512,12 @@ if matches!(
                     let agent = agent.clone();
                     tokio::spawn(async move {
                         if let Err(error) = agent.force_compact_and_continue(&thread_id).await {
+                            let _ = agent.event_tx.send(crate::agent::types::AgentEvent::WorkflowNotice {
+                                thread_id: thread_id.clone(),
+                                kind: "manual-compaction".to_string(),
+                                message: format!("Manual compaction failed: {error}"),
+                                details: None,
+                            });
                             tracing::warn!(thread_id = %thread_id, error = %error, "agent force compact failed");
                         }
                     });

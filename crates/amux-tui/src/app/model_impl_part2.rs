@@ -24,6 +24,24 @@ impl TuiModel {
         self.request_thread_page(thread_id, self.chat_history_page_size(), 0, show_loading);
     }
 
+    fn thread_needs_expanded_latest_page(&self, thread_id: &str) -> bool {
+        self.chat.threads().iter().any(|thread| {
+            thread.id == thread_id
+                && (!thread.thread_participants.is_empty()
+                    || !thread.queued_participant_suggestions.is_empty())
+        })
+    }
+
+    fn request_authoritative_thread_refresh(&mut self, thread_id: String, show_loading: bool) {
+        let base_limit = self.chat_history_page_size();
+        let message_limit = if self.thread_needs_expanded_latest_page(&thread_id) {
+            base_limit.saturating_mul(2)
+        } else {
+            base_limit
+        };
+        self.request_thread_page(thread_id, message_limit, 0, show_loading);
+    }
+
     fn maybe_request_older_chat_history(&mut self) {
         let Some(message_offset) = self.chat.active_thread_next_page_offset(self.tick_counter)
         else {

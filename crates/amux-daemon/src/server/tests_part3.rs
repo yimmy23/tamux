@@ -641,6 +641,84 @@ async fn force_compact_request_queues_continuation_and_cancels_active_stream() {
     conn.shutdown().await;
 }
 
+#[tokio::test]
+async fn force_compact_reports_failure_when_thread_has_no_user_message() {
+    let mut conn = spawn_test_connection().await;
+    let thread_id = "thread-force-compact-no-user";
+
+    let mut assistant = AgentMessage::user("assistant-only context", 1);
+    assistant.role = crate::agent::types::MessageRole::Assistant;
+    conn.agent.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Force compact without user replay".to_string(),
+            messages: vec![assistant],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+
+    conn.framed
+        .send(ClientMessage::AgentSubscribe)
+        .await
+        .expect("subscribe to agent events");
+
+    conn.framed
+        .send(ClientMessage::AgentForceCompact {
+            thread_id: thread_id.to_string(),
+        })
+        .await
+        .expect("send force compact request");
+
+    let message = timeout(Duration::from_millis(250), async {
+        loop {
+            match conn.recv().await {
+                DaemonMessage::AgentEvent { event_json } => {
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(&event_json).expect("parse workflow notice");
+                    if parsed.get("type").and_then(|value| value.as_str())
+                        == Some("workflow_notice")
+                    {
+                        return parsed;
+                    }
+                }
+                other => panic!("expected workflow notice, got {other:?}"),
+            }
+        }
+    })
+    .await
+    .expect("manual compaction failure should be surfaced");
+
+    assert_eq!(
+        message.get("thread_id").and_then(|value| value.as_str()),
+        Some(thread_id)
+    );
+    assert_eq!(
+        message.get("kind").and_then(|value| value.as_str()),
+        Some("manual-compaction")
+    );
+    assert!(
+        message
+            .get("message")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .contains("failed"),
+        "expected manual compaction failure message, got {message:?}"
+    );
+
+    conn.shutdown().await;
+}
+
 fn extract_state_from_auth_url(auth_url: &str) -> String {
     url::Url::parse(auth_url)
         .expect("auth url should parse")

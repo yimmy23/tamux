@@ -2,9 +2,7 @@ use super::*;
 use crate::agent::metacognitive::introspector::{
     introspect, IntrospectionInput, RecentToolOutcome,
 };
-use crate::agent::metacognitive::pattern_regulator::{
-    regulate, InterventionAction,
-};
+use crate::agent::metacognitive::pattern_regulator::{regulate, InterventionAction};
 use crate::agent::metacognitive::self_assessment::SelfAssessor;
 
 pub(super) fn inter_tool_call_delay(
@@ -23,7 +21,10 @@ fn skill_gate_exempt_tool(name: &str) -> bool {
 }
 
 impl<'a> SendMessageRunner<'a> {
-    async fn handle_metacognitive_intervention(&mut self, tc: &ToolCall) -> Option<LoopDisposition> {
+    async fn handle_metacognitive_intervention(
+        &mut self,
+        tc: &ToolCall,
+    ) -> Option<LoopDisposition> {
         let decision_reasoning = {
             let threads = self.engine.threads.read().await;
             threads
@@ -114,7 +115,11 @@ impl<'a> SendMessageRunner<'a> {
                         steps_completed: 0,
                         steps_total: 0,
                         estimated_remaining: 0,
-                        momentum: if recent_success_rate >= 0.5 { 0.1 } else { -0.2 },
+                        momentum: if recent_success_rate >= 0.5 {
+                            0.1
+                        } else {
+                            -0.2
+                        },
                     },
                     efficiency: crate::agent::metacognitive::self_assessment::EfficiencyMetrics {
                         token_efficiency: 0.5,
