@@ -680,3 +680,37 @@ fn persisted_satisfaction_decay_requires_enough_history() {
     assert_eq!(model.operator_satisfaction.label, "strong");
     assert!((model.operator_satisfaction.score - 0.8).abs() < f64::EPSILON);
 }
+
+#[tokio::test]
+async fn status_diagnostics_snapshot_includes_persisted_implicit_feedback_history() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.operator_model.enabled = true;
+    config.operator_model.allow_implicit_feedback = true;
+    config.operator_model.allow_message_statistics = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_message("thread-diagnostics-persisted", "Please run tests.", true)
+        .await
+        .expect("record operator message");
+    engine
+        .record_tool_hesitation("read_file", "search_files", true, false)
+        .await
+        .expect("record tool hesitation");
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let satisfaction = &snapshot["operator_satisfaction"];
+    let signals = satisfaction["recent_implicit_signals"]
+        .as_array()
+        .expect("recent implicit signals array");
+    let scores = satisfaction["recent_satisfaction_scores"]
+        .as_array()
+        .expect("recent satisfaction scores array");
+
+    assert_eq!(signals.len(), 1);
+    assert_eq!(signals[0]["signal_type"], "tool_fallback");
+    assert_eq!(scores.len(), 1);
+    assert_eq!(scores[0]["label"], "healthy");
+}

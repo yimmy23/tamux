@@ -712,6 +712,40 @@ impl AgentEngine {
             None
         };
         let operator_model = self.operator_model.read().await.clone();
+        let recent_implicit_signals = self
+            .history
+            .list_implicit_signals("global", 5)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "id": row.id,
+                    "session_id": row.session_id,
+                    "signal_type": row.signal_type,
+                    "weight": row.weight,
+                    "timestamp_ms": row.timestamp_ms,
+                    "context_snapshot_json": row.context_snapshot_json,
+                })
+            })
+            .collect::<Vec<_>>();
+        let recent_satisfaction_scores = self
+            .history
+            .list_satisfaction_scores("global", 5)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "id": row.id,
+                    "session_id": row.session_id,
+                    "score": row.score,
+                    "computed_at_ms": row.computed_at_ms,
+                    "label": row.label,
+                    "signal_count": row.signal_count,
+                })
+            })
+            .collect::<Vec<_>>();
 
         serde_json::json!({
             "operator_profile_sync_state": sync_state,
@@ -729,6 +763,8 @@ impl AgentEngine {
                 "correction_message_count": operator_model.implicit_feedback.correction_message_count,
                 "fast_denial_count": operator_model.implicit_feedback.fast_denial_count,
                 "rapid_switch_count": operator_model.attention_topology.rapid_switch_count,
+                "recent_implicit_signals": recent_implicit_signals,
+                "recent_satisfaction_scores": recent_satisfaction_scores,
             },
             "aline": {
                 "available": aline_available,
