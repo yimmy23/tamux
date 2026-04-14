@@ -103,6 +103,8 @@ struct MemorySearchMatch {
     source: String,
     snippet: String,
     score: u32,
+    #[serde(skip_serializing)]
+    rank_weight: Option<f64>,
     freshness: MemorySearchFreshness,
 }
 
@@ -119,6 +121,7 @@ struct MemorySearchCandidate {
     source: String,
     snippet: String,
     haystack: String,
+    rank_weight: Option<f64>,
     updated_at_ms: Option<u64>,
     injected_updated_at_ms: Option<u64>,
     freshness_status: &'static str,
@@ -407,6 +410,7 @@ fn collect_base_markdown_candidates(
             source: format!("{}:{}", scope.file_name(), index + 1),
             snippet: line.to_string(),
             haystack: line.to_string(),
+            rank_weight: None,
             updated_at_ms,
             injected_updated_at_ms,
             freshness_status: search_freshness_status(
@@ -443,6 +447,7 @@ fn collect_operator_model_candidates(
             source: format!("operator_model_summary:{}", index + 1),
             snippet: line.to_string(),
             haystack: line.to_string(),
+            rank_weight: None,
             updated_at_ms,
             injected_updated_at_ms: None,
             freshness_status: search_freshness_status(None, updated_at_ms, None, None),
@@ -496,6 +501,7 @@ fn collect_operator_profile_candidates(
                 source: path.to_string(),
                 snippet: format!("{path}: {trimmed}"),
                 haystack: format!("{path} {trimmed}"),
+                rank_weight: None,
                 updated_at_ms: None,
                 injected_updated_at_ms: None,
                 freshness_status: "unknown",
@@ -511,6 +517,7 @@ fn collect_operator_profile_candidates(
                 source: path.to_string(),
                 snippet: format!("{path}: {number}"),
                 haystack: format!("{path} {number}"),
+                rank_weight: None,
                 updated_at_ms: None,
                 injected_updated_at_ms: None,
                 freshness_status: "unknown",
@@ -526,6 +533,7 @@ fn collect_operator_profile_candidates(
                 source: path.to_string(),
                 snippet: format!("{path}: {boolean}"),
                 haystack: format!("{path} {boolean}"),
+                rank_weight: None,
                 updated_at_ms: None,
                 injected_updated_at_ms: None,
                 freshness_status: "unknown",
@@ -552,6 +560,7 @@ fn collect_thread_structural_candidates(
             source: format!("language_hint:{hint}"),
             snippet: format!("Language hint: {hint}"),
             haystack: hint.clone(),
+            rank_weight: None,
             updated_at_ms: None,
             injected_updated_at_ms: None,
             freshness_status: "unknown",
@@ -566,6 +575,7 @@ fn collect_thread_structural_candidates(
             source: entry.node_id,
             snippet: entry.summary.clone(),
             haystack: entry.summary,
+            rank_weight: None,
             updated_at_ms: None,
             injected_updated_at_ms: None,
             freshness_status: "unknown",
@@ -627,6 +637,15 @@ async fn load_thread_memory_graph_neighbors(
             break;
         }
     }
+    neighbors.sort_by(|left, right| {
+        right
+            .via_edge
+            .weight
+            .partial_cmp(&left.via_edge.weight)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(right.via_edge.last_updated_ms.cmp(&left.via_edge.last_updated_ms))
+            .then(left.node.id.cmp(&right.node.id))
+    });
     Ok(neighbors)
 }
 
@@ -660,6 +679,7 @@ fn rank_memory_search_matches(
                     source: candidate.source,
                     snippet: candidate.snippet,
                     score,
+                    rank_weight: candidate.rank_weight,
                     freshness: MemorySearchFreshness {
                         status: candidate.freshness_status.to_string(),
                         updated_at_ms: candidate.updated_at_ms,
@@ -674,6 +694,13 @@ fn rank_memory_search_matches(
         right
             .score
             .cmp(&left.score)
+            .then_with(|| {
+                right
+                    .rank_weight
+                    .unwrap_or(0.0)
+                    .partial_cmp(&left.rank_weight.unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then(left.layer.cmp(&right.layer))
             .then(left.source.cmp(&right.source))
             .then(left.snippet.cmp(&right.snippet))
@@ -1086,6 +1113,7 @@ async fn execute_memory_search_tool(
                         row.via_edge.relation_type,
                         row.node.summary_text.unwrap_or_default()
                     ),
+                    rank_weight: Some(row.via_edge.weight),
                     updated_at_ms: Some(row.node.last_accessed_ms),
                     injected_updated_at_ms: None,
                     freshness_status: "current",

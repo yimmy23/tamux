@@ -7761,3 +7761,309 @@ async fn search_memory_prefers_stronger_edge_when_shared_neighbor_is_reached_mul
         "search result snippet should reflect the stronger retained edge"
     );
 }
+
+#[tokio::test]
+async fn read_memory_orders_graph_neighbors_by_strongest_retained_edge_weight() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-read-memory-orders-graph-neighbors-by-weight";
+    let agent_data_dir = root.path().join("agent");
+
+    let paths = write_scope_memory_files(
+        &agent_data_dir,
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        "# Soul\n\n- Stable soul fact\n",
+        "# Memory\n\n- Stable memory fact\n",
+        "# User\n\n- Stable user fact\n",
+    );
+    let memory = current_scope_memory(&agent_data_dir).await;
+    engine
+        .set_thread_memory_injection_state(thread_id, build_matching_injection_state(&memory, &paths))
+        .await;
+    engine.thread_structural_memories.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::context::structural_memory::ThreadStructuralMemory {
+            observed_files: vec![
+                crate::agent::context::structural_memory::ObservedFileNode {
+                    node_id: "node:file:src/lib.rs".to_string(),
+                    relative_path: "src/lib.rs".to_string(),
+                },
+                crate::agent::context::structural_memory::ObservedFileNode {
+                    node_id: "node:file:src/main.rs".to_string(),
+                    relative_path: "src/main.rs".to_string(),
+                },
+            ],
+            ..Default::default()
+        },
+    );
+    engine
+        .history
+        .upsert_memory_node(
+            "node:file:src/lib.rs",
+            "src/lib.rs",
+            "file",
+            Some("observed file one"),
+            1_717_181_501,
+        )
+        .await
+        .expect("persist first file node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:file:src/main.rs",
+            "src/main.rs",
+            "file",
+            Some("observed file two"),
+            1_717_181_502,
+        )
+        .await
+        .expect("persist second file node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:task:lower-weight-neighbor",
+            "lower-weight-neighbor",
+            "task",
+            Some("lower weight neighbor"),
+            1_717_181_503,
+        )
+        .await
+        .expect("persist lower neighbor node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:task:higher-weight-neighbor",
+            "higher-weight-neighbor",
+            "task",
+            Some("higher weight neighbor"),
+            1_717_181_504,
+        )
+        .await
+        .expect("persist higher neighbor node");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:file:src/lib.rs",
+            "node:task:lower-weight-neighbor",
+            "file_supports_task",
+            2.0,
+            1_717_181_505,
+        )
+        .await
+        .expect("persist lower-weight edge first");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:file:src/main.rs",
+            "node:task:higher-weight-neighbor",
+            "file_supports_task",
+            6.0,
+            1_717_181_506,
+        )
+        .await
+        .expect("persist higher-weight edge second");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-read-memory-orders-graph-neighbors-by-weight".to_string(),
+        ToolFunction {
+            name: "read_memory".to_string(),
+            arguments: serde_json::json!({
+                "limit_per_layer": 8,
+                "include_thread_structural_memory": true
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "read_memory should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("read_memory should return JSON");
+    let neighbors = payload
+        .get("results")
+        .and_then(|value| value.get("thread_structural_memory"))
+        .and_then(|value| value.get("graph_neighbors"))
+        .and_then(|value| value.as_array())
+        .expect("graph neighbors should be present");
+    assert!(neighbors.len() >= 2, "expected at least two graph neighbors");
+    assert_eq!(
+        neighbors[0]
+            .get("node_id")
+            .and_then(|value| value.as_str()),
+        Some("node:task:higher-weight-neighbor"),
+        "higher-weight retained neighbor should be ordered before lower-weight neighbor regardless of seed traversal order"
+    );
+}
+
+#[tokio::test]
+async fn search_memory_orders_graph_neighbors_by_strongest_retained_edge_weight() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-search-memory-orders-graph-neighbors-by-weight";
+    let agent_data_dir = root.path().join("agent");
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Search memory orders graph neighbors by weight",
+            false,
+            1,
+            1,
+            vec![crate::agent::types::AgentMessage::user("search graph neighbor weight ordering", 1)],
+        ),
+    );
+
+    write_scope_memory_files(
+        &agent_data_dir,
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        "# Soul\n\n- Stable soul fact\n",
+        "# Memory\n\n- Stable memory fact\n",
+        "# User\n\n- Stable user fact\n",
+    );
+    engine.thread_structural_memories.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::context::structural_memory::ThreadStructuralMemory {
+            observed_files: vec![
+                crate::agent::context::structural_memory::ObservedFileNode {
+                    node_id: "node:file:src/lib.rs".to_string(),
+                    relative_path: "src/lib.rs".to_string(),
+                },
+                crate::agent::context::structural_memory::ObservedFileNode {
+                    node_id: "node:file:src/main.rs".to_string(),
+                    relative_path: "src/main.rs".to_string(),
+                },
+            ],
+            ..Default::default()
+        },
+    );
+    engine
+        .history
+        .upsert_memory_node(
+            "node:file:src/lib.rs",
+            "src/lib.rs",
+            "file",
+            Some("observed file one"),
+            1_717_181_601,
+        )
+        .await
+        .expect("persist first file node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:file:src/main.rs",
+            "src/main.rs",
+            "file",
+            Some("observed file two"),
+            1_717_181_602,
+        )
+        .await
+        .expect("persist second file node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:task:aaa-lower-weight-neighbor",
+            "aaa-lower-weight-neighbor",
+            "task",
+            Some("equal-score graph ordering needle"),
+            1_717_181_603,
+        )
+        .await
+        .expect("persist lower neighbor node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:task:zzz-higher-weight-neighbor",
+            "zzz-higher-weight-neighbor",
+            "task",
+            Some("equal-score graph ordering needle"),
+            1_717_181_604,
+        )
+        .await
+        .expect("persist higher neighbor node");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:file:src/lib.rs",
+            "node:task:aaa-lower-weight-neighbor",
+            "file_supports_task",
+            2.0,
+            1_717_181_605,
+        )
+        .await
+        .expect("persist lower-weight edge first");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:file:src/main.rs",
+            "node:task:zzz-higher-weight-neighbor",
+            "file_supports_task",
+            6.0,
+            1_717_181_606,
+        )
+        .await
+        .expect("persist higher-weight edge second");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-search-memory-orders-graph-neighbors-by-weight".to_string(),
+        ToolFunction {
+            name: "search_memory".to_string(),
+            arguments: serde_json::json!({
+                "query": "equal-score graph ordering needle",
+                "limit": 5,
+                "include_base_markdown": false,
+                "include_operator_profile_json": false,
+                "include_operator_model_summary": false,
+                "include_thread_structural_memory": true
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "search_memory should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("search_memory should return JSON");
+    let matches = payload
+        .get("matches")
+        .and_then(|value| value.as_array())
+        .expect("search_memory should return matches");
+    assert!(matches.len() >= 2, "expected at least two search matches");
+    assert_eq!(
+        matches[0]
+            .get("source")
+            .and_then(|value| value.as_str()),
+        Some("node:task:zzz-higher-weight-neighbor"),
+        "when graph-backed search candidates tie textually, the higher-weight retained neighbor should rank first"
+    );
+}
