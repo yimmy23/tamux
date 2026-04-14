@@ -240,7 +240,7 @@ impl AgentEngine {
         {
             return false;
         }
-        matches!(
+        let explicitly_supported = matches!(
             tool_name,
             "bash_command"
                 | "execute_managed_command"
@@ -257,7 +257,18 @@ impl AgentEngine {
                 | "send_whatsapp_message"
                 | "spawn_subagent"
                 | "enqueue_task"
-        )
+        );
+        explicitly_supported
+            || matches!(
+                classification.class,
+                crate::agent::weles_governance::WelesGovernanceClass::GuardAlways
+                    | crate::agent::weles_governance::WelesGovernanceClass::RejectBypass
+            )
+            || (!classification.reasons.is_empty()
+                && !matches!(
+                    classification.class,
+                    crate::agent::weles_governance::WelesGovernanceClass::AllowDirect
+                ))
     }
 
     pub(crate) fn critique_requires_blocking_review(

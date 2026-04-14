@@ -1697,6 +1697,54 @@ async fn critique_preflight_skips_non_guarded_read_file_even_when_enabled() {
 }
 
 #[tokio::test]
+async fn critique_preflight_runs_for_suspicious_non_allowlisted_tool() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let args = serde_json::json!({ "action": "install" });
+    let classification =
+        crate::agent::weles_governance::classify_tool_call("setup_web_browsing", &args);
+
+    assert!(!classification.reasons.is_empty());
+    assert!(
+        engine
+            .should_run_critique_preflight("setup_web_browsing", &classification)
+            .await,
+        "suspicious guarded tools outside the static allowlist should still trigger critique"
+    );
+}
+
+#[tokio::test]
+async fn critique_preflight_runs_for_guard_always_non_allowlisted_tool() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let classification = crate::agent::weles_governance::classify_tool_call(
+        "restore_workspace_snapshot",
+        &serde_json::json!({}),
+    );
+
+    assert_eq!(
+        classification.class,
+        crate::agent::weles_governance::WelesGovernanceClass::GuardAlways
+    );
+    assert!(
+        engine
+            .should_run_critique_preflight("restore_workspace_snapshot", &classification)
+            .await,
+        "guard-always tools should trigger critique even when not named in the static allowlist"
+    );
+}
+
+#[tokio::test]
 async fn search_soul_results_are_bounded_by_limit() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
