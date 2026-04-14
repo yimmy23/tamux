@@ -32,6 +32,7 @@ pub(crate) fn build_argument(
     tool_name: &str,
     action_summary: &str,
     reasons: &[String],
+    grounded_points: Vec<ArgumentPoint>,
 ) -> Argument {
     let mut points = Vec::new();
 
@@ -74,6 +75,8 @@ pub(crate) fn build_argument(
             evidence: vec![format!("tool_specific:{tool_name}:narrower_execution")],
         });
     }
+
+    points.extend(grounded_points);
 
     Argument {
         role: Role::Critic,

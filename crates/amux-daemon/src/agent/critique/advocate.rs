@@ -4,6 +4,7 @@ pub(crate) fn build_argument(
     tool_name: &str,
     action_summary: &str,
     reasons: &[String],
+    grounded_points: Vec<ArgumentPoint>,
 ) -> Argument {
     let mut points = Vec::new();
     points.push(ArgumentPoint {
@@ -34,6 +35,7 @@ pub(crate) fn build_argument(
                 .collect(),
         });
     }
+    points.extend(grounded_points);
 
     Argument {
         role: Role::Advocate,

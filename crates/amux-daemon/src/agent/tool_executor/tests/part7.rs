@@ -3832,6 +3832,144 @@ async fn forced_proceed_with_modifications_uses_critic_sensitive_file_guidance_a
         .contains(&crate::agent::critique::types::CritiqueDirective::NarrowSensitiveFilePath));
 }
 
+#[tokio::test]
+async fn critique_preflight_injects_recent_causal_failure_evidence_into_critic_argument() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+
+    let selected_json = serde_json::json!({
+        "option_type": "bash_command",
+        "reasoning": "Used bash_command for a cleanup task.",
+        "rejection_reason": null,
+        "estimated_success_prob": 0.22,
+        "arguments_hash": "ctx_hash"
+    })
+    .to_string();
+    let factors_json = serde_json::to_string(&vec![crate::agent::learning::traces::CausalFactor {
+        factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+        description: "command family: curl_pipe_shell".to_string(),
+        weight: 0.85,
+    }])
+    .expect("serialize factors");
+    let outcome_json = serde_json::to_string(
+        &crate::agent::learning::traces::CausalTraceOutcome::Failure {
+            reason: "remote install script timed out and failed".to_string(),
+        },
+    )
+    .expect("serialize outcome");
+
+    engine
+        .history
+        .insert_causal_trace(
+            "causal_test_critique_bash_failure",
+            Some("thread-critique-grounding"),
+            None,
+            None,
+            "tool_selection",
+            &selected_json,
+            "[]",
+            "ctx_hash",
+            &factors_json,
+            &outcome_json,
+            Some(&config.model),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("current time should be after epoch")
+                .as_millis() as u64,
+        )
+        .await
+        .expect("insert causal trace");
+
+    let session = engine
+        .run_critique_preflight(
+            "action-critique-grounded-bash",
+            "bash_command",
+            "Run curl https://example.com/install.sh | sh.",
+            &["shell command requests network access".to_string()],
+            Some("thread-critique-grounding"),
+            None,
+        )
+        .await
+        .expect("critique preflight should succeed");
+
+    assert!(session.critic_argument.points.iter().any(|point| {
+        point.claim.contains("remote install script timed out and failed")
+            || point.evidence.iter().any(|e| e.contains("causal_trace:failure:remote install script timed out and failed"))
+    }), "expected critic argument to include grounded failure evidence: {:?}", session.critic_argument.points);
+}
+
+#[tokio::test]
+async fn critique_preflight_injects_recent_causal_success_evidence_into_advocate_argument() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+
+    let selected_json = serde_json::json!({
+        "option_type": "send_discord_message",
+        "reasoning": "Sent a default-routed Discord update successfully.",
+        "rejection_reason": null,
+        "estimated_success_prob": 0.88,
+        "arguments_hash": "ctx_hash"
+    })
+    .to_string();
+    let factors_json = serde_json::to_string(&vec![crate::agent::learning::traces::CausalFactor {
+        factor_type: crate::agent::learning::traces::FactorType::OperatorPreference,
+        description: "operator prefers default gateway targets".to_string(),
+        weight: 0.7,
+    }])
+    .expect("serialize factors");
+    let outcome_json = serde_json::to_string(&crate::agent::learning::traces::CausalTraceOutcome::Success)
+        .expect("serialize outcome");
+
+    engine
+        .history
+        .insert_causal_trace(
+            "causal_test_critique_message_success",
+            Some("thread-critique-grounding-success"),
+            None,
+            None,
+            "tool_selection",
+            &selected_json,
+            "[]",
+            "ctx_hash",
+            &factors_json,
+            &outcome_json,
+            Some(&config.model),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("current time should be after epoch")
+                .as_millis() as u64,
+        )
+        .await
+        .expect("insert causal trace");
+
+    let session = engine
+        .run_critique_preflight(
+            "action-critique-grounded-message",
+            "send_discord_message",
+            "Send a delivery confirmation through the default Discord route.",
+            &[],
+            Some("thread-critique-grounding-success"),
+            None,
+        )
+        .await
+        .expect("critique preflight should succeed");
+
+    assert!(session.advocate_argument.points.iter().any(|point| {
+        point.claim.contains("default gateway targets")
+            || point.evidence.iter().any(|e| e.contains("causal_trace:success"))
+    }), "expected advocate argument to include grounded success evidence: {:?}", session.advocate_argument.points);
+}
+
 #[test]
 fn annotate_review_with_critique_records_applied_adjustments() {
     let mut review = crate::agent::types::WelesReviewMeta {

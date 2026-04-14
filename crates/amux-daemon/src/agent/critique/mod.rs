@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::agent::engine::AgentEngine;
 use crate::agent::operator_model::RiskTolerance;
 
-use self::types::{CritiqueSession, Decision, Resolution, SessionStatus};
+use self::types::{ArgumentPoint, CritiqueSession, Decision, Resolution, SessionStatus};
 
 fn now_millis() -> u64 {
     std::time::SystemTime::now()
@@ -19,7 +19,141 @@ fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
+fn summarize_causal_factor_descriptions(
+    factors: &[crate::agent::learning::traces::CausalFactor],
+) -> String {
+    factors
+        .iter()
+        .take(2)
+        .map(|factor| factor.description.clone())
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
 impl AgentEngine {
+    async fn critique_grounded_argument_points(
+        &self,
+        tool_name: &str,
+    ) -> (Vec<ArgumentPoint>, Vec<ArgumentPoint>) {
+        let records = match self
+            .history
+            .list_recent_causal_trace_records(tool_name, 6)
+            .await
+        {
+            Ok(records) => records,
+            Err(error) => {
+                tracing::warn!(tool = %tool_name, "failed to load recent causal traces for critique grounding: {error}");
+                return (Vec::new(), Vec::new());
+            }
+        };
+
+        let mut advocate_points = Vec::new();
+        let mut critic_points = Vec::new();
+
+        for record in records {
+            let factors = serde_json::from_str::<Vec<crate::agent::learning::traces::CausalFactor>>(
+                &record.causal_factors_json,
+            )
+            .unwrap_or_default();
+            let factor_summary = summarize_causal_factor_descriptions(&factors);
+            let factor_evidence = factors
+                .iter()
+                .take(2)
+                .map(|factor| format!("causal_factor:{}", factor.description))
+                .collect::<Vec<_>>();
+
+            let outcome = match serde_json::from_str::<crate::agent::learning::traces::CausalTraceOutcome>(
+                &record.outcome_json,
+            ) {
+                Ok(outcome) => outcome,
+                Err(_) => continue,
+            };
+
+            match outcome {
+                crate::agent::learning::traces::CausalTraceOutcome::Success => {
+                    if advocate_points.is_empty() {
+                        let summary = if factor_summary.is_empty() {
+                            format!("recent `{tool_name}` executions succeeded")
+                        } else {
+                            factor_summary.clone()
+                        };
+                        let mut evidence = vec![format!("causal_trace:success:{summary}")];
+                        evidence.extend(factor_evidence.clone());
+                        advocate_points.push(ArgumentPoint {
+                            claim: format!(
+                                "Recent causal history supports `{tool_name}`: {summary}."
+                            ),
+                            weight: 0.58,
+                            evidence,
+                        });
+                    }
+                }
+                crate::agent::learning::traces::CausalTraceOutcome::Failure { reason } => {
+                    if critic_points.is_empty() {
+                        let mut evidence = vec![format!("causal_trace:failure:{reason}")];
+                        evidence.extend(factor_evidence.clone());
+                        let claim = if factor_summary.is_empty() {
+                            format!(
+                                "Recent causal history warns against `{tool_name}` without extra caution: {reason}."
+                            )
+                        } else {
+                            format!(
+                                "Recent causal history warns against `{tool_name}`: {reason}. Context: {factor_summary}."
+                            )
+                        };
+                        critic_points.push(ArgumentPoint {
+                            claim,
+                            weight: 0.79,
+                            evidence,
+                        });
+                    }
+                }
+                crate::agent::learning::traces::CausalTraceOutcome::NearMiss {
+                    what_went_wrong,
+                    how_recovered,
+                } => {
+                    if critic_points.is_empty() {
+                        let mut evidence = vec![format!(
+                            "causal_trace:near_miss:{what_went_wrong}"
+                        )];
+                        evidence.extend(factor_evidence.clone());
+                        evidence.push(format!("causal_trace:recovery:{how_recovered}"));
+                        let claim = if factor_summary.is_empty() {
+                            format!(
+                                "Recent causal history shows a near miss for `{tool_name}`: {what_went_wrong}."
+                            )
+                        } else {
+                            format!(
+                                "Recent causal history shows a near miss for `{tool_name}`: {what_went_wrong}. Context: {factor_summary}."
+                            )
+                        };
+                        critic_points.push(ArgumentPoint {
+                            claim,
+                            weight: 0.71,
+                            evidence,
+                        });
+                    }
+                    if advocate_points.is_empty() {
+                        advocate_points.push(ArgumentPoint {
+                            claim: format!(
+                                "Recent causal history also shows `{tool_name}` can recover from trouble: {how_recovered}."
+                            ),
+                            weight: 0.46,
+                            evidence: vec![format!("causal_trace:recovery:{how_recovered}")],
+                        });
+                    }
+                }
+                crate::agent::learning::traces::CausalTraceOutcome::Unresolved => {}
+            }
+
+            if !advocate_points.is_empty() && !critic_points.is_empty() {
+                break;
+            }
+        }
+
+        (advocate_points, critic_points)
+    }
+
     pub(crate) async fn run_critique_preflight(
         &self,
         action_id: &str,
@@ -35,8 +169,20 @@ impl AgentEngine {
             .await
             .risk_fingerprint
             .risk_tolerance;
-        let advocate_argument = advocate::build_argument(tool_name, action_summary, reasons);
-        let critic_argument = critic::build_argument(tool_name, action_summary, reasons);
+        let (grounded_advocate_points, grounded_critic_points) =
+            self.critique_grounded_argument_points(tool_name).await;
+        let advocate_argument = advocate::build_argument(
+            tool_name,
+            action_summary,
+            reasons,
+            grounded_advocate_points,
+        );
+        let critic_argument = critic::build_argument(
+            tool_name,
+            action_summary,
+            reasons,
+            grounded_critic_points,
+        );
         let mut resolution = arbiter::resolve(&advocate_argument, &critic_argument, risk_tolerance);
         if let Some(forced_decision) = self
             .config
