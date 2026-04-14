@@ -65,7 +65,10 @@ async fn maybe_emit_cli_wrapper_synthesis_proposal_notice(
     agent: &AgentEngine,
     event_tx: &broadcast::Sender<AgentEvent>,
     thread_id: &str,
+    dedupe_hint: &str,
     missing_tool: &str,
+    proposal: CliWrapperSynthesisProposal,
+    reason: &str,
 ) {
     if thread_id.trim().is_empty() {
         return;
@@ -76,11 +79,7 @@ async fn maybe_emit_cli_wrapper_synthesis_proposal_notice(
         return;
     }
 
-    let Some(proposal) = detect_cli_wrapper_synthesis_proposal(missing_tool) else {
-        return;
-    };
-
-    let dedupe_key = format!("{thread_id}::{missing_tool}");
+    let dedupe_key = format!("{thread_id}::{dedupe_hint}");
     {
         let mut notices = agent.tool_synthesis_gap_notices.write().await;
         if !notices.insert(dedupe_key) {
@@ -95,10 +94,10 @@ async fn maybe_emit_cli_wrapper_synthesis_proposal_notice(
         "activate": false,
     });
     let message = format!(
-        "Missing tool `{missing_tool}` looks like a conservative CLI-wrapper gap. Proposal ready via synthesize_tool."
+        "Missing capability around `{missing_tool}` looks like a conservative CLI-wrapper gap. Proposal ready via synthesize_tool."
     );
     let details = serde_json::json!({
-        "reason": "unknown_tool_safe_cli_gap",
+        "reason": reason,
         "missing_tool": missing_tool,
         "proposal_kind": "cli",
         "synthesize_tool_args": synthesize_args,
@@ -109,6 +108,52 @@ async fn maybe_emit_cli_wrapper_synthesis_proposal_notice(
         message,
         details: Some(details.to_string()),
     });
+}
+
+async fn maybe_emit_unknown_tool_synthesis_proposal_notice(
+    agent: &AgentEngine,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
+    missing_tool: &str,
+) {
+    let Some(proposal) = detect_cli_wrapper_synthesis_proposal(missing_tool) else {
+        return;
+    };
+    maybe_emit_cli_wrapper_synthesis_proposal_notice(
+        agent,
+        event_tx,
+        thread_id,
+        missing_tool,
+        missing_tool,
+        proposal,
+        "unknown_tool_safe_cli_gap",
+    )
+    .await;
+}
+
+async fn maybe_emit_successful_shell_synthesis_proposal_notice(
+    agent: &AgentEngine,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
+    tool_name: &str,
+    args: &serde_json::Value,
+) {
+    let Some(command) = args.get("command").and_then(|value| value.as_str()) else {
+        return;
+    };
+    let Some(proposal) = detect_cli_wrapper_synthesis_proposal_from_command(command) else {
+        return;
+    };
+    maybe_emit_cli_wrapper_synthesis_proposal_notice(
+        agent,
+        event_tx,
+        thread_id,
+        command,
+        tool_name,
+        proposal,
+        "successful_safe_shell_cli_gap",
+    )
+    .await;
 }
 
 fn should_scrub_successful_tool_result(tool_name: &str) -> bool {
@@ -1124,7 +1169,7 @@ async fn dispatch_tool_execution(
         {
             Ok(Some(content)) => Ok(content),
             Ok(None) => {
-                maybe_emit_cli_wrapper_synthesis_proposal_notice(agent, event_tx, thread_id, other)
+                maybe_emit_unknown_tool_synthesis_proposal_notice(agent, event_tx, thread_id, other)
                     .await;
                 Err(anyhow::anyhow!("Unknown tool: {other}"))
             }
@@ -1217,6 +1262,19 @@ pub fn execute_tool<'a>(
                     prepared.dispatch_tool_name.as_str(),
                     &prepared.dispatch_args,
                 );
+                if matches!(
+                    prepared.dispatch_tool_name.as_str(),
+                    "bash_command" | "run_terminal_command" | "execute_managed_command"
+                ) {
+                    maybe_emit_successful_shell_synthesis_proposal_notice(
+                        agent,
+                        event_tx,
+                        thread_id,
+                        prepared.dispatch_tool_name.as_str(),
+                        &prepared.dispatch_args,
+                    )
+                    .await;
+                }
                 tracing::info!(tool = %prepared.tool_name, result_len = content.len(), "agent tool result: ok");
                 ToolResult {
                     tool_call_id: tool_call.id.clone(),

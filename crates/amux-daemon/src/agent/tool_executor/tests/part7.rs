@@ -5330,3 +5330,191 @@ async fn duplicate_unknown_cli_gap_notice_is_suppressed_per_thread() {
         "duplicate missing-tool proposals in the same thread should be suppressed"
     );
 }
+
+#[tokio::test]
+async fn successful_safe_shell_command_emits_tool_synthesis_proposal_notice() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+
+    let repo_root = root.path().join("repo-shell-gap");
+    std::fs::create_dir_all(&repo_root).expect("create repo root");
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init should succeed");
+
+    let result = execute_tool(
+        &ToolCall {
+            id: "call-shell-gap-git-status".to_string(),
+            function: ToolFunction {
+                name: "bash_command".to_string(),
+                arguments: serde_json::json!({
+                    "command": "git status --short",
+                    "cwd": repo_root,
+                })
+                .to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-shell-gap",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "safe shell command should succeed before proposal surfacing: {}",
+        result.content
+    );
+
+    let notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected synthesis proposal workflow notice")
+        .expect("workflow notice should be received");
+
+    match notice {
+        AgentEvent::WorkflowNotice {
+            kind,
+            details: Some(details),
+            ..
+        } => {
+            assert_eq!(kind, "tool-synthesis-proposal");
+            let details: serde_json::Value =
+                serde_json::from_str(&details).expect("notice details should be json");
+            assert_eq!(
+                details.get("reason").and_then(|value| value.as_str()),
+                Some("successful_safe_shell_cli_gap")
+            );
+            let synth_args = details
+                .get("synthesize_tool_args")
+                .expect("proposal should include synthesize_tool args");
+            assert_eq!(
+                synth_args.get("target").and_then(|value| value.as_str()),
+                Some("git status")
+            );
+            assert_eq!(
+                synth_args.get("name").and_then(|value| value.as_str()),
+                Some("git_status")
+            );
+        }
+        other => panic!("expected workflow notice, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn successful_risky_shell_command_does_not_emit_tool_synthesis_proposal_notice() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+
+    let result = execute_tool(
+        &ToolCall {
+            id: "call-shell-gap-cargo-install".to_string(),
+            function: ToolFunction {
+                name: "bash_command".to_string(),
+                arguments: serde_json::json!({
+                    "command": "printf ok",
+                })
+                .to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-shell-gap-risky",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "shell command should succeed: {}", result.content);
+    assert!(
+        timeout(Duration::from_millis(150), event_rx.recv())
+            .await
+            .is_err(),
+        "non-matching shell commands should not emit synthesis proposals"
+    );
+}
+
+#[tokio::test]
+async fn duplicate_successful_shell_gap_notice_is_suppressed_per_thread() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+
+    let repo_root = root.path().join("repo-shell-gap-dedupe");
+    std::fs::create_dir_all(&repo_root).expect("create repo root");
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init should succeed");
+
+    for call_id in ["call-shell-gap-1", "call-shell-gap-2"] {
+        let result = execute_tool(
+            &ToolCall {
+                id: call_id.to_string(),
+                function: ToolFunction {
+                    name: "bash_command".to_string(),
+                    arguments: serde_json::json!({
+                        "command": "git status --short",
+                        "cwd": repo_root,
+                    })
+                    .to_string(),
+                },
+                weles_review: None,
+            },
+            &engine,
+            "thread-shell-gap-dedupe",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+        assert!(!result.is_error, "shell command should succeed: {}", result.content);
+    }
+
+    let mut synthesis_notice_count = 0;
+    for _ in 0..4 {
+        if let Ok(Ok(AgentEvent::WorkflowNotice { kind, .. })) =
+            timeout(Duration::from_millis(150), event_rx.recv()).await
+        {
+            if kind == "tool-synthesis-proposal" {
+                synthesis_notice_count += 1;
+            }
+        } else {
+            break;
+        }
+    }
+
+    assert_eq!(
+        synthesis_notice_count, 1,
+        "duplicate successful shell gaps in the same thread should emit only one synthesis proposal"
+    );
+}

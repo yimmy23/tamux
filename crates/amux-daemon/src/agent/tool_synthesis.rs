@@ -14,7 +14,10 @@ mod runtime;
 
 #[cfg(test)]
 pub(crate) use runtime::parse_cli_help_parameters;
-pub(crate) use runtime::detect_cli_wrapper_synthesis_proposal;
+pub(crate) use runtime::{
+    CliWrapperSynthesisProposal, detect_cli_wrapper_synthesis_proposal,
+    detect_cli_wrapper_synthesis_proposal_from_command,
+};
 use runtime::{
     default_parameter_location, default_parameter_type, generated_tools_dir,
     run_cli_generated_tool, run_openapi_generated_tool, synthesize_cli_tool,

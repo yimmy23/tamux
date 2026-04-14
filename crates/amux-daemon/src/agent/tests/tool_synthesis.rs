@@ -26,8 +26,24 @@ fn detect_cli_wrapper_synthesis_proposal_maps_safe_unknown_tool_name() {
 }
 
 #[test]
+fn detect_cli_wrapper_synthesis_proposal_from_command_maps_safe_readonly_shell_command() {
+    let proposal = super::detect_cli_wrapper_synthesis_proposal_from_command("git status --short")
+        .expect("safe readonly shell command should produce a CLI wrapper proposal");
+
+    assert_eq!(proposal.tool_name, "git_status");
+    assert_eq!(proposal.target, "git status");
+}
+
+#[test]
 fn detect_cli_wrapper_synthesis_proposal_rejects_mutating_tokens() {
     assert!(super::detect_cli_wrapper_synthesis_proposal("cargo_install").is_none());
+}
+
+#[test]
+fn detect_cli_wrapper_synthesis_proposal_from_command_rejects_complex_or_mutating_shell() {
+    assert!(super::detect_cli_wrapper_synthesis_proposal_from_command("cargo install ripgrep")
+        .is_none());
+    assert!(super::detect_cli_wrapper_synthesis_proposal_from_command("git status | cat").is_none());
 }
 
 #[test]
