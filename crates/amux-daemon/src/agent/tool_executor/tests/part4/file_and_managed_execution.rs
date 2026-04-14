@@ -1,5 +1,33 @@
 use super::*;
 
+fn stage_text_file_write<F>(
+    path: &std::path::Path,
+    content: &str,
+    overwrite_existing: bool,
+    commit: F,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(tempfile::NamedTempFile, &std::path::Path, bool) -> std::io::Result<()>,
+{
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    if path.exists() && !overwrite_existing {
+        anyhow::bail!("file already exists: {}", path.display());
+    }
+
+    let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+    std::io::Write::write_all(staged.as_file_mut(), content.as_bytes())?;
+    staged.as_file_mut().sync_all()?;
+
+    match commit(staged, path, overwrite_existing) {
+        Ok(()) => Ok(()),
+        Err(error) if !overwrite_existing && error.kind() == std::io::ErrorKind::AlreadyExists => {
+            anyhow::bail!("file already exists: {}", path.display())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
 #[test]
 fn write_file_rejects_paths_with_trailing_whitespace() {
     let error = validate_write_path("/tmp/Dockerfile ")

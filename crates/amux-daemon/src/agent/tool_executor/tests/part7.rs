@@ -6283,3 +6283,270 @@ async fn search_memory_matches_thread_structural_graph_neighbors() {
                 .is_some_and(|snippet| snippet.contains("graph-demo"))
     }));
 }
+
+#[tokio::test]
+async fn read_memory_includes_second_hop_thread_structural_graph_neighbors() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-read-memory-second-hop-graph-neighbors";
+    let agent_data_dir = root.path().join("agent");
+
+    let paths = write_scope_memory_files(
+        &agent_data_dir,
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        "# Soul\n\n- Stable soul fact\n",
+        "# Memory\n\n- Stable memory fact\n",
+        "# User\n\n- Stable user fact\n",
+    );
+    let memory = current_scope_memory(&agent_data_dir).await;
+    engine
+        .set_thread_memory_injection_state(thread_id, build_matching_injection_state(&memory, &paths))
+        .await;
+    engine.thread_structural_memories.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::context::structural_memory::ThreadStructuralMemory {
+            observed_files: vec![crate::agent::context::structural_memory::ObservedFileNode {
+                node_id: "node:file:src/lib.rs".to_string(),
+                relative_path: "src/lib.rs".to_string(),
+            }],
+            ..Default::default()
+        },
+    );
+    engine
+        .history
+        .upsert_memory_node(
+            "node:file:src/lib.rs",
+            "src/lib.rs",
+            "file",
+            Some("observed file"),
+            1_717_180_501,
+        )
+        .await
+        .expect("persist file node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:package:cargo:demo-two-hop",
+            "demo-two-hop",
+            "package",
+            Some("intermediate cargo package"),
+            1_717_180_502,
+        )
+        .await
+        .expect("persist package node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:task:graph-two-hop-task",
+            "graph-two-hop-task",
+            "task",
+            Some("second hop task node"),
+            1_717_180_503,
+        )
+        .await
+        .expect("persist task node");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:file:src/lib.rs",
+            "node:package:cargo:demo-two-hop",
+            "file_in_package",
+            2.0,
+            1_717_180_504,
+        )
+        .await
+        .expect("persist file/package edge");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:package:cargo:demo-two-hop",
+            "node:task:graph-two-hop-task",
+            "package_supports_task",
+            1.5,
+            1_717_180_505,
+        )
+        .await
+        .expect("persist package/task edge");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-read-memory-second-hop-graph-neighbors".to_string(),
+        ToolFunction {
+            name: "read_memory".to_string(),
+            arguments: serde_json::json!({
+                "limit_per_layer": 6,
+                "include_thread_structural_memory": true
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "read_memory should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("read_memory should return JSON");
+    let neighbors = payload
+        .get("results")
+        .and_then(|value| value.get("thread_structural_memory"))
+        .and_then(|value| value.get("graph_neighbors"))
+        .and_then(|value| value.as_array())
+        .expect("graph neighbors should be present");
+    assert!(neighbors.iter().any(|item| {
+        item.get("node_id").and_then(|value| value.as_str())
+            == Some("node:task:graph-two-hop-task")
+    }));
+}
+
+#[tokio::test]
+async fn search_memory_matches_second_hop_thread_structural_graph_neighbors() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-search-memory-second-hop-graph-neighbors";
+    let agent_data_dir = root.path().join("agent");
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Search memory second hop graph neighbors",
+            false,
+            1,
+            1,
+            vec![crate::agent::types::AgentMessage::user("search second hop graph neighbors", 1)],
+        ),
+    );
+
+    write_scope_memory_files(
+        &agent_data_dir,
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        "# Soul\n\n- Stable soul fact\n",
+        "# Memory\n\n- Stable memory fact\n",
+        "# User\n\n- Stable user fact\n",
+    );
+    engine.thread_structural_memories.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::context::structural_memory::ThreadStructuralMemory {
+            observed_files: vec![crate::agent::context::structural_memory::ObservedFileNode {
+                node_id: "node:file:src/lib.rs".to_string(),
+                relative_path: "src/lib.rs".to_string(),
+            }],
+            ..Default::default()
+        },
+    );
+    engine
+        .history
+        .upsert_memory_node(
+            "node:file:src/lib.rs",
+            "src/lib.rs",
+            "file",
+            Some("observed file"),
+            1_717_180_601,
+        )
+        .await
+        .expect("persist file node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:package:cargo:demo-second-hop",
+            "demo-second-hop",
+            "package",
+            Some("intermediate cargo package"),
+            1_717_180_602,
+        )
+        .await
+        .expect("persist package node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:error:two-hop:unique-needle",
+            "two-hop-needle",
+            "error",
+            Some("unique second hop memory graph needle"),
+            1_717_180_603,
+        )
+        .await
+        .expect("persist error node");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:file:src/lib.rs",
+            "node:package:cargo:demo-second-hop",
+            "file_in_package",
+            2.0,
+            1_717_180_604,
+        )
+        .await
+        .expect("persist file/package edge");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:package:cargo:demo-second-hop",
+            "node:error:two-hop:unique-needle",
+            "package_linked_error",
+            1.5,
+            1_717_180_605,
+        )
+        .await
+        .expect("persist package/error edge");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-search-memory-second-hop-graph-neighbors".to_string(),
+        ToolFunction {
+            name: "search_memory".to_string(),
+            arguments: serde_json::json!({
+                "query": "unique second hop memory graph needle",
+                "limit": 5,
+                "include_base_markdown": false,
+                "include_operator_profile_json": false,
+                "include_operator_model_summary": false,
+                "include_thread_structural_memory": true
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "search_memory should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("search_memory should return JSON");
+    let matches = payload
+        .get("matches")
+        .and_then(|value| value.as_array())
+        .expect("search_memory should return matches");
+    assert!(matches.iter().any(|item| {
+        item.get("layer").and_then(|value| value.as_str()) == Some("thread_structural_memory")
+            && item
+                .get("snippet")
+                .and_then(|value| value.as_str())
+                .is_some_and(|snippet| snippet.contains("unique second hop memory graph needle"))
+    }));
+}

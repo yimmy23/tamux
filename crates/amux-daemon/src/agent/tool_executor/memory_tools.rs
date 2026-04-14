@@ -585,28 +585,43 @@ async fn load_thread_memory_graph_neighbors(
         .map(|entry| entry.node_id)
         .collect::<Vec<_>>();
     let mut neighbors = Vec::new();
-    for node_id in structural_refs.iter().take(limit) {
-        let remaining = limit.saturating_sub(neighbors.len());
-        if remaining == 0 {
-            break;
-        }
-        let rows = agent
-            .history
-            .list_memory_graph_neighbors(node_id, remaining)
-            .await?;
-        for row in rows {
-            if neighbors.iter().any(|existing: &crate::history::MemoryGraphNeighborRow| {
-                existing.node.id == row.node.id
-                    && existing.via_edge.source_node_id == row.via_edge.source_node_id
-                    && existing.via_edge.target_node_id == row.via_edge.target_node_id
-                    && existing.via_edge.relation_type == row.via_edge.relation_type
-            }) {
-                continue;
-            }
-            neighbors.push(row);
-            if neighbors.len() >= limit {
+    let mut frontier = structural_refs.clone();
+
+    for _depth in 0..2 {
+        let current_frontier = frontier;
+        frontier = Vec::new();
+        for node_id in current_frontier.into_iter().take(limit) {
+            let remaining = limit.saturating_sub(neighbors.len());
+            if remaining == 0 {
                 break;
             }
+            let rows = agent
+                .history
+                .list_memory_graph_neighbors(&node_id, remaining)
+                .await?;
+            for row in rows {
+                let duplicate = neighbors.iter().any(|existing: &crate::history::MemoryGraphNeighborRow| {
+                    existing.node.id == row.node.id
+                        && existing.via_edge.source_node_id == row.via_edge.source_node_id
+                        && existing.via_edge.target_node_id == row.via_edge.target_node_id
+                        && existing.via_edge.relation_type == row.via_edge.relation_type
+                });
+                if duplicate {
+                    continue;
+                }
+                if !structural_refs.iter().any(|existing| existing == &row.node.id)
+                    && !frontier.iter().any(|existing| existing == &row.node.id)
+                {
+                    frontier.push(row.node.id.clone());
+                }
+                neighbors.push(row);
+                if neighbors.len() >= limit {
+                    break;
+                }
+            }
+        }
+        if neighbors.len() >= limit || frontier.is_empty() {
+            break;
         }
     }
     Ok(neighbors)
