@@ -2259,3 +2259,138 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
     );
     assert_eq!(prepared.messages[3].role, "user");
 }
+
+#[tokio::test]
+async fn coding_compaction_payload_includes_memory_graph_neighbors() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.auto_compact_context = true;
+    config.max_context_messages = 2;
+    config.keep_recent_on_compact = 1;
+    config.compaction.strategy = CompactionStrategy::Heuristic;
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+    let provider = sample_provider_config();
+    let thread_id = "coding-compaction-graph-neighbors-thread";
+
+    engine.thread_structural_memories.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::context::structural_memory::ThreadStructuralMemory {
+            workspace_seed_scan_complete: true,
+            language_hints: vec!["rust".to_string()],
+            workspace_seeds: vec![crate::agent::context::structural_memory::WorkspaceSeed {
+                node_id: "node:file:Cargo.toml".to_string(),
+                relative_path: "Cargo.toml".to_string(),
+                kind: "cargo_manifest".to_string(),
+            }],
+            observed_files: vec![crate::agent::context::structural_memory::ObservedFileNode {
+                node_id: "node:file:src/lib.rs".to_string(),
+                relative_path: "src/lib.rs".to_string(),
+            }],
+            edges: Vec::new(),
+        },
+    );
+    engine
+        .history
+        .upsert_memory_node(
+            "node:file:src/lib.rs",
+            "src/lib.rs",
+            "file",
+            Some("observed file"),
+            1_717_180_201,
+        )
+        .await
+        .expect("persist file node");
+    engine
+        .history
+        .upsert_memory_node(
+            "node:package:cargo:demo",
+            "demo",
+            "package",
+            Some("cargo package from Cargo.toml"),
+            1_717_180_202,
+        )
+        .await
+        .expect("persist package node");
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:file:src/lib.rs",
+            "node:package:cargo:demo",
+            "file_in_package",
+            2.0,
+            1_717_180_203,
+        )
+        .await
+        .expect("persist file/package edge");
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            sample_thread(vec![
+                AgentMessage::user("Update the parser and keep code context compact.", 1),
+                AgentMessage {
+                    id: "tool-older".to_string(),
+                    role: MessageRole::Tool,
+                    content: "Tool result offloaded".to_string(),
+                    tool_calls: None,
+                    tool_call_id: Some("call-1".to_string()),
+                    tool_name: Some("read_file".to_string()),
+                    tool_arguments: Some(
+                        serde_json::json!({"filePath":"/repo/src/lib.rs"}).to_string(),
+                    ),
+                    tool_status: Some("done".to_string()),
+                    weles_review: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost: None,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
+                    author_agent_id: None,
+                    author_agent_name: None,
+                    reasoning: None,
+                    message_kind: AgentMessageKind::Normal,
+                    compaction_strategy: None,
+                    compaction_payload: None,
+                    offloaded_payload_id: None,
+                    structural_refs: vec!["node:file:src/lib.rs".to_string()],
+                    timestamp: 2,
+                },
+                AgentMessage::user("Continue with the fix and validate it.", 3),
+            ]),
+        );
+        let thread = threads.get_mut(thread_id).expect("thread should exist");
+        thread.id = thread_id.to_string();
+    }
+
+    let inserted = engine
+        .maybe_persist_compaction_artifact(thread_id, None, &config, &provider)
+        .await
+        .expect("coding compaction should succeed");
+    assert!(inserted, "compaction artifact should be inserted");
+
+    let thread = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .cloned()
+            .expect("thread should exist after compaction")
+    };
+    let artifact = compaction_artifact_message(&thread);
+    let payload = artifact
+        .compaction_payload
+        .as_deref()
+        .expect("coding artifact should carry payload");
+
+    assert!(payload.contains("node:package:cargo:demo"));
+    assert!(payload.contains("graph neighbor `demo` (package) via file in package"));
+    assert!(artifact
+        .structural_refs
+        .iter()
+        .any(|node_id| node_id == "node:package:cargo:demo"));
+}

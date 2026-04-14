@@ -5,6 +5,7 @@
 use super::llm_client::{messages_to_api_format, ApiToolCall, ApiToolCallFunction};
 use super::*;
 use crate::agent::context::structural_memory::{StructuralContextEntry, ThreadStructuralMemory};
+use crate::history::MemoryGraphNeighborRow;
 use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
 const HEURISTIC_COMPACTION_VISIBLE_TEXT: &str = "rule based";
@@ -15,6 +16,7 @@ const COMPACTION_MODEL_RECENT_CONTENT_MESSAGES: usize = 6;
 const COMPACTION_MODEL_REQUEST_HEADROOM_TOKENS: usize = 8_192;
 const COMPACTION_RECENT_SIGNAL_MESSAGES: usize = 8;
 const CODING_COMPACTION_STRUCTURAL_ENTRY_LIMIT: usize = 6;
+const CODING_COMPACTION_GRAPH_NEIGHBOR_LIMIT: usize = 8;
 const CODING_COMPACTION_OFFLOAD_REFERENCE_LIMIT: usize = 4;
 const COMPACTION_MESSAGE_TRUNCATION_NOTICE: &str =
     "\n\n[Older compaction input truncated to fit the model budget.]";
@@ -1037,6 +1039,82 @@ fn render_structural_context(entries: &[StructuralContextEntry]) -> String {
             )
         })
         .collect()
+}
+
+async fn load_memory_graph_neighbors(
+    history: &crate::history::HistoryStore,
+    structural_refs: &[String],
+    limit: usize,
+) -> Result<Vec<MemoryGraphNeighborRow>> {
+    let mut neighbors = Vec::new();
+    for node_id in structural_refs.iter().take(limit) {
+        let remaining = limit.saturating_sub(neighbors.len());
+        if remaining == 0 {
+            break;
+        }
+        let rows = history
+            .list_memory_graph_neighbors(node_id, remaining)
+            .await?;
+        for row in rows {
+            if neighbors.iter().any(|existing: &MemoryGraphNeighborRow| {
+                existing.node.id == row.node.id
+                    && existing.via_edge.source_node_id == row.via_edge.source_node_id
+                    && existing.via_edge.target_node_id == row.via_edge.target_node_id
+                    && existing.via_edge.relation_type == row.via_edge.relation_type
+            }) {
+                continue;
+            }
+            neighbors.push(row);
+            if neighbors.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(neighbors)
+}
+
+fn graph_neighbor_summary(row: &MemoryGraphNeighborRow) -> String {
+    let relation = row.via_edge.relation_type.replace('_', " ");
+    let anchor = if row.via_edge.source_node_id == row.node.id {
+        row.via_edge.target_node_id.as_str()
+    } else {
+        row.via_edge.source_node_id.as_str()
+    };
+    let summary = row
+        .node
+        .summary_text
+        .as_deref()
+        .filter(|value: &&str| !value.trim().is_empty())
+        .map(|value| format!("; {}", super::goal_parsing::summarize_text(value, 140)))
+        .unwrap_or_default();
+    format!(
+        "graph neighbor `{}` ({}) via {} from `{}`{}",
+        row.node.label, row.node.node_type, relation, anchor, summary
+    )
+}
+
+fn merge_structural_context_entries(
+    structural_entries: &[StructuralContextEntry],
+    graph_neighbors: &[MemoryGraphNeighborRow],
+    limit: usize,
+) -> Vec<StructuralContextEntry> {
+    let mut entries = structural_entries.to_vec();
+    for neighbor in graph_neighbors {
+        if entries.len() >= limit {
+            break;
+        }
+        if entries
+            .iter()
+            .any(|entry| entry.node_id == neighbor.node.id)
+        {
+            continue;
+        }
+        entries.push(StructuralContextEntry {
+            node_id: neighbor.node.id.clone(),
+            summary: graph_neighbor_summary(neighbor),
+        });
+    }
+    entries
 }
 
 fn collect_referenced_offloaded_payload_ids(messages: &[AgentMessage]) -> Vec<String> {
@@ -2242,17 +2320,30 @@ impl AgentEngine {
         target_tokens: usize,
         structural_memory: &ThreadStructuralMemory,
     ) -> Result<(String, Vec<String>)> {
+        let seed_structural_refs = collect_message_structural_refs(messages);
         let structural_entries = structural_memory.concise_context_entries(
-            &collect_message_structural_refs(messages),
+            &seed_structural_refs,
             CODING_COMPACTION_STRUCTURAL_ENTRY_LIMIT,
         );
         if structural_entries.is_empty() {
             anyhow::bail!("no structural context entries available for coding compaction");
         }
 
+        let graph_neighbors = load_memory_graph_neighbors(
+            &self.history,
+            &seed_structural_refs,
+            CODING_COMPACTION_GRAPH_NEIGHBOR_LIMIT,
+        )
+        .await?;
+        let merged_structural_entries = merge_structural_context_entries(
+            &structural_entries,
+            &graph_neighbors,
+            CODING_COMPACTION_STRUCTURAL_ENTRY_LIMIT + CODING_COMPACTION_GRAPH_NEIGHBOR_LIMIT,
+        );
+
         let offloaded_metadata =
             load_referenced_offloaded_payload_metadata(&self.history, thread_id, messages).await?;
-        let structural_refs = structural_entries
+        let structural_refs = merged_structural_entries
             .iter()
             .map(|entry| entry.node_id.clone())
             .collect::<Vec<_>>();
@@ -2260,7 +2351,7 @@ impl AgentEngine {
             "## Primary Objective\n{}\n\n## Execution Map\n{}\n\n## Structural Context\n{}\n\n## Offloaded Payload References\n{}\n\n## Immediate Next Step\n{}\n",
             checkpoint_primary_objective(messages),
             coding_execution_map(messages),
-            render_structural_context(&structural_entries),
+            render_structural_context(&merged_structural_entries),
             render_offloaded_payload_references(&offloaded_metadata),
             checkpoint_immediate_next_step(messages),
         );

@@ -25,6 +25,12 @@ pub struct MemoryEdgeRow {
     pub last_updated_ms: u64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryGraphNeighborRow {
+    pub node: MemoryNodeRow,
+    pub via_edge: MemoryEdgeRow,
+}
+
 impl HistoryStore {
     pub async fn upsert_memory_node(
         &self,
@@ -158,6 +164,70 @@ impl HistoryStore {
                         relation_type: row.get(3)?,
                         weight: row.get(4)?,
                         last_updated_ms: row.get::<_, i64>(5)?.max(0) as u64,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_memory_graph_neighbors(
+        &self,
+        node_id: &str,
+        limit: usize,
+    ) -> Result<Vec<MemoryGraphNeighborRow>> {
+        let node_id = node_id.to_string();
+        let limit = limit.max(1) as i64;
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT
+                        n.id,
+                        n.label,
+                        n.node_type,
+                        n.embedding_blob,
+                        n.created_at_ms,
+                        n.last_accessed_ms,
+                        n.access_count,
+                        n.summary_text,
+                        e.id,
+                        e.source_node_id,
+                        e.target_node_id,
+                        e.relation_type,
+                        e.weight,
+                        e.last_updated_ms
+                     FROM memory_edges e
+                     JOIN memory_nodes n
+                       ON n.id = CASE
+                           WHEN e.source_node_id = ?1 THEN e.target_node_id
+                           ELSE e.source_node_id
+                       END
+                     WHERE e.source_node_id = ?1 OR e.target_node_id = ?1
+                     ORDER BY e.weight DESC, e.last_updated_ms DESC, n.last_accessed_ms DESC
+                     LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![node_id, limit], |row| {
+                    Ok(MemoryGraphNeighborRow {
+                        node: MemoryNodeRow {
+                            id: row.get(0)?,
+                            label: row.get(1)?,
+                            node_type: row.get(2)?,
+                            embedding_blob: row.get(3)?,
+                            created_at_ms: row.get::<_, i64>(4)?.max(0) as u64,
+                            last_accessed_ms: row.get::<_, i64>(5)?.max(0) as u64,
+                            access_count: row.get::<_, i64>(6)?.max(0) as u64,
+                            summary_text: row.get(7)?,
+                        },
+                        via_edge: MemoryEdgeRow {
+                            id: row.get(8)?,
+                            source_node_id: row.get(9)?,
+                            target_node_id: row.get(10)?,
+                            relation_type: row.get(11)?,
+                            weight: row.get(12)?,
+                            last_updated_ms: row.get::<_, i64>(13)?.max(0) as u64,
+                        },
                     })
                 })?;
                 rows.collect::<std::result::Result<Vec<_>, _>>()

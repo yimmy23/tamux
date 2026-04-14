@@ -932,3 +932,66 @@ async fn memory_graph_round_trips_nodes_and_edges() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn memory_graph_neighbor_lookup_returns_ranked_adjacent_nodes() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .upsert_memory_node(
+            "node:file:src/lib.rs",
+            "src/lib.rs",
+            "file",
+            Some("core file"),
+            1_717_180_101,
+        )
+        .await?;
+    store
+        .upsert_memory_node(
+            "node:package:cargo:demo",
+            "demo",
+            "package",
+            Some("cargo package"),
+            1_717_180_102,
+        )
+        .await?;
+    store
+        .upsert_memory_node(
+            "node:error:read_file:missing",
+            "missing file error",
+            "error",
+            Some("tool failure"),
+            1_717_180_103,
+        )
+        .await?;
+    store
+        .upsert_memory_edge(
+            "node:file:src/lib.rs",
+            "node:package:cargo:demo",
+            "file_in_package",
+            3.0,
+            1_717_180_104,
+        )
+        .await?;
+    store
+        .upsert_memory_edge(
+            "node:file:src/lib.rs",
+            "node:error:read_file:missing",
+            "file_hit_error",
+            1.0,
+            1_717_180_105,
+        )
+        .await?;
+
+    let neighbors = store
+        .list_memory_graph_neighbors("node:file:src/lib.rs", 4)
+        .await?;
+    assert_eq!(neighbors.len(), 2);
+    assert_eq!(neighbors[0].node.id, "node:package:cargo:demo");
+    assert_eq!(neighbors[0].via_edge.relation_type, "file_in_package");
+    assert_eq!(neighbors[1].node.id, "node:error:read_file:missing");
+    assert_eq!(neighbors[1].via_edge.relation_type, "file_hit_error");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
