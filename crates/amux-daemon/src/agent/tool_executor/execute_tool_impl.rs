@@ -900,15 +900,34 @@ async fn prepare_tool_execution(
                 .get("__critique_confirmation_reason")
                 .and_then(|value| value.as_str())
                 .unwrap_or(tool_call.function.name.as_str());
+            let pending_approval = crate::agent::types::ToolPendingApproval {
+                approval_id: format!("critique-confirmation-{}", uuid::Uuid::new_v4()),
+                execution_id: format!("critique-confirmation-exec-{}", uuid::Uuid::new_v4()),
+                command: format!(
+                    "{} {}",
+                    tool_call.function.name,
+                    crate::agent::summarize_text(&tool_call.function.arguments, 200)
+                ),
+                rationale: format!(
+                    "Critique requires explicit operator confirmation before executing {confirmation_reason}."
+                ),
+                risk_level: "medium".to_string(),
+                blast_radius: "agent execution policy".to_string(),
+                reasons: vec![format!(
+                    "critique confirmation required for {confirmation_reason}"
+                )],
+                session_id: None,
+            };
             return Err(ToolResult {
                 tool_call_id: tool_call.id.clone(),
                 name: tool_call.function.name.clone(),
                 content: format!(
-                    "Blocked by critique confirmation requirement for {confirmation_reason}. Explicit operator confirmation is required before execution."
+                    "Critique confirmation for {confirmation_reason} requires operator approval before execution. Approval ID: {}",
+                    pending_approval.approval_id
                 ),
-                is_error: true,
+                is_error: false,
                 weles_review: Some(review),
-                pending_approval: None,
+                pending_approval: Some(pending_approval),
             });
         }
     }
