@@ -57,6 +57,7 @@ pub(crate) async fn discover_local_skills(
 }
 
 const MAX_GRAPH_SIGNAL_HOPS: u8 = 2;
+const MAX_GRAPH_SIGNAL_SEEDS: usize = 8;
 
 async fn load_graph_backed_skill_signals(
     history: &HistoryStore,
@@ -67,10 +68,17 @@ async fn load_graph_backed_skill_signals(
         return Ok(HashMap::new());
     }
 
-    let intent_node_id = format!("intent:{}", trimmed.to_ascii_lowercase());
+    let seed_nodes = load_graph_seed_nodes(history, trimmed).await?;
     let mut signals = HashMap::new();
-    let mut queue = VecDeque::from([(intent_node_id.clone(), 0u8, f64::INFINITY)]);
-    let mut best_depth = HashMap::from([(intent_node_id, 0u8)]);
+    let mut queue = seed_nodes
+        .iter()
+        .cloned()
+        .map(|node_id| (node_id, 0u8, f64::INFINITY))
+        .collect::<VecDeque<_>>();
+    let mut best_depth = seed_nodes
+        .into_iter()
+        .map(|node_id| (node_id, 0u8))
+        .collect::<HashMap<_, _>>();
 
     while let Some((node_id, depth, path_score)) = queue.pop_front() {
         if depth >= MAX_GRAPH_SIGNAL_HOPS {
@@ -122,6 +130,48 @@ async fn load_graph_backed_skill_signals(
     }
 
     Ok(signals)
+}
+
+async fn load_graph_seed_nodes(history: &HistoryStore, query: &str) -> Result<Vec<String>> {
+    let intent_node_id = format!("intent:{}", query.to_ascii_lowercase());
+    let exact = query.to_ascii_lowercase();
+    let like = format!("%{}%", exact);
+    let matched = history
+        .conn
+        .call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM memory_nodes
+                 WHERE node_type != 'skill_variant'
+                   AND (
+                        lower(label) = ?1 OR
+                        lower(label) LIKE ?2 OR
+                        lower(COALESCE(summary_text, '')) LIKE ?2
+                   )
+                 ORDER BY
+                    CASE WHEN lower(label) = ?1 THEN 0 ELSE 1 END,
+                    access_count DESC,
+                    last_accessed_ms DESC,
+                    id ASC
+                 LIMIT ?3",
+            )?;
+            let rows = stmt.query_map(
+                rusqlite::params![exact, like, MAX_GRAPH_SIGNAL_SEEDS as i64],
+                |row| row.get::<_, String>(0),
+            )?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let mut seeds = Vec::with_capacity(1 + matched.len());
+    seeds.push(intent_node_id);
+    for node_id in matched {
+        if !seeds.iter().any(|existing| existing == &node_id) {
+            seeds.push(node_id);
+        }
+    }
+    Ok(seeds)
 }
 
 fn schedule_background_skill_catalog_sync(history: HistoryStore, skills_root: PathBuf) {

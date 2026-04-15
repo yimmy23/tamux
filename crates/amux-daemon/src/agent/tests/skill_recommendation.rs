@@ -810,6 +810,130 @@ triggers: [backend failure]
 }
 
 #[tokio::test]
+async fn memory_node_retrieval_paths_can_seed_skill_recommendation_graph_signals() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let generated = skills_root.join("generated");
+
+    let alpha = write_skill(
+        &generated,
+        "alpha-general-playbook",
+        r#"---
+description: General debugging guidance.
+keywords: [debug]
+---
+
+# Alpha General Playbook
+"#,
+    )?;
+    let zeta = write_skill(
+        &generated,
+        "zeta-general-playbook",
+        r#"---
+description: General debugging guidance.
+keywords: [debug]
+---
+
+# Zeta General Playbook
+"#,
+    )?;
+
+    let alpha_record = store.register_skill_document(&alpha).await?;
+    let zeta_record = store.register_skill_document(&zeta).await?;
+
+    let alpha_variant_id = alpha_record.variant_id.clone();
+    let zeta_variant_id = zeta_record.variant_id.clone();
+    store
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 10, success_count = 10, failure_count = 0, last_used_at = ?2, updated_at = ?2 WHERE variant_id = ?1",
+                rusqlite::params![alpha_variant_id, 1_717_181_706i64],
+            )?;
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 10, success_count = 10, failure_count = 0, last_used_at = ?2, updated_at = ?2 WHERE variant_id = ?1",
+                rusqlite::params![zeta_variant_id, 1_717_181_706i64],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    store
+        .upsert_memory_node(
+            "node:memory:incident-42",
+            "incident bridge 42",
+            "memory_fact",
+            Some("operator mentioned incident bridge 42 while debugging backend failures"),
+            1_717_181_701,
+        )
+        .await?;
+    store
+        .upsert_memory_node(
+            "intent:backend-debugging",
+            "backend debugging",
+            "intent",
+            Some("normalized backend debugging intent"),
+            1_717_181_702,
+        )
+        .await?;
+    store
+        .upsert_memory_node(
+            &format!("skill:{}", zeta_record.variant_id),
+            &zeta_record.skill_name,
+            "skill_variant",
+            Some("zeta skill graph node"),
+            1_717_181_703,
+        )
+        .await?;
+    store
+        .upsert_memory_edge(
+            "node:memory:incident-42",
+            "intent:backend-debugging",
+            "memory_supports_intent",
+            4.0,
+            1_717_181_704,
+        )
+        .await?;
+    store
+        .upsert_memory_edge(
+            "intent:backend-debugging",
+            &format!("skill:{}", zeta_record.variant_id),
+            "intent_prefers_skill",
+            4.0,
+            1_717_181_705,
+        )
+        .await?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "incident bridge 42",
+        &[],
+        5,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            novelty_distance_weight: 0.0,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("zeta-general-playbook"),
+        "skill discovery should be able to traverse from a matching memory node into the shared graph and recover the linked skill path"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn successful_settled_consultation_biases_graph_backed_recommendation_ordering() -> Result<()>
 {
     let root = tempdir()?;
