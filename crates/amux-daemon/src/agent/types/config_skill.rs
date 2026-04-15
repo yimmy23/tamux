@@ -164,6 +164,8 @@ pub struct SkillRecommendationConfig {
     pub strong_match_threshold: f64,
     #[serde(default = "default_skill_recommendation_weak_match_threshold")]
     pub weak_match_threshold: f64,
+    #[serde(default = "default_skill_recommendation_novelty_distance_weight")]
+    pub novelty_distance_weight: f64,
     #[serde(default = "default_true")]
     pub background_community_search: bool,
     #[serde(default = "default_skill_recommendation_community_preapprove_timeout_secs")]
@@ -190,6 +192,10 @@ fn default_skill_recommendation_weak_match_threshold() -> f64 {
     0.60
 }
 
+fn default_skill_recommendation_novelty_distance_weight() -> f64 {
+    0.05
+}
+
 fn default_skill_recommendation_community_preapprove_timeout_secs() -> u64 {
     30
 }
@@ -210,6 +216,7 @@ impl Default for SkillRecommendationConfig {
             require_read_on_strong_match: default_true(),
             strong_match_threshold: default_skill_recommendation_strong_match_threshold(),
             weak_match_threshold: default_skill_recommendation_weak_match_threshold(),
+            novelty_distance_weight: default_skill_recommendation_novelty_distance_weight(),
             background_community_search: default_true(),
             community_preapprove_timeout_secs:
                 default_skill_recommendation_community_preapprove_timeout_secs(),

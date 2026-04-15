@@ -665,6 +665,151 @@ triggers: [backend failure]
 }
 
 #[tokio::test]
+async fn novelty_preference_zero_keeps_direct_path_ahead_of_equally_strong_novel_path() -> Result<()>
+{
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let generated = skills_root.join("generated");
+
+    let direct = write_skill(
+        &generated,
+        "direct-debug-playbook",
+        r#"---
+description: Debug backend failures.
+keywords: [debug, backend]
+triggers: [backend failure]
+---
+
+# Direct Debug Playbook
+"#,
+    )?;
+    let novel = write_skill(
+        &generated,
+        "novel-debug-playbook",
+        r#"---
+description: Debug backend failures.
+keywords: [debug, backend]
+triggers: [backend failure]
+---
+
+# Novel Debug Playbook
+"#,
+    )?;
+
+    let direct_record = store.register_skill_document(&direct).await?;
+    let novel_record = store.register_skill_document(&novel).await?;
+
+    let direct_variant_id = direct_record.variant_id.clone();
+    let novel_variant_id = novel_record.variant_id.clone();
+    store
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 10, success_count = 10, failure_count = 0, last_used_at = ?2, updated_at = ?2 WHERE variant_id = ?1",
+                rusqlite::params![direct_variant_id, 1_717_181_706i64],
+            )?;
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 10, success_count = 10, failure_count = 0, last_used_at = ?2, updated_at = ?2 WHERE variant_id = ?1",
+                rusqlite::params![novel_variant_id, 1_717_181_706i64],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    store
+        .upsert_memory_node(
+            "intent:debug backend failure",
+            "debug backend failure",
+            "intent",
+            Some("normalized skill discovery intent"),
+            1_717_181_701,
+        )
+        .await?;
+    store
+        .upsert_memory_node(
+            "intent:adjacent-debug-cluster",
+            "adjacent-debug-cluster",
+            "intent",
+            Some("adjacent intent cluster"),
+            1_717_181_702,
+        )
+        .await?;
+    store
+        .upsert_memory_node(
+            &format!("skill:{}", direct_record.variant_id),
+            &direct_record.skill_name,
+            "skill_variant",
+            Some("direct skill graph node"),
+            1_717_181_703,
+        )
+        .await?;
+    store
+        .upsert_memory_node(
+            &format!("skill:{}", novel_record.variant_id),
+            &novel_record.skill_name,
+            "skill_variant",
+            Some("novel skill graph node"),
+            1_717_181_704,
+        )
+        .await?;
+    store
+        .upsert_memory_edge(
+            "intent:debug backend failure",
+            &format!("skill:{}", direct_record.variant_id),
+            "intent_prefers_skill",
+            3.0,
+            1_717_181_705,
+        )
+        .await?;
+    store
+        .upsert_memory_edge(
+            "intent:debug backend failure",
+            "intent:adjacent-debug-cluster",
+            "intent_related_intent",
+            3.0,
+            1_717_181_706,
+        )
+        .await?;
+    store
+        .upsert_memory_edge(
+            "intent:adjacent-debug-cluster",
+            &format!("skill:{}", novel_record.variant_id),
+            "intent_prefers_skill",
+            3.0,
+            1_717_181_707,
+        )
+        .await?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "debug backend failure",
+        &[],
+        5,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            novelty_distance_weight: 0.0,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("direct-debug-playbook"),
+        "when novelty preference is disabled, the equally strong direct path should remain ahead of the more novel two-hop path"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn successful_settled_consultation_biases_graph_backed_recommendation_ordering() -> Result<()>
 {
     let root = tempdir()?;

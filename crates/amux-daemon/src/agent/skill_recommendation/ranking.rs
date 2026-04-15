@@ -47,7 +47,9 @@ pub(super) fn rank_skill_candidates(
 
     let mut ranked = candidates
         .into_iter()
-        .map(|candidate| score_candidate(candidate, &query_tokens, workspace_tags, graph_signals))
+        .map(|candidate| {
+            score_candidate(candidate, &query_tokens, workspace_tags, graph_signals, cfg)
+        })
         .collect::<Vec<_>>();
 
     ranked.sort_by(|left, right| compare_candidates(left, right));
@@ -94,7 +96,6 @@ fn compare_candidates(left: &CandidateScore, right: &CandidateScore) -> std::cmp
                 .partial_cmp(&left.graph_score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
-        .then_with(|| right.novelty_distance.cmp(&left.novelty_distance))
         .then_with(|| {
             right
                 .recommendation
@@ -122,6 +123,7 @@ fn score_candidate(
     query_tokens: &BTreeSet<String>,
     workspace_tags: &[String],
     graph_signals: &std::collections::HashMap<String, GraphSkillSignal>,
+    cfg: &SkillRecommendationConfig,
 ) -> CandidateScore {
     let search_tokens = tokenize(&candidate.metadata.search_text);
     let matched_terms = query_tokens
@@ -164,11 +166,17 @@ fn score_candidate(
         .copied()
         .unwrap_or_default();
     let graph_score = graph_signal.score.clamp(0.0, 10.0) / 10.0;
+    let novelty_score = if graph_signal.distance > 1 {
+        (f64::from(graph_signal.distance.saturating_sub(1)) / 4.0).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let score = (lexical_overlap * 0.62)
         + (workspace_overlap * 0.16)
         + (history_score * 0.20)
         + (recency_score * 0.06)
         + (graph_score * 0.04)
+        + (novelty_score * cfg.novelty_distance_weight)
         + lifecycle_bonus
         + process_bonus
         + built_in_bonus;
@@ -190,7 +198,6 @@ fn score_candidate(
             record: candidate.record,
         },
         graph_score,
-        novelty_distance: graph_signal.distance,
     }
 }
 

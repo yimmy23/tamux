@@ -190,6 +190,7 @@ use amux_shared::providers::{
         assert!(cfg.require_read_on_strong_match);
         assert!((cfg.strong_match_threshold - 0.91).abs() < f64::EPSILON);
         assert!((cfg.weak_match_threshold - 0.60).abs() < f64::EPSILON);
+        assert!((cfg.novelty_distance_weight - 0.05).abs() < f64::EPSILON);
         assert!(cfg.background_community_search);
         assert_eq!(cfg.community_preapprove_timeout_secs, 45);
         assert_eq!(cfg.suggest_global_enable_after_approvals, 3);
@@ -222,6 +223,7 @@ use amux_shared::providers::{
         assert!(cfg.require_read_on_strong_match);
         assert!((cfg.strong_match_threshold - 0.85).abs() < f64::EPSILON);
         assert!((cfg.weak_match_threshold - 0.60).abs() < f64::EPSILON);
+        assert!((cfg.novelty_distance_weight - 0.05).abs() < f64::EPSILON);
         assert!(cfg.background_community_search);
         assert_eq!(cfg.community_preapprove_timeout_secs, 30);
         assert_eq!(cfg.suggest_global_enable_after_approvals, 3);
@@ -363,6 +365,7 @@ use amux_shared::providers::{
         assert!(cfg.skill_recommendation.require_read_on_strong_match);
         assert!((cfg.skill_recommendation.strong_match_threshold - 0.85).abs() < f64::EPSILON);
         assert!((cfg.skill_recommendation.weak_match_threshold - 0.60).abs() < f64::EPSILON);
+        assert!((cfg.skill_recommendation.novelty_distance_weight - 0.05).abs() < f64::EPSILON);
         assert!(cfg.skill_recommendation.background_community_search);
         assert_eq!(cfg.skill_recommendation.community_preapprove_timeout_secs, 30);
         assert_eq!(cfg.skill_recommendation.suggest_global_enable_after_approvals, 3);
@@ -386,6 +389,7 @@ use amux_shared::providers::{
                 "require_read_on_strong_match": false,
                 "strong_match_threshold": 0.97,
                 "weak_match_threshold": 0.51,
+                "novelty_distance_weight": 0.22,
                 "background_community_search": false,
                 "community_preapprove_timeout_secs": 45,
                 "suggest_global_enable_after_approvals": 8
@@ -403,6 +407,7 @@ use amux_shared::providers::{
         assert!(!cfg.skill_recommendation.require_read_on_strong_match);
         assert!((cfg.skill_recommendation.strong_match_threshold - 0.97).abs() < f64::EPSILON);
         assert!((cfg.skill_recommendation.weak_match_threshold - 0.51).abs() < f64::EPSILON);
+        assert!((cfg.skill_recommendation.novelty_distance_weight - 0.22).abs() < f64::EPSILON);
         assert!(!cfg.skill_recommendation.background_community_search);
         assert_eq!(cfg.skill_recommendation.community_preapprove_timeout_secs, 45);
         assert_eq!(cfg.skill_recommendation.suggest_global_enable_after_approvals, 8);
