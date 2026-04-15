@@ -197,6 +197,8 @@ pub(crate) struct ImplicitFeedback {
     pub fast_denial_count: u64,
     #[serde(default)]
     pub rapid_revert_count: u64,
+    #[serde(default)]
+    pub session_abandon_count: u64,
     pub fallback_histogram: HashMap<String, u64>,
     pub top_tool_fallbacks: Vec<String>,
 }
@@ -347,11 +349,12 @@ impl OperatorModel {
             || self.implicit_feedback.revision_message_count > 0
             || self.implicit_feedback.correction_message_count > 0
             || self.implicit_feedback.fast_denial_count > 0
-            || self.implicit_feedback.rapid_revert_count > 0;
+            || self.implicit_feedback.rapid_revert_count > 0
+            || self.implicit_feedback.session_abandon_count > 0;
 
         let signal_state = if signal_present { "present" } else { "missing" };
         format!(
-            "satisfaction={} ({:.2}) [strained <0.35, fragile <0.55, healthy <0.80, strong >=0.80]; signal {}; friction revisions {}, corrections {}, tool fallbacks {}, fast denials {}, rapid reverts {}, rapid switches {}",
+            "satisfaction={} ({:.2}) [strained <0.35, fragile <0.55, healthy <0.80, strong >=0.80]; signal {}; friction revisions {}, corrections {}, tool fallbacks {}, fast denials {}, rapid reverts {}, session abandons {}, rapid switches {}",
             self.operator_satisfaction.label,
             self.operator_satisfaction.score,
             signal_state,
@@ -360,6 +363,7 @@ impl OperatorModel {
             self.implicit_feedback.tool_hesitation_count,
             self.implicit_feedback.fast_denial_count,
             self.implicit_feedback.rapid_revert_count,
+            self.implicit_feedback.session_abandon_count,
             self.attention_topology.rapid_switch_count,
         )
     }

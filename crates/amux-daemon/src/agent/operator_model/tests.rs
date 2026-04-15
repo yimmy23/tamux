@@ -919,6 +919,72 @@ async fn rapid_revert_persists_thread_scoped_signal_when_agent_file_edit_is_quic
         .is_some_and(|json| json.contains("src/lib.rs") && json.contains("write_file")));
 }
 
+#[tokio::test]
+async fn deleting_thread_right_after_assistant_reply_persists_session_abandon_signal() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.operator_model.enabled = true;
+    config.operator_model.allow_implicit_feedback = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let now = now_millis();
+    let mut assistant = AgentMessage::user("Here is the answer.", now);
+    assistant.role = MessageRole::Assistant;
+
+    engine.threads.write().await.insert(
+        "thread-session-abandon".to_string(),
+        AgentThread {
+            id: "thread-session-abandon".to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Abandonable thread".to_string(),
+            messages: vec![
+                AgentMessage::user("Help me.", now.saturating_sub(1_000)),
+                assistant,
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            created_at: now.saturating_sub(1_000),
+            updated_at: now,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        },
+    );
+
+    assert!(engine.delete_thread("thread-session-abandon").await);
+
+    let signals = engine
+        .history
+        .list_implicit_signals("thread-session-abandon", 10)
+        .await
+        .expect("load session abandonment signals");
+    assert_eq!(signals.len(), 1);
+    assert_eq!(signals[0].signal_type, "session_abandon");
+    assert!(signals[0].weight < 0.0);
+    assert!(signals[0]
+        .context_snapshot_json
+        .as_deref()
+        .is_some_and(
+            |json| json.contains("thread-session-abandon") && json.contains("Here is the answer.")
+        ));
+
+    let scores = engine
+        .history
+        .list_satisfaction_scores("thread-session-abandon", 10)
+        .await
+        .expect("load abandonment satisfaction scores");
+    assert_eq!(scores.len(), 1);
+    assert!(matches!(
+        scores[0].label.as_str(),
+        "fragile" | "strained" | "healthy"
+    ));
+    assert_eq!(scores[0].signal_count, 1);
+}
+
 #[test]
 fn persisted_satisfaction_decay_uses_recent_signal_history() {
     let mut model = OperatorModel::default();

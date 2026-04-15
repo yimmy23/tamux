@@ -65,29 +65,35 @@ Each spec entry records:
 ## Spec 12 — Consensus Architecture
 ## Spec 13 — Adversarial Self-Critique Loop
 - Wave: 2
-- Status: planned-only
+- Status: partial
 - Confidence: high
 
 ### Evidence
-- `.planning/iteration-2/13-adversarial-self-critique.md` defines Spec 13 as a dedicated `src/agent/critique/` subsystem with `advocate.rs`, `critic.rs`, `arbiter.rs`, explicit `CritiqueSession` / `Argument` / `Resolution` types, and new SQLite tables `critique_sessions`, `critique_arguments`, and `critique_resolutions`.
-- `.planning/wave-2-implementation-plan.md` expects an `AdversarialEvaluator` that generates parallel pro/con arguments for risky actions and wraps tool execution when risk crosses a threshold.
-- Repository evidence shows adjacent but different shipped mechanisms: `crates/amux-daemon/src/policy.rs` and `policy_external.rs` classify risk; `crates/amux-daemon/src/agent/collaboration.rs` persists explicit multi-agent contributions / disagreements / votes; `crates/amux-daemon/src/agent/handoff/divergent.rs` implements divergent sessions that fan out multiple framings and synthesize tensions; and `crates/amux-daemon/src/agent/tool_executor/catalog/part_c.rs` plus `part_d.rs` expose those collaboration tools in the live catalog.
-- The audit did **not** find the spec's promised critique subsystem in the repository: no `crates/amux-daemon/src/agent/critique/` module, no `critique_sessions` / `critique_arguments` / `critique_resolutions` schema in `crates/amux-daemon/src/history/schema_sql_extra.rs`, and no tool-execution wrapper that automatically runs an advocate/critic/arbiter loop before high-risk actions.
-- `docs/how-tamux-works.md` documents shipped collaboration, provenance, implicit feedback, and runtime tool synthesis, but it does not describe a red-team / adversarial critique layer for risky actions.
+- `.planning/iteration-2/13-adversarial-self-critique.md` defines Spec 13 as a dedicated `src/agent/critique/` subsystem with `advocate.rs`, `critic.rs`, `arbiter.rs`, explicit `CritiqueSession` / `Argument` / `Resolution` types, and persisted `critique_sessions`, `critique_arguments`, and `critique_resolutions` tables.
+- Repository evidence now shows that subsystem is materially shipped. `crates/amux-daemon/src/agent/critique/mod.rs` implements `run_critique_preflight(...)`, `should_run_critique_preflight(...)`, `critique_requires_blocking_review(...)`, critique-session persistence, and retrieval of learned critique history; `crates/amux-daemon/src/agent/critique/advocate.rs`, `critic.rs`, `arbiter.rs`, and `types.rs` provide the explicit advocate / critic / arbiter roles and typed critique lifecycle the spec called for.
+- Persistence is present rather than aspirational: `crates/amux-daemon/src/history/schema_sql_extra.rs` defines `critique_sessions`, `critique_arguments`, and `critique_resolutions`, while `crates/amux-daemon/src/history/critique.rs` persists and lists those records.
+- Tool execution is now genuinely wrapped by critique for risky actions. `crates/amux-daemon/src/agent/tool_executor/execute_tool_impl.rs` runs critique preflight before suspicious / guard-always tools, applies typed or prose-derived safer modifications, can require operator confirmation for high-impact guarded actions, resumes approved critique continuations safely, and now supports two narrow executable fallback rewrites (`bash_command` → `replace_in_file`, `bash_command` → `apply_patch`) when critique guidance is already trivially mappable.
+- The test surface is substantial. `crates/amux-daemon/src/agent/tool_executor/tests/part7.rs` covers critique-trigger conditions, learned-history influence, operator-confirmation gating and resume, end-to-end argument rewrites for shell / messaging / temporal / subagent / sensitive-file cases, and bounded executable fallback rewrites.
 
 ### Current Implementation Surface
-- tamux already has **risk classification, approval gating, and explicit multi-agent disagreement tooling**.
-- Operators or planners can start a divergent session or use collaboration tooling to surface multiple perspectives, and risky commands still pass through visible safety controls.
-- Those capabilities overlap with the spirit of “challenge assumptions before acting,” but they are not an automatic pre-execution advocate-vs-critic loop integrated into high-stakes actions.
+- tamux now ships a real **adversarial self-critique layer** for risky or suspicious tool execution:
+  - explicit advocate / critic / arbiter roles,
+  - persisted critique sessions / arguments / resolutions,
+  - risk-triggered preflight before selected tools,
+  - operator-tolerance-aware proceed / modify / block handling,
+  - automatic safer argument rewrites,
+  - guarded operator confirmation and continuation replay,
+  - learned critique history feeding future critique resolutions.
+- This is no longer just “adjacent collaboration primitives.” It is an integrated critique subsystem that already influences live execution.
 
 ### Remaining Gaps
-- No dedicated critique lifecycle (`critique/` module, advocate/critic/arbiter roles, or persisted critique sessions).
-- No automatic trigger from tool risk labels into adversarial evaluation before execution.
-- No stored critique arguments/resolutions or feedback loop that learns which critique patterns were most useful.
-- No arbiter calibrated by operator risk tolerance in the specific way the spec describes.
+- Critique is still **selective**, not universal: it targets supported risky / suspicious tool classes rather than every action boundary.
+- Executable fallback rewrites are currently narrow and typed (`replace_in_file`, `apply_patch`) rather than a broader shell-intent transformation system.
+- The subsystem is grounded in daemon-native critique logic, not in full parallel multi-agent debate for every risky action.
+- User-facing docs such as `docs/how-tamux-works.md` and related overview material do not yet fully reflect the now-shipped critique subsystem.
 
 ### Planning Implication
-- Treat Spec 13 as **unimplemented beyond adjacent safety/collaboration primitives**. If the roadmap still wants this capability, it should be built on top of existing risk classification, approval flow, and divergent/collaboration infrastructure instead of inventing a separate safety foundation from scratch.
+- Treat Spec 13 as **partially implemented with strong shipped foundations**. Future work should deepen trigger coverage, broaden safe executable rewrites cautiously, and improve operator-facing visibility/documentation rather than classifying the critique loop as missing.
 ## Spec 14 — Emergent Protocol Negotiation
 - Wave: 5
 - Status: planned-only
@@ -144,22 +150,23 @@ Each spec entry records:
 
 ### Evidence
 - `.planning/iteration-2/16-implicit-feedback-learning.md` defines Spec 16 as a dedicated `implicit_feedback/` subsystem with signal extraction, satisfaction scoring, behavior adaptation, and new SQLite tables `implicit_signals` plus `satisfaction_scores`.
-- Repository evidence shows a shipped adjacent implementation inside the operator-model stack rather than in a standalone `implicit_feedback/` module. `crates/amux-daemon/src/agent/operator_model/model.rs` defines `ImplicitFeedback`, `AttentionTopology`, and `RiskFingerprint` fields such as `tool_hesitation_count`, `revision_message_count`, `fast_denial_count`, `fallback_histogram`, `top_tool_fallbacks`, `auto_approve_categories`, and `auto_deny_categories`.
-- `crates/amux-daemon/src/agent/operator_model/runtime.rs` actively records those signals through `record_operator_message(...)`, `record_tool_hesitation(...)`, `record_attention_surface(...)`, and `record_operator_approval_resolution(...)`; it also renders them back into the prompt via `build_operator_model_prompt_summary(...)`.
+- Repository evidence shows a shipped adjacent implementation inside the operator-model stack rather than in a standalone `implicit_feedback/` module. `crates/amux-daemon/src/agent/operator_model/model.rs` defines `ImplicitFeedback`, `AttentionTopology`, and `RiskFingerprint` fields such as `tool_hesitation_count`, `revision_message_count`, `fast_denial_count`, `rapid_revert_count`, `fallback_histogram`, `top_tool_fallbacks`, `auto_approve_categories`, and `auto_deny_categories`.
+- `crates/amux-daemon/src/agent/operator_model/runtime.rs` actively records those signals through `record_operator_message(...)`, `record_tool_hesitation(...)`, `record_attention_surface(...)`, `record_operator_approval_resolution(...)`, and `record_rapid_revert_feedback(...)`; it also renders them back into the prompt via `build_operator_model_prompt_summary(...)`.
+- File-mutation provenance now feeds implicit feedback directly. `crates/amux-daemon/src/agent/work_context.rs` captures agent-authored file edits, refreshes repo state, and detects rapid reverts within a bounded window before persisting a thread-scoped `rapid_revert` signal.
 - The learned signals are not prompt-only. `crates/amux-daemon/src/agent/operator_model/runtime.rs` exposes `learned_approval_decision(...)`, and `crates/amux-daemon/src/agent/tool_executor/managed_commands.rs` consumes that result to auto-approve or auto-deny managed commands based on learned operator patterns.
-- The audit did **not** find the spec's standalone module or tables: no `src/agent/implicit_feedback/`, no `implicit_signals`, and no `satisfaction_scores` schema in `crates/amux-daemon/src/history/schema_sql_extra.rs`.
+- The SQLite persistence layer from the spec is also present in the shipped code: `crates/amux-daemon/src/history/schema_sql_extra.rs` creates `implicit_signals` and `satisfaction_scores`, and `crates/amux-daemon/src/history/implicit_feedback.rs` persists / lists both tables.
 
 ### Current Implementation Surface
-- tamux already learns from several implicit signals: revision-style operator messages, tool-fallback / hesitation patterns, fast denials, and attention-surface telemetry.
+- tamux already learns from several implicit signals: revision-style operator messages, tool-fallback / hesitation patterns, fast denials, short-dwell / attention-churn telemetry, and rapid file reverts after agent-authored edits.
 - Those signals are persisted in the operator model and affect behavior in at least two real ways:
-  - **Prompt shaping:** the agent sees a learned operator-model summary including fallback / revision signals.
+  - **Prompt shaping:** the agent sees a learned operator-model summary including fallback / revision / rapid-revert signals.
   - **Approval behavior:** repeated approval history can produce learned auto-approve / auto-deny shortcuts.
 - This is therefore a real silent-feedback loop, but it is embedded in `operator_model/*` rather than packaged as the planned satisfaction-model subsystem.
 
 ### Remaining Gaps
-- No standalone satisfaction score with temporal decay.
-- No explicit `implicit_signals` / `satisfaction_scores` persistence layer.
-- No robust rapid-revert / file-undo detector matching the standalone spec.
+- No standalone `implicit_feedback/` module; the capability lives inside `operator_model/*`.
+- No robust session-abandonment detector matching the standalone spec.
+- The dwell-time signal is approximated via attention churn / short-dwell heuristics rather than a richer per-output dwell model.
 - No generalized behavior adapter that continuously tunes verbosity, clarification frequency, and tool strategy from a unified score.
 
 ### Planning Implication

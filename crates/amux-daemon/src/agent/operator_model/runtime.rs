@@ -32,7 +32,8 @@ impl AgentEngine {
             + model.implicit_feedback.revision_message_count
             + model.implicit_feedback.correction_message_count
             + model.implicit_feedback.fast_denial_count
-            + model.implicit_feedback.rapid_revert_count;
+            + model.implicit_feedback.rapid_revert_count
+            + model.implicit_feedback.session_abandon_count;
         self.history
             .insert_satisfaction_score(&crate::history::SatisfactionScoreRow {
                 id: format!("satisfaction_{}", uuid::Uuid::new_v4()),
@@ -101,6 +102,66 @@ impl AgentEngine {
                 "source_tool": source_tool,
                 "repo_root": repo_root,
                 "agent_edit_recorded_at": agent_edit_recorded_at,
+                "detected_at": detected_at,
+                "age_ms": age_ms,
+            }),
+        )
+        .await?;
+        self.persist_operator_satisfaction_snapshot(thread_id, detected_at, &model_snapshot)
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn record_session_abandon_feedback(
+        &self,
+        thread_id: &str,
+        last_assistant_message: &str,
+        assistant_timestamp: u64,
+        detected_at: u64,
+    ) -> Result<()> {
+        let settings = self.config.read().await.operator_model.clone();
+        if !settings.enabled || !settings.allow_implicit_feedback {
+            return Ok(());
+        }
+
+        ensure_operator_model_file(&self.data_dir).await?;
+        let age_ms = detected_at.saturating_sub(assistant_timestamp);
+        let model_snapshot = {
+            let mut model = self.operator_model.write().await;
+            model.last_updated = detected_at;
+            model.implicit_feedback.session_abandon_count += 1;
+            refresh_operator_satisfaction(&mut model);
+            persist_operator_model(&self.data_dir, &model)?;
+            model.clone()
+        };
+
+        self.record_behavioral_event(
+            "session_abandon",
+            BehavioralEventContext {
+                thread_id: Some(thread_id),
+                task_id: None,
+                goal_run_id: None,
+                approval_id: None,
+            },
+            serde_json::json!({
+                "thread_id": thread_id,
+                "last_assistant_message": last_assistant_message,
+                "assistant_timestamp": assistant_timestamp,
+                "detected_at": detected_at,
+                "age_ms": age_ms,
+            }),
+        )
+        .await?;
+
+        self.persist_implicit_feedback_signal(
+            thread_id,
+            "session_abandon",
+            -0.14,
+            detected_at,
+            serde_json::json!({
+                "thread_id": thread_id,
+                "last_assistant_message": last_assistant_message,
+                "assistant_timestamp": assistant_timestamp,
                 "detected_at": detected_at,
                 "age_ms": age_ms,
             }),
@@ -307,7 +368,8 @@ impl AgentEngine {
             && (model.implicit_feedback.tool_hesitation_count > 0
                 || model.implicit_feedback.revision_message_count > 0
                 || model.implicit_feedback.fast_denial_count > 0
-                || model.implicit_feedback.rapid_revert_count > 0)
+                || model.implicit_feedback.rapid_revert_count > 0
+                || model.implicit_feedback.session_abandon_count > 0)
         {
             let fallback = model
                 .implicit_feedback
@@ -315,13 +377,16 @@ impl AgentEngine {
                 .first()
                 .cloned()
                 .unwrap_or_else(|| "none yet".to_string());
-            if model.implicit_feedback.rapid_revert_count > 0 {
+            if model.implicit_feedback.rapid_revert_count > 0
+                || model.implicit_feedback.session_abandon_count > 0
+            {
                 lines.push(format!(
-                    "- Implicit feedback: {} tool fallback(s), {} revision-style operator message(s), {} fast denial(s), {} rapid revert(s); common fallback {}",
+                    "- Implicit feedback: {} tool fallback(s), {} revision-style operator message(s), {} fast denial(s), {} rapid revert(s), {} session abandon(s); common fallback {}",
                     model.implicit_feedback.tool_hesitation_count,
                     model.implicit_feedback.revision_message_count,
                     model.implicit_feedback.fast_denial_count,
                     model.implicit_feedback.rapid_revert_count,
+                    model.implicit_feedback.session_abandon_count,
                     fallback,
                 ));
             } else {
@@ -335,7 +400,7 @@ impl AgentEngine {
             }
         }
         lines.push(format!(
-            "- Satisfaction signal: {} ({:.2}); friction markers revisions {}, corrections {}, tool fallbacks {}, fast denials {}{}",
+            "- Satisfaction signal: {} ({:.2}); friction markers revisions {}, corrections {}, tool fallbacks {}, fast denials {}{}{}",
             model.operator_satisfaction.label,
             model.operator_satisfaction.score,
             model.implicit_feedback.revision_message_count,
@@ -344,6 +409,11 @@ impl AgentEngine {
             model.implicit_feedback.fast_denial_count,
             if model.implicit_feedback.rapid_revert_count > 0 {
                 format!(", rapid reverts {}", model.implicit_feedback.rapid_revert_count)
+            } else {
+                String::new()
+            },
+            if model.implicit_feedback.session_abandon_count > 0 {
+                format!(", session abandons {}", model.implicit_feedback.session_abandon_count)
             } else {
                 String::new()
             },
@@ -935,6 +1005,7 @@ impl AgentEngine {
                 "correction_message_count": operator_model.implicit_feedback.correction_message_count,
                 "fast_denial_count": operator_model.implicit_feedback.fast_denial_count,
                 "rapid_revert_count": operator_model.implicit_feedback.rapid_revert_count,
+                "session_abandon_count": operator_model.implicit_feedback.session_abandon_count,
                 "rapid_switch_count": operator_model.attention_topology.rapid_switch_count,
                 "recent_implicit_signals": recent_implicit_signals,
                 "recent_satisfaction_scores": recent_satisfaction_scores,
