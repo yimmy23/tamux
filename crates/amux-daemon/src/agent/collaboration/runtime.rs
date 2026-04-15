@@ -1,4 +1,4 @@
-use super::participants::{apply_vote_to_disagreement, normalize_position};
+use super::participants::{apply_vote_to_disagreement, normalize_position, normalize_topic};
 use super::*;
 use crate::agent::debate::protocol::create_debate_session;
 use crate::agent::debate::types::{Argument, DebateSession, RoleKind};
@@ -157,6 +157,166 @@ fn build_pending_debate_seed(
     }
 
     None
+}
+
+fn seed_debate_from_bid_resolution(
+    session: &mut CollaborationSession,
+    ranked: &[ConsensusBid],
+    debate_config: &DebateConfig,
+) -> Option<PendingDebateSeed> {
+    let thread_id = session.thread_id.as_ref()?.clone();
+    let call_metadata = session.call_metadata.clone()?;
+    let primary = ranked.first()?.clone();
+    let reviewer = ranked
+        .iter()
+        .find(|bid| bid.task_id != primary.task_id)
+        .cloned()?;
+
+    let tied_confidence = (primary.confidence - reviewer.confidence).abs() <= f64::EPSILON;
+    let tied_availability_rank =
+        bid_sort_key(&primary.availability) == bid_sort_key(&reviewer.availability);
+    if !tied_confidence || !tied_availability_rank {
+        return None;
+    }
+
+    let topic = normalize_topic(&format!("bid resolution for {}", session.mission));
+    if session
+        .disagreements
+        .iter()
+        .any(|disagreement| disagreement.topic == topic && disagreement.debate_session_id.is_some())
+    {
+        return None;
+    }
+
+    let disagreement_id = if let Some(disagreement) = session
+        .disagreements
+        .iter_mut()
+        .find(|disagreement| disagreement.topic == topic)
+    {
+        disagreement.agents = vec![primary.task_id.clone(), reviewer.task_id.clone()];
+        disagreement.positions = vec![
+            format!("assign {} as primary", primary.task_id),
+            format!("assign {} as primary", reviewer.task_id),
+        ];
+        disagreement.confidence_gap = (primary.confidence - reviewer.confidence).abs();
+        disagreement.resolution = "pending".to_string();
+        disagreement.votes.clear();
+        disagreement.id.clone()
+    } else {
+        let disagreement_id = format!("disagree_{}", uuid::Uuid::new_v4());
+        session.disagreements.push(Disagreement {
+            id: disagreement_id.clone(),
+            topic: topic.clone(),
+            agents: vec![primary.task_id.clone(), reviewer.task_id.clone()],
+            positions: vec![
+                format!("assign {} as primary", primary.task_id),
+                format!("assign {} as primary", reviewer.task_id),
+            ],
+            confidence_gap: (primary.confidence - reviewer.confidence).abs(),
+            resolution: "pending".to_string(),
+            votes: Vec::new(),
+            debate_session_id: None,
+        });
+        disagreement_id
+    };
+
+    let mut framings = Vec::new();
+    for bid in [&primary, &reviewer] {
+        framings.push(Framing {
+            label: format!("{}-bid-lens", bid.task_id),
+            system_prompt_override: format!(
+                "Defend assigning {} as primary for {} using the contested bid evidence.",
+                bid.task_id, session.mission
+            ),
+            task_id: Some(bid.task_id.clone()),
+            contribution_id: None,
+        });
+    }
+    framings.push(Framing {
+        label: "synthesis-lens".to_string(),
+        system_prompt_override: format!(
+            "Synthesize the strongest assignment for {} without erasing the contested bid evidence.",
+            session.mission
+        ),
+        task_id: None,
+        contribution_id: None,
+    });
+
+    let debate_session = create_debate_session(
+        topic.clone(),
+        framings,
+        debate_config.default_max_rounds,
+        debate_config.role_rotation,
+        Some(thread_id),
+        session.goal_run_id.clone(),
+    )
+    .ok()?;
+
+    if let Some(disagreement) = session
+        .disagreements
+        .iter_mut()
+        .find(|disagreement| disagreement.id == disagreement_id)
+    {
+        disagreement.debate_session_id = Some(debate_session.id.clone());
+    }
+
+    let eligible_agents = if call_metadata.eligible_agents.is_empty() {
+        vec![primary.task_id.clone(), reviewer.task_id.clone()]
+    } else {
+        call_metadata.eligible_agents.clone()
+    };
+    let shared_evidence = vec![
+        format!(
+            "bid call parent_task_id={} caller_task_id={} eligible_agents={}",
+            session.parent_task_id,
+            call_metadata.caller_task_id,
+            eligible_agents.join(",")
+        ),
+        format!(
+            "contested bid candidates={},{} confidences={:.2},{:.2} availability={:?},{:?}",
+            primary.task_id,
+            reviewer.task_id,
+            primary.confidence,
+            reviewer.confidence,
+            primary.availability,
+            reviewer.availability
+        ),
+    ];
+
+    let arguments = vec![
+        Argument {
+            id: format!("arg_{}", uuid::Uuid::new_v4()),
+            round: 1,
+            role: RoleKind::Proponent,
+            agent_id: primary.task_id.clone(),
+            content: format!(
+                "Assign {} as primary for {}.",
+                primary.task_id, session.mission
+            ),
+            evidence_refs: shared_evidence.clone(),
+            responds_to: None,
+            timestamp_ms: primary.created_at,
+        },
+        Argument {
+            id: format!("arg_{}", uuid::Uuid::new_v4()),
+            round: 1,
+            role: RoleKind::Skeptic,
+            agent_id: reviewer.task_id.clone(),
+            content: format!(
+                "Assign {} as primary for {}.",
+                reviewer.task_id, session.mission
+            ),
+            evidence_refs: shared_evidence,
+            responds_to: None,
+            timestamp_ms: reviewer.created_at,
+        },
+    ];
+
+    Some(PendingDebateSeed {
+        disagreement_id,
+        debate_session,
+        arguments,
+    })
 }
 
 impl AgentEngine {
@@ -393,9 +553,11 @@ impl AgentEngine {
         &self,
         parent_task_id: &str,
     ) -> Result<serde_json::Value> {
-        if !self.config.read().await.collaboration.enabled {
+        let config = self.config.read().await.clone();
+        if !config.collaboration.enabled {
             anyhow::bail!("collaboration capability is disabled in agent config");
         }
+        let debate_config = config.debate;
         let mut collaboration = self.collaboration.write().await;
         let Some(session) = collaboration.get_mut(parent_task_id) else {
             anyhow::bail!("no collaboration session found for parent task {parent_task_id}");
@@ -443,6 +605,16 @@ impl AgentEngine {
                 agent.confidence = reviewer.confidence;
             }
         }
+        let debate_launch = if debate_config.enabled {
+            seed_debate_from_bid_resolution(session, &ranked, &debate_config).map(|seed| {
+                PendingDebateLaunch {
+                    collaboration_snapshot: session.clone(),
+                    seed,
+                }
+            })
+        } else {
+            None
+        };
         session.updated_at = now_millis();
         let snapshot = session.clone();
         let report = serde_json::json!({
@@ -453,6 +625,40 @@ impl AgentEngine {
         });
         drop(collaboration);
         self.persist_collaboration_session(&snapshot).await?;
+
+        if let Some(launch) = debate_launch {
+            if let Err(error) = self
+                .persist_seeded_debate_session(
+                    launch.seed.debate_session.clone(),
+                    launch.seed.arguments.clone(),
+                )
+                .await
+            {
+                let rollback_snapshot = {
+                    let mut collaboration = self.collaboration.write().await;
+                    let Some(session) = collaboration.get_mut(parent_task_id) else {
+                        return Err(error);
+                    };
+                    if let Some(disagreement) = session
+                        .disagreements
+                        .iter_mut()
+                        .find(|item| item.id == launch.seed.disagreement_id)
+                    {
+                        if disagreement.debate_session_id.as_deref()
+                            == Some(launch.seed.debate_session.id.as_str())
+                        {
+                            disagreement.debate_session_id = None;
+                        }
+                    }
+                    session.updated_at = now_millis();
+                    session.clone()
+                };
+                self.persist_collaboration_session(&rollback_snapshot)
+                    .await?;
+                return Err(error);
+            }
+        }
+
         Ok(report)
     }
 

@@ -8,7 +8,7 @@ mod participants;
 mod runtime;
 
 pub(in crate::agent) use participants::detect_disagreements;
-use participants::{infer_collaboration_role, normalize_topic};
+use participants::infer_collaboration_role;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
