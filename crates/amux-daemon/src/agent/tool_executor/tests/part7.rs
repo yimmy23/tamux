@@ -4940,6 +4940,37 @@ fn apply_critique_modifications_strips_explicit_messaging_targets_and_broadcasts
 }
 
 #[test]
+fn apply_critique_modifications_requires_confirmation_for_synthesize_tool() {
+    let args = serde_json::json!({
+        "kind": "cli",
+        "target": "gh --help",
+        "activate": true
+    });
+
+    let (adjusted, changes) = super::apply_critique_modifications(
+        "synthesize_tool",
+        &args,
+        Some("proceed_with_modifications"),
+        &["tool synthesis can rewrite runtime tool capability policy".to_string()],
+        &["Require explicit operator confirmation before allowing tool synthesis for gh --help because synthesizing runtime tools can rewrite runtime tool capability policy.".to_string()],
+        &[],
+        None,
+    );
+
+    assert_eq!(
+        adjusted["__critique_requires_operator_confirmation"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        adjusted["__critique_confirmation_reason"].as_str(),
+        Some("synthesize_tool")
+    );
+    assert!(changes
+        .iter()
+        .any(|item| item == "synthesize_tool:require_operator_confirmation"));
+}
+
+#[test]
 fn apply_critique_modifications_requires_confirmation_for_switch_model() {
     let args = serde_json::json!({
         "agent": "svarog",

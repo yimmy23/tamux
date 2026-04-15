@@ -500,6 +500,25 @@ fn apply_critique_modifications(
                 adjustments.push("messaging:strip_explicit_phone".to_string());
             }
         }
+        "synthesize_tool" => {
+            let requires_confirmation = critique_modifications.iter().any(|item| {
+                let normalized = item.trim().to_ascii_lowercase();
+                normalized.contains("require explicit operator confirmation")
+                    || normalized.contains("runtime tool capability policy")
+                    || normalized.contains("tool synthesis")
+            });
+            if requires_confirmation {
+                map.insert(
+                    "__critique_requires_operator_confirmation".to_string(),
+                    serde_json::Value::Bool(true),
+                );
+                map.insert(
+                    "__critique_confirmation_reason".to_string(),
+                    serde_json::Value::String("synthesize_tool".to_string()),
+                );
+                adjustments.push("synthesize_tool:require_operator_confirmation".to_string());
+            }
+        }
         "switch_model" => {
             let requires_confirmation = critique_modifications.iter().any(|item| {
                 let normalized = item.trim().to_ascii_lowercase();
