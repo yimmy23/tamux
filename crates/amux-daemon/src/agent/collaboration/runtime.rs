@@ -421,7 +421,9 @@ impl AgentEngine {
 
         let assignment = ConsensusRoleAssignment {
             primary_task_id: primary.task_id.clone(),
+            primary_role: "primary".to_string(),
             reviewer_task_id: reviewer.task_id.clone(),
+            reviewer_role: "reviewer".to_string(),
             assigned_at: now_millis(),
         };
         session.role_assignment = Some(assignment.clone());

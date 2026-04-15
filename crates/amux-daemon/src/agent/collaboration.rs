@@ -29,7 +29,9 @@ pub(in crate::agent) struct ConsensusBid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(in crate::agent) struct ConsensusRoleAssignment {
     pub primary_task_id: String,
+    pub primary_role: String,
     pub reviewer_task_id: String,
+    pub reviewer_role: String,
     pub assigned_at: u64,
 }
 
