@@ -225,7 +225,7 @@ impl AgentEngine {
 
         if settings.morning_brief {
             if should_surface_anticipatory_kind("morning_brief", attention_surface.as_deref())
-                && adaptation_mode != AnticipatoryAdaptationMode::Minimal
+                && adaptation_mode == AnticipatoryAdaptationMode::Normal
             {
                 if let Some(item) = self.compute_morning_brief(settings).await {
                     items.push(item);
@@ -240,7 +240,7 @@ impl AgentEngine {
                 }
             }
         }
-        if adaptation_mode != AnticipatoryAdaptationMode::Minimal {
+        if adaptation_mode == AnticipatoryAdaptationMode::Normal {
             if should_surface_anticipatory_kind(
                 "system_outcome_foresight",
                 attention_surface.as_deref(),
@@ -250,7 +250,7 @@ impl AgentEngine {
                 }
             }
         }
-        if adaptation_mode != AnticipatoryAdaptationMode::Minimal {
+        if adaptation_mode == AnticipatoryAdaptationMode::Normal {
             if should_surface_anticipatory_kind("intent_prediction", attention_surface.as_deref()) {
                 if let Some(item) = self.compute_intent_prediction(settings).await {
                     items.push(item);

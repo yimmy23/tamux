@@ -370,6 +370,86 @@ async fn strained_satisfaction_suppresses_optional_morning_brief() {
 }
 
 #[tokio::test]
+async fn tool_hesitation_suppresses_optional_morning_brief() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let now = now_millis();
+    let mut goal = sample_goal_run("goal-hesitation-brief", Some("thread-hesitation-brief"));
+    goal.title = "Resume degraded flow".to_string();
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now;
+    goal.current_step_title = Some("retry the command".to_string());
+    engine.goal_runs.lock().await.push_back(goal);
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 1;
+        model.implicit_feedback.tool_hesitation_count = 1;
+        refresh_operator_satisfaction(&mut model);
+    }
+    engine.mark_operator_present("test").await;
+
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .items
+            .iter()
+            .all(|item| item.kind != "morning_brief"),
+        "tool hesitation should suppress optional morning briefs to reduce proactive noise"
+    );
+}
+
+#[tokio::test]
+async fn slow_approval_latency_suppresses_optional_intent_prediction() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.stuck_detection = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut task = sample_task("task-latency-intent", Some("thread-latency-intent"), None);
+    task.title = "Need approval".to_string();
+    task.status = TaskStatus::AwaitingApproval;
+    engine.tasks.lock().await.push_back(task);
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-latency-intent"), None)
+        .await
+        .unwrap();
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 1;
+        model.risk_fingerprint.approval_requests = 4;
+        model.risk_fingerprint.approvals = 2;
+        model.risk_fingerprint.denials = 2;
+        model.risk_fingerprint.avg_response_time_secs = 45.0;
+        refresh_risk_metrics(&mut model.risk_fingerprint);
+        refresh_operator_satisfaction(&mut model);
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .items
+            .iter()
+            .all(|item| item.kind != "intent_prediction"),
+        "slow approval latency should suppress optional intent prediction to reduce proactive noise"
+    );
+}
+
+#[tokio::test]
 async fn strained_satisfaction_skips_predictive_hydration() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
