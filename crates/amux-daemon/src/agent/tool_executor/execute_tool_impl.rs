@@ -400,7 +400,7 @@ fn has_directive(
     directives.iter().any(|directive| *directive == needle)
 }
 
-fn maybe_rewrite_shell_tool_to_replace_in_file(
+fn maybe_rewrite_shell_tool_to_safer_file_mutation(
     tool_name: &str,
     args: &serde_json::Value,
     critique_modifications: &[String],
@@ -410,6 +410,29 @@ fn maybe_rewrite_shell_tool_to_replace_in_file(
         "bash_command" | "run_terminal_command" | "execute_managed_command"
     ) {
         return None;
+    }
+
+    let prefers_apply_patch = critique_modifications.iter().any(|modification| {
+        modification
+            .trim()
+            .to_ascii_lowercase()
+            .contains("prefer apply_patch")
+    });
+    if prefers_apply_patch {
+        let patch_text = args
+            .get("input")
+            .or_else(|| args.get("patch"))
+            .and_then(|value| value.as_str())?;
+        let mut rewritten = serde_json::Map::new();
+        rewritten.insert(
+            "input".to_string(),
+            serde_json::Value::String(patch_text.to_string()),
+        );
+        return Some((
+            "apply_patch".to_string(),
+            serde_json::Value::Object(rewritten),
+            vec!["fallback:rewrite_to_apply_patch".to_string()],
+        ));
     }
 
     let prefers_replace_in_file = critique_modifications.iter().any(|modification| {
@@ -1040,7 +1063,7 @@ async fn prepare_tool_execution(
         }
     }
     let (effective_tool_name, effective_args, rewrite_adjustments) =
-        maybe_rewrite_shell_tool_to_replace_in_file(
+        maybe_rewrite_shell_tool_to_safer_file_mutation(
             tool_call.function.name.as_str(),
             &runtime_args,
             &critique_modifications,

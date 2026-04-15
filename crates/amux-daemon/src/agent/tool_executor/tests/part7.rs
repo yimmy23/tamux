@@ -4856,6 +4856,90 @@ async fn critique_preflight_promotes_fallback_aligned_guidance_from_operator_his
 }
 
 #[tokio::test]
+async fn critique_fallback_apply_patch_rewrites_shell_execution_when_patch_payload_is_already_present() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.critique.guard_suspicious_tool_calls_only = false;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    config.extra.insert(
+        "test_force_critique_modifications".to_string(),
+        serde_json::json!([
+            "Prefer apply_patch over brittle shell rewrites for this change."
+        ]),
+    );
+
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    {
+        let mut model = engine.operator_model.write().await;
+        model.risk_fingerprint.risk_tolerance =
+            crate::agent::operator_model::RiskTolerance::Aggressive;
+        model.implicit_feedback.top_tool_fallbacks =
+            vec!["bash_command -> apply_patch".to_string()];
+    }
+    let (event_tx, _) = broadcast::channel(8);
+
+    let target = root.path().join("patch-target.txt");
+    std::fs::write(&target, "alpha\nold value\nomega\n")
+        .expect("write target file should succeed");
+    let patch = format!(
+        "*** Begin Patch\n*** Update File: {}\n@@\n-old value\n+new value\n*** End Patch\n",
+        target.display()
+    );
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-critique-fallback-apply-patch".to_string(),
+        ToolFunction {
+            name: "bash_command".to_string(),
+            arguments: serde_json::json!({
+                "command": "exit 23",
+                "input": patch
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-critique-fallback-apply-patch",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "fallback-aligned critique rewrite should substitute safe apply_patch execution: {}",
+        result.content
+    );
+    let content = std::fs::read_to_string(&target).expect("read patched file");
+    assert!(content.contains("new value"));
+    assert!(!content.contains("old value"));
+    let review = result
+        .weles_review
+        .expect("successful fallback patch rewrite should preserve review metadata");
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason.starts_with("critique_preflight:")));
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason == "critique_applied:fallback:rewrite_to_apply_patch"));
+}
+
+#[tokio::test]
 async fn critique_fallback_replace_in_file_rewrites_shell_execution_when_args_are_trivially_mappable() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
