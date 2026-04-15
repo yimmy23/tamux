@@ -692,7 +692,13 @@ impl AgentEngine {
             )
             .await?;
         }
-        self.resolve_bids(parent_task_id).await
+        let mut report = self.resolve_bids(parent_task_id).await?;
+        if let Ok(debate_completion) = self.resolve_seeded_bid_debate(parent_task_id).await {
+            if let Some(report_map) = report.as_object_mut() {
+                report_map.insert("debate".to_string(), debate_completion);
+            }
+        }
+        Ok(report)
     }
 
     pub(in crate::agent) async fn record_collaboration_contribution(

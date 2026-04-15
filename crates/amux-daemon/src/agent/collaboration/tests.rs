@@ -1012,6 +1012,128 @@ async fn seeded_bid_debate_advances_completes_and_persists_winning_assignment() 
 }
 
 #[tokio::test]
+async fn dispatch_via_bid_protocol_auto_completes_seeded_bid_debate_on_contest() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    config.debate.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Choose the best owner for the next workstream".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_a = engine
+        .enqueue_task(
+            "Research child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_b = engine
+        .enqueue_task(
+            "Review child".to_string(),
+            "Prepare a bid for review ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child_a)
+        .await;
+    engine
+        .register_subagent_collaboration(&parent.id, &child_b)
+        .await;
+
+    let report = engine
+        .dispatch_via_bid_protocol(
+            &parent.id,
+            &[
+                crate::agent::collaboration::DispatchBidRequest {
+                    task_id: child_a.id.clone(),
+                    confidence: 0.84,
+                    availability: crate::agent::collaboration::BidAvailability::Available,
+                },
+                crate::agent::collaboration::DispatchBidRequest {
+                    task_id: child_b.id.clone(),
+                    confidence: 0.84,
+                    availability: crate::agent::collaboration::BidAvailability::Available,
+                },
+            ],
+        )
+        .await
+        .expect("dispatch_via_bid_protocol should auto-complete the seeded bid debate");
+
+    assert_eq!(report["primary_task_id"], child_a.id);
+    assert_eq!(report["reviewer_task_id"], child_b.id);
+    assert_eq!(report["debate"]["winner_task_id"], child_a.id);
+    assert_eq!(report["debate"]["status"], "completed");
+
+    let persisted = engine
+        .collaboration_sessions_json(Some(&parent.id))
+        .await
+        .expect("persisted collaboration session should be readable");
+    let debate_session_id = persisted["disagreements"]
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item["debate_session_id"].as_str())
+        .expect("debate session id should persist after automatic completion")
+        .to_string();
+
+    assert_eq!(persisted["disagreements"][0]["resolution"], "resolved");
+    assert_eq!(persisted["consensus"]["winner"], child_a.id);
+    assert!(
+        persisted["consensus"]["rationale"]
+            .as_str()
+            .is_some_and(|text| text.contains(&format!("primary={}", child_a.id)))
+    );
+
+    let debate_payload = engine
+        .get_debate_session_payload(&debate_session_id)
+        .await
+        .expect("auto-completed debate session should exist");
+    assert_eq!(debate_payload["status"], "completed");
+    assert_eq!(debate_payload["current_round"].as_u64(), Some(3));
+    assert_eq!(
+        debate_payload["arguments"]
+            .as_array()
+            .map(|items| items.len()),
+        Some(5)
+    );
+}
+
+#[tokio::test]
 async fn collaboration_disagreement_auto_escalates_into_seeded_debate_session() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
