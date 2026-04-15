@@ -316,6 +316,39 @@ async fn intent_prediction_rows_round_trip_and_resolve() -> Result<()> {
 }
 
 #[tokio::test]
+async fn intent_prediction_success_rate_uses_recent_resolved_outcomes() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    for (id, was_correct, created_at_ms) in [
+        ("intent-a", true, 100),
+        ("intent-b", false, 200),
+        ("intent-c", true, 300),
+    ] {
+        store
+            .insert_intent_prediction(&IntentPredictionRow {
+                id: id.to_string(),
+                session_id: "thread-intent".to_string(),
+                context_state_hash: format!("ctx-{id}"),
+                predicted_action: "review pending approval".to_string(),
+                confidence: 0.8,
+                actual_action: Some("review pending approval".to_string()),
+                was_correct: Some(was_correct),
+                created_at_ms,
+            })
+            .await?;
+    }
+
+    let rate = store
+        .recent_intent_prediction_success_rate("review pending approval", 10)
+        .await?
+        .expect("success rate should be present");
+    assert!((rate - (2.0 / 3.0)).abs() < 1e-9);
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn recent_implicit_signal_samples_return_latest_weights() -> Result<()> {
     let (store, root) = make_test_store().await?;
 

@@ -925,7 +925,16 @@ impl AgentEngine {
             }
         }
 
-        let (action, confidence, bullets) = predicted_action?;
+        let (action, base_confidence, bullets) = predicted_action?;
+        let learned_prior = self
+            .history
+            .recent_intent_prediction_success_rate(action, 8)
+            .await
+            .ok()
+            .flatten();
+        let confidence = learned_prior
+            .map(|prior| (base_confidence + ((prior - 0.5) * 0.15)).clamp(0.0, 0.99))
+            .unwrap_or(base_confidence);
         if confidence < settings.surfacing_min_confidence {
             return None;
         }

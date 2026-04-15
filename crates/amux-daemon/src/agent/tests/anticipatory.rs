@@ -1,4 +1,5 @@
 use super::*;
+use crate::history::IntentPredictionRow;
 use crate::session_manager::SessionManager;
 use tempfile::tempdir;
 use tokio::time::{timeout, Duration};
@@ -756,6 +757,68 @@ async fn predictive_hydration_populates_prewarm_cache_for_hydrated_thread() {
         .expect("prewarm cache snapshot for hydrated thread");
     assert!(snapshot.summary.contains("branch"));
     assert!(snapshot.summary.contains("context entries 1"));
+}
+
+#[tokio::test]
+async fn resolved_intent_predictions_raise_future_prediction_confidence() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-confidence"), None)
+        .await
+        .unwrap();
+
+    let mut task = sample_task("task-confidence", Some("thread-confidence"), None);
+    task.title = "Need approval".to_string();
+    task.status = TaskStatus::AwaitingApproval;
+    engine.tasks.lock().await.push_back(task);
+
+    for (id, was_correct, created_at_ms) in [
+        ("intent-hist-1", true, 100),
+        ("intent-hist-2", true, 200),
+        ("intent-hist-3", false, 300),
+    ] {
+        engine
+            .history
+            .insert_intent_prediction(&IntentPredictionRow {
+                id: id.to_string(),
+                session_id: "thread-other".to_string(),
+                context_state_hash: format!("ctx-{id}"),
+                predicted_action: "review pending approval".to_string(),
+                confidence: 0.80,
+                actual_action: Some("review pending approval".to_string()),
+                was_correct: Some(was_correct),
+                created_at_ms,
+            })
+            .await
+            .expect("seed resolved prediction history");
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    let item = engine
+        .anticipatory
+        .read()
+        .await
+        .items
+        .clone()
+        .into_iter()
+        .find(|candidate| candidate.kind == "intent_prediction")
+        .expect("expected intent prediction item");
+    let payload = item
+        .intent_prediction
+        .as_ref()
+        .expect("intent prediction payload should be present");
+
+    assert!(
+        payload.confidence > 0.86,
+        "persisted success-rate priors should raise confidence above the raw heuristic baseline"
+    );
+    assert_eq!(payload.primary_action, "review pending approval");
 }
 
 #[tokio::test]

@@ -232,4 +232,34 @@ impl HistoryStore {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
+
+    pub async fn recent_intent_prediction_success_rate(
+        &self,
+        predicted_action: &str,
+        limit: usize,
+    ) -> Result<Option<f64>> {
+        let predicted_action = predicted_action.to_string();
+        let limit = limit.max(1) as i64;
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT was_correct
+                     FROM intent_predictions
+                     WHERE predicted_action = ?1 AND was_correct IS NOT NULL
+                     ORDER BY created_at_ms DESC, id DESC
+                     LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![predicted_action, limit], |row| {
+                    Ok(row.get::<_, i64>(0)? != 0)
+                })?;
+                let values = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+                if values.is_empty() {
+                    return Ok(None);
+                }
+                let success = values.iter().filter(|value| **value).count() as f64;
+                Ok(Some(success / values.len() as f64))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
 }
