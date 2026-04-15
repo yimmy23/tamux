@@ -1054,6 +1054,237 @@ keywords: [debug]
 }
 
 #[tokio::test]
+async fn successful_skill_settlement_closes_the_memory_to_skill_discovery_loop() -> Result<()> {
+    let root = tempdir()?;
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let skills_root = root.path().join("skills");
+    let generated = skills_root.join("generated");
+
+    let alpha = write_skill(
+        &generated,
+        "alpha-general-playbook",
+        r#"---
+description: General debugging guidance.
+keywords: [debug]
+---
+
+# Alpha General Playbook
+"#,
+    )?;
+    let zeta = write_skill(
+        &generated,
+        "zeta-general-playbook",
+        r#"---
+description: General debugging guidance.
+keywords: [debug]
+---
+
+# Zeta General Playbook
+"#,
+    )?;
+
+    let alpha_record = engine.history.register_skill_document(&alpha).await?;
+    let zeta_record = engine.history.register_skill_document(&zeta).await?;
+
+    for _ in 0..10 {
+        engine
+            .history
+            .record_skill_variant_use(&alpha_record.variant_id, Some(true))
+            .await?;
+        engine
+            .history
+            .record_skill_variant_use(&zeta_record.variant_id, Some(true))
+            .await?;
+    }
+
+    engine
+        .history
+        .upsert_memory_node(
+            "node:memory:incident-42",
+            "incident bridge 42",
+            "memory_fact",
+            Some("operator mentioned incident bridge 42 while debugging backend failures"),
+            1_717_181_701,
+        )
+        .await?;
+    engine
+        .history
+        .upsert_memory_node(
+            "intent:incident-cluster",
+            "incident cluster",
+            "intent",
+            Some("incident-context bridge intent"),
+            1_717_181_702,
+        )
+        .await?;
+    engine
+        .history
+        .upsert_memory_node(
+            "intent:backend-debugging",
+            "backend debugging",
+            "intent",
+            Some("backend debugging intent"),
+            1_717_181_703,
+        )
+        .await?;
+    engine
+        .history
+        .upsert_memory_node(
+            &format!("skill:{}", alpha_record.variant_id),
+            &alpha_record.skill_name,
+            "skill_variant",
+            Some("alpha skill graph node"),
+            1_717_181_704,
+        )
+        .await?;
+    engine
+        .history
+        .upsert_memory_node(
+            &format!("skill:{}", zeta_record.variant_id),
+            &zeta_record.skill_name,
+            "skill_variant",
+            Some("zeta skill graph node"),
+            1_717_181_705,
+        )
+        .await?;
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:memory:incident-42",
+            "intent:incident-cluster",
+            "memory_supports_intent",
+            1.0,
+            1_717_181_706,
+        )
+        .await?;
+    engine
+        .history
+        .upsert_memory_edge(
+            "intent:incident-cluster",
+            &format!("skill:{}", alpha_record.variant_id),
+            "intent_prefers_skill",
+            2.0,
+            1_717_181_707,
+        )
+        .await?;
+    engine
+        .history
+        .upsert_memory_edge(
+            "node:memory:incident-42",
+            "intent:backend-debugging",
+            "memory_supports_intent",
+            0.5,
+            1_717_181_708,
+        )
+        .await?;
+    engine
+        .history
+        .upsert_memory_edge(
+            "intent:backend-debugging",
+            &format!("skill:{}", zeta_record.variant_id),
+            "intent_prefers_skill",
+            2.0,
+            1_717_181_709,
+        )
+        .await?;
+
+    let before = discover_local_skills(
+        &engine.history,
+        &skills_root,
+        "incident bridge 42",
+        &[],
+        5,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            novelty_distance_weight: 0.0,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+    assert_eq!(
+        before
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("alpha-general-playbook"),
+        "before successful settlement, the stronger memory path should still favor alpha"
+    );
+
+    let edge_before = engine
+        .history
+        .list_memory_edges_for_node("node:memory:incident-42")
+        .await?
+        .into_iter()
+        .find(|edge| {
+            edge.relation_type == "memory_supports_intent"
+                && (edge.target_node_id == "intent:backend-debugging"
+                    || edge.source_node_id == "intent:backend-debugging")
+        })
+        .expect("memory-to-backend-debugging edge should exist before settle");
+
+    let thread_id = "thread-memory-skill-loop-success";
+    let task_id = "task-memory-skill-loop-success";
+    engine
+        .record_skill_consultation(
+            thread_id,
+            Some(task_id),
+            &zeta_record,
+            &["backend-debugging".to_string()],
+        )
+        .await;
+    let task = sample_task(task_id, thread_id);
+    assert_eq!(
+        engine
+            .settle_task_skill_consultations(&task, "success")
+            .await,
+        1
+    );
+
+    let edge_after = engine
+        .history
+        .list_memory_edges_for_node("node:memory:incident-42")
+        .await?
+        .into_iter()
+        .find(|edge| {
+            edge.relation_type == "memory_supports_intent"
+                && (edge.target_node_id == "intent:backend-debugging"
+                    || edge.source_node_id == "intent:backend-debugging")
+        })
+        .expect("memory-to-backend-debugging edge should exist after settle");
+    assert!(
+        edge_after.weight > edge_before.weight,
+        "successful settlement should reinforce the memory->intent edge on the zeta path"
+    );
+
+    let after = discover_local_skills(
+        &engine.history,
+        &skills_root,
+        "incident bridge 42",
+        &[],
+        5,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            novelty_distance_weight: 0.0,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+    assert_eq!(
+        after
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("zeta-general-playbook"),
+        "after successful settlement, the same memory-context query should flip toward zeta via the reinforced memory path"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn successful_settled_consultation_biases_graph_backed_recommendation_ordering() -> Result<()>
 {
     let root = tempdir()?;
