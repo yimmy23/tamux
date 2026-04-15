@@ -403,7 +403,7 @@ fn weles_classifier_only_flags_standalone_broadcast_mentions() {
 }
 
 #[test]
-fn weles_classifier_covers_switch_model_plugin_api_setup_web_and_snapshot_restore_actions() {
+fn weles_classifier_covers_switch_model_plugin_api_synthesize_tool_setup_web_and_snapshot_restore_actions() {
     let switch_model = crate::agent::weles_governance::classify_tool_call(
         "switch_model",
         &serde_json::json!({
@@ -436,6 +436,23 @@ fn weles_classifier_covers_switch_model_plugin_api_setup_web_and_snapshot_restor
         .reasons
         .iter()
         .any(|reason: &String| reason.contains("plugin execution policy")));
+
+    let synthesize_tool = crate::agent::weles_governance::classify_tool_call(
+        "synthesize_tool",
+        &serde_json::json!({
+            "kind": "cli",
+            "target": "gh --help",
+            "activate": true
+        }),
+    );
+    assert_eq!(
+        synthesize_tool.class,
+        crate::agent::weles_governance::WelesGovernanceClass::GuardAlways
+    );
+    assert!(synthesize_tool
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("runtime tool capability policy")));
 
     let install = crate::agent::weles_governance::classify_tool_call(
         "setup_web_browsing",

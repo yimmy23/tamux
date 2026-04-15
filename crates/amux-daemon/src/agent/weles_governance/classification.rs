@@ -318,6 +318,15 @@ pub(crate) fn classify_tool_call(
         };
     }
 
+    if normalized_tool == "synthesize_tool" {
+        return WelesToolClassification {
+            class: WelesGovernanceClass::GuardAlways,
+            reasons: vec![
+                "tool synthesis can rewrite runtime tool capability policy".to_string(),
+            ],
+        };
+    }
+
     if normalized_tool == "setup_web_browsing" {
         let action = tool_args
             .get("action")

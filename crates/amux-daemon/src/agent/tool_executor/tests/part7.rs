@@ -1878,6 +1878,70 @@ async fn critique_preflight_surfaces_plugin_api_call_specific_guidance() {
 }
 
 #[tokio::test]
+async fn critique_preflight_runs_for_guard_always_synthesize_tool_calls() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let classification = crate::agent::weles_governance::classify_tool_call(
+        "synthesize_tool",
+        &serde_json::json!({
+            "kind": "cli",
+            "target": "gh --help",
+            "activate": true
+        }),
+    );
+
+    assert_eq!(
+        classification.class,
+        crate::agent::weles_governance::WelesGovernanceClass::GuardAlways
+    );
+    assert!(
+        engine
+            .should_run_critique_preflight("synthesize_tool", &classification)
+            .await,
+        "guard-always synthesize_tool invocations should trigger critique preflight"
+    );
+}
+
+#[tokio::test]
+async fn critique_preflight_surfaces_synthesize_tool_specific_guidance() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let resolution = engine
+        .run_critique_preflight(
+            "action-synthesize-tool-guidance",
+            "synthesize_tool",
+            "Synthesize and activate a new runtime tool from a conservative CLI help surface.",
+            &["tool synthesis can rewrite runtime tool capability policy".to_string()],
+            Some("thread-synthesize-tool-guidance"),
+            None,
+        )
+        .await
+        .expect("critique preflight should succeed")
+        .resolution
+        .expect("resolution should exist");
+
+    assert!(resolution.modifications.iter().any(|item| {
+        item.contains("Require explicit operator confirmation")
+            || item.contains("runtime tool capability policy")
+            || item.contains("tool synthesis")
+    }), "expected synthesize_tool-specific critic guidance, got: {:?}", resolution.modifications);
+}
+
+#[tokio::test]
 async fn critique_preflight_runs_for_guard_always_non_allowlisted_tool() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
