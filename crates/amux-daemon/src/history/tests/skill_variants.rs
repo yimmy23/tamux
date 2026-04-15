@@ -22,6 +22,42 @@ async fn register_skill_document_infers_variant_metadata() -> Result<()> {
 }
 
 #[tokio::test]
+async fn register_skill_document_preserves_persisted_fitness_score_on_reregistration() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let skill_path = root.join("skills/generated/build-pipeline.md");
+    fs::write(&skill_path, "# Build pipeline\nRun cargo build.\n")?;
+
+    let record = store.register_skill_document(&skill_path).await?;
+    let variant_id = record.variant_id.clone();
+    store
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE skill_variants SET success_count = 0, failure_count = 0, fitness_score = 7.5 WHERE variant_id = ?1",
+                params![variant_id],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let reregistered = store.register_skill_document(&skill_path).await?;
+
+    assert_eq!(reregistered.variant_id, record.variant_id);
+    assert_eq!(reregistered.fitness_score, 7.5);
+
+    let fetched = store
+        .get_skill_variant(&record.variant_id)
+        .await?
+        .expect("variant should still exist after re-registration");
+    assert_eq!(fetched.fitness_score, 7.5);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn register_skill_document_prefers_explicit_frontmatter_tags() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;

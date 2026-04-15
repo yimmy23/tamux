@@ -139,6 +139,11 @@ impl HistoryStore {
                 .map(|record| record.status.clone())
                 .unwrap_or_else(|| "active".to_string());
 
+            let fitness_score = existing
+                .as_ref()
+                .map(|record| record.fitness_score)
+                .unwrap_or_else(|| f64::from(success_count) - f64::from(failure_count));
+
             conn.execute(
                 "INSERT OR REPLACE INTO skill_variants \
                  (variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at) \
@@ -154,7 +159,7 @@ impl HistoryStore {
                     use_count as i64,
                     success_count as i64,
                     failure_count as i64,
-                    (f64::from(success_count) - f64::from(failure_count)),
+                    fitness_score,
                     status,
                     last_used_at.map(|value| value as i64),
                     created_at as i64,
