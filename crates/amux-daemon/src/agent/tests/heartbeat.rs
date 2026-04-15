@@ -355,6 +355,27 @@ fn format_consolidation_forge_summary_surfaces_strategy_learning() {
     assert!(output.contains("1 auto-applied"));
 }
 
+#[test]
+fn format_consolidation_dream_summary_surfaces_what_the_system_considered_while_idle() {
+    let output = super::helpers::format_consolidation_dream_summary(&ConsolidationResult {
+        distillation_ran: true,
+        distillation_threads_analyzed: 4,
+        distillation_auto_applied: 2,
+        forge_ran: true,
+        forge_patterns_detected: 3,
+        forge_hints_auto_applied: 1,
+        facts_refined: 2,
+        skills_promoted: 1,
+        ..Default::default()
+    })
+    .expect("dream summary should be present when consolidation learned something");
+
+    assert!(output.contains("what the system considered while idle"));
+    assert!(output.contains("4 thread(s)"));
+    assert!(output.contains("2 memory update(s)"));
+    assert!(output.contains("3 recurring pattern(s)"));
+}
+
 #[tokio::test]
 async fn heartbeat_consolidation_emits_workflow_notice_for_forge_learning_summary() {
     let root = tempdir().expect("tempdir should succeed");
@@ -392,6 +413,51 @@ async fn heartbeat_consolidation_emits_workflow_notice_for_forge_learning_summar
         } => {
             assert_eq!(kind, "forge");
             assert_eq!(message, "Consolidation strategy learning updated");
+            assert_eq!(details.as_deref(), Some(summary.as_str()));
+        }
+        other => panic!("expected WorkflowNotice, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn heartbeat_consolidation_emits_workflow_notice_for_dream_summary() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let mut events = engine.subscribe();
+
+    let summary = super::helpers::format_consolidation_dream_summary(&ConsolidationResult {
+        distillation_ran: true,
+        distillation_threads_analyzed: 2,
+        distillation_auto_applied: 1,
+        forge_ran: true,
+        forge_patterns_detected: 2,
+        forge_hints_auto_applied: 1,
+        facts_refined: 1,
+        ..Default::default()
+    })
+    .expect("dream summary should be present");
+
+    let _ = engine.event_tx.send(AgentEvent::WorkflowNotice {
+        thread_id: String::new(),
+        kind: "dream".to_string(),
+        message: "Dream state updated".to_string(),
+        details: Some(summary.clone()),
+    });
+
+    let event = timeout(Duration::from_millis(250), events.recv())
+        .await
+        .expect("dream notice should arrive")
+        .expect("dream notice should deserialize");
+    match event {
+        AgentEvent::WorkflowNotice {
+            kind,
+            message,
+            details,
+            ..
+        } => {
+            assert_eq!(kind, "dream");
+            assert_eq!(message, "Dream state updated");
             assert_eq!(details.as_deref(), Some(summary.as_str()));
         }
         other => panic!("expected WorkflowNotice, got {other:?}"),

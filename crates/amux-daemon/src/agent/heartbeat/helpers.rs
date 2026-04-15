@@ -139,6 +139,25 @@ pub(super) fn format_consolidation_forge_summary(result: &ConsolidationResult) -
     ))
 }
 
+pub(super) fn format_consolidation_dream_summary(result: &ConsolidationResult) -> Option<String> {
+    let learned_something = result.distillation_ran
+        || result.forge_ran
+        || result.facts_refined > 0
+        || result.skills_promoted > 0;
+    if !learned_something {
+        return None;
+    }
+
+    Some(format!(
+        "Dream state: what the system considered while idle — {} thread(s), {} memory update(s), {} recurring pattern(s), {} refined fact(s), {} promoted skill(s).",
+        result.distillation_threads_analyzed,
+        result.distillation_auto_applied,
+        result.forge_patterns_detected,
+        result.facts_refined,
+        result.skills_promoted,
+    ))
+}
+
 pub(super) fn check_type_to_action_type(check_type: &HeartbeatCheckType) -> &'static str {
     match check_type {
         HeartbeatCheckType::StaleTodos => "stale_todo",

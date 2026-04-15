@@ -205,6 +205,14 @@ impl AgentEngine {
                     details: Some(summary),
                 });
             }
+            if let Some(summary) = super::helpers::format_consolidation_dream_summary(result) {
+                let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                    thread_id: String::new(),
+                    kind: "dream".to_string(),
+                    message: "Dream state updated".to_string(),
+                    details: Some(summary),
+                });
+            }
             tracing::info!(
                 traces = result.traces_reviewed,
                 distillation_ran = result.distillation_ran,
