@@ -102,6 +102,15 @@ impl HistoryStore {
                      WHERE variant_id = ?1",
                     params![variant_id, count as i64, resolved_at],
                 )?;
+                let fitness_score: f64 = conn.query_row(
+                    "SELECT fitness_score FROM skill_variants WHERE variant_id = ?1",
+                    params![variant_id.as_str()],
+                    |row| row.get(0),
+                )?;
+                conn.execute(
+                    "INSERT INTO skill_variant_history (id, variant_id, recorded_at, outcome, fitness_score) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![uuid::Uuid::new_v4().to_string(), variant_id, resolved_at, "success", fitness_score],
+                )?;
             }
             for (variant_id, count) in failure_counts {
                 conn.execute(
@@ -109,6 +118,15 @@ impl HistoryStore {
                      SET failure_count = failure_count + ?2, fitness_score = fitness_score - ?2, updated_at = ?3 \
                      WHERE variant_id = ?1",
                     params![variant_id, count as i64, resolved_at],
+                )?;
+                let fitness_score: f64 = conn.query_row(
+                    "SELECT fitness_score FROM skill_variants WHERE variant_id = ?1",
+                    params![variant_id.as_str()],
+                    |row| row.get(0),
+                )?;
+                conn.execute(
+                    "INSERT INTO skill_variant_history (id, variant_id, recorded_at, outcome, fitness_score) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![uuid::Uuid::new_v4().to_string(), variant_id, resolved_at, "failure", fitness_score],
                 )?;
             }
 
@@ -155,6 +173,36 @@ impl HistoryStore {
             }
         }
         Ok((pending_len, skill_names.into_iter().collect()))
+    }
+
+    pub async fn list_skill_variant_fitness_history(
+        &self,
+        variant_id: &str,
+        limit: usize,
+    ) -> Result<Vec<SkillVariantFitnessHistoryRow>> {
+        let variant_id = variant_id.to_string();
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, variant_id, recorded_at, outcome, fitness_score \
+                     FROM skill_variant_history WHERE variant_id = ?1 \
+                     ORDER BY recorded_at ASC, rowid ASC LIMIT ?2",
+                )?;
+                let rows = stmt
+                    .query_map(params![variant_id, limit as i64], |row| {
+                        Ok(SkillVariantFitnessHistoryRow {
+                            id: row.get(0)?,
+                            variant_id: row.get(1)?,
+                            recorded_at: row.get(2)?,
+                            outcome: row.get(3)?,
+                            fitness_score: row.get(4)?,
+                        })
+                    })?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                Ok(rows)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn rebalance_skill_variants(

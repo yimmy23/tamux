@@ -212,6 +212,71 @@ async fn resolve_skill_variant_prefers_context_overlap_and_tracks_usage() -> Res
 }
 
 #[tokio::test]
+async fn sequential_settlements_append_distinct_skill_fitness_history_records() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let skill = root.join("skills/generated/build-pipeline.md");
+    fs::write(&skill, "# Build pipeline\nRun cargo build.\n")?;
+
+    let record = store.register_skill_document(&skill).await?;
+    let tags = vec!["frontend".to_string()];
+
+    store
+        .record_skill_variant_consultation(&SkillVariantConsultationRecord {
+            usage_id: "usage-history-1",
+            variant_id: &record.variant_id,
+            thread_id: Some("thread-history-1"),
+            task_id: Some("task-history-1"),
+            goal_run_id: Some("goal-history-1"),
+            context_tags: &tags,
+            consulted_at: 100,
+        })
+        .await?;
+    store
+        .settle_skill_variant_usage(
+            Some("thread-history-1"),
+            Some("task-history-1"),
+            Some("goal-history-1"),
+            "success",
+        )
+        .await?;
+
+    store
+        .record_skill_variant_consultation(&SkillVariantConsultationRecord {
+            usage_id: "usage-history-2",
+            variant_id: &record.variant_id,
+            thread_id: Some("thread-history-2"),
+            task_id: Some("task-history-2"),
+            goal_run_id: Some("goal-history-2"),
+            context_tags: &tags,
+            consulted_at: 101,
+        })
+        .await?;
+    store
+        .settle_skill_variant_usage(
+            Some("thread-history-2"),
+            Some("task-history-2"),
+            Some("goal-history-2"),
+            "failure",
+        )
+        .await?;
+
+    let history = store
+        .list_skill_variant_fitness_history(&record.variant_id, 10)
+        .await?;
+
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].outcome, "success");
+    assert_eq!(history[0].fitness_score, 1.0);
+    assert_eq!(history[1].outcome, "failure");
+    assert_eq!(history[1].fitness_score, 0.0);
+    assert_ne!(history[0].id, history[1].id);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn skill_variant_consultation_settlement_updates_outcomes_once() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;

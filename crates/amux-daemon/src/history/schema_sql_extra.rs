@@ -79,6 +79,15 @@ pub(super) fn extended_schema_sql() -> &'static str {
             CREATE INDEX IF NOT EXISTS idx_skill_variant_usage_variant ON skill_variant_usage(variant_id, consulted_at DESC);
             CREATE INDEX IF NOT EXISTS idx_skill_variant_usage_resolution ON skill_variant_usage(task_id, goal_run_id, thread_id, resolved_at);
 
+            CREATE TABLE IF NOT EXISTS skill_variant_history (
+                id                 TEXT PRIMARY KEY,
+                variant_id         TEXT NOT NULL,
+                recorded_at        INTEGER NOT NULL,
+                outcome            TEXT NOT NULL,
+                fitness_score      REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_skill_variant_history_variant_ts ON skill_variant_history(variant_id, recorded_at DESC);
+
             CREATE TABLE IF NOT EXISTS collaboration_sessions (
                 parent_task_id TEXT PRIMARY KEY,
                 session_json   TEXT NOT NULL,

@@ -198,6 +198,16 @@ pub(super) fn apply_schema_migrations(
     )?;
     ensure_column(connection, "agent_tasks", "session_id", "TEXT")?;
     ensure_column(connection, "agent_threads", "metadata_json", "TEXT")?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS skill_variant_history (
+            id TEXT PRIMARY KEY,
+            variant_id TEXT NOT NULL,
+            recorded_at INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            fitness_score REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_variant_history_variant_ts ON skill_variant_history(variant_id, recorded_at DESC);",
+    )?;
     ensure_column(connection, "skill_variants", "fitness_score", "REAL NOT NULL DEFAULT 0")?;
     connection.execute(
         "UPDATE skill_variants SET fitness_score = CAST(success_count AS REAL) - CAST(failure_count AS REAL) WHERE fitness_score = 0",

@@ -287,6 +287,15 @@ pub struct OperatorProfileCheckinRow {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct SkillVariantFitnessHistoryRow {
+    pub id: String,
+    pub variant_id: String,
+    pub recorded_at: i64,
+    pub outcome: String,
+    pub fitness_score: f64,
+}
+
 /// Row type for heartbeat_history table. Per D-12.
 #[derive(Debug, Clone)]
 pub struct HeartbeatHistoryRow {
