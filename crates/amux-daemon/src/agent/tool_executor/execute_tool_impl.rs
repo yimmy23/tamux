@@ -403,6 +403,11 @@ fn apply_critique_modifications(
         return (args.clone(), Vec::new());
     }
 
+    let critique_bypass_confirmation = args
+        .get("__critique_bypass_confirmation")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+
     let mut adjusted = args.clone();
     let Some(map) = adjusted.as_object_mut() else {
         return (adjusted, Vec::new());
@@ -501,12 +506,13 @@ fn apply_critique_modifications(
             }
         }
         "synthesize_tool" => {
-            let requires_confirmation = critique_modifications.iter().any(|item| {
-                let normalized = item.trim().to_ascii_lowercase();
-                normalized.contains("require explicit operator confirmation")
-                    || normalized.contains("runtime tool capability policy")
-                    || normalized.contains("tool synthesis")
-            });
+            let requires_confirmation = !critique_bypass_confirmation
+                && critique_modifications.iter().any(|item| {
+                    let normalized = item.trim().to_ascii_lowercase();
+                    normalized.contains("require explicit operator confirmation")
+                        || normalized.contains("runtime tool capability policy")
+                        || normalized.contains("tool synthesis")
+                });
             if requires_confirmation {
                 map.insert(
                     "__critique_requires_operator_confirmation".to_string(),
@@ -520,12 +526,13 @@ fn apply_critique_modifications(
             }
         }
         "switch_model" => {
-            let requires_confirmation = critique_modifications.iter().any(|item| {
-                let normalized = item.trim().to_ascii_lowercase();
-                normalized.contains("require explicit operator confirmation")
-                    || normalized.contains("persisted agent execution policy")
-                    || normalized.contains("provider or model")
-            });
+            let requires_confirmation = !critique_bypass_confirmation
+                && critique_modifications.iter().any(|item| {
+                    let normalized = item.trim().to_ascii_lowercase();
+                    normalized.contains("require explicit operator confirmation")
+                        || normalized.contains("persisted agent execution policy")
+                        || normalized.contains("provider or model")
+                });
             if requires_confirmation {
                 map.insert(
                     "__critique_requires_operator_confirmation".to_string(),
@@ -539,12 +546,13 @@ fn apply_critique_modifications(
             }
         }
         "plugin_api_call" => {
-            let requires_confirmation = critique_modifications.iter().any(|item| {
-                let normalized = item.trim().to_ascii_lowercase();
-                normalized.contains("require explicit operator confirmation")
-                    || normalized.contains("plugin execution policy")
-                    || normalized.contains("plugin endpoint")
-            });
+            let requires_confirmation = !critique_bypass_confirmation
+                && critique_modifications.iter().any(|item| {
+                    let normalized = item.trim().to_ascii_lowercase();
+                    normalized.contains("require explicit operator confirmation")
+                        || normalized.contains("plugin execution policy")
+                        || normalized.contains("plugin endpoint")
+                });
             if requires_confirmation {
                 map.insert(
                     "__critique_requires_operator_confirmation".to_string(),
@@ -782,7 +790,13 @@ async fn prepare_tool_execution(
     } else {
         false
     };
-    let critique_result = if agent
+    let critique_bypass_confirmation = args
+        .get("__critique_bypass_confirmation")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let critique_result = if critique_bypass_confirmation {
+        None
+    } else if agent
         .should_run_critique_preflight(
             tool_call.function.name.as_str(),
             &critique_classification,
@@ -878,10 +892,11 @@ async fn prepare_tool_execution(
         preferred_start_hour_utc,
     );
     if let Some(map) = runtime_args.as_object() {
-        if map
-            .get("__critique_requires_operator_confirmation")
-            .and_then(|value| value.as_bool())
-            == Some(true)
+        if !critique_bypass_confirmation
+            && map
+                .get("__critique_requires_operator_confirmation")
+                .and_then(|value| value.as_bool())
+                == Some(true)
         {
             let mut review = crate::agent::types::WelesReviewMeta {
                 weles_reviewed: true,
@@ -918,6 +933,34 @@ async fn prepare_tool_execution(
                 )],
                 session_id: None,
             };
+            agent
+                .critique_approval_continuations
+                .lock()
+                .await
+                .insert(
+                    pending_approval.approval_id.clone(),
+                    crate::agent::CritiqueApprovalContinuation {
+                        tool_call: ToolCall {
+                            id: tool_call.id.clone(),
+                            function: crate::agent::types::ToolFunction {
+                                name: tool_call.function.name.clone(),
+                                arguments: {
+                                    let mut resumed_args = args.clone();
+                                    if let Some(map) = resumed_args.as_object_mut() {
+                                        map.insert(
+                                            "__critique_bypass_confirmation".to_string(),
+                                            serde_json::Value::Bool(true),
+                                        );
+                                    }
+                                    resumed_args.to_string()
+                                },
+                            },
+                            weles_review: tool_call.weles_review.clone(),
+                        },
+                        thread_id: thread_id.to_string(),
+                        agent_data_dir: agent.data_dir.clone(),
+                    },
+                );
             return Err(ToolResult {
                 tool_call_id: tool_call.id.clone(),
                 name: tool_call.function.name.clone(),
@@ -948,6 +991,18 @@ async fn prepare_tool_execution(
         &governance_classification,
     ) {
         crate::agent::weles_governance::direct_allow_decision(governance_classification.class)
+    } else if critique_bypass_confirmation {
+        crate::agent::weles_governance::reviewed_runtime_decision(
+            &governance_classification,
+            security_level,
+            crate::agent::weles_governance::WelesRuntimeReviewPayload {
+                verdict: crate::agent::types::WelesVerdict::Allow,
+                reasons: vec![
+                    "operator approved critique confirmation replay".to_string(),
+                ],
+                audit_id: Some(format!("critique_confirmation_{}", tool_call.id)),
+            },
+        )
     } else if crate::agent::agent_identity::is_weles_agent_scope(&active_scope_id) {
         crate::agent::weles_governance::internal_runtime_decision(
             &governance_classification,

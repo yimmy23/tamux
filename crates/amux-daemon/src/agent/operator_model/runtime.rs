@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::tool_executor::execute_tool;
 
 impl AgentEngine {
     async fn persist_implicit_feedback_signal(
@@ -108,6 +109,51 @@ impl AgentEngine {
         pending
             .values()
             .any(|existing| existing.category == category)
+    }
+
+    pub async fn resume_critique_approval_continuation(
+        &self,
+        approval_id: &str,
+        decision: ApprovalDecision,
+        session_manager: &Arc<SessionManager>,
+        event_tx: &broadcast::Sender<AgentEvent>,
+        agent_data_dir: &std::path::Path,
+        http_client: &reqwest::Client,
+    ) -> Result<ToolResult> {
+        self.record_operator_approval_resolution(approval_id, decision)
+            .await?;
+
+        if matches!(decision, ApprovalDecision::Deny) {
+            return Ok(ToolResult {
+                tool_call_id: approval_id.to_string(),
+                name: "critique_confirmation".to_string(),
+                content: "Critique confirmation denied by operator.".to_string(),
+                is_error: true,
+                weles_review: None,
+                pending_approval: None,
+            });
+        }
+
+        let continuation = self
+            .critique_approval_continuations
+            .lock()
+            .await
+            .remove(approval_id)
+            .ok_or_else(|| anyhow::anyhow!("unknown critique approval continuation: {approval_id}"))?;
+
+        Ok(execute_tool(
+            &continuation.tool_call,
+            self,
+            &continuation.thread_id,
+            None,
+            session_manager,
+            None,
+            event_tx,
+            agent_data_dir,
+            http_client,
+            None,
+        )
+        .await)
     }
 
     pub(crate) async fn build_operator_model_prompt_summary(&self) -> Option<String> {

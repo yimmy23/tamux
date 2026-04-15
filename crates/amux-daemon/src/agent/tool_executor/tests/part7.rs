@@ -4940,6 +4940,97 @@ fn apply_critique_modifications_strips_explicit_messaging_targets_and_broadcasts
 }
 
 #[tokio::test]
+async fn approving_critique_confirmation_resumes_switch_model_without_retriggering_critique() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-critique-resume".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let first_result = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance = crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                "thread-switch-model-critique-resume",
+                None,
+                &manager,
+                None,
+                &event_tx,
+                root.path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(!first_result.is_error, "first pass should pause for approval, not hard fail");
+    let pending = first_result
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+
+    let resumed = engine
+        .resume_critique_approval_continuation(
+            &pending.approval_id,
+            amux_protocol::ApprovalDecision::ApproveOnce,
+            &manager,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+        )
+        .await
+        .expect("approved critique continuation should resume");
+
+    assert!(!resumed.is_error, "resumed execution should succeed: {}", resumed.content);
+    assert!(resumed.pending_approval.is_none(), "resume should not re-trigger critique approval");
+    let review = resumed
+        .weles_review
+        .expect("resumed critique execution should expose governance metadata");
+    assert!(review.weles_reviewed);
+    assert_eq!(review.verdict, crate::agent::types::WelesVerdict::Allow);
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason == "operator approved critique confirmation replay"));
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4");
+}
+
+#[tokio::test]
 async fn critique_confirmation_marker_returns_pending_approval_for_plugin_api_call() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
