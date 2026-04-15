@@ -16,8 +16,9 @@ mod helpers;
 mod legacy;
 mod postprocess;
 use helpers::{
-    check_quiet_window, check_type_to_action_type, heartbeat_persistence_status,
-    is_custom_item_due, parse_digest_items, should_broadcast, should_run_check,
+    check_quiet_window, check_type_to_action_type, format_anticipatory_items_for_heartbeat,
+    heartbeat_persistence_status, is_custom_item_due, parse_digest_items, should_broadcast,
+    should_run_check,
 };
 #[cfg(test)]
 pub(crate) use helpers::{compute_check_priority, enabled_checks};
@@ -212,31 +213,7 @@ impl AgentEngine {
         let anticipatory_summary = if anticipatory_items.is_empty() {
             String::new()
         } else {
-            anticipatory_items
-                .iter()
-                .map(|item| {
-                    let priority_hint = if item.kind == "hydration" {
-                        "LOW-PRIORITY INFORMATIONAL"
-                    } else {
-                        "ACTIONABLE"
-                    };
-                    let bullets_text = if !item.bullets.is_empty() {
-                        format!("\n    Bullets: {}", item.bullets.join(", "))
-                    } else {
-                        String::new()
-                    };
-                    format!(
-                        "- [{}] ({}) {} (confidence: {:.2}): {}{}",
-                        item.kind,
-                        priority_hint,
-                        item.title,
-                        item.confidence,
-                        item.summary,
-                        bullets_text
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
+            format_anticipatory_items_for_heartbeat(&anticipatory_items)
         };
 
         let anticipatory_section = if anticipatory_summary.is_empty() {

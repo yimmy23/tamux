@@ -100,6 +100,31 @@ pub(super) fn parse_digest_items(response: &str) -> Vec<HeartbeatDigestItem> {
         .collect()
 }
 
+pub(super) fn format_anticipatory_items_for_heartbeat(items: &[AnticipatoryItem]) -> String {
+    items
+        .iter()
+        .map(|item| {
+            let priority_hint = if item.kind == "hydration" {
+                "LOW-PRIORITY INFORMATIONAL"
+            } else if item.kind == "system_outcome_foresight" {
+                "OPERATOR-VISIBLE FORESIGHT"
+            } else {
+                "ACTIONABLE"
+            };
+            let bullets_text = if !item.bullets.is_empty() {
+                format!("\n    Bullets: {}", item.bullets.join(", "))
+            } else {
+                String::new()
+            };
+            format!(
+                "- [{}] ({}) {} (confidence: {:.2}): {}{}",
+                item.kind, priority_hint, item.title, item.confidence, item.summary, bullets_text
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub(super) fn check_type_to_action_type(check_type: &HeartbeatCheckType) -> &'static str {
     match check_type {
         HeartbeatCheckType::StaleTodos => "stale_todo",

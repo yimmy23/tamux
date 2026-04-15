@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::*;
 use tempfile::tempdir;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 // ── check_quiet_window pure function tests ─────────────────────────
 
@@ -179,7 +179,7 @@ fn custom_item_due_when_never_run() {
 fn custom_item_due_when_interval_elapsed() {
     let now = 100_000_000;
     let last = now - (16 * 60 * 1000); // 16 minutes ago
-                                       // item_interval=15min → 15*60*1000=900_000 < 960_000 elapsed → due
+    // item_interval=15min → 15*60*1000=900_000 < 960_000 elapsed → due
     assert!(is_custom_item_due(now, Some(last), 15, 30));
 }
 
@@ -187,7 +187,7 @@ fn custom_item_due_when_interval_elapsed() {
 fn custom_item_not_due_when_interval_not_elapsed() {
     let now = 100_000_000;
     let last = now - (10 * 60 * 1000); // 10 minutes ago
-                                       // item_interval=15min → not enough time elapsed → not due
+    // item_interval=15min → not enough time elapsed → not due
     assert!(!is_custom_item_due(now, Some(last), 15, 30));
 }
 
@@ -195,7 +195,7 @@ fn custom_item_not_due_when_interval_not_elapsed() {
 fn custom_item_uses_global_interval_when_item_interval_zero() {
     let now = 100_000_000;
     let last = now - (31 * 60 * 1000); // 31 minutes ago
-                                       // item_interval=0, global=30min → 30*60*1000=1_800_000 < 1_860_000 elapsed → due
+    // item_interval=0, global=30min → 30*60*1000=1_800_000 < 1_860_000 elapsed → due
     assert!(is_custom_item_due(now, Some(last), 0, 30));
 }
 
@@ -203,7 +203,7 @@ fn custom_item_uses_global_interval_when_item_interval_zero() {
 fn custom_item_not_due_with_global_interval() {
     let now = 100_000_000;
     let last = now - (20 * 60 * 1000); // 20 minutes ago
-                                       // item_interval=0, global=30min → not enough time elapsed → not due
+    // item_interval=0, global=30min → not enough time elapsed → not due
     assert!(!is_custom_item_due(now, Some(last), 0, 30));
 }
 
@@ -287,6 +287,54 @@ fn parse_digest_items_handles_camelcase_types() {
     let items = parse_digest_items(response);
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].check_type, HeartbeatCheckType::StuckGoalRuns);
+}
+
+#[test]
+fn format_anticipatory_items_highlights_system_outcome_foresight_for_operator() {
+    let output = super::helpers::format_anticipatory_items_for_heartbeat(&[
+        AnticipatoryItem {
+            id: "system_outcome_foresight_thread-1".to_string(),
+            kind: "system_outcome_foresight".to_string(),
+            title: "System Outcome Foresight".to_string(),
+            summary: "Predicted stale context: hydration-needed risk is elevated".to_string(),
+            bullets: vec![
+                "prediction_type=stale_context".to_string(),
+                "hydration age=16m exceeded session rhythm window=10m".to_string(),
+                "semantic alignment degraded across recent thread messages".to_string(),
+            ],
+            confidence: 0.76,
+            goal_run_id: None,
+            thread_id: Some("thread-1".to_string()),
+            preferred_client_surface: Some("conversation".to_string()),
+            preferred_attention_surface: Some("conversation:chat".to_string()),
+            created_at: 1,
+            updated_at: 1,
+        },
+        AnticipatoryItem {
+            id: "system_outcome_foresight_thread-2".to_string(),
+            kind: "system_outcome_foresight".to_string(),
+            title: "System Outcome Foresight".to_string(),
+            summary: "Predicted build/test/risk: build/test failure risk is elevated".to_string(),
+            bullets: vec![
+                "prediction_type=build_test_risk".to_string(),
+                "dirty repo state: modified=2 staged=0 untracked=0".to_string(),
+            ],
+            confidence: 0.78,
+            goal_run_id: None,
+            thread_id: Some("thread-2".to_string()),
+            preferred_client_surface: Some("conversation".to_string()),
+            preferred_attention_surface: Some("conversation:chat".to_string()),
+            created_at: 2,
+            updated_at: 2,
+        },
+    ]);
+
+    assert!(output.contains("system_outcome_foresight"));
+    assert!(output.contains("OPERATOR-VISIBLE FORESIGHT"));
+    assert!(output.contains("stale context"));
+    assert!(output.contains("build/test failure risk"));
+    assert!(output.contains("prediction_type=stale_context"));
+    assert!(output.contains("prediction_type=build_test_risk"));
 }
 
 // ── is_peak_activity_hour tests (BEAT-06/D-01) ──────────────────────
@@ -391,10 +439,12 @@ async fn heartbeat_weles_health_marks_review_unavailable_as_degraded() {
 
     assert_eq!(status.state, WelesHealthState::Degraded);
     assert_eq!(status.checked_at, 1_234);
-    assert!(status
-        .reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains("review unavailable")));
+    assert!(
+        status
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("review unavailable"))
+    );
 
     let event = timeout(Duration::from_millis(250), events.recv())
         .await
@@ -408,9 +458,11 @@ async fn heartbeat_weles_health_marks_review_unavailable_as_degraded() {
         } => {
             assert_eq!(state, WelesHealthState::Degraded);
             assert_eq!(checked_at, 1_234);
-            assert!(reason
-                .as_deref()
-                .is_some_and(|value| value.contains("review unavailable")));
+            assert!(
+                reason
+                    .as_deref()
+                    .is_some_and(|value| value.contains("review unavailable"))
+            );
         }
         other => panic!("expected weles health update, got {other:?}"),
     }
