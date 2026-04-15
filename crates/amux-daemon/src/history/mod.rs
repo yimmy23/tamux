@@ -558,12 +558,21 @@ pub struct GenePoolEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillVariantFitnessSnapshot {
+    pub recorded_at: u64,
+    pub fitness_score: f64,
+    pub use_count: u32,
+    pub success_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SkillVariantInspection {
     pub record: SkillVariantRecord,
     pub lifecycle_summary: String,
     pub selection_summary: String,
     pub selected_for_context: bool,
     pub fitness_score: f64,
+    pub fitness_snapshot: SkillVariantFitnessSnapshot,
     pub fitness_history: Vec<SkillVariantFitnessHistoryRow>,
 }
 
