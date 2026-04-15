@@ -175,6 +175,7 @@ impl AgentEngine {
                     goal_run_id: task.goal_run_id.clone(),
                     mission: task.description.clone(),
                     agents: Vec::new(),
+                    call_metadata: None,
                     bids: Vec::new(),
                     role_assignment: None,
                     contributions: Vec::new(),
@@ -280,6 +281,7 @@ impl AgentEngine {
                 goal_run_id: parent.goal_run_id.clone(),
                 mission: parent.description.clone(),
                 agents: Vec::new(),
+                call_metadata: None,
                 bids: Vec::new(),
                 role_assignment: None,
                 contributions: Vec::new(),
@@ -325,6 +327,11 @@ impl AgentEngine {
         let Some(session) = collaboration.get_mut(parent_task_id) else {
             anyhow::bail!("no collaboration session found for parent task {parent_task_id}");
         };
+        session.call_metadata = Some(BidCallMetadata {
+            caller_task_id: parent_task_id.to_string(),
+            eligible_agents: eligible_agents.to_vec(),
+            called_at: now_millis(),
+        });
         session.bids.retain(|bid| {
             eligible_agents
                 .iter()

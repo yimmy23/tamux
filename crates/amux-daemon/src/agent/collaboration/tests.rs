@@ -53,6 +53,7 @@ fn detect_disagreements_preserves_existing_votes() {
         goal_run_id: None,
         mission: "test".to_string(),
         agents: Vec::new(),
+        call_metadata: None,
         bids: Vec::new(),
         role_assignment: None,
         contributions: vec![
@@ -134,6 +135,7 @@ async fn vote_on_tight_margin_notifies_operator_escalation() {
                     status: "running".to_string(),
                 },
             ],
+            call_metadata: None,
             bids: Vec::new(),
             role_assignment: None,
             contributions: Vec::new(),
@@ -204,6 +206,7 @@ async fn collaboration_sessions_json_reads_persisted_session_when_memory_is_empt
             confidence: 0.8,
             status: "completed".to_string(),
         }],
+        call_metadata: None,
         bids: Vec::new(),
         role_assignment: None,
         contributions: vec![Contribution {
@@ -572,6 +575,107 @@ async fn dispatch_via_bid_protocol_runs_bid_flow_end_to_end_through_collaboratio
 }
 
 #[tokio::test]
+async fn dispatch_via_bid_protocol_persists_call_metadata_in_collaboration_session_report() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Choose the best owner for the next workstream".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_a = engine
+        .enqueue_task(
+            "Research child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_b = engine
+        .enqueue_task(
+            "Review child".to_string(),
+            "Prepare a bid for review ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child_a)
+        .await;
+    engine
+        .register_subagent_collaboration(&parent.id, &child_b)
+        .await;
+
+    engine
+        .dispatch_via_bid_protocol(
+            &parent.id,
+            &[
+                crate::agent::collaboration::DispatchBidRequest {
+                    task_id: child_b.id.clone(),
+                    confidence: 0.94,
+                    availability: crate::agent::collaboration::BidAvailability::Busy,
+                },
+                crate::agent::collaboration::DispatchBidRequest {
+                    task_id: child_a.id.clone(),
+                    confidence: 0.73,
+                    availability: crate::agent::collaboration::BidAvailability::Available,
+                },
+            ],
+        )
+        .await
+        .expect("dispatch_via_bid_protocol should succeed");
+
+    let persisted = engine
+        .collaboration_sessions_json(Some(&parent.id))
+        .await
+        .expect("persisted collaboration session should be readable");
+
+    assert_eq!(persisted["call_metadata"]["caller_task_id"], parent.id);
+    assert_eq!(
+        persisted["call_metadata"]["eligible_agents"]
+            .as_array()
+            .map(|items| items.len()),
+        Some(2)
+    );
+    assert!(persisted["call_metadata"]["called_at"].as_u64().is_some());
+    assert!(persisted["bids"].as_array().is_some_and(|bids| bids.iter().all(|bid| {
+        bid["created_at"].as_u64().is_some()
+    })));
+}
+
+#[tokio::test]
 async fn collaboration_disagreement_auto_escalates_into_seeded_debate_session() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -604,6 +708,7 @@ async fn collaboration_disagreement_auto_escalates_into_seeded_debate_session() 
                     status: "running".to_string(),
                 },
             ],
+            call_metadata: None,
             bids: Vec::new(),
             role_assignment: None,
             contributions: Vec::new(),

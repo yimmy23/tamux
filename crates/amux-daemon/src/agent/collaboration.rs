@@ -43,6 +43,13 @@ pub(in crate::agent) struct DispatchBidRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub(in crate::agent) struct BidCallMetadata {
+    pub caller_task_id: String,
+    pub eligible_agents: Vec<String>,
+    pub called_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(in crate::agent) struct CollaborationSession {
     pub id: String,
     pub parent_task_id: String,
@@ -50,6 +57,8 @@ pub(in crate::agent) struct CollaborationSession {
     pub goal_run_id: Option<String>,
     pub mission: String,
     pub agents: Vec<CollaborativeAgent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_metadata: Option<BidCallMetadata>,
     #[serde(default)]
     pub bids: Vec<ConsensusBid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
