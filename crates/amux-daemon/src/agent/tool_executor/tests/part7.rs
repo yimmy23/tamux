@@ -5404,6 +5404,120 @@ async fn critique_modifications_use_typed_directive_for_spawn_subagent_schedule_
 
 
 #[test]
+fn apply_critique_modifications_narrows_sensitive_apply_patch_paths() {
+    let args = serde_json::json!({
+        "input": "*** Begin Patch\n*** Update File: /tmp/demo/.env\n@@\n-OLD=1\n+OLD=2\n*** End Patch\n"
+    });
+
+    let (adjusted, changes) = super::apply_critique_modifications(
+        "apply_patch",
+        &args,
+        Some("proceed_with_modifications"),
+        &["file mutation targets a sensitive path".to_string()],
+        &[],
+        &[],
+        None,
+    );
+
+    let rewritten = adjusted["input"]
+        .as_str()
+        .expect("apply_patch input should remain a string after critique rewrite");
+    assert!(rewritten.contains("*** Update File: .env"));
+    assert!(!rewritten.contains("*** Update File: /tmp/demo/.env"));
+    assert!(changes.iter().any(|item| item == "file:narrow_path:input"));
+}
+
+#[tokio::test]
+async fn critique_modifications_narrow_sensitive_write_file_path_end_to_end() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.critique.guard_suspicious_tool_calls_only = false;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    config.extra.insert(
+        "test_force_critique_modifications".to_string(),
+        serde_json::json!([
+            "Narrow the sensitive file path to a minimal basename before writing."
+        ]),
+    );
+
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    {
+        let mut model = engine.operator_model.write().await;
+        model.risk_fingerprint.risk_tolerance =
+            crate::agent::operator_model::RiskTolerance::Aggressive;
+    }
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-critique-write-file-sensitive-path".to_string(),
+        ToolFunction {
+            name: "write_file".to_string(),
+            arguments: serde_json::json!({
+                "path": "/tmp/demo/.env",
+                "content": "TOKEN=secret\n"
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-critique-write-file-sensitive-path",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "write_file should succeed after critique path narrowing: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains(".env"),
+        "rewritten execution should report the narrowed basename path: {}",
+        result.content
+    );
+    assert!(
+        !result.content.contains("/tmp/demo/.env"),
+        "result should reflect the critique-rewritten path rather than the original sensitive path: {}",
+        result.content
+    );
+
+    let review = result
+        .weles_review
+        .expect("successful write should preserve critique review metadata");
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason.starts_with("critique_preflight:")));
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason == "critique_applied:file:narrow_path:path"));
+    assert!(
+        !review
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("file mutation targets a sensitive path")),
+        "governance should evaluate transformed args without the original sensitive-path suspicion: {:?}",
+        review.reasons
+    );
+}
+
+#[test]
 fn apply_critique_modifications_uses_typed_directives_for_shell_hardening() {
     let args = serde_json::json!({
         "command": "echo safe",

@@ -500,6 +500,47 @@ fn apply_critique_modifications(
                 }
             }
         }
+        "apply_patch" => {
+            let sensitive_path = has_directive(
+                critique_directives,
+                crate::agent::critique::types::CritiqueDirective::NarrowSensitiveFilePath,
+            ) || critique_reasons
+                .iter()
+                .any(|reason| reason.contains("sensitive path"));
+            if sensitive_path {
+                for key in ["input", "patch"] {
+                    let Some(current) = map.get(key).and_then(|value| value.as_str()) else {
+                        continue;
+                    };
+                    let rewritten = current
+                        .lines()
+                        .map(|line| {
+                            for prefix in [
+                                "*** Update File: ",
+                                "*** Add File: ",
+                                "*** Delete File: ",
+                            ] {
+                                if let Some(path) = line.strip_prefix(prefix) {
+                                    let narrowed = std::path::Path::new(path.trim())
+                                        .file_name()
+                                        .map(|value| value.to_string_lossy().to_string())
+                                        .filter(|value| !value.is_empty())
+                                        .unwrap_or_else(|| path.trim().to_string());
+                                    return format!("{prefix}{narrowed}");
+                                }
+                            }
+                            line.to_string()
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if rewritten != current {
+                        map.insert(key.to_string(), serde_json::Value::String(rewritten));
+                        adjustments.push(format!("file:narrow_path:{key}"));
+                    }
+                    break;
+                }
+            }
+        }
         "enqueue_task" => {
             let has_explicit_schedule = map.get("scheduled_at").is_some()
                 || map.get("schedule_at").is_some()
