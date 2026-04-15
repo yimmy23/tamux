@@ -223,6 +223,92 @@ async fn init_schema_adds_implicit_feedback_tables() -> Result<()> {
         Some("idx_intent_predictions_session_ts")
     );
 
+    let foresight_status = store
+        .conn
+        .call(|conn| {
+            let has_prediction_type =
+                table_has_column(conn, "system_outcome_predictions", "prediction_type")?;
+            let has_predicted_outcome =
+                table_has_column(conn, "system_outcome_predictions", "predicted_outcome")?;
+            let has_actual_outcome =
+                table_has_column(conn, "system_outcome_predictions", "actual_outcome")?;
+            let has_was_correct =
+                table_has_column(conn, "system_outcome_predictions", "was_correct")?;
+            let predictions_index: Option<String> = conn
+                .query_row(
+                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_system_outcome_predictions_session_ts'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            Ok((
+                has_prediction_type,
+                has_predicted_outcome,
+                has_actual_outcome,
+                has_was_correct,
+                predictions_index,
+            ))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(foresight_status.0);
+    assert!(foresight_status.1);
+    assert!(foresight_status.2);
+    assert!(foresight_status.3);
+    assert_eq!(
+        foresight_status.4.as_deref(),
+        Some("idx_system_outcome_predictions_session_ts")
+    );
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn system_outcome_prediction_rows_round_trip_and_resolve() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_system_outcome_prediction(&SystemOutcomePredictionRow {
+            id: "foresight-1".to_string(),
+            session_id: "thread-foresight".to_string(),
+            prediction_type: "build_test_risk".to_string(),
+            predicted_outcome: "build/test failure".to_string(),
+            confidence: 0.82,
+            actual_outcome: None,
+            was_correct: None,
+            created_at_ms: 1_717_300_101,
+        })
+        .await?;
+
+    let before = store
+        .list_system_outcome_predictions("thread-foresight", 10)
+        .await?;
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0].prediction_type, "build_test_risk");
+    assert_eq!(before[0].predicted_outcome, "build/test failure");
+    assert!((before[0].confidence - 0.82).abs() < f64::EPSILON);
+    assert_eq!(before[0].was_correct, None);
+
+    store
+        .resolve_latest_system_outcome_prediction(
+            "thread-foresight",
+            "build/test failure",
+            Some("build/test failure"),
+        )
+        .await?;
+
+    let after = store
+        .list_system_outcome_predictions("thread-foresight", 10)
+        .await?;
+    assert_eq!(after.len(), 1);
+    assert_eq!(
+        after[0].actual_outcome.as_deref(),
+        Some("build/test failure")
+    );
+    assert_eq!(after[0].was_correct, Some(true));
+
     std::fs::remove_dir_all(root)?;
     Ok(())
 }
@@ -308,7 +394,10 @@ async fn intent_prediction_rows_round_trip_and_resolve() -> Result<()> {
 
     let after = store.list_intent_predictions("thread-intent", 10).await?;
     assert_eq!(after.len(), 1);
-    assert_eq!(after[0].actual_action.as_deref(), Some("review pending approval"));
+    assert_eq!(
+        after[0].actual_action.as_deref(),
+        Some("review pending approval")
+    );
     assert_eq!(after[0].was_correct, Some(true));
 
     std::fs::remove_dir_all(root)?;

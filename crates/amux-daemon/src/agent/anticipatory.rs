@@ -387,6 +387,11 @@ impl AgentEngine {
             .filter(|item| item.intent_prediction.is_some())
             .cloned()
             .collect::<Vec<_>>();
+        let outcome_items = next_items
+            .iter()
+            .filter(|item| item.kind == "system_outcome_foresight")
+            .cloned()
+            .collect::<Vec<_>>();
 
         let surface_cooldown_ms = settings.surface_cooldown_seconds.saturating_mul(1000);
         let cooling_down = runtime
@@ -408,6 +413,10 @@ impl AgentEngine {
 
         for item in &predicted_items {
             self.persist_intent_prediction_if_present(item).await;
+        }
+        for item in &outcome_items {
+            self.persist_system_outcome_prediction_if_present(item)
+                .await;
         }
 
         self.emit_anticipatory_update(next_items);

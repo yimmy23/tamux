@@ -241,6 +241,18 @@ pub struct IntentPredictionRow {
 }
 
 #[derive(Debug, Clone)]
+pub struct SystemOutcomePredictionRow {
+    pub id: String,
+    pub session_id: String,
+    pub prediction_type: String,
+    pub predicted_outcome: String,
+    pub confidence: f64,
+    pub actual_outcome: Option<String>,
+    pub was_correct: Option<bool>,
+    pub created_at_ms: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct OperatorProfileSessionRow {
     pub session_id: String,
     pub kind: String,

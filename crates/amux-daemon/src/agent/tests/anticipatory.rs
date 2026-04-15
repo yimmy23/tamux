@@ -514,7 +514,11 @@ async fn anticipatory_tick_surfaces_intent_prediction_for_pending_approval() {
         .as_ref()
         .expect("intent prediction payload should be present");
     assert_eq!(payload.primary_action, "review pending approval");
-    assert_eq!(payload.ranked_actions.len(), 3, "intent prediction should surface ranked next actions");
+    assert_eq!(
+        payload.ranked_actions.len(),
+        3,
+        "intent prediction should surface ranked next actions"
+    );
     assert_eq!(payload.ranked_actions[0].rank, 1);
     assert_eq!(payload.ranked_actions[0].action, "review pending approval");
     assert!(payload.ranked_actions[0].confidence >= 0.86);
@@ -566,10 +570,20 @@ async fn anticipatory_tick_surfaces_intent_prediction_for_repo_change_context() 
         .intent_prediction
         .as_ref()
         .expect("intent prediction payload should be present");
-    assert_eq!(payload.primary_action, "inspect or test recent repo changes");
-    assert_eq!(payload.ranked_actions.len(), 3, "intent prediction should surface ranked next actions");
+    assert_eq!(
+        payload.primary_action,
+        "inspect or test recent repo changes"
+    );
+    assert_eq!(
+        payload.ranked_actions.len(),
+        3,
+        "intent prediction should surface ranked next actions"
+    );
     assert_eq!(payload.ranked_actions[0].rank, 1);
-    assert_eq!(payload.ranked_actions[0].action, "inspect or test recent repo changes");
+    assert_eq!(
+        payload.ranked_actions[0].action,
+        "inspect or test recent repo changes"
+    );
     assert_eq!(item.thread_id.as_deref(), Some("thread-repo-intent"));
     assert!(item.summary.contains("inspect or test recent repo changes"));
     assert!(item
@@ -852,7 +866,11 @@ async fn intent_prediction_persists_and_resolves_when_operator_action_matches() 
     assert_eq!(before[0].was_correct, None);
 
     engine
-        .record_operator_message("thread-intent-persist", "please review the approval first", false)
+        .record_operator_message(
+            "thread-intent-persist",
+            "please review the approval first",
+            false,
+        )
         .await
         .expect("record operator message");
 
@@ -862,8 +880,98 @@ async fn intent_prediction_persists_and_resolves_when_operator_action_matches() 
         .await
         .expect("list persisted intent predictions after resolution");
     assert_eq!(after.len(), 1);
-    assert_eq!(after[0].actual_action.as_deref(), Some("review pending approval"));
+    assert_eq!(
+        after[0].actual_action.as_deref(),
+        Some("review pending approval")
+    );
     assert_eq!(after[0].was_correct, Some(true));
+}
+
+#[tokio::test]
+async fn system_outcome_foresight_persists_and_resolves_when_health_feedback_arrives() {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-foresight-persist");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn broken() {}\n").unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-foresight-persist"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-foresight-persist".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-foresight-persist".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+    engine
+        .history
+        .insert_health_log(
+            "health-foresight-persist-degraded",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis(),
+        )
+        .await
+        .expect("save degraded health log");
+
+    engine.run_anticipatory_tick().await;
+
+    let before = engine
+        .history
+        .list_system_outcome_predictions("thread-foresight-persist", 10)
+        .await
+        .expect("list persisted system outcome predictions before resolution");
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0].prediction_type, "build_test_risk");
+    assert_eq!(before[0].predicted_outcome, "build/test failure");
+    assert!(before[0].confidence >= 0.7);
+    assert_eq!(before[0].was_correct, None);
+
+    engine
+        .resolve_system_outcome_prediction_feedback("thread-foresight-persist", "healthy")
+        .await;
+
+    let after = engine
+        .history
+        .list_system_outcome_predictions("thread-foresight-persist", 10)
+        .await
+        .expect("list persisted system outcome predictions after resolution");
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].actual_outcome.as_deref(), Some("healthy"));
+    assert_eq!(after[0].was_correct, Some(false));
 }
 
 #[tokio::test]

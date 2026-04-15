@@ -361,6 +361,18 @@ pub(super) fn extended_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_intent_predictions_session_ts ON intent_predictions(session_id, created_at_ms DESC);
 
+            CREATE TABLE IF NOT EXISTS system_outcome_predictions (
+                id                TEXT PRIMARY KEY,
+                session_id        TEXT NOT NULL,
+                prediction_type   TEXT NOT NULL,
+                predicted_outcome TEXT NOT NULL,
+                confidence        REAL NOT NULL,
+                actual_outcome    TEXT,
+                was_correct       INTEGER,
+                created_at_ms     INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_system_outcome_predictions_session_ts ON system_outcome_predictions(session_id, created_at_ms DESC);
+
             CREATE TABLE IF NOT EXISTS thread_protocol_candidates (
                 thread_id   TEXT PRIMARY KEY,
                 state_json  TEXT NOT NULL,

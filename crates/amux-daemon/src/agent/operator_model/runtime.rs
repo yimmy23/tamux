@@ -79,6 +79,58 @@ impl AgentEngine {
             .await;
     }
 
+    pub(crate) async fn persist_system_outcome_prediction_if_present(
+        &self,
+        item: &AnticipatoryItem,
+    ) {
+        if item.kind != "system_outcome_foresight" {
+            return;
+        }
+        let session_id = item
+            .thread_id
+            .clone()
+            .unwrap_or_else(|| "global".to_string());
+        let prediction_type = item
+            .bullets
+            .iter()
+            .find_map(|bullet| bullet.strip_prefix("prediction_type="))
+            .unwrap_or("unknown")
+            .to_string();
+        let predicted_outcome = if prediction_type == "stale_context" {
+            "stale context".to_string()
+        } else {
+            "build/test failure".to_string()
+        };
+        let _ = self
+            .history
+            .insert_system_outcome_prediction(&crate::history::SystemOutcomePredictionRow {
+                id: format!("system_outcome_prediction_{}", uuid::Uuid::new_v4()),
+                session_id,
+                prediction_type,
+                predicted_outcome,
+                confidence: item.confidence,
+                actual_outcome: None,
+                was_correct: None,
+                created_at_ms: item.created_at,
+            })
+            .await;
+    }
+
+    pub(crate) async fn resolve_system_outcome_prediction_feedback(
+        &self,
+        thread_id: &str,
+        observed_outcome: &str,
+    ) {
+        let matched = match observed_outcome.trim() {
+            "build/test failure" | "stale context" => Some(observed_outcome),
+            _ => None,
+        };
+        let _ = self
+            .history
+            .resolve_latest_system_outcome_prediction(thread_id, observed_outcome, matched)
+            .await;
+    }
+
     fn classify_observed_operator_action(content: &str) -> &'static str {
         let lowered = content.trim().to_ascii_lowercase();
         if lowered.contains("approval") {
