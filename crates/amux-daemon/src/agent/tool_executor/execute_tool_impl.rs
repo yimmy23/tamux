@@ -396,6 +396,16 @@ async fn maybe_emit_openapi_synthesis_proposal_notice(
         });
 
     let dedupe_hint = format!("openapi::{url}");
+    if find_equivalent_generated_openapi_tool(
+        &agent.data_dir,
+        url,
+        selected_operation_id.as_deref(),
+    )
+    .unwrap_or(None)
+    .is_some()
+    {
+        return;
+    }
     let synthesize_args = serde_json::json!({
         "kind": "openapi",
         "target": url,
