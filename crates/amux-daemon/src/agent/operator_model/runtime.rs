@@ -844,6 +844,22 @@ fn operator_adaptation_lines(model: &OperatorModel) -> Vec<String> {
     };
     lines.push(delivery_mode);
 
+    if model.risk_fingerprint.approval_requests > 0 {
+        let avg_response_time_secs = model.risk_fingerprint.avg_response_time_secs;
+        match model.risk_fingerprint.risk_tolerance {
+            RiskTolerance::Aggressive if avg_response_time_secs <= 8.0 => lines.push(
+                "- Adaptive approval rule: approvals resolve quickly and usually favor proceeding, so stay proactive within hard safety limits and avoid redundant confirmation loops for low-risk progress.".to_string(),
+            ),
+            RiskTolerance::Conservative => lines.push(
+                "- Adaptive approval rule: approval behavior is conservative, so ask explicitly before ambiguous or risky actions, front-load blast radius, and avoid stacking multiple pending approvals.".to_string(),
+            ),
+            _ if avg_response_time_secs >= 30.0 => lines.push(
+                "- Adaptive approval rule: approval responses are deliberate, so package rationale and blast radius up front when approval is needed and keep only one pending approval live at a time.".to_string(),
+            ),
+            _ => {}
+        }
+    }
+
     if model.implicit_feedback.tool_hesitation_count > 0 {
         lines.push(
             "- Adaptive execution rule: after a failed tool path, prefer the later successful fallback earlier and justify the switch explicitly instead of repeating the same sequence.".to_string(),

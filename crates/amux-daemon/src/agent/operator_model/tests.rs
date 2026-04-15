@@ -490,6 +490,66 @@ async fn strong_operator_satisfaction_adds_proactive_guidance_without_friction()
 }
 
 #[tokio::test]
+async fn fast_aggressive_approvals_add_proactive_approval_guidance() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.operator_model.enabled = true;
+    config.operator_model.allow_message_statistics = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 1;
+        model.risk_fingerprint.approval_requests = 4;
+        model.risk_fingerprint.approvals = 4;
+        model.risk_fingerprint.denials = 0;
+        model.risk_fingerprint.avg_response_time_secs = 3.0;
+        model.risk_fingerprint.risk_tolerance = RiskTolerance::Aggressive;
+        refresh_operator_satisfaction(&mut model);
+    }
+
+    let summary = engine
+        .build_operator_model_prompt_summary()
+        .await
+        .expect("operator model prompt summary");
+    assert!(summary.contains("Risk tolerance: aggressive (4 approvals across 4 approval requests, avg response 3.0s)"));
+    assert!(summary.contains("Adaptive approval rule: approvals resolve quickly and usually favor proceeding"));
+    assert!(summary.contains("avoid redundant confirmation loops for low-risk progress"));
+}
+
+#[tokio::test]
+async fn slow_approval_latency_adds_deliberate_approval_guidance() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.operator_model.enabled = true;
+    config.operator_model.allow_message_statistics = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 1;
+        model.risk_fingerprint.approval_requests = 4;
+        model.risk_fingerprint.approvals = 2;
+        model.risk_fingerprint.denials = 2;
+        model.risk_fingerprint.avg_response_time_secs = 45.0;
+        model.risk_fingerprint.risk_tolerance = RiskTolerance::Moderate;
+        refresh_operator_satisfaction(&mut model);
+    }
+
+    let summary = engine
+        .build_operator_model_prompt_summary()
+        .await
+        .expect("operator model prompt summary");
+    assert!(summary.contains("Risk tolerance: moderate (2 approvals across 4 approval requests, avg response 45.0s)"));
+    assert!(summary.contains("Adaptive approval rule: approval responses are deliberate"));
+    assert!(summary.contains("keep only one pending approval live at a time"));
+}
+
+#[tokio::test]
 async fn strained_operator_satisfaction_adds_recovery_guidance() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
