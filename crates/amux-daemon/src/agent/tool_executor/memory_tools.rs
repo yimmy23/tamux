@@ -858,6 +858,7 @@ async fn execute_memory_read_tool(
                 .take(request.limit_per_layer)
                 .cloned()
                 .collect::<Vec<_>>();
+            let graph_lookup = structural_memory.graph_lookup(&[], request.limit_per_layer);
             let graph_neighbors = load_thread_memory_graph_neighbors(
                 agent,
                 &structural_memory,
@@ -875,6 +876,15 @@ async fn execute_memory_read_tool(
                         .map(|entry| serde_json::json!({
                             "node_id": entry.node_id,
                             "summary": entry.summary,
+                        }))
+                        .collect::<Vec<_>>(),
+                    "graph_lookup": graph_lookup
+                        .into_iter()
+                        .map(|neighbor| serde_json::json!({
+                            "node_id": neighbor.node_id,
+                            "relation_kind": neighbor.relation_kind,
+                            "direction": neighbor.direction,
+                            "summary": neighbor.summary,
                         }))
                         .collect::<Vec<_>>(),
                     "graph_neighbors": graph_neighbors

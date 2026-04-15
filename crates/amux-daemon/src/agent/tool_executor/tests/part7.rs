@@ -365,6 +365,114 @@ async fn read_memory_skips_fresh_injected_base_markdown_by_default() {
 }
 
 #[tokio::test]
+async fn read_memory_includes_structural_graph_lookup_results() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-read-memory-structural-graph";
+    let agent_data_dir = root.path().join("agent");
+
+    engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Structural graph lookup thread".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread row");
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Structural graph lookup thread",
+            false,
+            1,
+            1,
+            vec![crate::agent::types::AgentMessage::user("show structural graph", 1)],
+        ),
+    );
+
+    engine
+        .thread_structural_memories
+        .write()
+        .await
+        .insert(
+            thread_id.to_string(),
+            crate::agent::context::structural_memory::ThreadStructuralMemory {
+                workspace_seed_scan_complete: true,
+                language_hints: vec!["rust".to_string()],
+                workspace_seeds: vec![crate::agent::context::structural_memory::WorkspaceSeed {
+                    node_id: "node:file:Cargo.toml".to_string(),
+                    relative_path: "Cargo.toml".to_string(),
+                    kind: "cargo_manifest".to_string(),
+                }],
+                observed_files: vec![crate::agent::context::structural_memory::ObservedFileNode {
+                    node_id: "node:file:src/lib.rs".to_string(),
+                    relative_path: "src/lib.rs".to_string(),
+                }],
+                edges: vec![crate::agent::context::structural_memory::StructuralEdge {
+                    from: "node:file:src/lib.rs".to_string(),
+                    to: "node:package:cargo:demo".to_string(),
+                    kind: "file_in_package".to_string(),
+                }],
+            },
+        );
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-read-memory-structural-graph".to_string(),
+        ToolFunction {
+            name: "read_memory".to_string(),
+            arguments: serde_json::json!({
+                "include_thread_structural_memory": true,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "read_memory should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("read_memory should return JSON");
+    let graph_lookup = payload
+        .get("results")
+        .and_then(|value| value.get("thread_structural_memory"))
+        .and_then(|value| value.get("graph_lookup"))
+        .and_then(|value| value.as_array())
+        .expect("thread structural memory should expose graph_lookup");
+    assert!(!graph_lookup.is_empty(), "graph_lookup should not be empty");
+    assert!(graph_lookup.iter().any(|item| {
+        item.get("node_id").and_then(|value| value.as_str()) == Some("node:package:cargo:demo")
+            && item.get("relation_kind").and_then(|value| value.as_str())
+                == Some("file_in_package")
+    }));
+}
+
+#[tokio::test]
 async fn mcp_read_memory_uses_explicit_thread_id_for_injection_state() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
