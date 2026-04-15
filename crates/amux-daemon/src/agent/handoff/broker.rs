@@ -230,6 +230,21 @@ impl AgentEngine {
         let specialist_name = specialist.name.clone();
         let specialist_role = specialist.role.clone();
         let system_prompt_snippet = specialist.system_prompt_snippet.clone();
+        let routing_rationale = if fallback_used {
+            format!(
+                "routing fallback selected {} via {} routing because no candidate cleared the threshold (score {:.2})",
+                specialist_name,
+                routing_method.as_str(),
+                routing_score,
+            )
+        } else {
+            format!(
+                "routing selected {} via {} routing with score {:.2}",
+                specialist_name,
+                routing_method.as_str(),
+                routing_score,
+            )
+        };
 
         // Assemble context bundle
         let bundle = self
@@ -375,6 +390,7 @@ impl AgentEngine {
             routing_method,
             routing_score,
             fallback_used,
+            routing_rationale,
         })
     }
 

@@ -810,6 +810,39 @@ fn apply_patch_tool_uses_top_level_object_schema() {
     }
 
     #[tokio::test]
+    async fn route_to_specialist_surfaces_routing_rationale_in_dispatch_result() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.routing.enabled = true;
+        config.routing.method = crate::agent::types::RoutingMode::Probabilistic;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let response = execute_route_to_specialist(
+            &serde_json::json!({
+                "task_description": "Investigate the regression and summarize likely causes.",
+                "capability_tags": ["research", "analysis"],
+                "acceptance_criteria": "non_empty"
+            }),
+            &engine,
+            "thread-routing-rationale",
+            None,
+        )
+        .await
+        .expect("route_to_specialist should succeed");
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&response).expect("route_to_specialist payload should be valid JSON");
+        assert_eq!(payload.get("status").and_then(|v| v.as_str()), Some("dispatched"));
+        assert!(payload
+            .get("routing_rationale")
+            .and_then(|v| v.as_str())
+            .is_some_and(|text| {
+                text.contains("routing") || text.contains("fallback") || text.contains("score")
+            }));
+    }
+
+    #[tokio::test]
     async fn send_slack_message_emits_gateway_ipc_request() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;

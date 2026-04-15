@@ -200,6 +200,7 @@ pub struct HandoffResult {
     pub routing_method: RoutingMethod,
     pub routing_score: f64,
     pub fallback_used: bool,
+    pub routing_rationale: String,
 }
 
 // ---------------------------------------------------------------------------
