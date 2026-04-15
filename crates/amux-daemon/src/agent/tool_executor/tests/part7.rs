@@ -5581,6 +5581,30 @@ fn apply_critique_modifications_injects_missing_shell_security_level() {
 }
 
 #[test]
+fn apply_critique_modifications_renames_sensitive_shell_argument_key() {
+    let args = serde_json::json!({
+        "command": "echo safe",
+        "dangerous_flag": true
+    });
+
+    let (adjusted, changes) = super::apply_critique_modifications(
+        "bash_command",
+        &args,
+        Some("proceed_with_modifications"),
+        &[],
+        &["Rename dangerous_flag to safe_flag before execution.".to_string()],
+        &[],
+        None,
+    );
+
+    assert!(adjusted.get("dangerous_flag").is_none());
+    assert_eq!(adjusted["safe_flag"].as_bool(), Some(true));
+    assert!(changes
+        .iter()
+        .any(|item| item == "shell:rename_key:dangerous_flag->safe_flag"));
+}
+
+#[test]
 fn apply_critique_modifications_uses_typed_directives_for_shell_hardening() {
     let args = serde_json::json!({
         "command": "echo safe",

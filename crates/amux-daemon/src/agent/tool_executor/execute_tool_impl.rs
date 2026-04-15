@@ -411,6 +411,10 @@ fn apply_critique_modifications(
 
     match tool_name {
         "bash_command" | "run_terminal_command" | "execute_managed_command" => {
+            if let Some(value) = map.remove("dangerous_flag") {
+                map.insert("safe_flag".to_string(), value);
+                adjustments.push("shell:rename_key:dangerous_flag->safe_flag".to_string());
+            }
             if map
                 .get("allow_network")
                 .and_then(|value| value.as_bool())
