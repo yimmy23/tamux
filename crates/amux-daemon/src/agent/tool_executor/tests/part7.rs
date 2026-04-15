@@ -5383,6 +5383,33 @@ fn apply_critique_modifications_requires_confirmation_for_plugin_api_call() {
 }
 
 #[test]
+fn apply_critique_modifications_narrows_sensitive_file_paths_from_prose_only_and_drops_anchors() {
+    let args = serde_json::json!({
+        "path": "/tmp/demo/.env",
+        "cwd": "/tmp/demo",
+        "session": "session-123",
+        "content": "TOKEN=***REDACTED***"
+    });
+
+    let (adjusted, changes) = super::apply_critique_modifications(
+        "write_file",
+        &args,
+        Some("proceed_with_modifications"),
+        &[],
+        &["Narrow the sensitive file path to a minimal basename before writing.".to_string()],
+        &[],
+        None,
+    );
+
+    assert_eq!(adjusted["path"].as_str(), Some(".env"));
+    assert!(adjusted.get("cwd").is_none());
+    assert!(adjusted.get("session").is_none());
+    assert!(changes.iter().any(|item| item == "file:narrow_path:path"));
+    assert!(changes.iter().any(|item| item == "file:drop_cwd_anchor"));
+    assert!(changes.iter().any(|item| item == "file:drop_session_anchor"));
+}
+
+#[test]
 fn apply_critique_modifications_narrows_sensitive_file_paths() {
     let args = serde_json::json!({
         "path": "/tmp/demo/.env",
@@ -6091,6 +6118,92 @@ fn apply_critique_modifications_narrows_sensitive_apply_patch_paths() {
     assert!(rewritten.contains("*** Update File: .env"));
     assert!(!rewritten.contains("*** Update File: /tmp/demo/.env"));
     assert!(changes.iter().any(|item| item == "file:narrow_path:input"));
+}
+
+#[tokio::test]
+async fn critique_modifications_narrow_sensitive_write_file_path_from_prose_only_drops_cwd_anchor_end_to_end() {
+    let _cwd_lock = current_dir_test_lock().lock().expect("cwd lock");
+    let original_cwd = std::env::current_dir().expect("current dir");
+
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.critique.guard_suspicious_tool_calls_only = false;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    config.extra.insert(
+        "test_force_critique_modifications".to_string(),
+        serde_json::json!([
+            "Narrow the sensitive file path to a minimal basename before writing."
+        ]),
+    );
+
+    let workspace = root.path().join("workspace");
+    std::fs::create_dir_all(&workspace).expect("create workspace");
+    std::env::set_current_dir(&workspace).expect("set workspace cwd");
+
+    let sensitive_dir = root.path().join("sensitive-dir");
+    std::fs::create_dir_all(&sensitive_dir).expect("create sensitive dir");
+
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    {
+        let mut model = engine.operator_model.write().await;
+        model.risk_fingerprint.risk_tolerance =
+            crate::agent::operator_model::RiskTolerance::Aggressive;
+    }
+    let (event_tx, _) = broadcast::channel(8);
+
+    let sensitive_path = sensitive_dir.join(".env");
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-critique-write-file-prose-anchor-drop".to_string(),
+        ToolFunction {
+            name: "write_file".to_string(),
+            arguments: serde_json::json!({
+                "path": sensitive_path,
+                "cwd": sensitive_dir,
+                "content": "TOKEN=test-value"
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-critique-write-file-prose-anchor-drop",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    std::env::set_current_dir(&original_cwd).expect("restore cwd");
+
+    assert!(!result.is_error, "{}", result.content);
+    assert!(workspace.join(".env").exists(), "narrowed basename should resolve against neutral cwd");
+    assert!(
+        !sensitive_path.exists(),
+        "critique should drop cwd anchoring so execution does not land in the original sensitive directory"
+    );
+    let review = result
+        .weles_review
+        .expect("successful write should preserve critique review metadata");
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason == "critique_applied:file:narrow_path:path"));
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason == "critique_applied:file:drop_cwd_anchor"));
 }
 
 #[tokio::test]

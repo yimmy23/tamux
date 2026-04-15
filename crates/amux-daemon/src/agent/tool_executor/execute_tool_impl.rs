@@ -333,6 +333,16 @@ fn critique_requests_operator_window(critique_modifications: &[String]) -> bool 
     })
 }
 
+fn critique_requests_sensitive_file_narrowing(critique_modifications: &[String]) -> bool {
+    critique_modifications.iter().any(|modification| {
+        let normalized = modification.trim().to_ascii_lowercase();
+        normalized.contains("narrow the sensitive file path")
+            || normalized.contains("narrow any sensitive file path")
+            || normalized.contains("minimal basename")
+            || normalized.contains("sensitive file path")
+    })
+}
+
 fn next_operator_window_timestamp_ms(now_ms: u64, preferred_hour_utc: u8) -> u64 {
     const HOUR_MS: u64 = 3_600_000;
     const DAY_MS: u64 = 24 * HOUR_MS;
@@ -570,9 +580,10 @@ fn apply_critique_modifications(
             let sensitive_path = has_directive(
                 critique_directives,
                 crate::agent::critique::types::CritiqueDirective::NarrowSensitiveFilePath,
-            ) || critique_reasons
-                .iter()
-                .any(|reason| reason.contains("sensitive path"));
+            ) || critique_requests_sensitive_file_narrowing(critique_modifications)
+                || critique_reasons
+                    .iter()
+                    .any(|reason| reason.contains("sensitive path"));
             if sensitive_path {
                 for key in ["path", "file_path", "filepath", "filename", "file"] {
                     let Some(current) = map.get(key).and_then(|value| value.as_str()) else {
@@ -589,15 +600,22 @@ fn apply_critique_modifications(
                     }
                     break;
                 }
+                if map.remove("cwd").is_some() {
+                    adjustments.push("file:drop_cwd_anchor".to_string());
+                }
+                if map.remove("session").is_some() {
+                    adjustments.push("file:drop_session_anchor".to_string());
+                }
             }
         }
         "apply_patch" => {
             let sensitive_path = has_directive(
                 critique_directives,
                 crate::agent::critique::types::CritiqueDirective::NarrowSensitiveFilePath,
-            ) || critique_reasons
-                .iter()
-                .any(|reason| reason.contains("sensitive path"));
+            ) || critique_requests_sensitive_file_narrowing(critique_modifications)
+                || critique_reasons
+                    .iter()
+                    .any(|reason| reason.contains("sensitive path"));
             if sensitive_path {
                 for key in ["input", "patch"] {
                     let Some(current) = map.get(key).and_then(|value| value.as_str()) else {
