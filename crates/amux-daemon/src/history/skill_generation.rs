@@ -35,7 +35,10 @@ impl HistoryStore {
                     .filter_map(|row| row.ok())
                     .filter(|record| skill_variant_matches(record, &normalized))
                     .collect::<Vec<_>>();
-                variants.sort_by(|left, right| compare_skill_variants(left, right, &context_tags));
+                let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
+                variants.sort_by(|left, right| {
+                    compare_skill_variants(left, right, &context_tags, &trend_by_variant)
+                });
                 let selected_id = variants.first().map(|record| record.variant_id.clone());
                 let now = now_ts();
                 Ok(variants
@@ -286,13 +289,14 @@ impl HistoryStore {
             if !live_candidates.is_empty() {
                 candidates = live_candidates;
             }
+            let trend_by_variant = load_skill_variant_trends(conn, &candidates, 8)?;
             candidates.sort_by(|left, right| {
                 let left_current_path = skill_variant_matches_current_relative_path(&skills_root, left);
                 let right_current_path =
                     skill_variant_matches_current_relative_path(&skills_root, right);
                 right_current_path
                     .cmp(&left_current_path)
-                    .then_with(|| compare_skill_variants(left, right, &context_tags))
+                    .then_with(|| compare_skill_variants(left, right, &context_tags, &trend_by_variant))
             });
             Ok(candidates.into_iter().next())
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
@@ -533,7 +537,8 @@ impl HistoryStore {
                     rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
                 };
 
-                variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
+                let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
+                variants.sort_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant));
                 Ok(variants)
             })
             .await

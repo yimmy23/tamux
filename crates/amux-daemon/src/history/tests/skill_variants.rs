@@ -212,6 +212,124 @@ async fn resolve_skill_variant_prefers_context_overlap_and_tracks_usage() -> Res
 }
 
 #[tokio::test]
+async fn resolve_skill_variant_prefers_improving_fitness_trend_when_snapshot_is_equal() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let declining = root.join("skills/generated/build-pipeline--declining.md");
+    let improving = root.join("skills/generated/build-pipeline--improving.md");
+    fs::write(&declining, "# Declining build pipeline\nRun cargo build.\n")?;
+    fs::write(&improving, "# Improving build pipeline\nRun cargo build.\n")?;
+
+    let declining_record = store.register_skill_document(&declining).await?;
+    let improving_record = store.register_skill_document(&improving).await?;
+    let tags = vec!["frontend".to_string()];
+
+    store
+        .record_skill_variant_consultation(&SkillVariantConsultationRecord {
+            usage_id: "usage-declining-1",
+            variant_id: &declining_record.variant_id,
+            thread_id: Some("thread-declining-1"),
+            task_id: Some("task-declining-1"),
+            goal_run_id: Some("goal-declining-1"),
+            context_tags: &tags,
+            consulted_at: 100,
+        })
+        .await?;
+    store
+        .settle_skill_variant_usage(
+            Some("thread-declining-1"),
+            Some("task-declining-1"),
+            Some("goal-declining-1"),
+            "success",
+        )
+        .await?;
+    store
+        .record_skill_variant_consultation(&SkillVariantConsultationRecord {
+            usage_id: "usage-declining-2",
+            variant_id: &declining_record.variant_id,
+            thread_id: Some("thread-declining-2"),
+            task_id: Some("task-declining-2"),
+            goal_run_id: Some("goal-declining-2"),
+            context_tags: &tags,
+            consulted_at: 101,
+        })
+        .await?;
+    store
+        .settle_skill_variant_usage(
+            Some("thread-declining-2"),
+            Some("task-declining-2"),
+            Some("goal-declining-2"),
+            "failure",
+        )
+        .await?;
+
+    store
+        .record_skill_variant_consultation(&SkillVariantConsultationRecord {
+            usage_id: "usage-improving-1",
+            variant_id: &improving_record.variant_id,
+            thread_id: Some("thread-improving-1"),
+            task_id: Some("task-improving-1"),
+            goal_run_id: Some("goal-improving-1"),
+            context_tags: &tags,
+            consulted_at: 102,
+        })
+        .await?;
+    store
+        .settle_skill_variant_usage(
+            Some("thread-improving-1"),
+            Some("task-improving-1"),
+            Some("goal-improving-1"),
+            "failure",
+        )
+        .await?;
+    store
+        .record_skill_variant_consultation(&SkillVariantConsultationRecord {
+            usage_id: "usage-improving-2",
+            variant_id: &improving_record.variant_id,
+            thread_id: Some("thread-improving-2"),
+            task_id: Some("task-improving-2"),
+            goal_run_id: Some("goal-improving-2"),
+            context_tags: &tags,
+            consulted_at: 103,
+        })
+        .await?;
+    store
+        .settle_skill_variant_usage(
+            Some("thread-improving-2"),
+            Some("task-improving-2"),
+            Some("goal-improving-2"),
+            "success",
+        )
+        .await?;
+
+    let declining_id = declining_record.variant_id.clone();
+    let improving_id = improving_record.variant_id.clone();
+    store.conn.call(move |conn| {
+        conn.execute(
+            "UPDATE skill_variants SET updated_at = 500 WHERE variant_id = ?1",
+            params![declining_id],
+        )?;
+        conn.execute(
+            "UPDATE skill_variants SET updated_at = 500 WHERE variant_id = ?1",
+            params![improving_id],
+        )?;
+        Ok(())
+    }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let resolved = store
+        .resolve_skill_variant("build-pipeline", &[])
+        .await?
+        .expect("one variant should resolve");
+
+    assert_eq!(declining_record.fitness_score, 0.0);
+    assert_eq!(improving_record.fitness_score, 0.0);
+    assert_eq!(resolved.variant_id, improving_record.variant_id);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn sequential_settlements_append_distinct_skill_fitness_history_records() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;

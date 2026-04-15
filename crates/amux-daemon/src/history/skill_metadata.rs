@@ -145,19 +145,74 @@ pub(super) fn skill_variant_matches(record: &SkillVariantRecord, normalized: &st
         || relative.contains(normalized)
 }
 
+pub(super) fn compute_fitness_trend(history: &[SkillVariantFitnessHistoryRow]) -> i8 {
+    if history.len() < 2 {
+        return 0;
+    }
+
+    let start = history.first().map(|entry| entry.fitness_score).unwrap_or(0.0);
+    let end = history.last().map(|entry| entry.fitness_score).unwrap_or(0.0);
+    match end.partial_cmp(&start).unwrap_or(std::cmp::Ordering::Equal) {
+        std::cmp::Ordering::Greater => 1,
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+    }
+}
+
+pub(super) fn load_skill_variant_trends(
+    conn: &Connection,
+    variants: &[SkillVariantRecord],
+    limit: usize,
+) -> rusqlite::Result<BTreeMap<String, i8>> {
+    let limit = limit.max(2) as i64;
+    let mut stmt = conn.prepare(
+        "SELECT id, variant_id, recorded_at, outcome, fitness_score FROM (\
+            SELECT rowid, id, variant_id, recorded_at, outcome, fitness_score \
+            FROM skill_variant_history WHERE variant_id = ?1 \
+            ORDER BY recorded_at DESC, rowid DESC LIMIT ?2\
+         ) ORDER BY recorded_at ASC, rowid ASC",
+    )?;
+    let mut trends = BTreeMap::new();
+    for variant in variants {
+        let history = stmt
+            .query_map(params![variant.variant_id.as_str(), limit], |row| {
+                Ok(SkillVariantFitnessHistoryRow {
+                    id: row.get(0)?,
+                    variant_id: row.get(1)?,
+                    recorded_at: row.get(2)?,
+                    outcome: row.get(3)?,
+                    fitness_score: row.get(4)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        trends.insert(variant.variant_id.clone(), compute_fitness_trend(&history));
+    }
+    Ok(trends)
+}
+
 pub(super) fn compare_skill_variants(
     left: &SkillVariantRecord,
     right: &SkillVariantRecord,
     context_tags: &[String],
+    trend_by_variant: &BTreeMap<String, i8>,
 ) -> std::cmp::Ordering {
     let left_overlap = skill_context_overlap(left, context_tags);
     let right_overlap = skill_context_overlap(right, context_tags);
     let left_status_rank = skill_status_rank(&left.status);
     let right_status_rank = skill_status_rank(&right.status);
+    let left_trend = *trend_by_variant.get(&left.variant_id).unwrap_or(&0);
+    let right_trend = *trend_by_variant.get(&right.variant_id).unwrap_or(&0);
 
     right_overlap
         .cmp(&left_overlap)
         .then_with(|| right_status_rank.cmp(&left_status_rank))
+        .then_with(|| right_trend.cmp(&left_trend))
+        .then_with(|| {
+            right
+                .fitness_score
+                .partial_cmp(&left.fitness_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
         .then_with(|| {
             right
                 .success_rate()

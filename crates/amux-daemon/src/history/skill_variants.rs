@@ -231,7 +231,9 @@ impl HistoryStore {
                 .as_ref()
                 .map(SkillVariantRecord::success_rate)
                 .unwrap_or(0.0);
-            let promoted_variant_id = variants
+            let promoted_variant_id = {
+                let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
+                variants
                 .iter()
                 .filter(|variant| !variant.is_canonical())
                 .filter(|variant| {
@@ -240,8 +242,9 @@ impl HistoryStore {
                         && variant.success_rate() >= SKILL_PROMOTION_SUCCESS_RATE_THRESHOLD
                         && variant.success_rate() > canonical_success_rate + SKILL_PROMOTION_MARGIN
                 })
-                .max_by(|left, right| compare_skill_variants(left, right, &[]))
-                .map(|variant| variant.variant_id.clone());
+                .max_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant))
+                .map(|variant| variant.variant_id.clone())
+            };
 
             for variant in &mut variants {
                 let next_status =
@@ -256,7 +259,8 @@ impl HistoryStore {
                 }
             }
 
-            variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
+            let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
+            variants.sort_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant));
             Ok(variants)
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
