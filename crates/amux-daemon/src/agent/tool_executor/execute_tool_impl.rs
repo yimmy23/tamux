@@ -877,6 +877,41 @@ async fn prepare_tool_execution(
         &critique_directives,
         preferred_start_hour_utc,
     );
+    if let Some(map) = runtime_args.as_object() {
+        if map
+            .get("__critique_requires_operator_confirmation")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+        {
+            let mut review = crate::agent::types::WelesReviewMeta {
+                weles_reviewed: true,
+                verdict: crate::agent::types::WelesVerdict::Block,
+                reasons: Vec::new(),
+                audit_id: None,
+                security_override_mode: None,
+            };
+            annotate_review_with_critique(
+                &mut review,
+                critique_session_id.as_deref(),
+                critique_decision.as_deref(),
+                &critique_adjustments,
+            );
+            let confirmation_reason = map
+                .get("__critique_confirmation_reason")
+                .and_then(|value| value.as_str())
+                .unwrap_or(tool_call.function.name.as_str());
+            return Err(ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.function.name.clone(),
+                content: format!(
+                    "Blocked by critique confirmation requirement for {confirmation_reason}. Explicit operator confirmation is required before execution."
+                ),
+                is_error: true,
+                weles_review: Some(review),
+                pending_approval: None,
+            });
+        }
+    }
     let security_level = {
         let config = agent.config.read().await;
         crate::agent::weles_governance::security_level_for_tool_call(

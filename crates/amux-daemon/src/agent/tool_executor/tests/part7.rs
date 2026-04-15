@@ -4939,6 +4939,75 @@ fn apply_critique_modifications_strips_explicit_messaging_targets_and_broadcasts
     assert!(changes.iter().any(|item| item == "messaging:strip_broadcast_mentions"));
 }
 
+#[tokio::test]
+async fn critique_confirmation_marker_blocks_switch_model_execution_before_dispatch() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-critique-confirmation".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let result = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance = crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                "thread-switch-model-critique-confirmation",
+                None,
+                &manager,
+                None,
+                &event_tx,
+                root.path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(result.is_error, "critique confirmation marker should block immediate execution");
+    assert!(result.pending_approval.is_none());
+    assert!(result.content.contains("Blocked by critique confirmation requirement"));
+    let review = result
+        .weles_review
+        .expect("critique block should expose review metadata");
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason.starts_with("critique_preflight:")));
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason == "critique_applied:switch_model:require_operator_confirmation"));
+}
+
 #[test]
 fn apply_critique_modifications_requires_confirmation_for_synthesize_tool() {
     let args = serde_json::json!({
