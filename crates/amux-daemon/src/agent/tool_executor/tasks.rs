@@ -95,6 +95,18 @@ async fn execute_list_subagents(
             _ => None,
         };
 
+        let mut exhausted_limits = Vec::new();
+        if tokens_remaining_fraction.is_some_and(|value| value <= 0.0) {
+            exhausted_limits.push("tokens");
+        }
+        if time_remaining_fraction.is_some_and(|value| value <= 0.0) {
+            exhausted_limits.push("time");
+        }
+        if tool_calls_remaining == Some(0) {
+            exhausted_limits.push("tool_calls");
+        }
+        let budget_exhausted = !exhausted_limits.is_empty();
+
         let mut value = serde_json::to_value(&task).unwrap_or_else(|_| serde_json::json!({}));
         if let Some(obj) = value.as_object_mut() {
             obj.insert("depth".to_string(), serde_json::json!(depth));
@@ -106,6 +118,14 @@ async fn execute_list_subagents(
                     "time_pct": time_remaining_fraction,
                     "tool_calls_remaining": tool_calls_remaining,
                 }),
+            );
+            obj.insert(
+                "budget_exhausted".to_string(),
+                serde_json::json!(budget_exhausted),
+            );
+            obj.insert(
+                "exhausted_limits".to_string(),
+                serde_json::json!(exhausted_limits),
             );
         }
         payload.push(value);
