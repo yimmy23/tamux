@@ -509,6 +509,7 @@ impl AgentEngine {
             title: "Morning Brief".to_string(),
             summary: format!("{} item(s) worth picking up.", bullets.len()),
             bullets,
+            intent_prediction: None,
             confidence,
             goal_run_id: primary_goal.as_ref().map(|goal| goal.id.clone()),
             thread_id: primary_goal
@@ -574,6 +575,7 @@ impl AgentEngine {
                 summary: "The daemon sees a live task pattern that usually needs intervention."
                     .to_string(),
                 bullets: assessment.bullets,
+                intent_prediction: None,
                 confidence: assessment.confidence,
                 goal_run_id: task.goal_run_id.clone(),
                 thread_id: task.thread_id.clone().or(task.parent_thread_id.clone()),
@@ -643,6 +645,7 @@ impl AgentEngine {
                     "Weighted vote is likely recoverable without escalation.".to_string()
                 },
             ],
+            intent_prediction: None,
             confidence,
             goal_run_id: session.goal_run_id.clone(),
             thread_id: session.thread_id.clone(),
@@ -819,6 +822,7 @@ impl AgentEngine {
             bullets: std::iter::once(format!("rationale: {}", foresight.rationale))
                 .chain(foresight.bullets.into_iter())
                 .collect(),
+            intent_prediction: None,
             confidence: foresight.confidence,
             goal_run_id: None,
             thread_id: foresight.thread_id,
@@ -916,6 +920,46 @@ impl AgentEngine {
             return None;
         }
 
+        let mut ranked_actions = Vec::new();
+        ranked_actions.push(IntentPredictionCandidate {
+            rank: 1,
+            action: action.to_string(),
+            confidence,
+            rationale: bullets
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "Primary heuristic matched current context.".to_string()),
+        });
+        if action != "review pending approval" {
+            ranked_actions.push(IntentPredictionCandidate {
+                rank: 2,
+                action: "review pending approval".to_string(),
+                confidence: 0.52,
+                rationale: "Approval-bound work is a common unblock step when active tasks stall."
+                    .to_string(),
+            });
+        } else {
+            ranked_actions.push(IntentPredictionCandidate {
+                rank: 2,
+                action: "inspect or test recent repo changes".to_string(),
+                confidence: 0.58,
+                rationale: "After approval resolution, verification of active repo changes is the next common follow-up."
+                    .to_string(),
+            });
+        }
+        ranked_actions.push(IntentPredictionCandidate {
+            rank: 3,
+            action: "continue the active thread".to_string(),
+            confidence: 0.44,
+            rationale: cached_prewarm
+                .as_ref()
+                .map(|cache| format!("Cached prewarm available: {}", cache.summary))
+                .unwrap_or_else(|| {
+                    "Conversation attention remains active even when stronger heuristics are absent."
+                        .to_string()
+                }),
+        });
+
         let route = self
             .resolve_anticipatory_route("intent_prediction", None, attention_thread_id.as_deref())
             .await;
@@ -930,6 +974,11 @@ impl AgentEngine {
             title: "Likely Next Action".to_string(),
             summary: format!("Predicted next step: {action}"),
             bullets,
+            intent_prediction: Some(IntentPredictionPayload {
+                primary_action: action.to_string(),
+                confidence,
+                ranked_actions,
+            }),
             confidence,
             goal_run_id: None,
             thread_id: attention_thread_id,

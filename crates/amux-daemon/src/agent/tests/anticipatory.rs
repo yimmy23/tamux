@@ -508,6 +508,15 @@ async fn anticipatory_tick_surfaces_intent_prediction_for_pending_approval() {
         .into_iter()
         .find(|candidate| candidate.kind == "intent_prediction")
         .expect("expected an intent prediction item");
+    let payload = item
+        .intent_prediction
+        .as_ref()
+        .expect("intent prediction payload should be present");
+    assert_eq!(payload.primary_action, "review pending approval");
+    assert_eq!(payload.ranked_actions.len(), 3, "intent prediction should surface ranked next actions");
+    assert_eq!(payload.ranked_actions[0].rank, 1);
+    assert_eq!(payload.ranked_actions[0].action, "review pending approval");
+    assert!(payload.ranked_actions[0].confidence >= 0.86);
     assert_eq!(item.thread_id.as_deref(), Some("thread-intent"));
     assert!(item.summary.contains("review pending approval"));
     assert!(item.confidence >= 0.86);
@@ -552,6 +561,14 @@ async fn anticipatory_tick_surfaces_intent_prediction_for_repo_change_context() 
         .into_iter()
         .find(|candidate| candidate.kind == "intent_prediction")
         .expect("expected an intent prediction item");
+    let payload = item
+        .intent_prediction
+        .as_ref()
+        .expect("intent prediction payload should be present");
+    assert_eq!(payload.primary_action, "inspect or test recent repo changes");
+    assert_eq!(payload.ranked_actions.len(), 3, "intent prediction should surface ranked next actions");
+    assert_eq!(payload.ranked_actions[0].rank, 1);
+    assert_eq!(payload.ranked_actions[0].action, "inspect or test recent repo changes");
     assert_eq!(item.thread_id.as_deref(), Some("thread-repo-intent"));
     assert!(item.summary.contains("inspect or test recent repo changes"));
     assert!(item
@@ -786,6 +803,14 @@ async fn intent_prediction_includes_cached_prewarm_summary_when_available() {
         .into_iter()
         .find(|candidate| candidate.kind == "intent_prediction")
         .expect("expected an intent prediction item");
+    let payload = item
+        .intent_prediction
+        .as_ref()
+        .expect("intent prediction payload should be present");
+    assert!(payload
+        .ranked_actions
+        .iter()
+        .any(|candidate| candidate.rationale.contains("Cached prewarm")));
     assert!(item
         .bullets
         .iter()
