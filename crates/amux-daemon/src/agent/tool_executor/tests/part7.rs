@@ -4940,6 +4940,38 @@ fn apply_critique_modifications_strips_explicit_messaging_targets_and_broadcasts
 }
 
 #[test]
+fn apply_critique_modifications_requires_confirmation_for_switch_model() {
+    let args = serde_json::json!({
+        "agent": "svarog",
+        "provider": "openai",
+        "model": "gpt-5.4"
+    });
+
+    let (adjusted, changes) = super::apply_critique_modifications(
+        "switch_model",
+        &args,
+        Some("proceed_with_modifications"),
+        &["provider or model reconfiguration mutates persisted agent execution policy"
+            .to_string()],
+        &["Require explicit operator confirmation before changing the provider or model for Svarog because it rewrites persisted agent execution policy.".to_string()],
+        &[],
+        None,
+    );
+
+    assert_eq!(
+        adjusted["__critique_requires_operator_confirmation"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        adjusted["__critique_confirmation_reason"].as_str(),
+        Some("switch_model")
+    );
+    assert!(changes
+        .iter()
+        .any(|item| item == "switch_model:require_operator_confirmation"));
+}
+
+#[test]
 fn apply_critique_modifications_requires_confirmation_for_plugin_api_call() {
     let args = serde_json::json!({
         "plugin_name": "ops_plugin",
