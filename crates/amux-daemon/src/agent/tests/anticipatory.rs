@@ -511,6 +511,100 @@ async fn strained_satisfaction_suppresses_intent_prediction() {
 }
 
 #[tokio::test]
+async fn tool_hesitation_tightens_predictive_hydration_to_active_attention_thread() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.predictive_hydration = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-focus"), None)
+        .await
+        .unwrap();
+
+    let now = now_millis();
+    let mut focused_goal = sample_goal_run("goal-focus", Some("thread-focus"));
+    focused_goal.status = GoalRunStatus::Running;
+    focused_goal.updated_at = now;
+    engine.goal_runs.lock().await.push_back(focused_goal);
+
+    let mut other_goal = sample_goal_run("goal-other", Some("thread-other"));
+    other_goal.status = GoalRunStatus::Running;
+    other_goal.updated_at = now.saturating_sub(1_000);
+    engine.goal_runs.lock().await.push_back(other_goal);
+
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 1;
+        model.implicit_feedback.tool_hesitation_count = 1;
+        refresh_operator_satisfaction(&mut model);
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    let hydration = engine.anticipatory.read().await.hydration_by_thread.clone();
+    assert!(
+        hydration.contains_key("thread-focus"),
+        "active attention thread should still be hydrated"
+    );
+    assert!(
+        !hydration.contains_key("thread-other"),
+        "tool hesitation should tighten predictive hydration to the active attention thread"
+    );
+}
+
+#[tokio::test]
+async fn slow_approval_latency_tightens_predictive_hydration_to_active_attention_thread() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.predictive_hydration = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-focus"), None)
+        .await
+        .unwrap();
+
+    let now = now_millis();
+    let mut focused_goal = sample_goal_run("goal-focus", Some("thread-focus"));
+    focused_goal.status = GoalRunStatus::Running;
+    focused_goal.updated_at = now;
+    engine.goal_runs.lock().await.push_back(focused_goal);
+
+    let mut other_goal = sample_goal_run("goal-other", Some("thread-other"));
+    other_goal.status = GoalRunStatus::Running;
+    other_goal.updated_at = now.saturating_sub(1_000);
+    engine.goal_runs.lock().await.push_back(other_goal);
+
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 1;
+        model.risk_fingerprint.approval_requests = 4;
+        model.risk_fingerprint.approvals = 2;
+        model.risk_fingerprint.denials = 2;
+        model.risk_fingerprint.avg_response_time_secs = 45.0;
+        refresh_risk_metrics(&mut model.risk_fingerprint);
+        refresh_operator_satisfaction(&mut model);
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    let hydration = engine.anticipatory.read().await.hydration_by_thread.clone();
+    assert!(
+        hydration.contains_key("thread-focus"),
+        "active attention thread should still be hydrated"
+    );
+    assert!(
+        !hydration.contains_key("thread-other"),
+        "slow approval latency should tighten predictive hydration to the active attention thread"
+    );
+}
+
+#[tokio::test]
 async fn predictive_hydration_populates_prewarm_cache_for_hydrated_thread() {
     let root = tempdir().unwrap();
     let repo_root = root.path().join("repo-predictive-cache");

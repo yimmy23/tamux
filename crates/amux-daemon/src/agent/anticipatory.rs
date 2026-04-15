@@ -274,7 +274,22 @@ impl AgentEngine {
 
     async fn anticipatory_adaptation_mode(&self) -> AnticipatoryAdaptationMode {
         let model = self.operator_model.read().await;
-        AnticipatoryAdaptationMode::from_label(&model.operator_satisfaction.label)
+        let base = AnticipatoryAdaptationMode::from_label(&model.operator_satisfaction.label);
+        if base != AnticipatoryAdaptationMode::Normal {
+            return base;
+        }
+
+        if model.implicit_feedback.tool_hesitation_count > 0 {
+            return AnticipatoryAdaptationMode::Tightened;
+        }
+
+        if model.risk_fingerprint.approval_requests > 0
+            && model.risk_fingerprint.avg_response_time_secs >= 30.0
+        {
+            return AnticipatoryAdaptationMode::Tightened;
+        }
+
+        AnticipatoryAdaptationMode::Normal
     }
 
     async fn current_attention_surface(&self) -> Option<String> {
