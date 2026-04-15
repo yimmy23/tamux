@@ -733,6 +733,14 @@ impl AgentEngine {
 
         ensure_operator_model_file(&self.data_dir).await?;
         let now = now_millis();
+        let previous_attention = {
+            let model = self.operator_model.read().await;
+            model
+                .attention_topology
+                .last_surface
+                .clone()
+                .zip(model.attention_topology.last_surface_at)
+        };
         let model_snapshot = {
             let mut model = self.operator_model.write().await;
             model.last_updated = now;
@@ -755,20 +763,25 @@ impl AgentEngine {
         )
         .await?;
 
-        if model_snapshot.attention_topology.rapid_switch_count > 0 {
-            self.persist_implicit_feedback_signal(
-                "global",
-                "short_dwell",
-                -0.03,
-                now,
-                serde_json::json!({
-                    "surface": normalized,
-                    "rapid_switch_count": model_snapshot.attention_topology.rapid_switch_count,
-                }),
-            )
-            .await?;
-            self.persist_operator_satisfaction_snapshot("global", now, &model_snapshot)
+        if let Some((previous_surface, previous_at)) = previous_attention {
+            let dwell_secs = now.saturating_sub(previous_at) / 1000;
+            if previous_surface != normalized && dwell_secs > 0 && dwell_secs <= 15 {
+                self.persist_implicit_feedback_signal(
+                    "global",
+                    "short_dwell",
+                    -0.03,
+                    now,
+                    serde_json::json!({
+                        "surface": previous_surface,
+                        "next_surface": normalized,
+                        "dwell_secs": dwell_secs,
+                        "rapid_switch_count": model_snapshot.attention_topology.rapid_switch_count,
+                    }),
+                )
                 .await?;
+                self.persist_operator_satisfaction_snapshot("global", now, &model_snapshot)
+                    .await?;
+            }
         }
         Ok(())
     }

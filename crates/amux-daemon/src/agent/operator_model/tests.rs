@@ -920,6 +920,42 @@ async fn rapid_revert_persists_thread_scoped_signal_when_agent_file_edit_is_quic
 }
 
 #[tokio::test]
+async fn very_short_attention_dwell_persists_short_dwell_signal_with_duration() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.operator_model.enabled = true;
+    config.operator_model.allow_implicit_feedback = true;
+    config.operator_model.allow_attention_tracking = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_attention_surface("conversation:chat")
+        .await
+        .expect("record first attention surface");
+    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+    engine
+        .record_attention_surface("modal:command_palette")
+        .await
+        .expect("record second attention surface");
+
+    let signals = engine
+        .history
+        .list_implicit_signals("global", 10)
+        .await
+        .expect("load implicit signals");
+    let short_dwell = signals
+        .iter()
+        .find(|signal| signal.signal_type == "short_dwell")
+        .expect("short dwell signal should be persisted");
+    assert!(short_dwell.weight < 0.0);
+    assert!(short_dwell
+        .context_snapshot_json
+        .as_deref()
+        .is_some_and(|json| json.contains("dwell_secs") && json.contains("conversation:chat")));
+}
+
+#[tokio::test]
 async fn deleting_thread_right_after_assistant_reply_persists_session_abandon_signal() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
