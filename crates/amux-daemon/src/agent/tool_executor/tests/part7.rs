@@ -6626,6 +6626,133 @@ fn apply_critique_modifications_uses_typed_directive_for_sensitive_file_narrowin
 }
 
 #[tokio::test]
+async fn fetch_url_openapi_spec_emits_openapi_tool_synthesis_proposal_notice() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind openapi spec server");
+    let addr = listener.local_addr().expect("openapi spec local addr");
+    let spec_body = serde_json::json!({
+        "openapi": "3.0.0",
+        "servers": [{"url": format!("http://{addr}")}],
+        "paths": {
+            "/status": {
+                "get": {
+                    "operationId": "getStatus",
+                    "summary": "Fetch status",
+                    "parameters": [
+                        {
+                            "name": "verbose",
+                            "in": "query",
+                            "required": false,
+                            "schema": {"type": "boolean"},
+                            "description": "Verbose output"
+                        }
+                    ]
+                }
+            }
+        }
+    })
+    .to_string();
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let spec_body = spec_body.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 8192];
+                let _ = socket.read(&mut buffer).await.expect("read spec request");
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    spec_body.len(),
+                    spec_body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write spec response");
+            });
+        }
+    });
+
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    config.extra.insert(
+        "browse_provider".to_string(),
+        serde_json::Value::String("none".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+
+    let spec_url = format!("http://{addr}/openapi.json");
+    let result = execute_tool(
+        &ToolCall {
+            id: "call-fetch-openapi-spec".to_string(),
+            function: ToolFunction {
+                name: "fetch_url".to_string(),
+                arguments: serde_json::json!({
+                    "url": spec_url,
+                    "max_length": 10_000,
+                })
+                .to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-openapi-gap",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "fetch_url should succeed: {}", result.content);
+
+    let notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected synthesis proposal workflow notice")
+        .expect("workflow notice should be received");
+    match notice {
+        AgentEvent::WorkflowNotice {
+            kind,
+            details: Some(details),
+            ..
+        } => {
+            assert_eq!(kind, "tool-synthesis-proposal");
+            let details: serde_json::Value =
+                serde_json::from_str(&details).expect("notice details should be json");
+            assert_eq!(
+                details.get("proposal_kind").and_then(|value| value.as_str()),
+                Some("openapi")
+            );
+            let synth_args = details
+                .get("synthesize_tool_args")
+                .expect("proposal should include synthesize_tool args");
+            assert_eq!(synth_args.get("kind").and_then(|value| value.as_str()), Some("openapi"));
+            assert_eq!(
+                synth_args.get("target").and_then(|value| value.as_str()),
+                Some(spec_url.as_str())
+            );
+            assert_eq!(
+                synth_args.get("operation_id").and_then(|value| value.as_str()),
+                Some("getStatus")
+            );
+        }
+        other => panic!("expected workflow notice, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn unknown_cli_like_tool_emits_tool_synthesis_proposal_notice() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;

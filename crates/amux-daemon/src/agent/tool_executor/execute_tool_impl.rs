@@ -310,6 +310,121 @@ async fn maybe_emit_successful_shell_synthesis_proposal_notice(
     .await;
 }
 
+async fn maybe_emit_openapi_synthesis_proposal_notice(
+    agent: &AgentEngine,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
+    args: &serde_json::Value,
+    content: &str,
+) {
+    if thread_id.trim().is_empty() {
+        return;
+    }
+    if !agent.config.read().await.tool_synthesis.enabled {
+        return;
+    }
+    let Some(url) = args.get("url").and_then(|value| value.as_str()).map(str::trim) else {
+        return;
+    };
+    if url.is_empty() {
+        return;
+    }
+
+    let body = if let Some((_, body)) = content.split_once("\n\n") {
+        body.trim().to_string()
+    } else if content.starts_with("HTTP ") {
+        content
+            .lines()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string()
+    } else {
+        content.trim().to_string()
+    };
+    let Ok(spec) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return;
+    };
+    let Some(paths) = spec.get("paths").and_then(|value| value.as_object()) else {
+        return;
+    };
+
+    let mut selected_path = None::<String>;
+    let mut selected_operation_id = None::<String>;
+    for (path, item) in paths {
+        let Some(item_obj) = item.as_object() else {
+            continue;
+        };
+        for (method, operation) in item_obj {
+            if method.to_ascii_uppercase() != "GET" {
+                continue;
+            }
+            selected_path = Some(path.clone());
+            selected_operation_id = operation
+                .get("operationId")
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned);
+            break;
+        }
+        if selected_path.is_some() {
+            break;
+        }
+    }
+    let Some(selected_path) = selected_path else {
+        return;
+    };
+
+    let tool_name = selected_operation_id
+        .as_deref()
+        .map(|value| {
+            value
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '_' })
+                .collect::<String>()
+                .trim_matches('_')
+                .to_string()
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            selected_path
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '_' })
+                .collect::<String>()
+                .trim_matches('_')
+                .to_string()
+        });
+
+    let dedupe_hint = format!("openapi::{url}");
+    let synthesize_args = serde_json::json!({
+        "kind": "openapi",
+        "target": url,
+        "name": tool_name,
+        "operation_id": selected_operation_id,
+        "activate": false,
+    });
+    let message = format!(
+        "Fetched content from `{url}` looks like a conservative GET OpenAPI surface. Proposal ready via synthesize_tool."
+    );
+    let details = serde_json::json!({
+        "reason": "fetched_openapi_get_gap",
+        "proposal_kind": "openapi",
+        "target": url,
+        "selected_path": selected_path,
+        "operation_id": selected_operation_id,
+        "synthesize_tool_args": synthesize_args,
+    });
+    maybe_emit_cli_wrapper_synthesis_proposal_notice(
+        agent,
+        event_tx,
+        thread_id,
+        &dedupe_hint,
+        message,
+        details,
+    )
+    .await;
+}
+
 fn should_scrub_successful_tool_result(tool_name: &str) -> bool {
     !matches!(tool_name, "read_offloaded_payload")
 }
@@ -1754,6 +1869,16 @@ pub fn execute_tool<'a>(
                     prepared.dispatch_tool_name.as_str(),
                     &prepared.dispatch_args,
                 );
+                if prepared.dispatch_tool_name.as_str() == "fetch_url" {
+                    maybe_emit_openapi_synthesis_proposal_notice(
+                        agent,
+                        event_tx,
+                        thread_id,
+                        &prepared.dispatch_args,
+                        &content,
+                    )
+                    .await;
+                }
                 if matches!(
                     prepared.dispatch_tool_name.as_str(),
                     "bash_command" | "run_terminal_command" | "execute_managed_command"
