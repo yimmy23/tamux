@@ -525,6 +525,15 @@ pub struct SkillVariantRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GenePoolEntry {
+    pub parent_a: String,
+    pub parent_b: String,
+    pub offspring_id: String,
+    pub lifecycle_state: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SkillVariantInspection {
     pub record: SkillVariantRecord,
     pub lifecycle_summary: String,

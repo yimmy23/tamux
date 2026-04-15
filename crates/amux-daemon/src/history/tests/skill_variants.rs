@@ -811,6 +811,44 @@ async fn cross_breed_skill_variants_reuses_existing_offspring_for_same_parent_pa
 }
 
 #[tokio::test]
+async fn gene_pool_registry_returns_offspring_record_for_parent_pair() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let frontend = root.join("skills/generated/build-pipeline--frontend.md");
+    let rust = root.join("skills/generated/build-pipeline--rust.md");
+    fs::write(
+        &frontend,
+        "# Build pipeline (frontend)\n\n## When To Use\nUse this variant for frontend build pipelines.\n\n## How\nRun react build checks first.\n",
+    )?;
+    fs::write(
+        &rust,
+        "# Build pipeline (rust)\n\n## When To Use\nUse this variant for rust build pipelines.\n\n## How\nRun cargo build --workspace.\n",
+    )?;
+
+    let frontend_record = store.register_skill_document(&frontend).await?;
+    let rust_record = store.register_skill_document(&rust).await?;
+    let offspring = store
+        .cross_breed_skill_variants(&frontend_record, &rust_record)
+        .await?
+        .expect("cross-breeding should create a candidate offspring variant");
+
+    let registry = store
+        .get_gene_pool_entry(&frontend_record.variant_id, &rust_record.variant_id)
+        .await?
+        .expect("gene pool should return a registry row for the parent pair");
+
+    let expected_parent_a = frontend_record.variant_id.clone().min(rust_record.variant_id.clone());
+    let expected_parent_b = frontend_record.variant_id.clone().max(rust_record.variant_id.clone());
+    assert_eq!(registry.offspring_id, offspring.variant_id);
+    assert_eq!(registry.lifecycle_state, "draft");
+    assert_eq!(registry.parent_a, expected_parent_a);
+    assert_eq!(registry.parent_b, expected_parent_b);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn stable_variant_merges_back_into_canonical() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;

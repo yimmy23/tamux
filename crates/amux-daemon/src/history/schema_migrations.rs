@@ -208,6 +208,17 @@ pub(super) fn apply_schema_migrations(
         );
         CREATE INDEX IF NOT EXISTS idx_skill_variant_history_variant_ts ON skill_variant_history(variant_id, recorded_at DESC);",
     )?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS gene_pool (
+            parent_a TEXT NOT NULL,
+            parent_b TEXT NOT NULL,
+            offspring_id TEXT NOT NULL,
+            lifecycle_state TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (parent_a, parent_b)
+        );
+        CREATE INDEX IF NOT EXISTS idx_gene_pool_offspring ON gene_pool(offspring_id, created_at DESC);",
+    )?;
     ensure_column(connection, "skill_variants", "fitness_score", "REAL NOT NULL DEFAULT 0")?;
     connection.execute(
         "UPDATE skill_variants SET fitness_score = CAST(success_count AS REAL) - CAST(failure_count AS REAL) WHERE fitness_score = 0",

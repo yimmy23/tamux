@@ -205,6 +205,38 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn get_gene_pool_entry(
+        &self,
+        left_parent_variant_id: &str,
+        right_parent_variant_id: &str,
+    ) -> Result<Option<GenePoolEntry>> {
+        let mut parent_pair = [
+            left_parent_variant_id.to_string(),
+            right_parent_variant_id.to_string(),
+        ];
+        parent_pair.sort();
+        self.conn
+            .call(move |conn| {
+                Ok(conn.query_row(
+                    "SELECT parent_a, parent_b, offspring_id, lifecycle_state, created_at \
+                     FROM gene_pool WHERE parent_a = ?1 AND parent_b = ?2",
+                    params![parent_pair[0], parent_pair[1]],
+                    |row| {
+                        Ok(GenePoolEntry {
+                            parent_a: row.get(0)?,
+                            parent_b: row.get(1)?,
+                            offspring_id: row.get(2)?,
+                            lifecycle_state: row.get(3)?,
+                            created_at: row.get(4)?,
+                        })
+                    },
+                )
+                .optional()?)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn rebalance_skill_variants(
         &self,
         skill_name: &str,
@@ -517,6 +549,11 @@ impl HistoryStore {
         let right_slug = right_parent.variant_name.to_ascii_lowercase();
         let mut parent_slugs = [left_slug, right_slug];
         parent_slugs.sort();
+        let mut parent_ids = [
+            left_parent.variant_id.clone(),
+            right_parent.variant_id.clone(),
+        ];
+        parent_ids.sort();
         let variant_slug = format!("cross-{}-{}", parent_slugs[0], parent_slugs[1])
             .replace("canonical", "base")
             .replace("--", "-");
@@ -527,6 +564,17 @@ impl HistoryStore {
         if offspring_path.exists() {
             let record = self.register_skill_document(&offspring_path).await?;
             self.update_skill_variant_status(&record.variant_id, "draft").await?;
+            let created_at = now_ts() as i64;
+            let parent_a = parent_ids[0].clone();
+            let parent_b = parent_ids[1].clone();
+            let offspring_id = record.variant_id.clone();
+            self.conn.call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO gene_pool (parent_a, parent_b, offspring_id, lifecycle_state, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![parent_a, parent_b, offspring_id, "draft", created_at],
+                )?;
+                Ok(())
+            }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
             return self.get_skill_variant(&record.variant_id).await;
         }
 
@@ -555,6 +603,17 @@ impl HistoryStore {
 
         let record = self.register_skill_document(&offspring_path).await?;
         self.update_skill_variant_status(&record.variant_id, "draft").await?;
+        let created_at = now_ts() as i64;
+        let parent_a = parent_ids[0].clone();
+        let parent_b = parent_ids[1].clone();
+        let offspring_id = record.variant_id.clone();
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO gene_pool (parent_a, parent_b, offspring_id, lifecycle_state, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![parent_a, parent_b, offspring_id, "draft", created_at],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
         self.get_skill_variant(&record.variant_id).await
     }
 
