@@ -7969,6 +7969,105 @@ async fn read_memory_includes_thread_structural_graph_neighbors() {
 }
 
 #[tokio::test]
+async fn search_memory_uses_preferred_structural_refs_for_graph_lookup_without_memory_graph() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-search-memory-preferred-structural-lookup";
+    let agent_data_dir = root.path().join("agent");
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Search memory preferred structural lookup",
+            false,
+            1,
+            1,
+            vec![crate::agent::types::AgentMessage::user("search parser graph", 1)],
+        ),
+    );
+
+    write_scope_memory_files(
+        &agent_data_dir,
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        "# Soul\n\n- Stable soul fact\n",
+        "# Memory\n\n- Stable memory fact\n",
+        "# User\n\n- Stable user fact\n",
+    );
+    engine.thread_structural_memories.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::context::structural_memory::ThreadStructuralMemory {
+            observed_files: vec![
+                crate::agent::context::structural_memory::ObservedFileNode {
+                    node_id: "node:file:src/lib.rs".to_string(),
+                    relative_path: "src/lib.rs".to_string(),
+                },
+                crate::agent::context::structural_memory::ObservedFileNode {
+                    node_id: "node:file:src/parser.rs".to_string(),
+                    relative_path: "src/parser.rs".to_string(),
+                },
+            ],
+            edges: vec![crate::agent::context::structural_memory::StructuralEdge {
+                from: "node:file:src/lib.rs".to_string(),
+                to: "node:file:src/parser.rs".to_string(),
+                kind: "imported_file".to_string(),
+            }],
+            ..Default::default()
+        },
+    );
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-search-memory-preferred-structural-lookup".to_string(),
+        ToolFunction {
+            name: "search_memory".to_string(),
+            arguments: serde_json::json!({
+                "query": "parser",
+                "limit": 5,
+                "include_base_markdown": false,
+                "include_operator_profile_json": false,
+                "include_operator_model_summary": false,
+                "include_thread_structural_memory": true
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "search_memory should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("search_memory should return JSON");
+    let matches = payload
+        .get("matches")
+        .and_then(|value| value.as_array())
+        .expect("search_memory should return matches");
+    assert!(matches.iter().any(|item| {
+        item.get("layer").and_then(|value| value.as_str()) == Some("thread_structural_memory")
+            && item
+                .get("snippet")
+                .and_then(|value| value.as_str())
+                .is_some_and(|snippet| {
+                    snippet.contains("Graph lookup from node:file:src/lib.rs")
+                        && snippet.contains("src/parser.rs")
+                })
+    }));
+}
+
+#[tokio::test]
 async fn search_memory_matches_thread_structural_graph_neighbors() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
