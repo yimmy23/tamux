@@ -148,10 +148,20 @@ pub(super) fn format_consolidation_dream_summary(result: &ConsolidationResult) -
         return None;
     }
 
+    let review_queue_suffix = if result.distillation_queued_for_review > 0 {
+        format!(
+            ", {} queued for review",
+            result.distillation_queued_for_review
+        )
+    } else {
+        String::new()
+    };
+
     Some(format!(
-        "Dream state: what the system considered while idle — {} thread(s), {} memory update(s), {} recurring pattern(s), {} refined fact(s), {} promoted skill(s).",
+        "Dream state: what the system considered while idle — {} thread(s), {} memory update(s){}, {} recurring pattern(s), {} refined fact(s), {} promoted skill(s).",
         result.distillation_threads_analyzed,
         result.distillation_auto_applied,
+        review_queue_suffix,
         result.forge_patterns_detected,
         result.facts_refined,
         result.skills_promoted,

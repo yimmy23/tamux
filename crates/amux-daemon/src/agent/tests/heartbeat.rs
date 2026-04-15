@@ -378,6 +378,23 @@ fn format_consolidation_dream_summary_surfaces_what_the_system_considered_while_
     assert!(output.contains("3 recurring pattern(s)"));
 }
 
+#[test]
+fn format_consolidation_dream_summary_surfaces_distillation_review_queue() {
+    let output = super::helpers::format_consolidation_dream_summary(&ConsolidationResult {
+        distillation_ran: true,
+        distillation_threads_analyzed: 3,
+        distillation_auto_applied: 1,
+        distillation_queued_for_review: 2,
+        ..Default::default()
+    })
+    .expect("dream summary should be present when distillation ran");
+
+    assert!(
+        output.contains("2 queued for review"),
+        "unexpected dream summary: {output}"
+    );
+}
+
 #[tokio::test]
 async fn heartbeat_consolidation_emits_workflow_notice_for_forge_learning_summary() {
     let root = tempdir().expect("tempdir should succeed");
