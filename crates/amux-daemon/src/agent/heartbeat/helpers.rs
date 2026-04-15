@@ -125,6 +125,20 @@ pub(super) fn format_anticipatory_items_for_heartbeat(items: &[AnticipatoryItem]
         .join("\n")
 }
 
+pub(super) fn format_consolidation_forge_summary(result: &ConsolidationResult) -> Option<String> {
+    if !result.forge_ran {
+        return None;
+    }
+
+    Some(format!(
+        "forge learned from {} traces: {} pattern(s), {} hint(s) generated, {} auto-applied.",
+        result.forge_traces_analyzed,
+        result.forge_patterns_detected,
+        result.forge_hints_generated,
+        result.forge_hints_auto_applied,
+    ))
+}
+
 pub(super) fn check_type_to_action_type(check_type: &HeartbeatCheckType) -> &'static str {
     match check_type {
         HeartbeatCheckType::StaleTodos => "stale_todo",

@@ -197,6 +197,14 @@ impl AgentEngine {
             .maybe_run_consolidation_if_idle(consolidation_budget)
             .await;
         if let Some(ref result) = consolidation_result {
+            if let Some(summary) = super::helpers::format_consolidation_forge_summary(result) {
+                let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                    thread_id: String::new(),
+                    kind: "forge".to_string(),
+                    message: "Consolidation strategy learning updated".to_string(),
+                    details: Some(summary),
+                });
+            }
             tracing::info!(
                 traces = result.traces_reviewed,
                 distillation_ran = result.distillation_ran,
