@@ -1,6 +1,7 @@
 use super::*;
 use crate::session_manager::SessionManager;
 use tempfile::tempdir;
+use tokio::time::{timeout, Duration};
 
 fn sample_task(id: &str, thread_id: Option<&str>, goal_run_id: Option<&str>) -> AgentTask {
     AgentTask {
@@ -229,6 +230,7 @@ async fn anticipatory_tick_routes_stuck_hint_to_thread_surface_with_idle_signal(
     config.anticipatory.stuck_detection = true;
     config.anticipatory.stuck_detection_delay_seconds = 1;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut events = engine.subscribe();
 
     let now = now_millis();
     let mut stale_task = sample_task("task-stale", Some("thread-surface"), None);
@@ -269,6 +271,33 @@ async fn anticipatory_tick_routes_stuck_hint_to_thread_surface_with_idle_signal(
             .any(|bullet| bullet.contains("Operator attention has been idle")),
         "idle-aware heuristics should be surfaced in the stuck hint bullets"
     );
+
+    let notice = timeout(Duration::from_millis(250), async {
+        loop {
+            match events.recv().await {
+                Ok(AgentEvent::WorkflowNotice {
+                    kind,
+                    thread_id,
+                    message,
+                    details,
+                }) => {
+                    break (kind, thread_id, message, details);
+                }
+                Ok(_) => continue,
+                Err(error) => panic!("expected workflow notice, got event error: {error}"),
+            }
+        }
+    })
+    .await
+    .expect("thread-targeted anticipatory notice should arrive");
+
+    assert_eq!(notice.0, "anticipatory");
+    assert_eq!(notice.1, "thread-surface");
+    assert!(notice.2.contains("Task May Be Stuck"));
+    assert!(notice
+        .3
+        .as_deref()
+        .is_some_and(|details| details.contains("Operator attention has been idle")));
 }
 
 #[tokio::test]
@@ -445,11 +474,10 @@ async fn anticipatory_tick_surfaces_intent_prediction_for_repo_change_context() 
         .expect("expected an intent prediction item");
     assert_eq!(item.thread_id.as_deref(), Some("thread-repo-intent"));
     assert!(item.summary.contains("inspect or test recent repo changes"));
-    assert!(
-        item.bullets
-            .iter()
-            .any(|bullet| bullet.contains("repo-linked"))
-    );
+    assert!(item
+        .bullets
+        .iter()
+        .any(|bullet| bullet.contains("repo-linked")));
 }
 
 #[tokio::test]
@@ -473,15 +501,13 @@ async fn strained_satisfaction_suppresses_intent_prediction() {
 
     engine.run_anticipatory_tick().await;
 
-    assert!(
-        engine
-            .anticipatory
-            .read()
-            .await
-            .items
-            .iter()
-            .all(|item| item.kind != "intent_prediction")
-    );
+    assert!(engine
+        .anticipatory
+        .read()
+        .await
+        .items
+        .iter()
+        .all(|item| item.kind != "intent_prediction"));
 }
 
 #[tokio::test]
@@ -586,11 +612,10 @@ async fn intent_prediction_includes_cached_prewarm_summary_when_available() {
         .into_iter()
         .find(|candidate| candidate.kind == "intent_prediction")
         .expect("expected an intent prediction item");
-    assert!(
-        item.bullets
-            .iter()
-            .any(|bullet| bullet.contains("Cached prewarm:"))
-    );
+    assert!(item
+        .bullets
+        .iter()
+        .any(|bullet| bullet.contains("Cached prewarm:")));
 }
 
 #[tokio::test]
@@ -663,21 +688,18 @@ async fn anticipatory_tick_surfaces_persisted_system_outcome_foresight_for_build
     assert_eq!(item.thread_id.as_deref(), Some("thread-build-risk"));
     assert!(item.summary.contains("build/test failure risk"));
     assert!(item.confidence >= 0.7);
-    assert!(
-        item.bullets
-            .iter()
-            .any(|bullet| bullet.contains("prediction_type=build_test_risk"))
-    );
-    assert!(
-        item.bullets
-            .iter()
-            .any(|bullet| bullet.contains("recent cargo test failed"))
-    );
-    assert!(
-        item.bullets
-            .iter()
-            .any(|bullet| bullet.contains("dirty repo state"))
-    );
+    assert!(item
+        .bullets
+        .iter()
+        .any(|bullet| bullet.contains("prediction_type=build_test_risk")));
+    assert!(item
+        .bullets
+        .iter()
+        .any(|bullet| bullet.contains("recent cargo test failed")));
+    assert!(item
+        .bullets
+        .iter()
+        .any(|bullet| bullet.contains("dirty repo state")));
 }
 
 #[tokio::test]
@@ -889,19 +911,16 @@ async fn anticipatory_tick_surfaces_stale_context_foresight_when_hydration_lags_
     assert_eq!(item.thread_id.as_deref(), Some("thread-stale-context"));
     assert!(item.summary.contains("stale context"));
     assert!(item.confidence >= 0.7);
-    assert!(
-        item.bullets
-            .iter()
-            .any(|bullet| bullet.contains("prediction_type=stale_context"))
-    );
-    assert!(
-        item.bullets
-            .iter()
-            .any(|bullet| bullet.contains("hydration age"))
-    );
-    assert!(
-        item.bullets
-            .iter()
-            .any(|bullet| bullet.contains("semantic alignment degraded"))
-    );
+    assert!(item
+        .bullets
+        .iter()
+        .any(|bullet| bullet.contains("prediction_type=stale_context")));
+    assert!(item
+        .bullets
+        .iter()
+        .any(|bullet| bullet.contains("hydration age")));
+    assert!(item
+        .bullets
+        .iter()
+        .any(|bullet| bullet.contains("semantic alignment degraded")));
 }
