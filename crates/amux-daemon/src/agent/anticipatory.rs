@@ -16,6 +16,15 @@ pub(super) struct AnticipatoryPrewarmSnapshot {
     pub summary: String,
 }
 
+#[derive(Debug, Clone)]
+struct SystemForesight {
+    prediction_type: &'static str,
+    confidence: f64,
+    rationale: String,
+    bullets: Vec<String>,
+    thread_id: Option<String>,
+}
+
 #[derive(Debug, Default)]
 pub(super) struct AnticipatoryRuntime {
     pub items: Vec<AnticipatoryItem>,
@@ -227,6 +236,16 @@ impl AgentEngine {
         if settings.stuck_detection {
             if should_surface_anticipatory_kind("stuck_hint", attention_surface.as_deref()) {
                 if let Some(item) = self.compute_stuck_hint(settings).await {
+                    items.push(item);
+                }
+            }
+        }
+        if adaptation_mode != AnticipatoryAdaptationMode::Minimal {
+            if should_surface_anticipatory_kind(
+                "system_outcome_foresight",
+                attention_surface.as_deref(),
+            ) {
+                if let Some(item) = self.compute_system_outcome_foresight(settings).await {
                     items.push(item);
                 }
             }
@@ -616,6 +635,109 @@ impl AgentEngine {
             preferred_attention_surface: route.preferred_attention_surface,
             created_at: now_millis(),
             updated_at: now_millis(),
+        })
+    }
+
+    async fn predict_system_outcome(&self) -> Option<SystemForesight> {
+        let thread_id = self.current_attention_target().await;
+        let thread_context = {
+            let contexts = self.thread_work_contexts.read().await;
+            thread_id
+                .as_ref()
+                .and_then(|value| contexts.get(value).cloned())
+        }?;
+
+        let repo_root = thread_context
+            .entries
+            .iter()
+            .filter(|entry| entry.kind == WorkContextEntryKind::RepoChange)
+            .filter_map(|entry| entry.repo_root.clone())
+            .next()?;
+        let git = crate::git::get_git_status(&repo_root);
+        let now = now_millis();
+        let recent_health = self.history.list_health_log(8).await.unwrap_or_default();
+        let recent_cargo_failure = recent_health.into_iter().find(|entry| {
+            now.saturating_sub(entry.6) <= RECENT_HEALTH_WINDOW_MS
+                && entry.3 != "healthy"
+                && entry
+                    .5
+                    .as_deref()
+                    .is_some_and(|text| text.contains("cargo test failed"))
+        });
+
+        if recent_cargo_failure.is_none() {
+            return None;
+        }
+
+        let (_, _, _, health_state, _, intervention, _) =
+            recent_cargo_failure.expect("checked is_some above");
+        let mut bullets = vec![
+            "prediction_type=build_test_risk".to_string(),
+            format!(
+                "dirty repo state: modified={} staged={} untracked={}",
+                git.modified, git.staged, git.untracked
+            ),
+        ];
+        if let Some(intervention) = intervention {
+            bullets.push(intervention);
+        }
+        bullets.push(format!(
+            "recent health state={} suggests the last cargo verification degraded",
+            health_state
+        ));
+
+        Some(SystemForesight {
+            prediction_type: "build_test_risk",
+            confidence: 0.78,
+            rationale:
+                "Dirty repo context overlaps with a recent cargo failure, so another build/test failure is likely until the changes are verified."
+                    .to_string(),
+            bullets,
+            thread_id,
+        })
+    }
+
+    async fn compute_system_outcome_foresight(
+        &self,
+        settings: &AnticipatoryConfig,
+    ) -> Option<AnticipatoryItem> {
+        let now = now_millis();
+        let foresight = self.predict_system_outcome().await?;
+        if foresight.confidence < settings.surfacing_min_confidence {
+            return None;
+        }
+
+        let route = self
+            .resolve_anticipatory_route(
+                "system_outcome_foresight",
+                None,
+                foresight.thread_id.as_deref(),
+            )
+            .await;
+        Some(AnticipatoryItem {
+            id: format!(
+                "system_outcome_foresight_{}",
+                foresight
+                    .thread_id
+                    .clone()
+                    .unwrap_or_else(|| "global".to_string())
+            ),
+            kind: "system_outcome_foresight".to_string(),
+            title: "System Outcome Foresight".to_string(),
+            summary: format!(
+                "Predicted {}: build/test failure risk is elevated",
+                foresight.prediction_type.replace('_', "/")
+            ),
+            bullets: std::iter::once(format!("rationale: {}", foresight.rationale))
+                .chain(foresight.bullets.into_iter())
+                .collect(),
+            confidence: foresight.confidence,
+            goal_run_id: None,
+            thread_id: foresight.thread_id,
+            preferred_client_surface: route.preferred_client_surface,
+            preferred_attention_surface: route.preferred_attention_surface,
+            created_at: now,
+            updated_at: now,
         })
     }
 

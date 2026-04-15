@@ -445,10 +445,11 @@ async fn anticipatory_tick_surfaces_intent_prediction_for_repo_change_context() 
         .expect("expected an intent prediction item");
     assert_eq!(item.thread_id.as_deref(), Some("thread-repo-intent"));
     assert!(item.summary.contains("inspect or test recent repo changes"));
-    assert!(item
-        .bullets
-        .iter()
-        .any(|bullet| bullet.contains("repo-linked")));
+    assert!(
+        item.bullets
+            .iter()
+            .any(|bullet| bullet.contains("repo-linked"))
+    );
 }
 
 #[tokio::test]
@@ -472,13 +473,15 @@ async fn strained_satisfaction_suppresses_intent_prediction() {
 
     engine.run_anticipatory_tick().await;
 
-    assert!(engine
-        .anticipatory
-        .read()
-        .await
-        .items
-        .iter()
-        .all(|item| item.kind != "intent_prediction"));
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .items
+            .iter()
+            .all(|item| item.kind != "intent_prediction")
+    );
 }
 
 #[tokio::test]
@@ -583,8 +586,96 @@ async fn intent_prediction_includes_cached_prewarm_summary_when_available() {
         .into_iter()
         .find(|candidate| candidate.kind == "intent_prediction")
         .expect("expected an intent prediction item");
-    assert!(item
-        .bullets
-        .iter()
-        .any(|bullet| bullet.contains("Cached prewarm:")));
+    assert!(
+        item.bullets
+            .iter()
+            .any(|bullet| bullet.contains("Cached prewarm:"))
+    );
+}
+
+#[tokio::test]
+async fn anticipatory_tick_surfaces_persisted_system_outcome_foresight_for_build_risk() {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-build-risk");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-build-risk"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-build-risk".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-build-risk".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn broken() {}\n").unwrap();
+    engine
+        .history
+        .insert_health_log(
+            "health-build-risk",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis(),
+        )
+        .await
+        .expect("save health log");
+
+    engine.run_anticipatory_tick().await;
+
+    let items = engine.anticipatory.read().await.items.clone();
+    let item = items
+        .into_iter()
+        .find(|candidate| candidate.kind == "system_outcome_foresight")
+        .expect("expected a system-outcome foresight item");
+    assert_eq!(item.thread_id.as_deref(), Some("thread-build-risk"));
+    assert!(item.summary.contains("build/test failure risk"));
+    assert!(item.confidence >= 0.7);
+    assert!(
+        item.bullets
+            .iter()
+            .any(|bullet| bullet.contains("prediction_type=build_test_risk"))
+    );
+    assert!(
+        item.bullets
+            .iter()
+            .any(|bullet| bullet.contains("recent cargo test failed"))
+    );
+    assert!(
+        item.bullets
+            .iter()
+            .any(|bullet| bullet.contains("dirty repo state"))
+    );
 }
