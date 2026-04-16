@@ -8,6 +8,8 @@ mod part4;
 include!("part5.rs");
 include!("part6.rs");
 include!("part7.rs");
+include!("part8.rs");
+include!("part9.rs");
 
 fn current_dir_test_lock() -> &'static std::sync::Mutex<()> {
     static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();

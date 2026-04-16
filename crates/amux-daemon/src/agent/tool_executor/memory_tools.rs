@@ -129,6 +129,108 @@ struct MemorySearchCandidate {
     freshness_status: &'static str,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct MemoryGraphPathStep {
+    node_id: String,
+    label: String,
+    node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    relation_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    weight: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct ThreadMemoryGraphNeighbor {
+    node: crate::history::MemoryNodeRow,
+    via_edge: crate::history::MemoryEdgeRow,
+    path: Vec<MemoryGraphPathStep>,
+}
+
+impl ThreadMemoryGraphNeighbor {
+    fn hop_count(&self) -> usize {
+        self.path.len().saturating_sub(1)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MemoryGraphFrontierEntry {
+    node_id: String,
+    path: Vec<MemoryGraphPathStep>,
+    last_edge_weight: Option<f64>,
+}
+
+fn inferred_memory_graph_node_type(node_id: &str) -> String {
+    node_id
+        .strip_prefix("node:")
+        .and_then(|value| value.split(':').next())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn inferred_memory_graph_node_label(node_id: &str) -> String {
+    if let Some(path) = node_id.strip_prefix("node:file:") {
+        return path.to_string();
+    }
+    node_id.rsplit(':').next().unwrap_or(node_id).to_string()
+}
+
+fn seed_memory_graph_path_step(node_id: &str) -> MemoryGraphPathStep {
+    MemoryGraphPathStep {
+        node_id: node_id.to_string(),
+        label: inferred_memory_graph_node_label(node_id),
+        node_type: inferred_memory_graph_node_type(node_id),
+        relation_type: None,
+        weight: None,
+    }
+}
+
+fn memory_graph_path_step_from_neighbor(
+    row: &crate::history::MemoryGraphNeighborRow,
+) -> MemoryGraphPathStep {
+    MemoryGraphPathStep {
+        node_id: row.node.id.clone(),
+        label: row.node.label.clone(),
+        node_type: row.node.node_type.clone(),
+        relation_type: Some(row.via_edge.relation_type.clone()),
+        weight: Some(row.via_edge.weight),
+    }
+}
+
+fn memory_graph_path_summary(path: &[MemoryGraphPathStep]) -> String {
+    let Some(first) = path.first() else {
+        return String::new();
+    };
+    let mut summary = first.label.clone();
+    for step in path.iter().skip(1) {
+        let relation = step
+            .relation_type
+            .as_deref()
+            .unwrap_or("related_to")
+            .replace('_', " ");
+        summary.push_str(&format!(" --{}--> {}", relation, step.label));
+    }
+    summary
+}
+
+fn upsert_memory_graph_frontier_entry(
+    frontier: &mut Vec<MemoryGraphFrontierEntry>,
+    candidate: MemoryGraphFrontierEntry,
+) {
+    if let Some(existing) = frontier
+        .iter_mut()
+        .find(|existing| existing.node_id == candidate.node_id)
+    {
+        let existing_weight = existing.last_edge_weight.unwrap_or(f64::NEG_INFINITY);
+        let candidate_weight = candidate.last_edge_weight.unwrap_or(f64::NEG_INFINITY);
+        if candidate_weight > existing_weight {
+            *existing = candidate;
+        }
+        return;
+    }
+    frontier.push(candidate);
+}
+
 fn parse_bool_arg(args: &serde_json::Value, key: &str, default: bool) -> Result<bool> {
     match args.get(key) {
         Some(value) => value
@@ -174,7 +276,11 @@ fn parse_memory_read_request(
         include_already_injected: parse_bool_arg(args, "include_already_injected", false)?,
         include_base_markdown: parse_bool_arg(args, "include_base_markdown", true)?,
         include_operator_profile_json: parse_bool_arg(args, "include_operator_profile_json", true)?,
-        include_operator_model_summary: parse_bool_arg(args, "include_operator_model_summary", true)?,
+        include_operator_model_summary: parse_bool_arg(
+            args,
+            "include_operator_model_summary",
+            true,
+        )?,
         include_thread_structural_memory: parse_bool_arg(
             args,
             "include_thread_structural_memory",
@@ -202,7 +308,11 @@ fn parse_memory_search_request(
         include_already_injected: parse_bool_arg(args, "include_already_injected", false)?,
         include_base_markdown: parse_bool_arg(args, "include_base_markdown", true)?,
         include_operator_profile_json: parse_bool_arg(args, "include_operator_profile_json", true)?,
-        include_operator_model_summary: parse_bool_arg(args, "include_operator_model_summary", true)?,
+        include_operator_model_summary: parse_bool_arg(
+            args,
+            "include_operator_model_summary",
+            true,
+        )?,
         include_thread_structural_memory: parse_bool_arg(
             args,
             "include_thread_structural_memory",
@@ -248,9 +358,7 @@ fn requested_task_id(args: &serde_json::Value) -> Result<Option<String>> {
 
 fn file_updated_at_ms(path: &std::path::Path) -> Option<u64> {
     let modified = std::fs::metadata(path).ok()?.modified().ok()?;
-    let duration = modified
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?;
+    let duration = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
     Some(duration.as_millis() as u64)
 }
 
@@ -292,12 +400,14 @@ fn injected_scope_base_layer_state(
             state.memory_markdown_hash.clone(),
             state.memory_markdown_updated_at_ms,
         ),
-        (MemoryReadScope::User, Some(state)) => {
-            (state.user_markdown_hash.clone(), state.user_markdown_updated_at_ms)
-        }
-        (MemoryReadScope::Soul, Some(state)) => {
-            (state.soul_markdown_hash.clone(), state.soul_markdown_updated_at_ms)
-        }
+        (MemoryReadScope::User, Some(state)) => (
+            state.user_markdown_hash.clone(),
+            state.user_markdown_updated_at_ms,
+        ),
+        (MemoryReadScope::Soul, Some(state)) => (
+            state.soul_markdown_hash.clone(),
+            state.soul_markdown_updated_at_ms,
+        ),
         (_, None) => (None, None),
     }
 }
@@ -356,7 +466,11 @@ fn search_freshness_status(
     "fresh"
 }
 
-fn score_memory_search_candidate(query_lower: &str, tokens: &[String], haystack: &str) -> Option<u32> {
+fn score_memory_search_candidate(
+    query_lower: &str,
+    tokens: &[String],
+    haystack: &str,
+) -> Option<u32> {
     let normalized = haystack.to_ascii_lowercase();
     let mut score = 0u32;
 
@@ -395,14 +509,10 @@ fn collect_base_markdown_candidates(
     injected_updated_at_ms: Option<u64>,
 ) -> bool {
     let mut truncated = false;
-    for (index, line) in content
-        .lines()
-        .enumerate()
-        .filter_map(|(index, line)| {
-            let trimmed = line.trim();
-            (!trimmed.is_empty()).then_some((index, trimmed))
-        })
-    {
+    for (index, line) in content.lines().enumerate().filter_map(|(index, line)| {
+        let trimmed = line.trim();
+        (!trimmed.is_empty()).then_some((index, trimmed))
+    }) {
         if candidates.len() >= MEMORY_SEARCH_MAX_CANDIDATES_PER_LAYER {
             truncated = true;
             break;
@@ -432,14 +542,10 @@ fn collect_operator_model_candidates(
     updated_at_ms: Option<u64>,
 ) -> bool {
     let mut truncated = false;
-    for (index, line) in content
-        .lines()
-        .enumerate()
-        .filter_map(|(index, line)| {
-            let trimmed = line.trim();
-            (!trimmed.is_empty()).then_some((index, trimmed))
-        })
-    {
+    for (index, line) in content.lines().enumerate().filter_map(|(index, line)| {
+        let trimmed = line.trim();
+        (!trimmed.is_empty()).then_some((index, trimmed))
+    }) {
         if candidates.len() >= MEMORY_SEARCH_MAX_CANDIDATES_PER_LAYER {
             truncated = true;
             break;
@@ -571,7 +677,10 @@ fn collect_thread_structural_candidates(
 
     let entries = structural_memory.concise_context_entries(&[], usize::MAX);
     let entries_truncated = entries.len() > MEMORY_SEARCH_MAX_CANDIDATES_PER_LAYER;
-    for entry in entries.into_iter().take(MEMORY_SEARCH_MAX_CANDIDATES_PER_LAYER) {
+    for entry in entries
+        .into_iter()
+        .take(MEMORY_SEARCH_MAX_CANDIDATES_PER_LAYER)
+    {
         candidates.push(MemorySearchCandidate {
             layer: "thread_structural_memory",
             source: entry.node_id,
@@ -598,8 +707,7 @@ fn preferred_thread_structural_refs_for_query(
         .into_iter()
         .filter(|entry| {
             let haystack = format!("{} {}", entry.node_id, entry.summary).to_ascii_lowercase();
-            haystack.contains(&query_lower)
-                || tokens.iter().all(|token| haystack.contains(token))
+            haystack.contains(&query_lower) || tokens.iter().all(|token| haystack.contains(token))
         })
         .map(|entry| entry.node_id)
         .take(limit)
@@ -642,46 +750,77 @@ async fn load_thread_memory_graph_neighbors(
     agent: &AgentEngine,
     structural_memory: &crate::agent::context::structural_memory::ThreadStructuralMemory,
     limit: usize,
-) -> Result<Vec<crate::history::MemoryGraphNeighborRow>> {
+) -> Result<Vec<ThreadMemoryGraphNeighbor>> {
     let structural_refs = structural_memory
         .concise_context_entries(&[], limit)
         .into_iter()
         .map(|entry| entry.node_id)
         .collect::<Vec<_>>();
     let mut neighbors = Vec::new();
-    let mut frontier = structural_refs.clone();
+    let mut frontier = structural_refs
+        .iter()
+        .map(|node_id| MemoryGraphFrontierEntry {
+            node_id: node_id.clone(),
+            path: vec![seed_memory_graph_path_step(node_id)],
+            last_edge_weight: None,
+        })
+        .collect::<Vec<_>>();
 
     for _depth in 0..3 {
         let current_frontier = frontier;
         frontier = Vec::new();
-        for node_id in current_frontier.into_iter().take(limit) {
+        for frontier_entry in current_frontier.into_iter().take(limit) {
             let remaining = limit.saturating_sub(neighbors.len());
             if remaining == 0 {
                 break;
             }
             let rows = agent
                 .history
-                .list_memory_graph_neighbors(&node_id, remaining)
+                .list_memory_graph_neighbors(&frontier_entry.node_id, remaining)
                 .await?;
             for row in rows {
-                if structural_refs.iter().any(|existing| existing == &row.node.id) {
+                if structural_refs
+                    .iter()
+                    .any(|existing| existing == &row.node.id)
+                {
                     continue;
                 }
-                if let Some(existing) = neighbors
-                    .iter_mut()
-                    .find(|existing: &&mut crate::history::MemoryGraphNeighborRow| {
-                        existing.node.id == row.node.id
-                    })
+                let mut path = frontier_entry.path.clone();
+                path.push(memory_graph_path_step_from_neighbor(&row));
+                let candidate = ThreadMemoryGraphNeighbor {
+                    node: row.node.clone(),
+                    via_edge: row.via_edge.clone(),
+                    path: path.clone(),
+                };
+                if let Some(existing) =
+                    neighbors
+                        .iter_mut()
+                        .find(|existing: &&mut ThreadMemoryGraphNeighbor| {
+                            existing.node.id == row.node.id
+                        })
                 {
                     if row.via_edge.weight > existing.via_edge.weight {
-                        *existing = row;
+                        *existing = candidate.clone();
+                        upsert_memory_graph_frontier_entry(
+                            &mut frontier,
+                            MemoryGraphFrontierEntry {
+                                node_id: candidate.node.id.clone(),
+                                path,
+                                last_edge_weight: Some(candidate.via_edge.weight),
+                            },
+                        );
                     }
                     continue;
                 }
-                if !frontier.iter().any(|existing| existing == &row.node.id) {
-                    frontier.push(row.node.id.clone());
-                }
-                neighbors.push(row);
+                upsert_memory_graph_frontier_entry(
+                    &mut frontier,
+                    MemoryGraphFrontierEntry {
+                        node_id: candidate.node.id.clone(),
+                        path,
+                        last_edge_weight: Some(candidate.via_edge.weight),
+                    },
+                );
+                neighbors.push(candidate);
                 if neighbors.len() >= limit {
                     break;
                 }
@@ -697,25 +836,48 @@ async fn load_thread_memory_graph_neighbors(
             .weight
             .partial_cmp(&left.via_edge.weight)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then(right.via_edge.last_updated_ms.cmp(&left.via_edge.last_updated_ms))
+            .then(
+                right
+                    .via_edge
+                    .last_updated_ms
+                    .cmp(&left.via_edge.last_updated_ms),
+            )
             .then(left.node.id.cmp(&right.node.id))
     });
     Ok(neighbors)
 }
 
-fn memory_graph_neighbor_snippet(row: &crate::history::MemoryGraphNeighborRow) -> String {
+fn memory_graph_neighbor_snippet(row: &ThreadMemoryGraphNeighbor) -> String {
     let relation = row.via_edge.relation_type.replace('_', " ");
     let summary = row
         .node
         .summary_text
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
+        .filter(|value: &&str| !value.trim().is_empty())
         .map(|value| format!(" — {}", value))
         .unwrap_or_default();
+    let path_summary = if row.hop_count() > 1 {
+        format!("; path: {}", memory_graph_path_summary(&row.path))
+    } else {
+        String::new()
+    };
     format!(
-        "Graph neighbor: {} ({}) via {}{}",
-        row.node.label, row.node.node_type, relation, summary
+        "Graph neighbor: {} ({}) via {}{}{}",
+        row.node.label, row.node.node_type, relation, summary, path_summary
     )
+}
+
+fn memory_graph_neighbor_metadata(row: &ThreadMemoryGraphNeighbor) -> serde_json::Value {
+    serde_json::json!({
+        "node_id": row.node.id,
+        "label": row.node.label,
+        "node_type": row.node.node_type,
+        "relation_type": row.via_edge.relation_type,
+        "summary": memory_graph_neighbor_snippet(row),
+        "hop_count": row.hop_count(),
+        "path_summary": memory_graph_path_summary(&row.path),
+        "path": row.path,
+    })
 }
 
 fn rank_memory_search_matches(
@@ -786,7 +948,11 @@ async fn task_or_current_scope_id(
         if let Some(active_agent_id) = agent.active_agent_id_for_thread(thread_id).await {
             return Ok(active_agent_id);
         }
-        if agent.get_thread_memory_injection_state(thread_id).await.is_some() {
+        if agent
+            .get_thread_memory_injection_state(thread_id)
+            .await
+            .is_some()
+        {
             return Ok(crate::agent::agent_identity::MAIN_AGENT_ID.to_string());
         }
         if agent.get_thread(thread_id).await.is_some() {
@@ -810,8 +976,12 @@ async fn execute_memory_read_tool(
     let scope_id = task_or_current_scope_id(agent, thread_id, task_id).await?;
     let memory = crate::agent::memory::load_memory_for_scope(agent_data_dir, &scope_id).await?;
     let memory_paths = crate::agent::task_prompt::memory_paths_for_scope(agent_data_dir, &scope_id);
-    let summary =
-        crate::agent::memory_context::build_structured_memory_summary(&memory, &memory_paths, None, None);
+    let summary = crate::agent::memory_context::build_structured_memory_summary(
+        &memory,
+        &memory_paths,
+        None,
+        None,
+    );
     let injection_state = match effective_thread_id {
         Some(thread_id) => agent.get_thread_memory_injection_state(thread_id).await,
         None => None,
@@ -839,9 +1009,8 @@ async fn execute_memory_read_tool(
     let mut results = serde_json::Map::new();
 
     if request.include_base_markdown {
-        let should_skip_base_markdown = base_layer_injected
-            && !base_layer_stale
-            && !request.include_already_injected;
+        let should_skip_base_markdown =
+            base_layer_injected && !base_layer_stale && !request.include_already_injected;
         if should_skip_base_markdown {
             layers_skipped.push(MemoryReadSkippedLayer {
                 layer: "base_markdown".to_string(),
@@ -904,7 +1073,9 @@ async fn execute_memory_read_tool(
             None => None,
         } {
             let entries = structural_memory.concise_context_entries(&[], request.limit_per_layer);
-            let total_structural_entries = structural_memory.concise_context_entries(&[], usize::MAX).len();
+            let total_structural_entries = structural_memory
+                .concise_context_entries(&[], usize::MAX)
+                .len();
             let total_language_hints = structural_memory.language_hints.len();
             let language_hints = structural_memory
                 .language_hints
@@ -943,13 +1114,7 @@ async fn execute_memory_read_tool(
                         .collect::<Vec<_>>(),
                     "graph_neighbors": graph_neighbors
                         .into_iter()
-                        .map(|row| serde_json::json!({
-                            "node_id": row.node.id,
-                            "label": row.node.label,
-                            "node_type": row.node.node_type,
-                            "relation_type": row.via_edge.relation_type,
-                            "summary": memory_graph_neighbor_snippet(&row),
-                        }))
+                        .map(|row| memory_graph_neighbor_metadata(&row))
                         .collect::<Vec<_>>(),
                 }),
             );
@@ -1054,8 +1219,12 @@ async fn execute_memory_search_tool(
     let scope_id = task_or_current_scope_id(agent, thread_id, task_id).await?;
     let memory = crate::agent::memory::load_memory_for_scope(agent_data_dir, &scope_id).await?;
     let memory_paths = crate::agent::task_prompt::memory_paths_for_scope(agent_data_dir, &scope_id);
-    let summary =
-        crate::agent::memory_context::build_structured_memory_summary(&memory, &memory_paths, None, None);
+    let summary = crate::agent::memory_context::build_structured_memory_summary(
+        &memory,
+        &memory_paths,
+        None,
+        None,
+    );
     let injection_state = match effective_thread_id {
         Some(thread_id) => agent.get_thread_memory_injection_state(thread_id).await,
         None => None,
@@ -1084,9 +1253,8 @@ async fn execute_memory_search_tool(
     let mut thread_structural_memory_metadata = None;
 
     if request.include_base_markdown {
-        let should_skip_base_markdown = base_layer_injected
-            && !base_layer_stale
-            && !request.include_already_injected;
+        let should_skip_base_markdown =
+            base_layer_injected && !base_layer_stale && !request.include_already_injected;
         if should_skip_base_markdown {
             layers_skipped.push(MemoryReadSkippedLayer {
                 layer: "base_markdown".to_string(),
@@ -1158,8 +1326,10 @@ async fn execute_memory_search_tool(
             None => None,
         } {
             let mut structural_candidates = Vec::new();
-            collection_truncated |=
-                collect_thread_structural_candidates(&mut structural_candidates, structural_memory.clone());
+            collection_truncated |= collect_thread_structural_candidates(
+                &mut structural_candidates,
+                structural_memory.clone(),
+            );
             let preferred_refs = preferred_thread_structural_refs_for_query(
                 &structural_memory,
                 &request.query,
@@ -1179,15 +1349,7 @@ async fn execute_memory_search_tool(
             .await?;
             let graph_neighbors_metadata = graph_neighbors
                 .iter()
-                .map(|row| {
-                    serde_json::json!({
-                        "node_id": row.node.id,
-                        "label": row.node.label,
-                        "node_type": row.node.node_type,
-                        "relation_type": row.via_edge.relation_type,
-                        "summary": memory_graph_neighbor_snippet(row),
-                    })
-                })
+                .map(memory_graph_neighbor_metadata)
                 .collect::<Vec<_>>();
             if !preferred_refs.is_empty() || !graph_neighbors_metadata.is_empty() {
                 thread_structural_memory_metadata = Some(serde_json::json!({
@@ -1195,7 +1357,10 @@ async fn execute_memory_search_tool(
                     "graph_neighbors": graph_neighbors_metadata,
                 }));
             }
-            for row in graph_neighbors.into_iter().take(MEMORY_SEARCH_MAX_CANDIDATES_PER_LAYER) {
+            for row in graph_neighbors
+                .into_iter()
+                .take(MEMORY_SEARCH_MAX_CANDIDATES_PER_LAYER)
+            {
                 structural_candidates.push(MemorySearchCandidate {
                     layer: "thread_structural_memory",
                     source: row.node.id.clone(),
