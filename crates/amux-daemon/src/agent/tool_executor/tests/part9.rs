@@ -292,6 +292,371 @@ async fn fetch_url_openapi_spec_emits_activate_notice_when_equivalent_generated_
 }
 
 #[tokio::test]
+async fn fetch_url_openapi_spec_emits_reuse_notice_when_equivalent_generated_tool_is_active() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind openapi spec server");
+    let addr = listener.local_addr().expect("openapi spec local addr");
+    let spec_body = serde_json::json!({
+        "openapi": "3.0.0",
+        "servers": [{"url": format!("http://{addr}")}],
+        "paths": {
+            "/status": {
+                "get": {
+                    "operationId": "getStatus",
+                    "summary": "Fetch status"
+                }
+            }
+        }
+    })
+    .to_string();
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let spec_body = spec_body.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 8192];
+                let _ = socket.read(&mut buffer).await.expect("read spec request");
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    spec_body.len(),
+                    spec_body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write spec response");
+            });
+        }
+    });
+
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    config.extra.insert(
+        "browse_provider".to_string(),
+        serde_json::Value::String("none".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+
+    let spec_url = format!("http://{addr}/openapi.json");
+    let synth = engine
+        .synthesize_tool_json(
+            &serde_json::json!({
+                "kind": "openapi",
+                "target": spec_url,
+                "operation_id": "getStatus",
+                "name": "getstatus",
+                "activate": false,
+            })
+            .to_string(),
+        )
+        .await
+        .expect("synthesize generated OpenAPI tool");
+    let record: serde_json::Value = serde_json::from_str(&synth).expect("parse synth record");
+    let tool_name = record
+        .get("id")
+        .and_then(|value| value.as_str())
+        .expect("generated tool id");
+    engine
+        .activate_generated_tool_json(tool_name)
+        .await
+        .expect("activate generated OpenAPI tool");
+
+    let result = execute_tool(
+        &ToolCall {
+            id: "call-fetch-openapi-existing-active".to_string(),
+            function: ToolFunction {
+                name: "fetch_url".to_string(),
+                arguments: serde_json::json!({
+                    "url": format!("http://{addr}/openapi.json"),
+                    "max_length": 10_000,
+                })
+                .to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-openapi-gap-existing-active",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "fetch_url should succeed: {}",
+        result.content
+    );
+
+    let notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected existing-tool status notice")
+        .expect("workflow notice should be received");
+    match notice {
+        AgentEvent::WorkflowNotice {
+            kind,
+            message,
+            details: Some(details),
+            ..
+        } => {
+            assert_eq!(kind, "tool-synthesis-proposal");
+            assert!(message.contains("already active"));
+            let details: serde_json::Value =
+                serde_json::from_str(&details).expect("notice details should be json");
+            assert_eq!(
+                details.get("reason").and_then(|value| value.as_str()),
+                Some("existing_equivalent_generated_tool")
+            );
+            assert_eq!(
+                details
+                    .get("source_reason")
+                    .and_then(|value| value.as_str()),
+                Some("fetched_openapi_get_gap")
+            );
+            assert_eq!(
+                details
+                    .get("recommended_action")
+                    .and_then(|value| value.as_str()),
+                Some("use_existing_generated_tool")
+            );
+            assert_eq!(
+                details
+                    .get("proposal_kind")
+                    .and_then(|value| value.as_str()),
+                Some("openapi")
+            );
+            assert_eq!(
+                details
+                    .get("existing_tool")
+                    .and_then(|value| value.get("status"))
+                    .and_then(|value| value.as_str()),
+                Some("active")
+            );
+            assert_eq!(
+                details.get("target").and_then(|value| value.as_str()),
+                Some(spec_url.as_str())
+            );
+        }
+        other => panic!("expected workflow notice, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn fetch_url_openapi_spec_updates_existing_tool_notice_after_status_transition() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind openapi spec server");
+    let addr = listener.local_addr().expect("openapi spec local addr");
+    let spec_body = serde_json::json!({
+        "openapi": "3.0.0",
+        "servers": [{"url": format!("http://{addr}")}],
+        "paths": {
+            "/status": {
+                "get": {
+                    "operationId": "getStatus",
+                    "summary": "Fetch status"
+                }
+            }
+        }
+    })
+    .to_string();
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let spec_body = spec_body.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 8192];
+                let _ = socket.read(&mut buffer).await.expect("read spec request");
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    spec_body.len(),
+                    spec_body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write spec response");
+            });
+        }
+    });
+
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    config.extra.insert(
+        "browse_provider".to_string(),
+        serde_json::Value::String("none".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(16);
+
+    let spec_url = format!("http://{addr}/openapi.json");
+    let synth = engine
+        .synthesize_tool_json(
+            &serde_json::json!({
+                "kind": "openapi",
+                "target": spec_url,
+                "operation_id": "getStatus",
+                "name": "getstatus",
+                "activate": false,
+            })
+            .to_string(),
+        )
+        .await
+        .expect("synthesize generated OpenAPI tool");
+    let record: serde_json::Value = serde_json::from_str(&synth).expect("parse synth record");
+    let tool_name = record
+        .get("id")
+        .and_then(|value| value.as_str())
+        .expect("generated tool id");
+
+    // First fetch should notice the equivalent NEW tool and recommend activation.
+    let first_result = execute_tool(
+        &ToolCall {
+            id: "call-fetch-openapi-existing-status-new".to_string(),
+            function: ToolFunction {
+                name: "fetch_url".to_string(),
+                arguments: serde_json::json!({
+                    "url": format!("http://{addr}/openapi.json"),
+                    "max_length": 10_000,
+                })
+                .to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-openapi-gap-status-transition",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !first_result.is_error,
+        "first fetch_url should succeed: {}",
+        first_result.content
+    );
+
+    let first_notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected first existing-tool status notice")
+        .expect("workflow notice should be received");
+    match first_notice {
+        AgentEvent::WorkflowNotice {
+            details: Some(details),
+            ..
+        } => {
+            let details: serde_json::Value =
+                serde_json::from_str(&details).expect("notice details should be json");
+            assert_eq!(
+                details
+                    .get("recommended_action")
+                    .and_then(|value| value.as_str()),
+                Some("activate_generated_tool")
+            );
+            assert_eq!(
+                details
+                    .get("existing_tool")
+                    .and_then(|value| value.get("status"))
+                    .and_then(|value| value.as_str()),
+                Some("new")
+            );
+        }
+        other => panic!("expected first workflow notice, got {other:?}"),
+    }
+
+    // Transition status to active.
+    engine
+        .activate_generated_tool_json(tool_name)
+        .await
+        .expect("activate generated OpenAPI tool");
+
+    // Second fetch on the SAME thread should surface updated reuse guidance.
+    let second_result = execute_tool(
+        &ToolCall {
+            id: "call-fetch-openapi-existing-status-active".to_string(),
+            function: ToolFunction {
+                name: "fetch_url".to_string(),
+                arguments: serde_json::json!({
+                    "url": format!("http://{addr}/openapi.json"),
+                    "max_length": 10_000,
+                })
+                .to_string(),
+            },
+            weles_review: None,
+        },
+        &engine,
+        "thread-openapi-gap-status-transition",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !second_result.is_error,
+        "second fetch_url should succeed: {}",
+        second_result.content
+    );
+
+    let second_notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected second existing-tool status notice after activation")
+        .expect("workflow notice should be received");
+    match second_notice {
+        AgentEvent::WorkflowNotice {
+            details: Some(details),
+            ..
+        } => {
+            let details: serde_json::Value =
+                serde_json::from_str(&details).expect("notice details should be json");
+            assert_eq!(
+                details
+                    .get("recommended_action")
+                    .and_then(|value| value.as_str()),
+                Some("use_existing_generated_tool")
+            );
+            assert_eq!(
+                details
+                    .get("existing_tool")
+                    .and_then(|value| value.get("status"))
+                    .and_then(|value| value.as_str()),
+                Some("active")
+            );
+        }
+        other => panic!("expected second workflow notice, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn unknown_cli_like_tool_emits_tool_synthesis_proposal_notice() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;

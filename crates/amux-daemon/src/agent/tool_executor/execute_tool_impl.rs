@@ -151,11 +151,12 @@ async fn maybe_emit_existing_tool_status_notice(
         "proposal_kind": proposal_kind,
         "target": proposal_target,
     });
+    let status_notice_dedupe_hint = format!("{dedupe_hint}::{id}::{status}");
     maybe_emit_cli_wrapper_synthesis_proposal_notice(
         agent,
         event_tx,
         thread_id,
-        dedupe_hint,
+        &status_notice_dedupe_hint,
         message,
         details,
     )
