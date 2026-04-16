@@ -1081,6 +1081,58 @@ fn persisted_satisfaction_decay_uses_recent_signal_history() {
     assert!((model.operator_satisfaction.score - 0.34).abs() < 0.02);
 }
 
+#[tokio::test]
+async fn operator_profile_summary_json_exposes_behavior_adaptation_from_satisfaction_signals() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.operator_model.enabled = true;
+    config.operator_model.allow_message_statistics = true;
+    config.operator_model.allow_implicit_feedback = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_message("thread-summary-adaptation", "Please run tests.", true)
+        .await
+        .expect("record operator message");
+    engine
+        .record_tool_hesitation("read_file", "search_files", true, false)
+        .await
+        .expect("record tool hesitation");
+
+    {
+        let mut model = engine.operator_model.write().await;
+        model.implicit_feedback.revision_message_count = 1;
+        model.implicit_feedback.correction_message_count = 1;
+        model.implicit_feedback.fast_denial_count = 1;
+        model.attention_topology.rapid_switch_count = 2;
+        refresh_operator_satisfaction(&mut model);
+    }
+
+    let summary_json = engine
+        .get_operator_profile_summary_json()
+        .await
+        .expect("operator profile summary json");
+    let payload: serde_json::Value =
+        serde_json::from_str(&summary_json).expect("valid operator profile summary json");
+
+    assert_eq!(
+        payload["behavior_adaptation"]["mode"].as_str(),
+        Some("minimal")
+    );
+    assert_eq!(
+        payload["behavior_adaptation"]["compact_response"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        payload["behavior_adaptation"]["prompt_for_clarification"].as_bool(),
+        Some(true)
+    );
+    assert!(payload["behavior_adaptation"]["preferred_tool_fallbacks"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item.as_str() == Some("search_files"))));
+}
+
 #[test]
 fn persisted_satisfaction_decay_requires_enough_history() {
     let mut model = OperatorModel::default();

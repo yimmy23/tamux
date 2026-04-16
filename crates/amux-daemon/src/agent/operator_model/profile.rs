@@ -371,8 +371,20 @@ impl AgentEngine {
     pub async fn get_operator_profile_summary_json(&self) -> Result<String> {
         let model = self.operator_model.read().await.clone();
         let config = self.config.read().await.operator_model.clone();
+        let adaptation = BehaviorAdaptationProfile::from_model(&model);
+        let adaptation_mode = match adaptation.mode {
+            SatisfactionAdaptationMode::Normal => "normal",
+            SatisfactionAdaptationMode::Tightened => "tightened",
+            SatisfactionAdaptationMode::Minimal => "minimal",
+        };
         Ok(serde_json::to_string(&serde_json::json!({
             "model": model,
+            "behavior_adaptation": {
+                "mode": adaptation_mode,
+                "prompt_for_clarification": adaptation.prompt_for_clarification,
+                "compact_response": adaptation.compact_response,
+                "preferred_tool_fallbacks": adaptation.preferred_tool_fallbacks,
+            },
             "consents": {
                 "enabled": config.enabled,
                 "allow_message_statistics": config.allow_message_statistics,
