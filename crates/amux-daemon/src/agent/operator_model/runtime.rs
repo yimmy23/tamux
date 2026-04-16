@@ -121,13 +121,9 @@ impl AgentEngine {
         thread_id: &str,
         observed_outcome: &str,
     ) {
-        let matched = match observed_outcome.trim() {
-            "build/test failure" | "stale context" => Some(observed_outcome),
-            _ => None,
-        };
         let _ = self
             .history
-            .resolve_latest_system_outcome_prediction(thread_id, observed_outcome, matched)
+            .resolve_latest_system_outcome_prediction(thread_id, observed_outcome)
             .await;
     }
 
@@ -696,7 +692,7 @@ impl AgentEngine {
         let observed_action = Self::classify_observed_operator_action(content);
         let _ = self
             .history
-            .resolve_latest_intent_prediction(thread_id, observed_action, Some(observed_action))
+            .resolve_latest_intent_prediction(thread_id, observed_action)
             .await;
 
         if let Err(error) = self.analyze_emergent_protocol_for_thread(thread_id).await {

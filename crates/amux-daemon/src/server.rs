@@ -2,8 +2,8 @@
 
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use amux_protocol::{
     ClientMessage, DaemonMessage, GatewayBootstrapPayload, GatewayConnectionStatus,
@@ -123,9 +123,12 @@ mod startup_readiness_tests {
 
         readiness.mark_ready();
 
-        tokio::time::timeout(std::time::Duration::from_millis(50), cloned.wait_until_ready())
-            .await
-            .expect("cloned startup readiness should observe mark_ready");
+        tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            cloned.wait_until_ready(),
+        )
+        .await
+        .expect("cloned startup readiness should observe mark_ready");
     }
 }
 

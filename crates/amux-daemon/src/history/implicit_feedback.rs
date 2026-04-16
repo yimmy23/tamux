@@ -203,27 +203,25 @@ impl HistoryStore {
         &self,
         session_id: &str,
         actual_action: &str,
-        matched_predicted_action: Option<&str>,
     ) -> Result<()> {
         let session_id = session_id.to_string();
         let actual_action = actual_action.to_string();
-        let matched_predicted_action = matched_predicted_action.map(str::to_string);
         self.conn
             .call(move |conn| {
-                let latest: Option<String> = conn
+                let latest: Option<(String, String)> = conn
                     .query_row(
-                        "SELECT id FROM intent_predictions
+                        "SELECT id, predicted_action FROM intent_predictions
                          WHERE session_id = ?1 AND was_correct IS NULL
                          ORDER BY created_at_ms DESC, id DESC
                          LIMIT 1",
                         params![session_id],
-                        |row| row.get(0),
+                        |row| Ok((row.get(0)?, row.get(1)?)),
                     )
                     .optional()?;
-                let Some(id) = latest else {
+                let Some((id, predicted_action)) = latest else {
                     return Ok(());
                 };
-                let was_correct = matched_predicted_action.is_some();
+                let was_correct = predicted_action == actual_action;
                 conn.execute(
                     "UPDATE intent_predictions
                      SET actual_action = ?2, was_correct = ?3
@@ -240,27 +238,25 @@ impl HistoryStore {
         &self,
         session_id: &str,
         actual_outcome: &str,
-        matched_predicted_outcome: Option<&str>,
     ) -> Result<()> {
         let session_id = session_id.to_string();
         let actual_outcome = actual_outcome.to_string();
-        let matched_predicted_outcome = matched_predicted_outcome.map(str::to_string);
         self.conn
             .call(move |conn| {
-                let latest: Option<String> = conn
+                let latest: Option<(String, String)> = conn
                     .query_row(
-                        "SELECT id FROM system_outcome_predictions
+                        "SELECT id, predicted_outcome FROM system_outcome_predictions
                          WHERE session_id = ?1 AND was_correct IS NULL
                          ORDER BY created_at_ms DESC, id DESC
                          LIMIT 1",
                         params![session_id],
-                        |row| row.get(0),
+                        |row| Ok((row.get(0)?, row.get(1)?)),
                     )
                     .optional()?;
-                let Some(id) = latest else {
+                let Some((id, predicted_outcome)) = latest else {
                     return Ok(());
                 };
-                let was_correct = matched_predicted_outcome.is_some();
+                let was_correct = predicted_outcome == actual_outcome;
                 conn.execute(
                     "UPDATE system_outcome_predictions
                      SET actual_outcome = ?2, was_correct = ?3

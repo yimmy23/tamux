@@ -292,11 +292,7 @@ async fn system_outcome_prediction_rows_round_trip_and_resolve() -> Result<()> {
     assert_eq!(before[0].was_correct, None);
 
     store
-        .resolve_latest_system_outcome_prediction(
-            "thread-foresight",
-            "build/test failure",
-            Some("build/test failure"),
-        )
+        .resolve_latest_system_outcome_prediction("thread-foresight", "build/test failure")
         .await?;
 
     let after = store
@@ -308,6 +304,38 @@ async fn system_outcome_prediction_rows_round_trip_and_resolve() -> Result<()> {
         Some("build/test failure")
     );
     assert_eq!(after[0].was_correct, Some(true));
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn system_outcome_prediction_resolve_marks_mismatches_incorrect() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_system_outcome_prediction(&SystemOutcomePredictionRow {
+            id: "foresight-mismatch".to_string(),
+            session_id: "thread-foresight".to_string(),
+            prediction_type: "build_test_risk".to_string(),
+            predicted_outcome: "build/test failure".to_string(),
+            confidence: 0.82,
+            actual_outcome: None,
+            was_correct: None,
+            created_at_ms: 1_717_300_102,
+        })
+        .await?;
+
+    store
+        .resolve_latest_system_outcome_prediction("thread-foresight", "stale context")
+        .await?;
+
+    let after = store
+        .list_system_outcome_predictions("thread-foresight", 10)
+        .await?;
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].actual_outcome.as_deref(), Some("stale context"));
+    assert_eq!(after[0].was_correct, Some(false));
 
     std::fs::remove_dir_all(root)?;
     Ok(())
@@ -385,11 +413,7 @@ async fn intent_prediction_rows_round_trip_and_resolve() -> Result<()> {
     assert_eq!(before[0].was_correct, None);
 
     store
-        .resolve_latest_intent_prediction(
-            "thread-intent",
-            "review pending approval",
-            Some("review pending approval"),
-        )
+        .resolve_latest_intent_prediction("thread-intent", "review pending approval")
         .await?;
 
     let after = store.list_intent_predictions("thread-intent", 10).await?;
@@ -399,6 +423,39 @@ async fn intent_prediction_rows_round_trip_and_resolve() -> Result<()> {
         Some("review pending approval")
     );
     assert_eq!(after[0].was_correct, Some(true));
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn intent_prediction_resolve_marks_mismatches_incorrect() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_intent_prediction(&IntentPredictionRow {
+            id: "intent-mismatch".to_string(),
+            session_id: "thread-intent".to_string(),
+            context_state_hash: "ctx-mismatch".to_string(),
+            predicted_action: "review pending approval".to_string(),
+            confidence: 0.86,
+            actual_action: None,
+            was_correct: None,
+            created_at_ms: 1_717_300_004,
+        })
+        .await?;
+
+    store
+        .resolve_latest_intent_prediction("thread-intent", "continue the active thread")
+        .await?;
+
+    let after = store.list_intent_predictions("thread-intent", 10).await?;
+    assert_eq!(after.len(), 1);
+    assert_eq!(
+        after[0].actual_action.as_deref(),
+        Some("continue the active thread")
+    );
+    assert_eq!(after[0].was_correct, Some(false));
 
     std::fs::remove_dir_all(root)?;
     Ok(())

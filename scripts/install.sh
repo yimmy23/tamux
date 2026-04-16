@@ -183,7 +183,7 @@ verify_binary() {
 }
 
 install_binaries() {
-  verify_extracted_binaries="$1"
+  verify_extracted_binaries="${1:-true}"
   mkdir -p "$INSTALL_DIR"
 
   for binary_name in $BINARIES; do

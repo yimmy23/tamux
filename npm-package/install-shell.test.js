@@ -3,11 +3,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
 const install = require("./install");
+
+function computeSha256Hex(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
 
 test("shell installer dry-run targets GitHub release zip assets", { skip: process.platform === "win32" }, function () {
   const releaseInfo = install.getReleaseAssetInfo(os.platform(), os.arch(), "0.4.2");
@@ -40,7 +45,15 @@ test("shell installer provisions bundled skills into canonical tamux root", func
 
   assert.match(script, /SKILLS_DIR="\$\{TAMUX_SKILLS_DIR:-\$HOME\/\.tamux\/skills\}"/);
   assert.match(script, /Extracting binaries and skills/);
+  assert.match(script, /verify_extracted_binaries="\$\{1:-true\}"/);
   assert.match(script, /cp -R "\$EXTRACT_DIR\/skills\/\." "\$SKILLS_DIR\/"/);
+});
+
+test("computeSha256Hex returns stable hex digests without shelling out", function () {
+  assert.equal(
+    computeSha256Hex("tamux"),
+    "c013ad25f34616a8c97f18e00b0d33e56e05d8ffe4e1321c6536721e72c10f31"
+  );
 });
 
 test("shell installer accepts archive-only checksum manifests", { skip: process.platform === "win32" }, function () {
@@ -69,18 +82,14 @@ test("shell installer accepts archive-only checksum manifests", { skip: process.
     const payloadPath = path.join(payloadDir, name);
     const contents = `binary:${name}\n`;
     fs.writeFileSync(payloadPath, contents);
-    binaryHashes.set(
-      name,
-      childProcess.execFileSync("sha256sum", [payloadPath], { encoding: "utf8" }).split(/\s+/)[0]
-    );
+    binaryHashes.set(name, computeSha256Hex(contents));
   }
   fs.writeFileSync(path.join(payloadSkillsDir, "SKILL.md"), "# demo\n");
 
   const archivePath = path.join(tmpRoot, "tamux-linux-aarch64.zip");
-  fs.writeFileSync(archivePath, "mock archive payload\n");
-  const archiveHash = childProcess
-    .execFileSync("sha256sum", [archivePath], { encoding: "utf8" })
-    .split(/\s+/)[0];
+  const archiveContents = "mock archive payload\n";
+  fs.writeFileSync(archivePath, archiveContents);
+  const archiveHash = computeSha256Hex(archiveContents);
 
   fs.writeFileSync(
     path.join(mockBinDir, "curl"),
@@ -169,8 +178,9 @@ cp -R '${payloadDir}/.' "$dest/"
     `#!/bin/sh
 set -eu
 case "$1" in
+  *tamux-linux-aarch64.zip) printf '%s  %s\\n' '${archiveHash}' "$1" ;;
 ${shaCases}
-  *) /usr/bin/sha256sum "$1" ;;
+  *) echo "unexpected mock sha256sum target: $1" >&2; exit 1 ;;
 esac
 `,
     { mode: 0o755 }

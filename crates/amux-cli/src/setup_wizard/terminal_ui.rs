@@ -1,8 +1,10 @@
 use super::*;
 
 pub(super) fn is_submit_key(code: KeyCode, modifiers: KeyModifiers) -> bool {
-    matches!(code, KeyCode::Enter | KeyCode::Char('\r') | KeyCode::Char('\n'))
-        || (code == KeyCode::Char('m') && modifiers.contains(KeyModifiers::CONTROL))
+    matches!(
+        code,
+        KeyCode::Enter | KeyCode::Char('\r') | KeyCode::Char('\n')
+    ) || (code == KeyCode::Char('m') && modifiers.contains(KeyModifiers::CONTROL))
         || (code == KeyCode::Char('j') && modifiers.contains(KeyModifiers::CONTROL))
 }
 

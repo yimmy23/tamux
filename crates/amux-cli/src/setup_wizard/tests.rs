@@ -114,7 +114,10 @@ fn submit_key_recognizes_control_m_as_enter() {
 
 #[test]
 fn submit_key_recognizes_standard_enter() {
-    assert!(terminal_ui::is_submit_key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(terminal_ui::is_submit_key(
+        KeyCode::Enter,
+        KeyModifiers::NONE
+    ));
 }
 
 #[test]
@@ -132,9 +135,9 @@ fn raw_mode_guard_requests_full_keyboard_enhancement_flags() {
     assert!(flags.contains(crossterm::event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES));
     assert!(flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES));
     assert!(flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
-    assert!(flags.contains(
-        crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
-    ));
+    assert!(
+        flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES)
+    );
 }
 
 #[test]
