@@ -1167,6 +1167,33 @@ impl AgentEngine {
                     "created_at": row.created_at,
                 })
             });
+        let debate_session = self
+            .history
+            .list_debate_sessions(1)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .next()
+            .and_then(|row| {
+                serde_json::from_str::<crate::agent::debate::types::DebateSession>(
+                    &row.session_json,
+                )
+                .ok()
+                .map(|session| {
+                    serde_json::json!({
+                        "session_id": session.id,
+                        "topic": session.topic,
+                        "status": session.status,
+                        "current_round": session.current_round,
+                        "max_rounds": session.max_rounds,
+                        "completion_reason": session.completion_reason,
+                        "thread_id": session.thread_id,
+                        "goal_run_id": session.goal_run_id,
+                        "has_verdict": session.verdict.is_some(),
+                        "updated_at": row.updated_at,
+                    })
+                })
+            });
         let mut memory_distillation_progress = self
             .history
             .list_memory_distillation_progress(5)
@@ -1266,6 +1293,7 @@ impl AgentEngine {
             "operator_profile_scheduler_fallback": false,
             "intent_prediction": intent_prediction,
             "routing_decision": routing_decision,
+            "debate_session": debate_session,
             "system_outcome_foresight": system_outcome_foresight,
             "operator_satisfaction": {
                 "label": operator_model.operator_satisfaction.label,

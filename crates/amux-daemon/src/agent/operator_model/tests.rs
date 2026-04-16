@@ -1021,6 +1021,38 @@ async fn status_diagnostics_snapshot_includes_routing_confidence() {
         .is_some_and(|value| value >= 0.9));
 }
 
+#[tokio::test]
+async fn status_diagnostics_snapshot_includes_latest_debate_session_summary() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.debate.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let session_id = engine
+        .start_debate_session("cache strategy", None, "thread-debate-diag", Some("goal-1"))
+        .await
+        .expect("start debate session");
+
+    let _ = engine
+        .complete_debate_session(&session_id)
+        .await
+        .expect("complete debate session");
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let debate = &snapshot["debate_session"];
+    assert_eq!(debate["session_id"].as_str(), Some(session_id.as_str()));
+    assert_eq!(debate["topic"].as_str(), Some("cache strategy"));
+    assert_eq!(debate["status"].as_str(), Some("completed"));
+    assert_eq!(
+        debate["completion_reason"].as_str(),
+        Some("manual_completion")
+    );
+    assert!(debate["current_round"].as_u64().is_some());
+    assert!(debate["max_rounds"].as_u64().is_some());
+    assert_eq!(debate["has_verdict"].as_bool(), Some(true));
+}
+
 #[test]
 fn preferred_tool_fallback_targets_deduplicates_and_skips_invalid_pairs() {
     let preferred = preferred_tool_fallback_targets(

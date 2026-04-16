@@ -37,6 +37,23 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn list_debate_sessions(&self, limit: usize) -> Result<Vec<DebateSessionRow>> {
+        let limit = limit.max(1) as i64;
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT session_id, session_json, updated_at FROM debate_sessions ORDER BY updated_at DESC, session_id DESC LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit], |row| {
+                Ok(DebateSessionRow {
+                    session_id: row.get(0)?,
+                    session_json: row.get(1)?,
+                    updated_at: row.get::<_, i64>(2)? as u64,
+                })
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn insert_debate_argument(
         &self,
         session_id: &str,
