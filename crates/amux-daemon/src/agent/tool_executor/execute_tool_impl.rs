@@ -330,7 +330,11 @@ async fn maybe_emit_openapi_synthesis_proposal_notice(
     if !agent.config.read().await.tool_synthesis.enabled {
         return;
     }
-    let Some(url) = args.get("url").and_then(|value| value.as_str()).map(str::trim) else {
+    let Some(url) = args
+        .get("url")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+    else {
         return;
     };
     if url.is_empty() {
@@ -387,7 +391,13 @@ async fn maybe_emit_openapi_synthesis_proposal_notice(
         .map(|value| {
             value
                 .chars()
-                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '_' })
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() {
+                        ch.to_ascii_lowercase()
+                    } else {
+                        '_'
+                    }
+                })
                 .collect::<String>()
                 .trim_matches('_')
                 .to_string()
@@ -396,7 +406,13 @@ async fn maybe_emit_openapi_synthesis_proposal_notice(
         .unwrap_or_else(|| {
             selected_path
                 .chars()
-                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '_' })
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() {
+                        ch.to_ascii_lowercase()
+                    } else {
+                        '_'
+                    }
+                })
                 .collect::<String>()
                 .trim_matches('_')
                 .to_string()
@@ -458,7 +474,9 @@ fn should_scrub_successful_tool_result(tool_name: &str) -> bool {
 }
 
 fn sanitize_broadcast_mentions(message: &str) -> Option<String> {
-    let sanitized = message.replace("@everyone", "everyone").replace("@here", "here");
+    let sanitized = message
+        .replace("@everyone", "everyone")
+        .replace("@here", "here");
     if sanitized == message {
         None
     } else {
@@ -593,7 +611,10 @@ fn maybe_rewrite_shell_tool_to_safer_file_mutation(
     let new_text = args.get("new_text").and_then(|value| value.as_str())?;
 
     let mut rewritten = serde_json::Map::new();
-    rewritten.insert("path".to_string(), serde_json::Value::String(path.to_string()));
+    rewritten.insert(
+        "path".to_string(),
+        serde_json::Value::String(path.to_string()),
+    );
     rewritten.insert(
         "old_text".to_string(),
         serde_json::Value::String(old_text.to_string()),
@@ -603,7 +624,10 @@ fn maybe_rewrite_shell_tool_to_safer_file_mutation(
         serde_json::Value::String(new_text.to_string()),
     );
     if let Some(replace_all) = args.get("replace_all").and_then(|value| value.as_bool()) {
-        rewritten.insert("replace_all".to_string(), serde_json::Value::Bool(replace_all));
+        rewritten.insert(
+            "replace_all".to_string(),
+            serde_json::Value::Bool(replace_all),
+        );
     }
 
     Some((
@@ -654,27 +678,15 @@ fn apply_critique_modifications(
                 );
                 adjustments.push("shell:coerce_max_tool_calls".to_string());
             }
-            if map
-                .get("allow_network")
-                .and_then(|value| value.as_bool())
-                != Some(false)
-            {
+            if map.get("allow_network").and_then(|value| value.as_bool()) != Some(false) {
                 map.insert("allow_network".to_string(), serde_json::Value::Bool(false));
                 adjustments.push("shell:disable_network".to_string());
             }
-            if map
-                .get("sandbox_enabled")
-                .and_then(|value| value.as_bool())
-                != Some(true)
-            {
+            if map.get("sandbox_enabled").and_then(|value| value.as_bool()) != Some(true) {
                 map.insert("sandbox_enabled".to_string(), serde_json::Value::Bool(true));
                 adjustments.push("shell:enable_sandbox".to_string());
             }
-            if map
-                .get("security_level")
-                .and_then(|value| value.as_str())
-                == Some("yolo")
-            {
+            if map.get("security_level").and_then(|value| value.as_str()) == Some("yolo") {
                 map.insert(
                     "security_level".to_string(),
                     serde_json::Value::String("moderate".to_string()),
@@ -793,10 +805,11 @@ fn apply_critique_modifications(
             let sensitive_path = has_directive(
                 critique_directives,
                 crate::agent::critique::types::CritiqueDirective::NarrowSensitiveFilePath,
-            ) || critique_requests_sensitive_file_narrowing(critique_modifications)
-                || critique_reasons
-                    .iter()
-                    .any(|reason| reason.contains("sensitive path"));
+            ) || critique_requests_sensitive_file_narrowing(
+                critique_modifications,
+            ) || critique_reasons
+                .iter()
+                .any(|reason| reason.contains("sensitive path"));
             if sensitive_path {
                 for key in ["path", "file_path", "filepath", "filename", "file"] {
                     let Some(current) = map.get(key).and_then(|value| value.as_str()) else {
@@ -825,10 +838,11 @@ fn apply_critique_modifications(
             let sensitive_path = has_directive(
                 critique_directives,
                 crate::agent::critique::types::CritiqueDirective::NarrowSensitiveFilePath,
-            ) || critique_requests_sensitive_file_narrowing(critique_modifications)
-                || critique_reasons
-                    .iter()
-                    .any(|reason| reason.contains("sensitive path"));
+            ) || critique_requests_sensitive_file_narrowing(
+                critique_modifications,
+            ) || critique_reasons
+                .iter()
+                .any(|reason| reason.contains("sensitive path"));
             if sensitive_path {
                 for key in ["input", "patch"] {
                     let Some(current) = map.get(key).and_then(|value| value.as_str()) else {
@@ -837,11 +851,9 @@ fn apply_critique_modifications(
                     let rewritten = current
                         .lines()
                         .map(|line| {
-                            for prefix in [
-                                "*** Update File: ",
-                                "*** Add File: ",
-                                "*** Delete File: ",
-                            ] {
+                            for prefix in
+                                ["*** Update File: ", "*** Add File: ", "*** Delete File: "]
+                            {
                                 if let Some(path) = line.strip_prefix(prefix) {
                                     let narrowed = std::path::Path::new(path.trim())
                                         .file_name()
@@ -906,14 +918,16 @@ fn apply_critique_modifications(
                 );
                 adjustments.push("temporal:schedule_for_operator_window".to_string());
             }
-            let tighten_tool_calls = has_directive(
-                critique_directives,
-                crate::agent::critique::types::CritiqueDirective::LimitSubagentToolCalls,
-            ) || critique_requests_narrower_subagent_scope(critique_modifications);
-            let tighten_wall_time = has_directive(
-                critique_directives,
-                crate::agent::critique::types::CritiqueDirective::LimitSubagentWallTime,
-            ) || critique_requests_narrower_subagent_scope(critique_modifications);
+            let tighten_tool_calls =
+                has_directive(
+                    critique_directives,
+                    crate::agent::critique::types::CritiqueDirective::LimitSubagentToolCalls,
+                ) || critique_requests_narrower_subagent_scope(critique_modifications);
+            let tighten_wall_time =
+                has_directive(
+                    critique_directives,
+                    crate::agent::critique::types::CritiqueDirective::LimitSubagentWallTime,
+                ) || critique_requests_narrower_subagent_scope(critique_modifications);
             if tighten_tool_calls {
                 if upsert_budget_limit(map, "max_tool_calls", 8) {
                     adjustments.push("subagent:limit_tool_calls".to_string());
@@ -945,6 +959,20 @@ fn injected_reserved_critique_marker(args: &serde_json::Value) -> Option<String>
         .cloned()
 }
 
+fn trusted_critique_confirmation_replay(tool_call: &ToolCall, args: &serde_json::Value) -> bool {
+    let critique_bypass_confirmation = args
+        .get("__critique_bypass_confirmation")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    critique_bypass_confirmation
+        && tool_call.weles_review.as_ref().is_some_and(|review| {
+            review
+                .reasons
+                .iter()
+                .any(|reason| reason == "trusted_critique_confirmation_replay")
+        })
+}
+
 fn annotate_review_with_critique(
     review: &mut crate::agent::types::WelesReviewMeta,
     critique_session_id: Option<&str>,
@@ -962,9 +990,10 @@ fn annotate_review_with_critique(
         .iter()
         .any(|reason| reason.contains("critique_preflight:"))
     {
-        review
-            .reasons
-            .push(format!("critique_preflight:{}:{}", session_id, critique_decision));
+        review.reasons.push(format!(
+            "critique_preflight:{}:{}",
+            session_id, critique_decision
+        ));
     }
     for adjustment in critique_adjustments {
         let reason = format!("critique_applied:{adjustment}");
@@ -1024,20 +1053,12 @@ async fn prepare_tool_execution(
     };
     let critique_classification =
         crate::agent::weles_governance::classify_tool_call(tool_call.function.name.as_str(), &args);
-    if let Some(marker) = injected_reserved_critique_marker(&args) {
-        return Err(ToolResult {
-            tool_call_id: tool_call.id.clone(),
-            name: tool_call.function.name.clone(),
-            content: format!(
-                "Rejected reserved internal critique marker `{marker}` in tool arguments."
-            ),
-            is_error: true,
-            weles_review: tool_call.weles_review.clone(),
-            pending_approval: None,
-        });
-    }
     let current_task = if let Some(task_id) = task_id {
-        agent.list_tasks().await.into_iter().find(|task| task.id == task_id)
+        agent
+            .list_tasks()
+            .await
+            .into_iter()
+            .find(|task| task.id == task_id)
     } else {
         None
     };
@@ -1052,13 +1073,27 @@ async fn prepare_tool_execution(
         .get("__critique_bypass_confirmation")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    if let Some(marker) = injected_reserved_critique_marker(&args) {
+        let trusted_internal_marker = marker == "__critique_bypass_confirmation"
+            && (trusted_weles_internal_task
+                || trusted_critique_confirmation_replay(tool_call, &args));
+        if !trusted_internal_marker {
+            return Err(ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.function.name.clone(),
+                content: format!(
+                    "Rejected reserved internal critique marker `{marker}` in tool arguments."
+                ),
+                is_error: true,
+                weles_review: tool_call.weles_review.clone(),
+                pending_approval: None,
+            });
+        }
+    }
     let critique_result = if critique_bypass_confirmation {
         None
     } else if agent
-        .should_run_critique_preflight(
-            tool_call.function.name.as_str(),
-            &critique_classification,
-        )
+        .should_run_critique_preflight(tool_call.function.name.as_str(), &critique_classification)
         .await
     {
         let action_summary = crate::agent::summarize_text(&tool_call.function.arguments, 240);
@@ -1125,7 +1160,13 @@ async fn prepare_tool_execution(
                     .as_ref()
                     .map(|resolution| resolution.directives.clone())
                     .unwrap_or_default();
-                Some((session.id, decision, modifications, directives, report_summary))
+                Some((
+                    session.id,
+                    decision,
+                    modifications,
+                    directives,
+                    report_summary,
+                ))
             }
             Err(error) => {
                 tracing::warn!(tool = %tool_call.function.name, error = %error, "critique preflight failed; continuing without critique enforcement");
@@ -1135,10 +1176,24 @@ async fn prepare_tool_execution(
     } else {
         None
     };
-    let (critique_session_id, critique_decision, critique_modifications, critique_directives, critique_report_summary) = critique_result
-        .map(|(session_id, decision, modifications, directives, report_summary)| {
-            (Some(session_id), decision, modifications, directives, Some(report_summary))
-        })
+    let (
+        critique_session_id,
+        critique_decision,
+        critique_modifications,
+        critique_directives,
+        critique_report_summary,
+    ) = critique_result
+        .map(
+            |(session_id, decision, modifications, directives, report_summary)| {
+                (
+                    Some(session_id),
+                    decision,
+                    modifications,
+                    directives,
+                    Some(report_summary),
+                )
+            },
+        )
         .unwrap_or((None, None, Vec::new(), Vec::new(), None));
     let preferred_start_hour_utc = agent
         .operator_model
@@ -1198,34 +1253,50 @@ async fn prepare_tool_execution(
                 )],
                 session_id: None,
             };
-            agent
-                .critique_approval_continuations
-                .lock()
-                .await
-                .insert(
-                    pending_approval.approval_id.clone(),
-                    crate::agent::CritiqueApprovalContinuation {
-                        tool_call: ToolCall {
-                            id: tool_call.id.clone(),
-                            function: crate::agent::types::ToolFunction {
-                                name: tool_call.function.name.clone(),
-                                arguments: {
-                                    let mut resumed_args = args.clone();
-                                    if let Some(map) = resumed_args.as_object_mut() {
-                                        map.insert(
-                                            "__critique_bypass_confirmation".to_string(),
-                                            serde_json::Value::Bool(true),
-                                        );
-                                    }
-                                    resumed_args.to_string()
-                                },
+            agent.critique_approval_continuations.lock().await.insert(
+                pending_approval.approval_id.clone(),
+                crate::agent::CritiqueApprovalContinuation {
+                    tool_call: ToolCall {
+                        id: tool_call.id.clone(),
+                        function: crate::agent::types::ToolFunction {
+                            name: tool_call.function.name.clone(),
+                            arguments: {
+                                let mut resumed_args = args.clone();
+                                if let Some(map) = resumed_args.as_object_mut() {
+                                    map.insert(
+                                        "__critique_bypass_confirmation".to_string(),
+                                        serde_json::Value::Bool(true),
+                                    );
+                                }
+                                resumed_args.to_string()
                             },
-                            weles_review: tool_call.weles_review.clone(),
                         },
-                        thread_id: thread_id.to_string(),
-                        agent_data_dir: agent.data_dir.clone(),
+                        weles_review: {
+                            let mut review = tool_call.weles_review.clone().unwrap_or(
+                                crate::agent::types::WelesReviewMeta {
+                                    weles_reviewed: false,
+                                    verdict: crate::agent::types::WelesVerdict::Allow,
+                                    reasons: Vec::new(),
+                                    audit_id: None,
+                                    security_override_mode: None,
+                                },
+                            );
+                            if !review
+                                .reasons
+                                .iter()
+                                .any(|reason| reason == "trusted_critique_confirmation_replay")
+                            {
+                                review
+                                    .reasons
+                                    .push("trusted_critique_confirmation_replay".to_string());
+                            }
+                            Some(review)
+                        },
                     },
-                );
+                    thread_id: thread_id.to_string(),
+                    agent_data_dir: agent.data_dir.clone(),
+                },
+            );
             return Err(ToolResult {
                 tool_call_id: tool_call.id.clone(),
                 name: tool_call.function.name.clone(),
@@ -1278,9 +1349,7 @@ async fn prepare_tool_execution(
             security_level,
             crate::agent::weles_governance::WelesRuntimeReviewPayload {
                 verdict: crate::agent::types::WelesVerdict::Allow,
-                reasons: vec![
-                    "operator approved critique confirmation replay".to_string(),
-                ],
+                reasons: vec!["operator approved critique confirmation replay".to_string()],
                 audit_id: Some(format!("critique_confirmation_{}", tool_call.id)),
             },
         )
@@ -1503,7 +1572,9 @@ async fn dispatch_tool_execution(
         "get_background_task_status" => {
             execute_get_background_task_status(args, session_manager).await
         }
-        "allocate_terminal" => execute_allocate_terminal(args, session_manager, session_id, event_tx).await,
+        "allocate_terminal" => {
+            execute_allocate_terminal(args, session_manager, session_id, event_tx).await
+        }
         "fetch_authenticated_providers" => execute_fetch_authenticated_providers(agent).await,
         "list_providers" => execute_list_providers(agent).await,
         "fetch_provider_models" => execute_fetch_provider_models(args, agent).await,
@@ -1534,17 +1605,20 @@ async fn dispatch_tool_execution(
         }
         "list_subagents" => execute_list_subagents(args, agent, thread_id, task_id).await,
         "message_agent" => {
-            Box::pin(execute_message_agent(args, agent, thread_id, task_id, session_id)).await
+            Box::pin(execute_message_agent(
+                args, agent, thread_id, task_id, session_id,
+            ))
+            .await
         }
-        "route_to_specialist" => {
-            execute_route_to_specialist(args, agent, thread_id, task_id).await
-        }
+        "route_to_specialist" => execute_route_to_specialist(args, agent, thread_id, task_id).await,
         "run_divergent" => execute_run_divergent(args, agent, thread_id, task_id).await,
         "get_divergent_session" => execute_get_divergent_session(args, agent).await,
         "run_debate" => execute_run_debate(args, agent, thread_id, task_id).await,
         "get_debate_session" => execute_get_debate_session(args, agent).await,
         "get_critique_session" => execute_get_critique_session(args, agent).await,
-        "lookup_emergent_protocol" => execute_lookup_emergent_protocol(args, agent, thread_id).await,
+        "lookup_emergent_protocol" => {
+            execute_lookup_emergent_protocol(args, agent, thread_id).await
+        }
         "reload_emergent_protocol_registry" => {
             execute_reload_emergent_protocol_registry(args, agent, thread_id).await
         }
@@ -1593,7 +1667,9 @@ async fn dispatch_tool_execution(
         | "equalize_layout"
         | "list_snippets"
         | "create_snippet"
-        | "run_snippet" => execute_workspace_tool(prepared.tool_name.as_str(), args, event_tx).await,
+        | "run_snippet" => {
+            execute_workspace_tool(prepared.tool_name.as_str(), args, event_tx).await
+        }
         "bash_command" => {
             match execute_bash_command(
                 dispatch_args,
@@ -1614,8 +1690,13 @@ async fn dispatch_tool_execution(
             }
         }
         "python_execute" => {
-            execute_python_execute(dispatch_args, session_manager, session_id, cancel_token.clone())
-                .await
+            execute_python_execute(
+                dispatch_args,
+                session_manager,
+                session_id,
+                cancel_token.clone(),
+            )
+            .await
         }
         "list_files" => execute_list_files(args, session_manager, session_id).await,
         "read_file" => execute_read_file(args).await,
@@ -1659,9 +1740,7 @@ async fn dispatch_tool_execution(
             execute_search_soul(args, agent, Some(thread_id), task_id, agent_data_dir).await
         }
         "list_tools" => execute_list_tools(args, agent, session_manager, agent_data_dir).await,
-        "tool_search" => {
-            execute_tool_search(args, agent, session_manager, agent_data_dir).await
-        }
+        "tool_search" => execute_tool_search(args, agent, session_manager, agent_data_dir).await,
         "list_skills" => execute_list_skills(args, agent_data_dir, &agent.history).await,
         "discover_skills" => execute_discover_skills(args, agent, session_id).await,
         "semantic_query" => {
@@ -1688,12 +1767,7 @@ async fn dispatch_tool_execution(
             .await
         }
         "ask_questions" => {
-            let parsed = (|| -> Result<(
-                String,
-                Vec<String>,
-                Option<String>,
-                Option<String>,
-            )> {
+            let parsed = (|| -> Result<(String, Vec<String>, Option<String>, Option<String>)> {
                 let content = dispatch_args
                     .get("content")
                     .and_then(|value| value.as_str())
@@ -1741,22 +1815,20 @@ async fn dispatch_tool_execution(
         "justify_skill_skip" => execute_justify_skill_skip(args, agent, thread_id).await,
         "synthesize_tool" => synthesize_tool(args, agent, agent_data_dir, http_client).await,
         "list_generated_tools" => list_generated_tools(agent_data_dir),
-        "promote_generated_tool" => {
-            args.get("tool")
-                .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
-                .and_then(|tool| promote_generated_tool(agent_data_dir, tool))
-        }
-        "activate_generated_tool" => {
-            args.get("tool")
-                .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
-                .and_then(|tool| activate_generated_tool(agent_data_dir, tool))
-        }
+        "promote_generated_tool" => args
+            .get("tool")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
+            .and_then(|tool| promote_generated_tool(agent_data_dir, tool)),
+        "activate_generated_tool" => args
+            .get("tool")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
+            .and_then(|tool| activate_generated_tool(agent_data_dir, tool)),
         "web_search" => {
             let config = agent.config.read().await;
             let search_provider = config
@@ -1802,17 +1874,21 @@ async fn dispatch_tool_execution(
         "plugin_api_call" => {
             let plugin_name = match get_string_arg(args, &["plugin_name"]) {
                 Some(name) => name.to_string(),
-                None => return (
-                    Err(anyhow::anyhow!("Error: missing 'plugin_name' argument")),
-                    pending_approval,
-                ),
+                None => {
+                    return (
+                        Err(anyhow::anyhow!("Error: missing 'plugin_name' argument")),
+                        pending_approval,
+                    )
+                }
             };
             let endpoint_name = match get_string_arg(args, &["endpoint_name"]) {
                 Some(name) => name.to_string(),
-                None => return (
-                    Err(anyhow::anyhow!("Error: missing 'endpoint_name' argument")),
-                    pending_approval,
-                ),
+                None => {
+                    return (
+                        Err(anyhow::anyhow!("Error: missing 'endpoint_name' argument")),
+                        pending_approval,
+                    )
+                }
             };
             let params = args
                 .get("params")
@@ -1839,8 +1915,10 @@ async fn dispatch_tool_execution(
         {
             Ok(Some(content)) => Ok(content),
             Ok(None) => {
-                maybe_emit_unknown_tool_synthesis_proposal_notice(agent, event_tx, thread_id, other)
-                    .await;
+                maybe_emit_unknown_tool_synthesis_proposal_notice(
+                    agent, event_tx, thread_id, other,
+                )
+                .await;
                 Err(anyhow::anyhow!("Unknown tool: {other}"))
             }
             Err(error) => Err(error),
@@ -1870,10 +1948,11 @@ pub fn execute_tool<'a>(
             "agent tool call"
         );
 
-        let prepared = match Box::pin(prepare_tool_execution(tool_call, agent, thread_id, task_id)).await {
-            Ok(prepared) => prepared,
-            Err(result) => return result,
-        };
+        let prepared =
+            match Box::pin(prepare_tool_execution(tool_call, agent, thread_id, task_id)).await {
+                Ok(prepared) => prepared,
+                Err(result) => return result,
+            };
 
         let tool_domain =
             crate::agent::uncertainty::domains::classify_domain(tool_call.function.name.as_str());
@@ -1914,11 +1993,12 @@ pub fn execute_tool<'a>(
 
         match result {
             Ok(content) => {
-                let content = if should_scrub_successful_tool_result(prepared.dispatch_tool_name.as_str()) {
-                    scrub_sensitive(&content)
-                } else {
-                    content
-                };
+                let content =
+                    if should_scrub_successful_tool_result(prepared.dispatch_tool_name.as_str()) {
+                        scrub_sensitive(&content)
+                    } else {
+                        content
+                    };
                 let mut review = prepared.governance_decision.review.clone();
                 annotate_review_with_critique(
                     &mut review,

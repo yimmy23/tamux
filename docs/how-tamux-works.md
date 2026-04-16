@@ -191,6 +191,35 @@ Tool calls are not just prompt text. They become persisted tool messages and can
 - operator feedback learning
 - sub-agent health metrics
 
+### Adversarial Self-Critique for Risky Actions
+
+Before certain high-risk or suspicious tool executions, the daemon can run a local critique preflight.
+
+That critique layer is a real subsystem, not just prompt style. It has explicit:
+
+- advocate argument generation
+- critic argument generation
+- arbiter resolution
+- persisted critique sessions, arguments, and resolutions
+- operator-facing critique session retrieval through `get_critique_session`
+
+At runtime, critique is used to:
+
+- block or defer risky actions when the critic wins strongly
+- convert a risky action into a safer variant through typed modifications/directives
+- require explicit operator confirmation for selected high-impact actions
+- learn from prior critique outcomes and recent causal traces
+
+The current critique runtime is wired into risky tool execution such as:
+
+- shell-style mutation tools
+- file mutation tools
+- explicit messaging tools
+- delegated work (`spawn_subagent`, `enqueue_task`)
+- high-impact guard-always actions like `switch_model`, `plugin_api_call`, and `synthesize_tool`
+
+Critique payloads and operator-facing summaries are scrubbed for common secret patterns before persistence and retrieval so the critique evidence path does not echo raw tokens or similar sensitive strings back to the operator.
+
 ## Memory Model
 
 tamux uses layered memory instead of treating chat history as the only context store.

@@ -19,13 +19,68 @@ fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
+pub(super) fn sanitize_critique_snippet(value: &str, max_chars: usize) -> String {
+    let scrubbed = crate::scrub::scrub_sensitive(value);
+    crate::agent::summarize_text(&scrubbed, max_chars)
+}
+
+fn sanitize_critique_evidence(value: &str) -> String {
+    sanitize_critique_snippet(value, 220)
+}
+
+fn sanitize_argument_point(point: &ArgumentPoint) -> ArgumentPoint {
+    ArgumentPoint {
+        claim: sanitize_critique_snippet(&point.claim, 220),
+        weight: point.weight,
+        evidence: point
+            .evidence
+            .iter()
+            .map(|value| sanitize_critique_evidence(value))
+            .collect(),
+    }
+}
+
+fn sanitize_resolution(resolution: &Resolution) -> Resolution {
+    Resolution {
+        decision: resolution.decision,
+        synthesis: sanitize_critique_snippet(&resolution.synthesis, 240),
+        risk_score: resolution.risk_score,
+        confidence: resolution.confidence,
+        modifications: resolution
+            .modifications
+            .iter()
+            .map(|value| sanitize_critique_snippet(value, 220))
+            .collect(),
+        directives: resolution.directives.clone(),
+    }
+}
+
+fn sanitize_critique_session(mut session: CritiqueSession) -> CritiqueSession {
+    session.proposed_action_summary =
+        sanitize_critique_snippet(&session.proposed_action_summary, 240);
+    session.advocate_argument.points = session
+        .advocate_argument
+        .points
+        .iter()
+        .map(sanitize_argument_point)
+        .collect();
+    session.critic_argument.points = session
+        .critic_argument
+        .points
+        .iter()
+        .map(sanitize_argument_point)
+        .collect();
+    session.resolution = session.resolution.as_ref().map(sanitize_resolution);
+    session
+}
+
 fn summarize_causal_factor_descriptions(
     factors: &[crate::agent::learning::traces::CausalFactor],
 ) -> String {
     factors
         .iter()
         .take(2)
-        .map(|factor| factor.description.clone())
+        .map(|factor| sanitize_critique_snippet(&factor.description, 100))
         .collect::<Vec<_>>()
         .join(" | ")
 }
@@ -51,7 +106,7 @@ pub(crate) fn operator_report_summary(session: &CritiqueSession) -> String {
         .as_ref()
         .map(|resolution| resolution.synthesis.as_str())
         .unwrap_or(session.proposed_action_summary.as_str());
-    crate::agent::summarize_text(
+    sanitize_critique_snippet(
         &format!(
             "Critiqued {} -> {}: {}",
             session.tool_name, decision, rationale
@@ -135,7 +190,12 @@ impl AgentEngine {
             let factor_evidence = factors
                 .iter()
                 .take(2)
-                .map(|factor| format!("causal_factor:{}", factor.description))
+                .map(|factor| {
+                    format!(
+                        "causal_factor:{}",
+                        sanitize_critique_snippet(&factor.description, 120)
+                    )
+                })
                 .collect::<Vec<_>>();
 
             let outcome = match serde_json::from_str::<
@@ -154,7 +214,10 @@ impl AgentEngine {
                         } else {
                             factor_summary.clone()
                         };
-                        let mut evidence = vec![format!("causal_trace:success:{summary}")];
+                        let mut evidence = vec![format!(
+                            "causal_trace:success:{}",
+                            sanitize_critique_snippet(&summary, 140)
+                        )];
                         evidence.extend(factor_evidence.clone());
                         advocate_points.push(ArgumentPoint {
                             claim: format!(
@@ -167,15 +230,16 @@ impl AgentEngine {
                 }
                 crate::agent::learning::traces::CausalTraceOutcome::Failure { reason } => {
                     if critic_points.is_empty() {
-                        let mut evidence = vec![format!("causal_trace:failure:{reason}")];
+                        let safe_reason = sanitize_critique_snippet(&reason, 140);
+                        let mut evidence = vec![format!("causal_trace:failure:{safe_reason}")];
                         evidence.extend(factor_evidence.clone());
                         let claim = if factor_summary.is_empty() {
                             format!(
-                                "Recent causal history warns against `{tool_name}` without extra caution: {reason}."
+                                "Recent causal history warns against `{tool_name}` without extra caution: {safe_reason}."
                             )
                         } else {
                             format!(
-                                "Recent causal history warns against `{tool_name}`: {reason}. Context: {factor_summary}."
+                                "Recent causal history warns against `{tool_name}`: {safe_reason}. Context: {factor_summary}."
                             )
                         };
                         critic_points.push(ArgumentPoint {
@@ -190,17 +254,19 @@ impl AgentEngine {
                     how_recovered,
                 } => {
                     if critic_points.is_empty() {
+                        let safe_what_went_wrong = sanitize_critique_snippet(&what_went_wrong, 140);
+                        let safe_recovery = sanitize_critique_snippet(&how_recovered, 140);
                         let mut evidence =
-                            vec![format!("causal_trace:near_miss:{what_went_wrong}")];
+                            vec![format!("causal_trace:near_miss:{safe_what_went_wrong}")];
                         evidence.extend(factor_evidence.clone());
-                        evidence.push(format!("causal_trace:recovery:{how_recovered}"));
+                        evidence.push(format!("causal_trace:recovery:{safe_recovery}"));
                         let claim = if factor_summary.is_empty() {
                             format!(
-                                "Recent causal history shows a near miss for `{tool_name}`: {what_went_wrong}."
+                                "Recent causal history shows a near miss for `{tool_name}`: {safe_what_went_wrong}."
                             )
                         } else {
                             format!(
-                                "Recent causal history shows a near miss for `{tool_name}`: {what_went_wrong}. Context: {factor_summary}."
+                                "Recent causal history shows a near miss for `{tool_name}`: {safe_what_went_wrong}. Context: {factor_summary}."
                             )
                         };
                         critic_points.push(ArgumentPoint {
@@ -212,10 +278,14 @@ impl AgentEngine {
                     if advocate_points.is_empty() {
                         advocate_points.push(ArgumentPoint {
                             claim: format!(
-                                "Recent causal history also shows `{tool_name}` can recover from trouble: {how_recovered}."
+                                "Recent causal history also shows `{tool_name}` can recover from trouble: {}.",
+                                sanitize_critique_snippet(&how_recovered, 140)
                             ),
                             weight: 0.46,
-                            evidence: vec![format!("causal_trace:recovery:{how_recovered}")],
+                            evidence: vec![format!(
+                                "causal_trace:recovery:{}",
+                                sanitize_critique_snippet(&how_recovered, 140)
+                            )],
                         });
                     }
                 }
@@ -267,16 +337,17 @@ impl AgentEngine {
             match resolution.decision {
                 Decision::ProceedWithModifications => {
                     for modification in resolution.modifications {
-                        let normalized = modification.trim().to_ascii_lowercase();
+                        let safe_modification = sanitize_critique_snippet(&modification, 180);
+                        let normalized = safe_modification.trim().to_ascii_lowercase();
                         if !normalized.is_empty()
                             && !learned_modifications.iter().any(|existing: &String| {
-                                existing.eq_ignore_ascii_case(&modification)
+                                existing.eq_ignore_ascii_case(&safe_modification)
                             })
                         {
-                            learned_modifications.push(modification.clone());
+                            learned_modifications.push(safe_modification.clone());
                             critic_points.push(ArgumentPoint {
                                 claim: format!(
-                                    "Learned from previous critique sessions for `{tool_name}`: {modification}"
+                                    "Learned from previous critique sessions for `{tool_name}`: {safe_modification}"
                                 ),
                                 weight: 0.61,
                                 evidence: vec![format!(
@@ -495,7 +566,7 @@ impl AgentEngine {
         } else {
             SessionStatus::Resolved
         };
-        let session = CritiqueSession {
+        let session = sanitize_critique_session(CritiqueSession {
             id: format!("critique_{}", Uuid::new_v4()),
             action_id: action_id.to_string(),
             tool_name: tool_name.to_string(),
@@ -511,13 +582,14 @@ impl AgentEngine {
             resolution: Some(resolution),
             created_at_ms,
             resolved_at_ms,
-        };
+        });
         self.persist_critique_session(&session).await?;
         Ok(session)
     }
 
     pub(crate) async fn persist_critique_session(&self, session: &CritiqueSession) -> Result<()> {
-        let session_json = serde_json::to_string(session)?;
+        let session = sanitize_critique_session(session.clone());
+        let session_json = serde_json::to_string(&session)?;
         self.history
             .upsert_critique_session(&session.id, &session_json, session.created_at_ms)
             .await?;
@@ -576,10 +648,11 @@ impl AgentEngine {
         &self,
         session_id: &str,
     ) -> Result<serde_json::Value> {
-        let session = self
-            .get_persisted_critique_session(session_id)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("unknown critique session: {session_id}"))?;
+        let session = sanitize_critique_session(
+            self.get_persisted_critique_session(session_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("unknown critique session: {session_id}"))?,
+        );
         Ok(json!({
             "session_id": session.id,
             "status": session.status,
