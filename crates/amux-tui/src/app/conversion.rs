@@ -109,6 +109,7 @@ pub(super) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessag
         generation_ms: m.generation_ms,
         cost: m.cost,
         is_streaming: m.is_streaming,
+        pinned_for_compaction: m.pinned_for_compaction,
         message_kind: m.message_kind,
         compaction_strategy: m.compaction_strategy,
         compaction_payload: m.compaction_payload,

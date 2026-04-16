@@ -5,6 +5,10 @@ use super::*;
 mod concierge;
 mod direct_messages;
 
+fn clear_message_pin_state(message: &mut AgentMessage) {
+    message.pinned_for_compaction = false;
+}
+
 impl AgentEngine {
     async fn prepare_internal_dm_thread(
         &self,
@@ -79,6 +83,11 @@ impl AgentEngine {
             } else {
                 let mut threads = self.threads.write().await;
                 if let Some(thread) = threads.get_mut(thread_id) {
+                    for message in &mut thread.messages {
+                        if id_set.contains(message.id.as_str()) {
+                            clear_message_pin_state(message);
+                        }
+                    }
                     thread
                         .messages
                         .retain(|message| !id_set.contains(message.id.as_str()));
@@ -173,6 +182,7 @@ impl AgentEngine {
                     compaction_payload: metadata.compaction_payload,
                     offloaded_payload_id: metadata.offloaded_payload_id,
                     structural_refs: metadata.structural_refs,
+                    pinned_for_compaction: metadata.pinned_for_compaction,
                     timestamp: msg.created_at as u64,
                 })
             })
@@ -381,6 +391,7 @@ impl AgentEngine {
                     compaction_payload: metadata.compaction_payload,
                     offloaded_payload_id: metadata.offloaded_payload_id,
                     structural_refs: metadata.structural_refs,
+                    pinned_for_compaction: false,
                     timestamp: msg.created_at as u64,
                 })
             })

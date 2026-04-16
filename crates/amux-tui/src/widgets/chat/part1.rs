@@ -407,11 +407,37 @@ pub(crate) fn message_action_targets(
                 "[Resend]".to_string(),
                 ChatHitTarget::ResendMessage(msg_index),
             ));
+            actions.push((
+                if msg.pinned_for_compaction {
+                    "[Unpin]"
+                } else {
+                    "[Pin]"
+                }
+                .to_string(),
+                if msg.pinned_for_compaction {
+                    ChatHitTarget::UnpinMessage(msg_index)
+                } else {
+                    ChatHitTarget::PinMessage(msg_index)
+                },
+            ));
         }
         MessageRole::Assistant => {
             actions.push((
                 "[Regenerate]".to_string(),
                 ChatHitTarget::RegenerateMessage(msg_index),
+            ));
+            actions.push((
+                if msg.pinned_for_compaction {
+                    "[Unpin]"
+                } else {
+                    "[Pin]"
+                }
+                .to_string(),
+                if msg.pinned_for_compaction {
+                    ChatHitTarget::UnpinMessage(msg_index)
+                } else {
+                    ChatHitTarget::PinMessage(msg_index)
+                },
             ));
         }
         _ => {}

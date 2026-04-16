@@ -561,24 +561,50 @@ impl TuiModel {
                 }
             }
             KeyCode::Left if self.focus == FocusArea::Sidebar => {
-                self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
-                    sidebar::SidebarTab::Todos,
-                ));
+                let next_tab = match self.sidebar.active_tab() {
+                    sidebar::SidebarTab::Pinned => sidebar::SidebarTab::Files,
+                    sidebar::SidebarTab::Files => sidebar::SidebarTab::Todos,
+                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Todos,
+                };
+                self.sidebar
+                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
             }
             KeyCode::Right if self.focus == FocusArea::Sidebar => {
-                self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
-                    sidebar::SidebarTab::Files,
-                ));
+                let next_tab = match self.sidebar.active_tab() {
+                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Files,
+                    sidebar::SidebarTab::Files if self.chat.active_thread_has_pinned_messages() => {
+                        sidebar::SidebarTab::Pinned
+                    }
+                    current => current,
+                };
+                self.sidebar
+                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
             }
             KeyCode::Char('[') if self.sidebar_visible() && self.focus != FocusArea::Input => {
-                self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
-                    sidebar::SidebarTab::Todos,
-                ));
+                let next_tab = match self.sidebar.active_tab() {
+                    sidebar::SidebarTab::Pinned => sidebar::SidebarTab::Files,
+                    sidebar::SidebarTab::Files => sidebar::SidebarTab::Todos,
+                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Todos,
+                };
+                self.sidebar
+                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
             }
             KeyCode::Char(']') if self.sidebar_visible() && self.focus != FocusArea::Input => {
-                self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
-                    sidebar::SidebarTab::Files,
-                ));
+                let next_tab = match self.sidebar.active_tab() {
+                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Files,
+                    sidebar::SidebarTab::Files if self.chat.active_thread_has_pinned_messages() => {
+                        sidebar::SidebarTab::Pinned
+                    }
+                    current => current,
+                };
+                self.sidebar
+                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
+            }
+            KeyCode::Char('u')
+                if self.focus == FocusArea::Sidebar
+                    && self.sidebar.active_tab() == sidebar::SidebarTab::Pinned =>
+            {
+                self.unpin_selected_sidebar_message();
             }
             // Dismiss selected audit entry with 'd' key (BEAT-07)
             KeyCode::Char('d')

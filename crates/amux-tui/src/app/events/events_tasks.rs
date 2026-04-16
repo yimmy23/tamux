@@ -231,6 +231,14 @@ impl TuiModel {
         if should_preserve_prepend_anchor {
             self.chat.preserve_prepend_scroll_anchor(preserved_scroll);
         }
+        if self.sidebar.active_tab() == crate::state::sidebar::SidebarTab::Pinned
+            && !self.chat.active_thread_has_pinned_messages()
+        {
+            self.sidebar
+                .reduce(crate::state::sidebar::SidebarAction::SwitchTab(
+                    crate::state::sidebar::SidebarTab::Todos,
+                ));
+        }
         if should_select_thread {
             self.chat
                 .reduce(chat::ChatAction::SelectThread(thread_id.clone()));

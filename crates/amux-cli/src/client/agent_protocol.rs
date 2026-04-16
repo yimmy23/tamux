@@ -60,6 +60,14 @@ pub(super) enum AgentBridgeCommand {
     DeleteThread {
         thread_id: String,
     },
+    PinThreadMessageForCompaction {
+        thread_id: String,
+        message_id: String,
+    },
+    UnpinThreadMessageForCompaction {
+        thread_id: String,
+        message_id: String,
+    },
     AddTask {
         title: String,
         description: String,

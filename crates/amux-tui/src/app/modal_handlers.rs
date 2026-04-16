@@ -730,6 +730,20 @@ impl TuiModel {
             return false;
         }
 
+        if kind == modal::ModalKind::PinnedBudgetExceeded {
+            match code {
+                KeyCode::Esc
+                | KeyCode::Enter
+                | KeyCode::Char(' ')
+                | KeyCode::Char('o')
+                | KeyCode::Char('O') => {
+                    self.close_pinned_budget_exceeded_modal();
+                }
+                _ => {}
+            }
+            return false;
+        }
+
         if kind == modal::ModalKind::ApprovalOverlay {
             match code {
                 KeyCode::Esc => {}

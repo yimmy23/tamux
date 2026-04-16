@@ -284,7 +284,12 @@ impl TuiModel {
     }
 
     pub(super) fn sidebar_item_count(&self) -> usize {
-        widgets::sidebar::body_item_count(&self.tasks, &self.sidebar, self.chat.active_thread_id())
+        widgets::sidebar::body_item_count(
+            &self.tasks,
+            &self.chat,
+            &self.sidebar,
+            self.chat.active_thread_id(),
+        )
     }
 
     pub(super) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
@@ -1036,6 +1041,17 @@ impl TuiModel {
                 self.focus = FocusArea::Chat;
                 self.status_line = "Todo details".to_string();
             }
+            sidebar::SidebarTab::Pinned => {
+                let Some(message_index) =
+                    widgets::sidebar::selected_pinned_message_index(&self.chat, &self.sidebar)
+                else {
+                    return;
+                };
+                self.main_pane_view = MainPaneView::Conversation;
+                self.focus = FocusArea::Chat;
+                self.chat.select_message(Some(message_index));
+                self.status_line = "Pinned message".to_string();
+            }
         }
     }
 
@@ -1132,6 +1148,16 @@ impl TuiModel {
                 .get(self.sidebar.selected_item())
                 .map(|todo| todo.content.clone())
                 .filter(|value| !value.trim().is_empty()),
+            sidebar::SidebarTab::Pinned => {
+                widgets::sidebar::selected_pinned_message_index(&self.chat, &self.sidebar)
+                    .and_then(|message_index| {
+                        self.chat
+                            .active_thread()
+                            .and_then(|thread| thread.messages.get(message_index))
+                            .map(|message| message.content.clone())
+                    })
+                    .filter(|value| !value.trim().is_empty())
+            }
         };
 
         if let Some(text) = text {
@@ -1149,6 +1175,57 @@ impl TuiModel {
         if let Some(content) = content.filter(|value| !value.trim().is_empty()) {
             self.submit_prompt(content);
         }
+    }
+
+    pub(super) fn pin_message_for_compaction(&mut self, index: usize) {
+        let (thread_id, message_id) = {
+            let Some(thread) = self.chat.active_thread() else {
+                return;
+            };
+            let Some(message) = thread.messages.get(index) else {
+                return;
+            };
+            let Some(message_id) = message.id.clone().filter(|id| !id.is_empty()) else {
+                self.status_line = "Cannot pin message without a daemon id".to_string();
+                return;
+            };
+            (thread.id.clone(), message_id)
+        };
+
+        self.send_daemon_command(DaemonCommand::PinThreadMessageForCompaction {
+            thread_id,
+            message_id,
+        });
+    }
+
+    pub(super) fn unpin_message_for_compaction(&mut self, index: usize) {
+        let (thread_id, message_id) = {
+            let Some(thread) = self.chat.active_thread() else {
+                return;
+            };
+            let Some(message) = thread.messages.get(index) else {
+                return;
+            };
+            let Some(message_id) = message.id.clone().filter(|id| !id.is_empty()) else {
+                self.status_line = "Cannot unpin message without a daemon id".to_string();
+                return;
+            };
+            (thread.id.clone(), message_id)
+        };
+
+        self.send_daemon_command(DaemonCommand::UnpinThreadMessageForCompaction {
+            thread_id,
+            message_id,
+        });
+    }
+
+    pub(super) fn unpin_selected_sidebar_message(&mut self) {
+        let Some(index) =
+            widgets::sidebar::selected_pinned_message_index(&self.chat, &self.sidebar)
+        else {
+            return;
+        };
+        self.unpin_message_for_compaction(index);
     }
 
     pub(super) fn delete_message(&mut self, index: usize) {

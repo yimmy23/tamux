@@ -243,6 +243,7 @@ impl ConciergeEngine {
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: super::super::now_millis(),
             });
             thread.updated_at = super::super::now_millis();

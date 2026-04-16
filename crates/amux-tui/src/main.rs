@@ -463,6 +463,32 @@ fn start_daemon_bridge(
                                     ),
                                 );
                             }
+                            DaemonCommand::PinThreadMessageForCompaction {
+                                thread_id,
+                                message_id,
+                            } => {
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "pin thread message for compaction",
+                                    client.pin_thread_message_for_compaction(
+                                        thread_id,
+                                        message_id,
+                                    ),
+                                );
+                            }
+                            DaemonCommand::UnpinThreadMessageForCompaction {
+                                thread_id,
+                                message_id,
+                            } => {
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "unpin thread message for compaction",
+                                    client.unpin_thread_message_for_compaction(
+                                        thread_id,
+                                        message_id,
+                                    ),
+                                );
+                            }
                             DaemonCommand::RequestThreadTodos(thread_id) => {
                                 forward_bridge_command_result(
                                     &daemon_event_tx,

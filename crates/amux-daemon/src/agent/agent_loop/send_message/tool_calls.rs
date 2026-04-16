@@ -441,6 +441,7 @@ impl<'a> SendMessageRunner<'a> {
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: now_millis(),
             });
             thread.total_input_tokens += input_tokens.unwrap_or(0);
@@ -487,6 +488,7 @@ impl<'a> SendMessageRunner<'a> {
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: now_millis(),
             });
         }

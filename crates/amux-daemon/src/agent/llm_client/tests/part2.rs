@@ -39,6 +39,7 @@ use amux_shared::providers::{
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 42,
             },
             AgentMessage {
@@ -68,6 +69,7 @@ use amux_shared::providers::{
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 43,
             },
         ];

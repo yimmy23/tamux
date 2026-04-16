@@ -181,6 +181,108 @@ fn thread_list_received_preserves_existing_messages_when_summary_is_empty() {
 }
 
 #[test]
+fn thread_detail_hydrates_pinned_for_compaction() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Pinned".into(),
+        messages: vec![AgentMessage {
+            id: Some("m1".into()),
+            role: MessageRole::User,
+            content: "keep this".into(),
+            pinned_for_compaction: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert!(thread.messages[0].pinned_for_compaction);
+}
+
+#[test]
+fn thread_refresh_updates_pinned_for_compaction_flags() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Pinned".into(),
+        messages: vec![AgentMessage {
+            id: Some("m1".into()),
+            role: MessageRole::User,
+            content: "keep this".into(),
+            pinned_for_compaction: false,
+            ..Default::default()
+        }],
+        loaded_message_end: 1,
+        total_message_count: 1,
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Pinned".into(),
+        messages: vec![AgentMessage {
+            id: Some("m1".into()),
+            role: MessageRole::User,
+            content: "keep this".into(),
+            pinned_for_compaction: true,
+            ..Default::default()
+        }],
+        loaded_message_end: 1,
+        total_message_count: 1,
+        ..Default::default()
+    }));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert!(thread.messages[0].pinned_for_compaction);
+}
+
+#[test]
+fn active_thread_pinned_messages_follow_thread_order() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Pinned".into(),
+        messages: vec![
+            AgentMessage {
+                id: Some("m1".into()),
+                role: MessageRole::User,
+                content: "unpinned".into(),
+                pinned_for_compaction: false,
+                ..Default::default()
+            },
+            AgentMessage {
+                id: Some("m2".into()),
+                role: MessageRole::Assistant,
+                content: "first pin".into(),
+                pinned_for_compaction: true,
+                ..Default::default()
+            },
+            AgentMessage {
+                id: Some("m3".into()),
+                role: MessageRole::User,
+                content: "second pin".into(),
+                pinned_for_compaction: true,
+                ..Default::default()
+            },
+        ],
+        loaded_message_end: 3,
+        total_message_count: 3,
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    let pinned = state.active_thread_pinned_messages();
+    assert_eq!(pinned.len(), 2);
+    assert_eq!(pinned[0].0, 1);
+    assert_eq!(pinned[0].1.id.as_deref(), Some("m2"));
+    assert_eq!(pinned[1].0, 2);
+    assert_eq!(pinned[1].1.id.as_deref(), Some("m3"));
+}
+
+#[test]
 fn thread_created_moves_new_thread_to_front() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadListReceived(vec![

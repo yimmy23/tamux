@@ -531,6 +531,100 @@ fn status_modal_failure_replaces_loading_body_with_error_text() {
 }
 
 #[test]
+fn pin_budget_exceeded_event_opens_app_flow() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::ThreadMessagePinResult(
+        crate::client::ThreadMessagePinResultVm {
+            ok: false,
+            thread_id: "thread-1".to_string(),
+            message_id: "message-1".to_string(),
+            error: Some("pinned_budget_exceeded".to_string()),
+            current_pinned_chars: 100,
+            pinned_budget_chars: 120,
+            candidate_pinned_chars: Some(160),
+        },
+    ));
+
+    assert_eq!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::PinnedBudgetExceeded)
+    );
+    let payload = model
+        .pending_pinned_budget_exceeded
+        .as_ref()
+        .expect("budget payload should be stored");
+    assert_eq!(payload.thread_id, "thread-1");
+    assert_eq!(payload.message_id, "message-1");
+    assert_eq!(payload.current_pinned_chars, 100);
+    assert_eq!(payload.pinned_budget_chars, 120);
+    assert_eq!(payload.candidate_pinned_chars, 160);
+}
+
+#[test]
+fn generic_pin_error_stays_status_only() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::ThreadMessagePinResult(
+        crate::client::ThreadMessagePinResultVm {
+            ok: false,
+            thread_id: "thread-1".to_string(),
+            message_id: "message-1".to_string(),
+            error: Some("message_not_found".to_string()),
+            current_pinned_chars: 0,
+            pinned_budget_chars: 120,
+            candidate_pinned_chars: None,
+        },
+    ));
+
+    assert!(model.pending_pinned_budget_exceeded.is_none());
+    assert_ne!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::PinnedBudgetExceeded)
+    );
+    assert_eq!(model.status_line, "Pin failed: message_not_found");
+}
+
+#[test]
+fn sidebar_falls_back_to_todo_after_last_pin_removed() {
+    let mut model = make_model();
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-1".to_string(),
+        title: "Pinned".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            id: Some("message-1".to_string()),
+            role: crate::wire::MessageRole::Assistant,
+            content: "Pinned content".to_string(),
+            pinned_for_compaction: true,
+            ..Default::default()
+        }],
+        loaded_message_end: 1,
+        total_message_count: 1,
+        ..Default::default()
+    });
+    model.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
+        sidebar::SidebarTab::Pinned,
+    ));
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-1".to_string(),
+        title: "Pinned".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            id: Some("message-1".to_string()),
+            role: crate::wire::MessageRole::Assistant,
+            content: "Pinned content".to_string(),
+            pinned_for_compaction: false,
+            ..Default::default()
+        }],
+        loaded_message_end: 1,
+        total_message_count: 1,
+        ..Default::default()
+    });
+
+    assert_eq!(model.sidebar.active_tab(), sidebar::SidebarTab::Todos);
+}
+
+#[test]
 fn status_modal_latest_response_replaces_stale_content() {
     let mut model = make_model();
     model.open_status_modal_loading();
@@ -1004,6 +1098,29 @@ fn done_event_does_not_force_authoritative_refresh_for_participant_threads() {
         next_thread_request(&mut daemon_rx).is_none(),
         "participant-thread done should rely on daemon reload events instead of forcing a TUI refresh"
     );
+}
+
+#[test]
+fn thread_detail_event_hydrates_pinned_for_compaction_from_wire() {
+    let mut model = make_model();
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-1".to_string(),
+        title: "Pinned".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            id: Some("message-1".to_string()),
+            role: crate::wire::MessageRole::Assistant,
+            content: "Pinned content".to_string(),
+            pinned_for_compaction: true,
+            ..Default::default()
+        }],
+        loaded_message_end: 1,
+        total_message_count: 1,
+        ..Default::default()
+    });
+
+    let thread = model.chat.active_thread().expect("thread should exist");
+    assert!(thread.messages[0].pinned_for_compaction);
 }
 
 #[test]

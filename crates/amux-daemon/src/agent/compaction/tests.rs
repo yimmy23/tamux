@@ -75,6 +75,16 @@ fn assert_markdown_section_order(payload: &str, sections: &[&str]) {
     }
 }
 
+fn api_text_contents(messages: &[ApiMessage]) -> Vec<String> {
+    messages
+        .iter()
+        .map(|message| match &message.content {
+            ApiContent::Text(text) => text.clone(),
+            other => panic!("expected text content, got {other:?}"),
+        })
+        .collect()
+}
+
 fn collect_workflow_notice_messages(
     receiver: &mut tokio::sync::broadcast::Receiver<AgentEvent>,
     thread_id: &str,
@@ -327,6 +337,7 @@ fn heuristic_compaction_summary_uses_checkpoint_schema() {
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 2,
             },
             AgentMessage {
@@ -356,6 +367,7 @@ fn heuristic_compaction_summary_uses_checkpoint_schema() {
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 3,
             },
         ],
@@ -411,6 +423,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         compaction_payload: None,
         offloaded_payload_id: None,
         structural_refs: Vec::new(),
+        pinned_for_compaction: false,
         timestamp: 30,
     });
     messages.push(AgentMessage::user("1", 31));
@@ -448,6 +461,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         compaction_payload: None,
         offloaded_payload_id: None,
         structural_refs: Vec::new(),
+        pinned_for_compaction: false,
         timestamp: 32,
     });
     messages.push(AgentMessage {
@@ -478,6 +492,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         compaction_payload: None,
         offloaded_payload_id: None,
         structural_refs: Vec::new(),
+        pinned_for_compaction: false,
         timestamp: 33,
     });
 
@@ -574,6 +589,7 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 2,
         },
         AgentMessage {
@@ -603,6 +619,7 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 3,
         },
         AgentMessage::user("continue", 4),
@@ -666,6 +683,7 @@ fn native_assistant_transport_falls_back_to_compacted_message_stack_when_compact
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 2,
             },
             AgentMessage::user("continue with more work", 3),
@@ -738,6 +756,7 @@ fn github_copilot_responses_request_uses_previous_response_id_for_plain_follow_u
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 2,
         },
         AgentMessage::user("continue", 3),
@@ -815,6 +834,7 @@ fn reused_user_turn_is_injected_when_responses_continuation_only_has_weles_notic
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 2,
         },
         recovery_notice,
@@ -986,6 +1006,7 @@ fn compaction_artifact_message_roundtrip_preserves_runtime_metadata() {
         compaction_payload: Some("Older context compacted for continuity".to_string()),
         offloaded_payload_id: None,
         structural_refs: Vec::new(),
+        pinned_for_compaction: false,
     };
 
     let encoded = serde_json::to_value(&message).expect("message should serialize");
@@ -1046,6 +1067,7 @@ fn compaction_candidate_ignores_messages_before_latest_artifact() {
             compaction_payload: Some("Older context compacted for continuity".to_string()),
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 3,
         },
         sample_message("recent one"),
@@ -1056,6 +1078,70 @@ fn compaction_candidate_ignores_messages_before_latest_artifact() {
         compaction_candidate(&messages, &config, &provider).expect("candidate should exist");
 
     assert_eq!(candidate.split_at, 2);
+}
+
+#[test]
+fn owner_compaction_appends_pinned_messages_after_artifact() {
+    let mut config = AgentConfig::default();
+    config.auto_compact_context = true;
+    config.max_context_messages = 3;
+    config.keep_recent_on_compact = 1;
+    let provider = sample_provider_config();
+
+    let mut pinned_user = sample_message("owner pin alpha");
+    pinned_user.pinned_for_compaction = true;
+
+    let mut pinned_assistant = sample_message("owner pin beta");
+    pinned_assistant.role = MessageRole::Assistant;
+    pinned_assistant.pinned_for_compaction = true;
+
+    let thread = sample_thread(vec![
+        sample_message("older context that should be compacted"),
+        pinned_user,
+        pinned_assistant,
+        sample_message("recent tail"),
+    ]);
+
+    let prepared = prepare_llm_request(&thread, &config, &provider);
+
+    assert_eq!(
+        prepared.messages.len(),
+        4,
+        "pinned messages should be injected after the compaction artifact"
+    );
+    assert_eq!(prepared.messages[1].role, "user");
+    assert_eq!(prepared.messages[2].role, "assistant");
+    assert_eq!(api_text_contents(&prepared.messages)[1], "owner pin alpha");
+    assert_eq!(api_text_contents(&prepared.messages)[2], "owner pin beta");
+    assert_eq!(api_text_contents(&prepared.messages)[3], "recent tail");
+}
+
+#[test]
+fn non_compacted_request_ignores_pinned_messages() {
+    let mut config = AgentConfig::default();
+    config.auto_compact_context = false;
+    let provider = sample_provider_config();
+
+    let mut pinned = sample_message("owner pin placeholder");
+    pinned.pinned_for_compaction = true;
+
+    let thread = sample_thread(vec![
+        sample_message("base context"),
+        pinned,
+        sample_message("recent tail"),
+    ]);
+
+    let prepared = prepare_llm_request(&thread, &config, &provider);
+
+    assert_eq!(
+        api_text_contents(&prepared.messages),
+        vec![
+            "base context".to_string(),
+            "owner pin placeholder".to_string(),
+            "recent tail".to_string(),
+        ],
+        "pinned messages should not be injected separately when compaction is inactive"
+    );
 }
 
 #[tokio::test]
@@ -1383,6 +1469,7 @@ async fn coding_compaction_payload_prefers_structural_digest_and_offload_refs() 
                     compaction_payload: None,
                     offloaded_payload_id: Some("payload-1".to_string()),
                     structural_refs: vec!["node:file:src/lib.rs".to_string()],
+                    pinned_for_compaction: false,
                     timestamp: 2,
                 },
                 AgentMessage::user("Continue with the fix and validate it.", 3),
@@ -1524,6 +1611,7 @@ async fn coding_compaction_payload_renders_offload_refs_from_metadata_fields() {
                     compaction_payload: None,
                     offloaded_payload_id: Some("payload-1".to_string()),
                     structural_refs: vec!["node:file:src/lib.rs".to_string()],
+                    pinned_for_compaction: false,
                     timestamp: 2,
                 },
                 AgentMessage::user("Continue with the fix.", 3),
@@ -1594,6 +1682,7 @@ fn coding_signals_without_structural_state_still_use_conversational_compaction()
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 1,
         }],
     );
@@ -1653,6 +1742,7 @@ fn stale_structural_state_without_recent_coding_signals_uses_conversational_comp
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 2,
             },
         ],
@@ -1707,6 +1797,7 @@ async fn conversational_compaction_still_uses_checkpoint_summary_path() {
                     compaction_payload: None,
                     offloaded_payload_id: None,
                     structural_refs: Vec::new(),
+                    pinned_for_compaction: false,
                     timestamp: 2,
                 },
                 AgentMessage::user("Continue the summary for the next participant.", 3),
@@ -1815,6 +1906,7 @@ async fn internal_dm_thread_uses_checkpoint_compaction_even_with_structural_stat
                     compaction_payload: None,
                     offloaded_payload_id: Some("payload-1".to_string()),
                     structural_refs: vec!["node:file:src/lib.rs".to_string()],
+                    pinned_for_compaction: false,
                     timestamp: 2,
                 },
                 AgentMessage::user("Continue the discussion.", 3),
@@ -1911,6 +2003,7 @@ async fn coding_compaction_falls_back_to_checkpoint_summary_when_structured_asse
                     compaction_payload: None,
                     offloaded_payload_id: Some("payload-missing-table".to_string()),
                     structural_refs: vec!["node:file:src/lib.rs".to_string()],
+                    pinned_for_compaction: false,
                     timestamp: 2,
                 },
                 AgentMessage::user("Continue with validation.", 3),
@@ -2121,6 +2214,7 @@ fn compaction_candidate_keeps_unanswered_tool_turn_out_of_summary_boundary() {
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 2,
         },
         AgentMessage::user("latest", 3),
@@ -2181,6 +2275,7 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 2,
         },
         AgentMessage {
@@ -2210,6 +2305,7 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
             compaction_payload: Some("Older context compacted for continuity".to_string()),
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 3,
         },
         AgentMessage {
@@ -2239,6 +2335,7 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: 4,
         },
         AgentMessage::user("continue", 5),
@@ -2366,6 +2463,7 @@ async fn coding_compaction_payload_includes_memory_graph_neighbors() {
                     compaction_payload: None,
                     offloaded_payload_id: None,
                     structural_refs: vec!["node:file:src/lib.rs".to_string()],
+                    pinned_for_compaction: false,
                     timestamp: 2,
                 },
                 AgentMessage::user("Continue with the fix and validate it.", 3),

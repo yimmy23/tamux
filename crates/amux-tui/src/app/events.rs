@@ -139,6 +139,9 @@ impl TuiModel {
             } => {
                 self.handle_thread_created_event(thread_id, title, agent_name);
             }
+            ClientEvent::ThreadMessagePinResult(result) => {
+                self.handle_thread_message_pin_result_event(result);
+            }
             ClientEvent::ThreadReloadRequired { thread_id } => {
                 self.handle_thread_reload_required_event(thread_id);
             }

@@ -243,6 +243,14 @@ pub(super) fn prepare_llm_request_with_reused_user_message(
     let compacted = compact_messages_for_request(messages, config, provider_config);
     let compaction_active =
         compacted.len() != messages.len() || compacted.iter().any(message_is_compaction_summary);
+    let request_messages = if compacted.iter().any(message_is_compaction_summary) {
+        append_owner_only_pins_after_artifact(
+            &compacted,
+            owner_only_pins_within_budget(thread, config, provider_config),
+        )
+    } else {
+        compacted.clone()
+    };
 
     if !compaction_active
         && selected_transport == ApiTransport::NativeAssistant
@@ -326,7 +334,7 @@ pub(super) fn prepare_llm_request_with_reused_user_message(
         }
 
         return PreparedLlmRequest {
-            messages: messages_to_api_format(&compacted),
+            messages: messages_to_api_format(&request_messages),
             transport: ApiTransport::Responses,
             previous_response_id: None,
             upstream_thread_id: None,
@@ -335,7 +343,7 @@ pub(super) fn prepare_llm_request_with_reused_user_message(
     }
 
     PreparedLlmRequest {
-        messages: messages_to_api_format(&compacted),
+        messages: messages_to_api_format(&request_messages),
         transport: ApiTransport::ChatCompletions,
         previous_response_id: None,
         upstream_thread_id: None,
@@ -482,6 +490,24 @@ fn continuation_api_messages(
     api_messages
 }
 
+fn append_owner_only_pins_after_artifact(
+    compacted: &[AgentMessage],
+    owner_only_pins: Vec<AgentMessage>,
+) -> Vec<AgentMessage> {
+    if owner_only_pins.is_empty()
+        || compacted.is_empty()
+        || !message_is_compaction_summary(&compacted[0])
+    {
+        return compacted.to_vec();
+    }
+
+    let mut request_messages = Vec::with_capacity(compacted.len() + owner_only_pins.len());
+    request_messages.push(compacted[0].clone());
+    request_messages.extend(owner_only_pins);
+    request_messages.extend(compacted.iter().skip(1).cloned());
+    request_messages
+}
+
 pub(super) fn compact_messages_for_request(
     messages: &[AgentMessage],
     config: &AgentConfig,
@@ -514,6 +540,7 @@ pub(super) fn compact_messages_for_request(
             build_compaction_summary(&runtime_messages[..split_at], candidate.target_tokens);
         if !summary.is_empty() {
             has_summary = true;
+            let summary_payload = summary.clone();
             compacted.push(AgentMessage {
                 id: generate_message_id(),
                 role: MessageRole::Assistant,
@@ -536,11 +563,12 @@ pub(super) fn compact_messages_for_request(
                 author_agent_id: None,
                 author_agent_name: None,
                 reasoning: None,
-                message_kind: AgentMessageKind::Normal,
-                compaction_strategy: None,
-                compaction_payload: None,
+                message_kind: AgentMessageKind::CompactionArtifact,
+                compaction_strategy: Some(CompactionStrategy::Heuristic),
+                compaction_payload: Some(summary_payload),
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: messages[split_at - 1].timestamp,
             });
         }
@@ -2236,6 +2264,7 @@ impl AgentEngine {
                 compaction_payload: Some(payload),
                 offloaded_payload_id: None,
                 structural_refs,
+                pinned_for_compaction: false,
                 timestamp: messages
                     .last()
                     .map(|message| message.timestamp)

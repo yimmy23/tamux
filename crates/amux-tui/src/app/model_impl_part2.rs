@@ -215,6 +215,7 @@ impl TuiModel {
                 .todos_for_thread(thread_id)
                 .get(self.sidebar.selected_item())
                 .is_some(),
+            SidebarTab::Pinned => false,
         }
     }
 
@@ -501,6 +502,16 @@ impl TuiModel {
             chat::ChatHitTarget::RegenerateMessage(index) => {
                 self.chat.select_message(Some(index));
                 self.request_regenerate_message(index);
+                true
+            }
+            chat::ChatHitTarget::PinMessage(index) => {
+                self.chat.select_message(Some(index));
+                self.pin_message_for_compaction(index);
+                true
+            }
+            chat::ChatHitTarget::UnpinMessage(index) => {
+                self.chat.select_message(Some(index));
+                self.unpin_message_for_compaction(index);
                 true
             }
             chat::ChatHitTarget::DeleteMessage(index) => {

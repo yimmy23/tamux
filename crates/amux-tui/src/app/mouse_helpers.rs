@@ -141,6 +141,14 @@ impl TuiModel {
                 self.chat.select_message(Some(idx));
                 self.request_regenerate_message(idx);
             }
+            Some(chat::ChatHitTarget::PinMessage(idx)) => {
+                self.chat.select_message(Some(idx));
+                self.pin_message_for_compaction(idx);
+            }
+            Some(chat::ChatHitTarget::UnpinMessage(idx)) => {
+                self.chat.select_message(Some(idx));
+                self.unpin_message_for_compaction(idx);
+            }
             Some(chat::ChatHitTarget::DeleteMessage(idx)) => {
                 self.chat.select_message(Some(idx));
                 self.request_delete_message(idx);
@@ -269,9 +277,12 @@ impl TuiModel {
                         | modal::ModalKind::ApprovalCenter
                         | modal::ModalKind::EffortPicker
                         | modal::ModalKind::ChatActionConfirm
+                        | modal::ModalKind::PinnedBudgetExceeded
                 ) {
                     if kind == modal::ModalKind::ChatActionConfirm {
                         self.close_chat_action_confirm();
+                    } else if kind == modal::ModalKind::PinnedBudgetExceeded {
+                        self.close_pinned_budget_exceeded_modal();
                     } else {
                         self.close_top_modal();
                     }

@@ -41,6 +41,108 @@ fn thread_detail_frame_fits_ipc(thread: &Option<AgentThread>) -> bool {
 }
 
 impl AgentEngine {
+    pub(crate) async fn pin_thread_message_for_compaction(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+    ) -> ThreadMessagePinMutationResult {
+        let config = self.config.read().await.clone();
+        let provider_config = match resolve_active_provider_config(&config) {
+            Ok(provider_config) => provider_config,
+            Err(error) => {
+                return ThreadMessagePinMutationResult::failure(
+                    thread_id,
+                    message_id,
+                    format!("provider_config_unavailable:{error}"),
+                    0,
+                    0,
+                    None,
+                );
+            }
+        };
+
+        let result = {
+            let mut threads = self.threads.write().await;
+            let Some(thread) = threads.get_mut(thread_id) else {
+                return ThreadMessagePinMutationResult::failure(
+                    thread_id,
+                    message_id,
+                    "thread_not_found",
+                    0,
+                    pinned_for_compaction_budget_chars(&config, &provider_config),
+                    None,
+                );
+            };
+
+            let result =
+                pin_thread_message_for_compaction(thread, message_id, &config, &provider_config);
+            if result.ok {
+                thread.updated_at = now_millis();
+            }
+            result
+        };
+
+        if result.ok {
+            self.persist_thread_by_id(thread_id).await;
+            let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+                thread_id: thread_id.to_string(),
+            });
+        }
+
+        result
+    }
+
+    pub(crate) async fn unpin_thread_message_for_compaction(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+    ) -> ThreadMessagePinMutationResult {
+        let config = self.config.read().await.clone();
+        let provider_config = match resolve_active_provider_config(&config) {
+            Ok(provider_config) => provider_config,
+            Err(error) => {
+                return ThreadMessagePinMutationResult::failure(
+                    thread_id,
+                    message_id,
+                    format!("provider_config_unavailable:{error}"),
+                    0,
+                    0,
+                    None,
+                );
+            }
+        };
+
+        let result = {
+            let mut threads = self.threads.write().await;
+            let Some(thread) = threads.get_mut(thread_id) else {
+                return ThreadMessagePinMutationResult::failure(
+                    thread_id,
+                    message_id,
+                    "thread_not_found",
+                    0,
+                    pinned_for_compaction_budget_chars(&config, &provider_config),
+                    None,
+                );
+            };
+
+            let result =
+                unpin_thread_message_for_compaction(thread, message_id, &config, &provider_config);
+            if result.ok {
+                thread.updated_at = now_millis();
+            }
+            result
+        };
+
+        if result.ok {
+            self.persist_thread_by_id(thread_id).await;
+            let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+                thread_id: thread_id.to_string(),
+            });
+        }
+
+        result
+    }
+
     pub async fn set_thread_client_surface(
         &self,
         thread_id: &str,

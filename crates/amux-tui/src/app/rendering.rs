@@ -764,6 +764,7 @@ impl TuiModel {
             widgets::sidebar::render(
                 frame,
                 sidebar_area,
+                &self.chat,
                 &self.sidebar,
                 &self.tasks,
                 self.chat.active_thread_id(),
@@ -890,6 +891,9 @@ impl TuiModel {
                 }
                 modal::ModalKind::ApprovalCenter => render_helpers::centered_rect(86, 82, area),
                 modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
+                modal::ModalKind::PinnedBudgetExceeded => {
+                    render_helpers::centered_rect(62, 36, area)
+                }
                 modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
                 modal::ModalKind::Status => render_helpers::centered_rect(72, 70, area),
                 modal::ModalKind::Statistics => render_helpers::centered_rect(84, 84, area),
@@ -974,6 +978,18 @@ impl TuiModel {
                         self.chat_action_confirm_accept_selected,
                         &self.theme,
                     );
+                }
+                modal::ModalKind::PinnedBudgetExceeded => {
+                    if let Some(payload) = self.pending_pinned_budget_exceeded.as_ref() {
+                        render_helpers::render_pinned_budget_exceeded_modal(
+                            frame,
+                            overlay_area,
+                            payload.current_pinned_chars,
+                            payload.pinned_budget_chars,
+                            payload.candidate_pinned_chars,
+                            &self.theme,
+                        );
+                    }
                 }
                 modal::ModalKind::Settings => {
                     widgets::settings::render(
@@ -1117,6 +1133,7 @@ impl TuiModel {
             }
             modal::ModalKind::ApprovalCenter => render_helpers::centered_rect(86, 82, area),
             modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
+            modal::ModalKind::PinnedBudgetExceeded => render_helpers::centered_rect(62, 36, area),
             modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
             modal::ModalKind::Status => render_helpers::centered_rect(72, 70, area),
             modal::ModalKind::Statistics => render_helpers::centered_rect(84, 84, area),

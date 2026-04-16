@@ -41,6 +41,19 @@ pub struct WelesHealthVm {
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ThreadMessagePinResultVm {
+    pub ok: bool,
+    pub thread_id: String,
+    pub message_id: String,
+    #[serde(default)]
+    pub error: Option<String>,
+    pub current_pinned_chars: usize,
+    pub pinned_budget_chars: usize,
+    #[serde(default)]
+    pub candidate_pinned_chars: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAICodexAuthStatusVm {
     pub available: bool,
@@ -71,6 +84,7 @@ pub enum ClientEvent {
         title: String,
         agent_name: Option<String>,
     },
+    ThreadMessagePinResult(ThreadMessagePinResultVm),
     ThreadReloadRequired {
         thread_id: String,
     },

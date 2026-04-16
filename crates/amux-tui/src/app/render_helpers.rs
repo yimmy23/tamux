@@ -391,6 +391,66 @@ pub(super) fn render_chat_action_confirm_modal(
     frame.render_widget(Paragraph::new(action_line).centered(), layout[1]);
 }
 
+pub(super) fn render_pinned_budget_exceeded_modal(
+    frame: &mut Frame,
+    area: Rect,
+    current_pinned_chars: usize,
+    pinned_budget_chars: usize,
+    candidate_pinned_chars: usize,
+    theme: &ThemeTokens,
+) {
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
+
+    let block = Block::default()
+        .title(" PINNED MESSAGE LIMIT ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .border_style(theme.accent_danger);
+
+    let inner = block.inner(area);
+    frame.render_widget(Clear, area);
+    frame.render_widget(block, area);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let body = vec![
+        Line::from("This message cannot be pinned for compaction."),
+        Line::raw(""),
+        Line::from(
+            "Pinned messages are injected as separate messages after the owner compaction artifact.",
+        ),
+        Line::from("Pinned content is capped at 25% of the active model context window."),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("Current pinned chars: ", theme.fg_dim),
+            Span::styled(current_pinned_chars.to_string(), theme.fg_active),
+        ]),
+        Line::from(vec![
+            Span::styled("Pinned budget chars: ", theme.fg_dim),
+            Span::styled(pinned_budget_chars.to_string(), theme.fg_active),
+        ]),
+        Line::from(vec![
+            Span::styled("Attempted total chars: ", theme.fg_dim),
+            Span::styled(candidate_pinned_chars.to_string(), theme.accent_danger),
+        ]),
+        Line::raw(""),
+        Line::from("Unpin something shorter or choose a smaller message."),
+    ];
+    frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }), layout[0]);
+
+    let hint = Line::from(vec![
+        Span::styled("Enter", theme.fg_active),
+        Span::styled(" acknowledge  ", theme.fg_dim),
+        Span::styled("Esc", theme.fg_active),
+        Span::styled(" close", theme.fg_dim),
+    ]);
+    frame.render_widget(Paragraph::new(hint).centered(), layout[1]);
+}
+
 pub(super) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)

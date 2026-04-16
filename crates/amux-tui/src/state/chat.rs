@@ -323,6 +323,28 @@ impl ChatState {
         })
     }
 
+    pub fn active_thread_pinned_messages(&self) -> Vec<(usize, &AgentMessage)> {
+        self.active_thread()
+            .map(|thread| {
+                thread
+                    .messages
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, message)| message.pinned_for_compaction)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn active_thread_has_pinned_messages(&self) -> bool {
+        self.active_thread().is_some_and(|thread| {
+            thread
+                .messages
+                .iter()
+                .any(|message| message.pinned_for_compaction)
+        })
+    }
+
     pub fn active_thread_mut(&mut self) -> Option<&mut AgentThread> {
         let id = self.active_thread_id.as_deref()?.to_owned();
         self.threads.iter_mut().find(|t| t.id == id)

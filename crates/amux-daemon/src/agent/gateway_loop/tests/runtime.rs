@@ -235,6 +235,7 @@ async fn gateway_auto_send_thread_response_emits_gateway_request_for_latest_assi
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: now_millis(),
         });
         thread.updated_at = now_millis();

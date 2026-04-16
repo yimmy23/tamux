@@ -152,6 +152,8 @@ pub struct AgentMessage {
     pub offloaded_payload_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub structural_refs: Vec<String>,
+    #[serde(default)]
+    pub pinned_for_compaction: bool,
     pub timestamp: u64,
 }
 
@@ -188,6 +190,7 @@ impl AgentMessage {
             compaction_payload: None,
             offloaded_payload_id: None,
             structural_refs: Vec::new(),
+            pinned_for_compaction: false,
             timestamp: now,
         }
     }

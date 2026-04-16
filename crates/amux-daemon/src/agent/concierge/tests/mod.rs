@@ -63,6 +63,7 @@ fn assistant_message(content: &str, timestamp: u64) -> AgentMessage {
         compaction_payload: None,
         offloaded_payload_id: None,
         structural_refs: Vec::new(),
+        pinned_for_compaction: false,
         timestamp,
     }
 }

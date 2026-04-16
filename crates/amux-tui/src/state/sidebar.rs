@@ -8,6 +8,7 @@ use std::collections::HashSet;
 pub enum SidebarTab {
     Files,
     Todos,
+    Pinned,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

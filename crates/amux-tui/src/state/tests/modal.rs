@@ -230,3 +230,16 @@ fn whatsapp_terminal_states_clear_qr_expiry() {
     state.set_whatsapp_link_disconnected(Some("socket closed".to_string()));
     assert_eq!(state.whatsapp_link().expires_at_ms(), None);
 }
+
+#[test]
+fn pinned_budget_modal_stacks_and_pops_like_other_modal_kinds() {
+    let mut state = ModalState::new();
+    state.reduce(ModalAction::Push(ModalKind::Status));
+    state.reduce(ModalAction::Push(ModalKind::PinnedBudgetExceeded));
+
+    assert_eq!(state.top(), Some(ModalKind::PinnedBudgetExceeded));
+
+    state.reduce(ModalAction::Pop);
+
+    assert_eq!(state.top(), Some(ModalKind::Status));
+}

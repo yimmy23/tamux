@@ -735,6 +735,33 @@ impl TuiModel {
         }
     }
 
+    pub(in crate::app) fn handle_thread_message_pin_result_event(
+        &mut self,
+        result: crate::client::ThreadMessagePinResultVm,
+    ) {
+        if result.ok {
+            return;
+        }
+
+        if result.error.as_deref() == Some("pinned_budget_exceeded") {
+            if let Some(candidate_pinned_chars) = result.candidate_pinned_chars {
+                self.open_pinned_budget_exceeded_modal(PendingPinnedBudgetExceeded {
+                    thread_id: result.thread_id,
+                    message_id: result.message_id,
+                    current_pinned_chars: result.current_pinned_chars,
+                    pinned_budget_chars: result.pinned_budget_chars,
+                    candidate_pinned_chars,
+                });
+                return;
+            }
+        }
+
+        self.status_line = format!(
+            "Pin failed: {}",
+            result.error.unwrap_or_else(|| "unknown_error".to_string())
+        );
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(in crate::app) fn handle_retry_status_event(
         &mut self,

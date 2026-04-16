@@ -105,6 +105,11 @@ export function prepareOpenAIRequest(
     compacted.some((message) =>
       message.content.startsWith("[Compacted earlier context]"),
     );
+  const requestMessages = compacted.some((message) =>
+    message.content.startsWith("[Compacted earlier context]"),
+  )
+    ? appendPinnedMessagesAfterCompactionArtifact(compacted, messages, settings)
+    : compacted;
 
   if (selectedTransport === "native_assistant" && assistant_id?.trim()) {
     const latestUserMessage = [...messages]
@@ -153,15 +158,56 @@ export function prepareOpenAIRequest(
     }
 
     return {
-      messages: messagesToApiFormat(compacted),
+      messages: messagesToApiFormat(requestMessages),
       transport: "responses",
     };
   }
 
   return {
-    messages: messagesToApiFormat(compacted),
+    messages: messagesToApiFormat(requestMessages),
     transport: "chat_completions",
   };
+}
+
+function pinnedMessageBudgetChars(
+  settings: ContextCompactionSettings,
+): number {
+  return Math.floor(
+    Number(settings.context_window_tokens || 0) * 0.25 * APPROX_CHARS_PER_TOKEN,
+  );
+}
+
+function appendPinnedMessagesAfterCompactionArtifact(
+  compacted: AgentMessage[],
+  allMessages: AgentMessage[],
+  settings: ContextCompactionSettings,
+): AgentMessage[] {
+  if (
+    compacted.length === 0 ||
+    !compacted[0]?.content.startsWith("[Compacted earlier context]")
+  ) {
+    return compacted;
+  }
+
+  const budgetChars = pinnedMessageBudgetChars(settings);
+  let usedChars = 0;
+  const pinnedMessages = allMessages.filter((message) => message.pinnedForCompaction);
+  const injectedPins: AgentMessage[] = [];
+
+  for (const message of pinnedMessages) {
+    const messageChars = message.content.length;
+    if (usedChars + messageChars > budgetChars) {
+      break;
+    }
+    usedChars += messageChars;
+    injectedPins.push(message);
+  }
+
+  if (injectedPins.length === 0) {
+    return compacted;
+  }
+
+  return [compacted[0], ...injectedPins, ...compacted.slice(1)];
 }
 
 function compactMessagesForRequest(

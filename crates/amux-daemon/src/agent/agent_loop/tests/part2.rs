@@ -182,6 +182,7 @@ async fn post_compaction_prompt_rebuild_refreshes_memory_summary_and_injection_s
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 2,
                     },
                     crate::agent::types::AgentMessage::user("Need a fresh request boundary", 3),

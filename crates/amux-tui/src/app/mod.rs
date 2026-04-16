@@ -151,6 +151,15 @@ struct PendingChatActionConfirm {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct PendingPinnedBudgetExceeded {
+    thread_id: String,
+    message_id: String,
+    current_pinned_chars: usize,
+    pinned_budget_chars: usize,
+    candidate_pinned_chars: usize,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct QueuedPrompt {
     pub(crate) text: String,
     pub(crate) thread_id: Option<String>,
@@ -350,6 +359,7 @@ pub struct TuiModel {
     pending_stop_tick: u64,
     input_notice: Option<InputNotice>,
     pending_chat_action_confirm: Option<PendingChatActionConfirm>,
+    pending_pinned_budget_exceeded: Option<PendingPinnedBudgetExceeded>,
     chat_action_confirm_accept_selected: bool,
     retry_wait_start_selected: bool,
     auto_response_selection: AutoResponseActionSelection,
@@ -448,6 +458,7 @@ fn sidebar_tab_label(tab: SidebarTab) -> &'static str {
     match tab {
         SidebarTab::Files => "files",
         SidebarTab::Todos => "todos",
+        SidebarTab::Pinned => "pinned",
     }
 }
 

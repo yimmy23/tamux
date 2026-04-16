@@ -31,6 +31,9 @@ impl TuiModel {
                 }
                 modal::ModalKind::ApprovalCenter => "modal:approval_center".to_string(),
                 modal::ModalKind::ChatActionConfirm => "modal:chat_action_confirm".to_string(),
+                modal::ModalKind::PinnedBudgetExceeded => {
+                    "modal:pinned_budget_exceeded".to_string()
+                }
                 modal::ModalKind::CommandPalette => "modal:command_palette".to_string(),
                 modal::ModalKind::ThreadParticipants => "modal:thread_participants".to_string(),
                 modal::ModalKind::ThreadPicker => "modal:thread_picker".to_string(),

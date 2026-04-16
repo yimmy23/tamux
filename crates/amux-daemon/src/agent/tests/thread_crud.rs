@@ -206,6 +206,111 @@ async fn list_threads_include_internal_reveals_hidden_threads() {
 }
 
 #[tokio::test]
+async fn pin_rejected_when_budget_would_be_exceeded() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.context_window_tokens = 100;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-pin-budget";
+
+    let mut already_pinned = AgentMessage::user("a".repeat(80), 1);
+    already_pinned.pinned_for_compaction = true;
+    let candidate = AgentMessage::user("b".repeat(30), 2);
+    let candidate_id = candidate.id.clone();
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Pin budget",
+            false,
+            1,
+            2,
+            vec![already_pinned, candidate],
+        ),
+    );
+
+    let result = engine
+        .pin_thread_message_for_compaction(thread_id, &candidate_id)
+        .await;
+
+    assert!(!result.ok, "pin should be rejected when it exceeds budget");
+    assert_eq!(result.thread_id, thread_id);
+    assert_eq!(result.message_id, candidate_id);
+    assert_eq!(result.current_pinned_chars, 80);
+    assert_eq!(result.candidate_pinned_chars, Some(110));
+    assert_eq!(result.pinned_budget_chars, 100);
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(thread_id)
+        .cloned()
+        .expect("thread should still exist");
+    assert_eq!(
+        thread
+            .messages
+            .iter()
+            .filter(|message| message.pinned_for_compaction)
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn deleting_pinned_message_removes_pin_state() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-delete-pinned";
+
+    let message = AgentMessage::user("keep this pinned", 1);
+    let message_id = message.id.clone();
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Delete pin",
+            false,
+            1,
+            1,
+            vec![message],
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let result = engine
+        .pin_thread_message_for_compaction(thread_id, &message_id)
+        .await;
+    assert!(result.ok, "pin should succeed before deletion");
+
+    let deleted = engine
+        .delete_thread_messages(thread_id, std::slice::from_ref(&message_id))
+        .await
+        .expect("delete should succeed");
+    assert_eq!(deleted, 1);
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(thread_id)
+        .cloned()
+        .expect("thread should still exist");
+    assert!(
+        thread
+            .messages
+            .iter()
+            .all(|message| !message.pinned_for_compaction),
+        "deleting the source message should remove the pin with it"
+    );
+}
+
+#[tokio::test]
 async fn list_threads_dm_visibility_is_unchanged() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

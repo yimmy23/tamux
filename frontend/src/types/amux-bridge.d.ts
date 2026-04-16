@@ -133,6 +133,16 @@ declare global {
         entries: AmuxWorkContextEntry[];
     };
 
+    type AmuxThreadMessagePinResult = {
+        ok: boolean;
+        thread_id: string;
+        message_id: string;
+        error?: string | null;
+        current_pinned_chars: number;
+        pinned_budget_chars: number;
+        candidate_pinned_chars?: number | null;
+    };
+
     type AmuxGoalRunStep = {
         id: string;
         title: string;
@@ -369,6 +379,8 @@ declare global {
                 messageOffset?: number | null;
             },
         ) => Promise<unknown | null>;
+        agentPinThreadMessageForCompaction?: (threadId: string, messageId: string) => Promise<AmuxThreadMessagePinResult | unknown>;
+        agentUnpinThreadMessageForCompaction?: (threadId: string, messageId: string) => Promise<AmuxThreadMessagePinResult | unknown>;
         openAICodexAuthStatus?: (options?: { refresh?: boolean }) => Promise<AmuxOpenAICodexAuthStatus>;
         openAICodexAuthLogin?: () => Promise<AmuxOpenAICodexAuthLogin>;
         openAICodexAuthLogout?: () => Promise<{ ok: boolean }>;

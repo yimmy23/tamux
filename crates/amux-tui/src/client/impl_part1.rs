@@ -380,6 +380,7 @@ impl DaemonClient {
                 Self::handle_daemon_message_part2(message, event_tx).await
             }
             message @ (DaemonMessage::AgentWhatsAppLinkStatus { .. }
+            | DaemonMessage::AgentThreadMessagePinResult { .. }
             | DaemonMessage::AgentWhatsAppLinkQr { .. }
             | DaemonMessage::AgentWhatsAppLinked { .. }
             | DaemonMessage::AgentWhatsAppLinkError { .. }

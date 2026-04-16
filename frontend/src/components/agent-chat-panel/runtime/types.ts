@@ -11,6 +11,7 @@ import type { AgentProviderId, WelesHealthState } from "@/lib/agentStore/types";
 export type AgentChatPanelView =
   | "threads"
   | "chat"
+  | "pinned"
   | "trace"
   | "usage"
   | "context"
@@ -76,12 +77,18 @@ export type AgentChatPanelRuntimeValue = {
   sendParticipantSuggestion: (threadId: string, suggestionId: string, forceSend?: boolean) => Promise<void>;
   dismissParticipantSuggestion: (threadId: string, suggestionId: string) => Promise<void>;
   deleteMessage: (threadId: string, messageId: string) => void;
+  pinMessageForCompaction: (threadId: string, messageId: string) => Promise<AmuxThreadMessagePinResult | null>;
+  unpinMessageForCompaction: (threadId: string, messageId: string) => Promise<AmuxThreadMessagePinResult | null>;
   stopStreaming: (threadId?: string | null) => void;
   handleSend: () => void;
   handleKeyDown: (event: React.KeyboardEvent) => void;
   canStartGoalRun: boolean;
   startGoalRunFromPrompt: (text: string) => Promise<boolean>;
   tabItems: Array<{ id: AgentChatPanelView; label: string; count: number | null }>;
+  pinnedMessages: AgentMessage[];
+  pinnedBudgetChars: number;
+  pinnedUsageChars: number;
+  pinnedOverBudget: boolean;
   welesHealth: WelesHealthState | null;
   builtinAgentSetup: BuiltinAgentSetupState | null;
   submitBuiltinAgentSetup: (providerId: AgentProviderId, model: string) => Promise<void>;

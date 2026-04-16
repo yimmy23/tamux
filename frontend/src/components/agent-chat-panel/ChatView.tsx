@@ -29,6 +29,8 @@ export function ChatView({
   onDismissParticipantSuggestion,
   onStopStreaming,
   onDeleteMessage,
+  onPinMessage,
+  onUnpinMessage,
   onUpdateReasoningEffort,
   canStartGoalRun,
   onStartGoalRun,
@@ -37,6 +39,7 @@ export function ChatView({
   const [searchQuery, setSearchQuery] = useState("");
   const [todoExpanded, setTodoExpanded] = useState(true);
   const [participantsModalOpen, setParticipantsModalOpen] = useState(false);
+  const [pinLimitResult, setPinLimitResult] = useState<AmuxThreadMessagePinResult | null>(null);
 
   const handleSendClick = () => {
     const text = input.trim();
@@ -197,6 +200,15 @@ export function ChatView({
                 }
               } : undefined}
               onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+              onPin={onPinMessage ? async () => {
+                const result = await onPinMessage(message.id);
+                if (result && result.ok === false && result.error === "pinned_budget_exceeded") {
+                  setPinLimitResult(result);
+                }
+              } : undefined}
+              onUnpin={onUnpinMessage ? async () => {
+                await onUnpinMessage(message.id);
+              } : undefined}
             />
           );
         })}
@@ -251,6 +263,56 @@ export function ChatView({
         }}
         onUpdateReasoningEffort={onUpdateReasoningEffort}
       />
+
+      {pinLimitResult && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(3, 8, 18, 0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "var(--space-6)",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              width: "min(520px, 100%)",
+              border: "1px solid color-mix(in srgb, var(--warning) 55%, var(--border))",
+              background: "var(--bg-primary)",
+              borderRadius: "var(--radius-xl)",
+              padding: "var(--space-4)",
+              display: "grid",
+              gap: "var(--space-3)",
+              boxShadow: "0 24px 80px rgba(0, 0, 0, 0.45)",
+            }}
+          >
+            <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--warning)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              Pin Limit Reached
+            </div>
+            <div style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              This message cannot be pinned because pinned messages are sent as separate compaction messages and are capped at 25% of the active model context window.
+            </div>
+            <div style={{ display: "grid", gap: "var(--space-1)", fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>
+              <div>Current pinned usage: {pinLimitResult.current_pinned_chars.toLocaleString()} chars</div>
+              <div>Pin budget: {pinLimitResult.pinned_budget_chars.toLocaleString()} chars</div>
+              <div>Candidate total: {(pinLimitResult.candidate_pinned_chars ?? 0).toLocaleString()} chars</div>
+              <div>Attempted message size: {Math.max(0, (pinLimitResult.candidate_pinned_chars ?? 0) - pinLimitResult.current_pinned_chars).toLocaleString()} chars</div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setPinLimitResult(null)}
+                style={{ border: "1px solid var(--glass-border)", background: "transparent", color: "var(--text-primary)", borderRadius: "var(--radius-sm)", padding: "6px 12px", fontSize: 12, cursor: "pointer" }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {participantsModalOpen && activeThread && (
         <div

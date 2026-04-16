@@ -101,6 +101,28 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
             return null;
         }
     });
+    ipcMain.handle('agent-pin-thread-message-for-compaction', async (_event, threadId, messageId) => {
+        try {
+            return await sendAgentQuery({
+                type: 'pin-thread-message-for-compaction',
+                thread_id: threadId,
+                message_id: messageId,
+            }, 'thread-message-pin-result');
+        } catch (err) {
+            return { ok: false, thread_id: threadId, message_id: messageId, error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-unpin-thread-message-for-compaction', async (_event, threadId, messageId) => {
+        try {
+            return await sendAgentQuery({
+                type: 'unpin-thread-message-for-compaction',
+                thread_id: threadId,
+                message_id: messageId,
+            }, 'thread-message-pin-result');
+        } catch (err) {
+            return { ok: false, thread_id: threadId, message_id: messageId, error: err?.message || String(err) };
+        }
+    });
     ipcMain.handle('agent-delete-thread', async (_event, threadId) => { try { sendAgentCommand({ type: 'delete-thread', thread_id: threadId }); return true; } catch { return false; } });
     ipcMain.handle('agent-add-task', async (_event, payload) => {
         try {

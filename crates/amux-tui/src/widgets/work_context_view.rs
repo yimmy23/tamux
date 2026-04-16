@@ -279,6 +279,21 @@ fn build_lines(
                 );
             }
         }
+        SidebarTab::Pinned => {
+            section(&mut lines, "Pinned", theme);
+            lines.push(Line::from(vec![
+                Span::styled("[x]", theme.accent_danger),
+                Span::raw(" "),
+                Span::styled("Close preview", theme.fg_dim),
+            ]));
+            push_wrapped(
+                &mut lines,
+                "Pinned messages jump back into the conversation view.",
+                theme.fg_dim,
+                width,
+                0,
+            );
+        }
     }
 
     lines

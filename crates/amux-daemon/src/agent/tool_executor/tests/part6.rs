@@ -334,6 +334,7 @@ async fn compaction_trims_participant_playground_threads_for_visible_thread() {
         compaction_payload: None,
         offloaded_payload_id: None,
         structural_refs: Vec::new(),
+        pinned_for_compaction: false,
         timestamp,
     };
     let provider_config = {

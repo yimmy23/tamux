@@ -18,6 +18,7 @@ pub enum ModalKind {
     ApprovalCenter,
     OperatorQuestionOverlay,
     ChatActionConfirm,
+    PinnedBudgetExceeded,
     Settings,
     EffortPicker,
     Notifications,

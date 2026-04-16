@@ -454,6 +454,7 @@ impl TuiModel {
                     self.focus = FocusArea::Sidebar;
                     match widgets::sidebar::hit_test(
                         sidebar_area,
+                        &self.chat,
                         &self.sidebar,
                         &self.tasks,
                         self.chat.active_thread_id(),
@@ -478,6 +479,10 @@ impl TuiModel {
                             }
                         }
                         Some(widgets::sidebar::SidebarHitTarget::Todo(index)) => {
+                            self.sidebar.select(index, self.sidebar_item_count());
+                            self.handle_sidebar_enter();
+                        }
+                        Some(widgets::sidebar::SidebarHitTarget::Pinned(index)) => {
                             self.sidebar.select(index, self.sidebar_item_count());
                             self.handle_sidebar_enter();
                         }

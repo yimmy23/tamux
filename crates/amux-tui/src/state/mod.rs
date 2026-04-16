@@ -39,6 +39,14 @@ pub enum DaemonCommand {
         message_limit: Option<usize>,
         message_offset: Option<usize>,
     },
+    PinThreadMessageForCompaction {
+        thread_id: String,
+        message_id: String,
+    },
+    UnpinThreadMessageForCompaction {
+        thread_id: String,
+        message_id: String,
+    },
     RequestThreadTodos(String),
     RequestThreadWorkContext(String),
     RequestGoalRunDetail(String),

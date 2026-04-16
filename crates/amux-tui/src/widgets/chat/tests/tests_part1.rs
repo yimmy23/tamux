@@ -924,6 +924,53 @@ fn selected_message_action_bar_highlights_only_primary_action() {
 }
 
 #[test]
+fn user_message_actions_include_pin_before_delete() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        id: Some("message-1".into()),
+        role: MessageRole::User,
+        content: "first".into(),
+        pinned_for_compaction: false,
+        ..Default::default()
+    }]);
+
+    let message = chat
+        .active_thread()
+        .and_then(|thread| thread.messages.first())
+        .expect("message should exist");
+    let labels: Vec<String> = message_action_targets(&chat, 0, message, 0)
+        .into_iter()
+        .map(|(label, _)| label)
+        .collect();
+
+    assert_eq!(labels, vec!["[Copy]", "[Resend]", "[Pin]", "[Delete]"]);
+}
+
+#[test]
+fn assistant_pinned_message_actions_include_unpin_before_delete() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        id: Some("message-1".into()),
+        role: MessageRole::Assistant,
+        content: "answer".into(),
+        pinned_for_compaction: true,
+        ..Default::default()
+    }]);
+
+    let message = chat
+        .active_thread()
+        .and_then(|thread| thread.messages.first())
+        .expect("message should exist");
+    let labels: Vec<String> = message_action_targets(&chat, 0, message, 0)
+        .into_iter()
+        .map(|(label, _)| label)
+        .collect();
+
+    assert_eq!(
+        labels,
+        vec!["[Copy]", "[Regenerate]", "[Unpin]", "[Delete]"]
+    );
+}
+
+#[test]
 fn selected_expanded_tool_message_action_bar_shows_collapse() {
     let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Tool,

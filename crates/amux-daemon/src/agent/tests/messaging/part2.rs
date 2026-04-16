@@ -74,6 +74,7 @@ async fn delete_thread_messages_drops_incomplete_assistant_tool_turn_after_tool_
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 2,
                     },
                     AgentMessage {
@@ -103,6 +104,7 @@ async fn delete_thread_messages_drops_incomplete_assistant_tool_turn_after_tool_
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 3,
                     },
                     AgentMessage {
@@ -132,6 +134,7 @@ async fn delete_thread_messages_drops_incomplete_assistant_tool_turn_after_tool_
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 4,
                     },
                     AgentMessage::user("continue", 5),
@@ -217,6 +220,7 @@ async fn delete_thread_messages_emits_thread_reload_event_after_reconciliation()
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 2,
                     },
                     AgentMessage::user("continue", 3),

@@ -2253,3 +2253,46 @@ fn notifications_modal_row_action_focus_uses_left_right_and_enter() {
         .and_then(|notification| notification.read_at)
         .is_some());
 }
+
+#[test]
+fn pinned_budget_modal_dismiss_restores_chat_focus() {
+    let (mut model, _daemon_rx) = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Pinned".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-1".to_string(),
+        message: chat::AgentMessage {
+            id: Some("message-1".to_string()),
+            role: chat::MessageRole::Assistant,
+            content: "Pinned content".to_string(),
+            ..Default::default()
+        },
+    });
+    model.chat.select_message(Some(0));
+    model.pending_pinned_budget_exceeded = Some(crate::app::PendingPinnedBudgetExceeded {
+        thread_id: "thread-1".to_string(),
+        message_id: "message-1".to_string(),
+        current_pinned_chars: 100,
+        pinned_budget_chars: 120,
+        candidate_pinned_chars: 160,
+    });
+    model.modal.reduce(modal::ModalAction::Push(
+        modal::ModalKind::PinnedBudgetExceeded,
+    ));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::PinnedBudgetExceeded,
+    );
+
+    assert!(!quit);
+    assert!(model.modal.top().is_none());
+    assert_eq!(model.chat.selected_message(), Some(0));
+    assert!(model.pending_pinned_budget_exceeded.is_none());
+}

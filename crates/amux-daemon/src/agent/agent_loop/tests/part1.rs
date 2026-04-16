@@ -108,6 +108,7 @@ async fn repair_tool_call_sequence_updates_persisted_history() {
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 2,
                     },
                     AgentMessage {
@@ -137,6 +138,7 @@ async fn repair_tool_call_sequence_updates_persisted_history() {
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 3,
                     },
                     AgentMessage::user("continue", 4),

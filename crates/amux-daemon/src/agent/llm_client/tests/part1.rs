@@ -454,6 +454,7 @@
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 1,
             },
             AgentMessage {
@@ -483,6 +484,7 @@
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 2,
             },
             AgentMessage::user("next", 3),
@@ -520,6 +522,7 @@
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 4,
             },
             AgentMessage {
@@ -549,6 +552,7 @@
                 compaction_payload: None,
                 offloaded_payload_id: None,
                 structural_refs: Vec::new(),
+                pinned_for_compaction: false,
                 timestamp: 5,
             },
         ];

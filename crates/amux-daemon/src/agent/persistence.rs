@@ -259,6 +259,7 @@ impl AgentEngine {
                                 compaction_payload: metadata.compaction_payload,
                                 offloaded_payload_id: metadata.offloaded_payload_id,
                                 structural_refs: metadata.structural_refs,
+                                pinned_for_compaction: metadata.pinned_for_compaction,
                                 timestamp: message.created_at as u64,
                             }
                         })

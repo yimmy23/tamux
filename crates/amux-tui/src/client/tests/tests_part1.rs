@@ -77,6 +77,31 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     }
 
     #[test]
+    fn pin_methods_send_expected_protocol_messages() {
+        let (event_tx, _event_rx) = mpsc::channel(8);
+        let client = DaemonClient::new(event_tx);
+        let mut rx = client.request_rx.lock().unwrap().take().unwrap();
+
+        client
+            .pin_thread_message_for_compaction("thread-1".to_string(), "message-1".to_string())
+            .unwrap();
+        assert!(matches!(
+            drain_request(&mut rx),
+            ClientMessage::AgentPinThreadMessageForCompaction { thread_id, message_id }
+                if thread_id == "thread-1" && message_id == "message-1"
+        ));
+
+        client
+            .unpin_thread_message_for_compaction("thread-1".to_string(), "message-1".to_string())
+            .unwrap();
+        assert!(matches!(
+            drain_request(&mut rx),
+            ClientMessage::AgentUnpinThreadMessageForCompaction { thread_id, message_id }
+                if thread_id == "thread-1" && message_id == "message-1"
+        ));
+    }
+
+    #[test]
     fn oversized_send_message_is_rejected_before_queueing() {
         let (event_tx, _event_rx) = mpsc::channel(8);
         let client = DaemonClient::new(event_tx);
@@ -147,6 +172,41 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
                 assert_eq!(reasoning.as_deref(), Some("Final reasoning summary"));
             }
             other => panic!("expected done event, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn thread_message_pin_result_emits_budget_event() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        handle_daemon_message_for_test(
+            DaemonMessage::AgentThreadMessagePinResult {
+                result_json: serde_json::json!({
+                    "ok": false,
+                    "thread_id": "thread-1",
+                    "message_id": "message-1",
+                    "error": "pinned_budget_exceeded",
+                    "current_pinned_chars": 100,
+                    "pinned_budget_chars": 120,
+                    "candidate_pinned_chars": 160
+                })
+                .to_string(),
+            },
+            &event_tx,
+        )
+        .await;
+
+        match event_rx.recv().await.expect("expected pin result event") {
+            ClientEvent::ThreadMessagePinResult(result) => {
+                assert!(!result.ok);
+                assert_eq!(result.thread_id, "thread-1");
+                assert_eq!(result.message_id, "message-1");
+                assert_eq!(result.error.as_deref(), Some("pinned_budget_exceeded"));
+                assert_eq!(result.current_pinned_chars, 100);
+                assert_eq!(result.pinned_budget_chars, 120);
+                assert_eq!(result.candidate_pinned_chars, Some(160));
+            }
+            other => panic!("expected pin result event, got {:?}", other),
         }
     }
 

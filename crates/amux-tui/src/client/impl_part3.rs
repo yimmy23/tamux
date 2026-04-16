@@ -4,6 +4,21 @@ impl DaemonClient {
         event_tx: &mpsc::Sender<ClientEvent>,
     ) {
         match message {
+            DaemonMessage::AgentThreadMessagePinResult { result_json } => {
+                if let Ok(result) =
+                    serde_json::from_str::<crate::client::ThreadMessagePinResultVm>(&result_json)
+                {
+                    let _ = event_tx
+                        .send(ClientEvent::ThreadMessagePinResult(result))
+                        .await;
+                } else {
+                    let _ = event_tx
+                        .send(ClientEvent::Error(
+                            "failed to parse thread pin mutation result".to_string(),
+                        ))
+                        .await;
+                }
+            }
             DaemonMessage::AgentWhatsAppLinkStatus {
                 state,
                 phone,

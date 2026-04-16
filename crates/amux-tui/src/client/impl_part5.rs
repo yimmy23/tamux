@@ -121,6 +121,28 @@ impl DaemonClient {
         })
     }
 
+    pub fn pin_thread_message_for_compaction(
+        &self,
+        thread_id: String,
+        message_id: String,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentPinThreadMessageForCompaction {
+            thread_id,
+            message_id,
+        })
+    }
+
+    pub fn unpin_thread_message_for_compaction(
+        &self,
+        thread_id: String,
+        message_id: String,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentUnpinThreadMessageForCompaction {
+            thread_id,
+            message_id,
+        })
+    }
+
     pub fn spawn_session(
         &self,
         shell: Option<String>,

@@ -81,6 +81,7 @@ pub struct AgentMessage {
     pub generation_ms: Option<u64>,
     pub cost: Option<f64>,
     pub is_streaming: bool,
+    pub pinned_for_compaction: bool,
     pub message_kind: String,
     pub compaction_strategy: Option<String>,
     pub compaction_payload: Option<String>,
@@ -140,6 +141,8 @@ pub enum ChatHitTarget {
     CopyMessage(usize),
     ResendMessage(usize),
     RegenerateMessage(usize),
+    PinMessage(usize),
+    UnpinMessage(usize),
     DeleteMessage(usize),
 }
 

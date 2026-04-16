@@ -219,6 +219,20 @@ fn tool_execution_hot_path_boxes_large_futures() {
     );
 }
 
+#[test]
+fn participant_compaction_ignores_owner_pins() {
+    let compaction_source =
+        fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/compaction.rs"))
+            .expect("read compaction.rs");
+
+    assert!(
+        compaction_source.contains("owner_only_pins")
+            || compaction_source.contains("ignore_owner_pins")
+            || compaction_source.contains("participant_pins"),
+        "participant request paths should explicitly suppress owner pins during compaction"
+    );
+}
+
 #[tokio::test]
 async fn delete_thread_messages_updates_live_thread_and_persisted_history() {
     let root = tempdir().unwrap();
@@ -609,6 +623,7 @@ async fn handoff_activation_clears_thread_continuation_state_for_new_responder_s
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 2,
                     },
                     AgentMessage::user("continue", 3),
@@ -767,6 +782,7 @@ async fn delete_thread_messages_rehydrates_and_clears_invalid_continuation() {
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 2,
                     },
                     AgentMessage::user("continue", 3),
@@ -887,6 +903,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 2,
                     },
                     AgentMessage {
@@ -916,6 +933,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 3,
                     },
                     AgentMessage {
@@ -945,6 +963,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 4,
                     },
                     AgentMessage {
@@ -976,6 +995,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 5,
                     },
                 ],

@@ -52,6 +52,7 @@ impl TuiModel {
             pending_stop_tick: 0,
             input_notice: None,
             pending_chat_action_confirm: None,
+            pending_pinned_budget_exceeded: None,
             chat_action_confirm_accept_selected: true,
             retry_wait_start_selected: false,
             auto_response_selection: AutoResponseActionSelection::Yes,
@@ -315,6 +316,21 @@ impl TuiModel {
         if self.modal.top() != Some(modal::ModalKind::Statistics) {
             self.modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::Statistics));
+        }
+    }
+
+    pub(super) fn open_pinned_budget_exceeded_modal(&mut self, payload: PendingPinnedBudgetExceeded) {
+        self.pending_pinned_budget_exceeded = Some(payload);
+        if self.modal.top() != Some(modal::ModalKind::PinnedBudgetExceeded) {
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::PinnedBudgetExceeded));
+        }
+    }
+
+    pub(super) fn close_pinned_budget_exceeded_modal(&mut self) {
+        self.pending_pinned_budget_exceeded = None;
+        if self.modal.top() == Some(modal::ModalKind::PinnedBudgetExceeded) {
+            self.close_top_modal();
         }
     }
 
@@ -1109,6 +1125,9 @@ impl TuiModel {
             }
             self.send_daemon_command(DaemonCommand::WhatsAppLinkUnsubscribe);
             self.modal.reset_whatsapp_link();
+        }
+        if self.modal.top() == Some(modal::ModalKind::PinnedBudgetExceeded) {
+            self.pending_pinned_budget_exceeded = None;
         }
         self.modal.reduce(modal::ModalAction::Pop);
     }

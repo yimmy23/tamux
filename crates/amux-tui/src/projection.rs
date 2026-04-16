@@ -234,7 +234,6 @@ impl DaemonProjection {
                 }
                 actions
             }
-
             // Task events → TaskAction
             ClientEvent::TaskList(tasks) => {
                 vec![AppAction::Task(TaskAction::TaskListReceived(tasks))]

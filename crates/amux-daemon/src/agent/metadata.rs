@@ -19,6 +19,7 @@ pub(super) struct ParsedMessageMetadata {
     pub compaction_payload: Option<String>,
     pub offloaded_payload_id: Option<String>,
     pub structural_refs: Vec<String>,
+    pub pinned_for_compaction: bool,
 }
 
 pub(super) struct ParsedThreadMetadata {
@@ -107,6 +108,17 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         compaction_payload: get_str("compaction_payload"),
         offloaded_payload_id: get_str("offloaded_payload_id"),
         structural_refs,
+        pinned_for_compaction: metadata
+            .as_ref()
+            .and_then(|value| value.get("pinned_for_compaction"))
+            .and_then(|value| value.as_bool())
+            .or_else(|| {
+                metadata
+                    .as_ref()
+                    .and_then(|value| value.get("pinnedForCompaction"))
+                    .and_then(|value| value.as_bool())
+            })
+            .unwrap_or(false),
     }
 }
 
@@ -224,6 +236,8 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
         "offloadedPayloadId": message.offloaded_payload_id,
         "structural_refs": message.structural_refs,
         "structuralRefs": message.structural_refs,
+        "pinned_for_compaction": message.pinned_for_compaction,
+        "pinnedForCompaction": message.pinned_for_compaction,
     }))
     .ok()
 }

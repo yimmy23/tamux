@@ -74,6 +74,7 @@ async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
                         compaction_payload: None,
                         offloaded_payload_id: None,
                         structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
                         timestamp: 2,
                     },
                 ],

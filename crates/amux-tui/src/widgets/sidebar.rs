@@ -5,6 +5,7 @@ use ratatui::widgets::Paragraph;
 
 use crate::app::RecentActionVm;
 use crate::state::chat::GatewayStatusVm;
+use crate::state::chat::{ChatState, MessageRole};
 use crate::state::sidebar::{SidebarState, SidebarTab};
 use crate::state::task::TaskState;
 use crate::state::tier::TierState;
@@ -18,13 +19,15 @@ use tab_layout::{tab_cells, tab_hit_test, tab_label};
 #[derive(Debug, Clone)]
 struct SidebarRow {
     line: Line<'static>,
-    file_path: Option<String>,
+    target: Option<SidebarHitTarget>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarHitTarget {
     Tab(SidebarTab),
     File(String),
     Todo(usize),
+    Pinned(usize),
 }
 
 fn file_entry_matches(entry: &crate::state::task::WorkContextEntry, filter: &str) -> bool {
@@ -83,8 +86,45 @@ pub fn filtered_file_index(
         .position(|entry| entry.path == path)
 }
 
+pub fn selected_pinned_message_index(chat: &ChatState, sidebar: &SidebarState) -> Option<usize> {
+    chat.active_thread_pinned_messages()
+        .get(sidebar.selected_item())
+        .map(|(message_index, _)| *message_index)
+}
+
+fn pinned_message_chars(message: &crate::state::chat::AgentMessage) -> usize {
+    message.content.chars().count()
+}
+
+fn pinned_message_role_label(role: MessageRole) -> &'static str {
+    match role {
+        MessageRole::User => "user",
+        MessageRole::Assistant => "assistant",
+        MessageRole::System => "system",
+        MessageRole::Tool => "tool",
+        MessageRole::Unknown => "unknown",
+    }
+}
+
+fn pinned_message_snippet(content: &str, width: usize) -> String {
+    let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    let max_len = width.saturating_sub(18).max(8);
+    if compact.chars().count() > max_len {
+        format!(
+            "{}…",
+            compact
+                .chars()
+                .take(max_len.saturating_sub(1))
+                .collect::<String>()
+        )
+    } else {
+        compact
+    }
+}
+
 fn rows_for_thread(
     tasks: &TaskState,
+    chat: &ChatState,
     sidebar: &SidebarState,
     thread_id: Option<&str>,
     theme: &ThemeTokens,
@@ -93,7 +133,7 @@ fn rows_for_thread(
     let Some(thread_id) = thread_id else {
         return vec![SidebarRow {
             line: Line::from(Span::styled(" No thread selected", theme.fg_dim)),
-            file_path: None,
+            target: None,
         }];
     };
 
@@ -113,7 +153,7 @@ fn rows_for_thread(
                         },
                         theme.fg_dim,
                     )),
-                    file_path: None,
+                    target: None,
                 }];
             }
 
@@ -161,7 +201,7 @@ fn rows_for_thread(
                         } else {
                             line
                         },
-                        file_path: Some(entry.path.clone()),
+                        target: Some(SidebarHitTarget::File(entry.path.clone())),
                     }
                 })
                 .collect()
@@ -171,7 +211,7 @@ fn rows_for_thread(
             if todos.is_empty() {
                 return vec![SidebarRow {
                     line: Line::from(Span::styled(" No todos", theme.fg_dim)),
-                    file_path: None,
+                    target: None,
                 }];
             }
 
@@ -210,7 +250,48 @@ fn rows_for_thread(
                         } else {
                             line
                         },
-                        file_path: None,
+                        target: Some(SidebarHitTarget::Todo(idx)),
+                    }
+                })
+                .collect()
+        }
+        SidebarTab::Pinned => {
+            let pinned = chat.active_thread_pinned_messages();
+            if pinned.is_empty() {
+                return vec![SidebarRow {
+                    line: Line::from(Span::styled(" No pinned messages", theme.fg_dim)),
+                    target: None,
+                }];
+            }
+
+            pinned
+                .into_iter()
+                .enumerate()
+                .map(|(row_idx, (message_index, message))| {
+                    let snippet = pinned_message_snippet(&message.content, width);
+                    let line = Line::from(vec![
+                        Span::styled(
+                            if row_idx == selected { "> " } else { "  " },
+                            theme.accent_primary,
+                        ),
+                        Span::styled(
+                            format!(
+                                "[{} {}c]",
+                                pinned_message_role_label(message.role),
+                                pinned_message_chars(message)
+                            ),
+                            theme.fg_dim,
+                        ),
+                        Span::raw(" "),
+                        Span::styled(snippet, theme.fg_active),
+                    ]);
+                    SidebarRow {
+                        line: if row_idx == selected {
+                            line.style(selected_style)
+                        } else {
+                            line
+                        },
+                        target: Some(SidebarHitTarget::Pinned(message_index)),
                     }
                 })
                 .collect()
@@ -397,6 +478,7 @@ fn agent_status_line(
 pub fn render(
     frame: &mut Frame,
     area: Rect,
+    chat: &ChatState,
     sidebar: &SidebarState,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -418,6 +500,7 @@ pub fn render(
         Vec::new()
     };
     let gw_height = gw_lines.len() as u16;
+    let show_pinned = chat.active_thread_has_pinned_messages();
     let filter_height = if sidebar.active_tab() == SidebarTab::Files {
         1
     } else {
@@ -444,10 +527,7 @@ pub fn render(
 
     // Agent status line at the very top
 
-    for (tab, cell) in [
-        (SidebarTab::Todos, tab_cells(chunks[0])[0]),
-        (SidebarTab::Files, tab_cells(chunks[0])[1]),
-    ] {
+    for (tab, cell) in tab_cells(chunks[0], show_pinned) {
         let style = if sidebar.active_tab() == tab {
             theme.fg_active.bg(Color::Indexed(236))
         } else {
@@ -480,6 +560,7 @@ pub fn render(
     let body_idx = 2;
     let rows = rows_for_thread(
         tasks,
+        chat,
         sidebar,
         thread_id,
         theme,
@@ -505,6 +586,7 @@ pub fn render(
 
 pub fn body_item_count(
     tasks: &TaskState,
+    chat: &ChatState,
     sidebar: &SidebarState,
     thread_id: Option<&str>,
 ) -> usize {
@@ -513,12 +595,14 @@ pub fn body_item_count(
             .len()
             .max(1),
         (SidebarTab::Todos, Some(thread_id)) => tasks.todos_for_thread(thread_id).len().max(1),
+        (SidebarTab::Pinned, _) => chat.active_thread_pinned_messages().len().max(1),
         _ => 1,
     }
 }
 
 pub fn hit_test(
     area: Rect,
+    chat: &ChatState,
     sidebar: &SidebarState,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -547,7 +631,8 @@ pub fn hit_test(
         .split(area);
 
     if mouse.y == chunks[0].y {
-        return tab_hit_test(chunks[0], mouse.x).map(SidebarHitTarget::Tab);
+        return tab_hit_test(chunks[0], mouse.x, chat.active_thread_has_pinned_messages())
+            .map(SidebarHitTarget::Tab);
     }
 
     if sidebar.active_tab() == SidebarTab::Files && mouse.y == chunks[1].y {
@@ -557,6 +642,7 @@ pub fn hit_test(
 
     let rows = rows_for_thread(
         tasks,
+        chat,
         sidebar,
         thread_id,
         &ThemeTokens::default(),
@@ -565,11 +651,7 @@ pub fn hit_test(
     let scroll = resolved_scroll(&rows, sidebar, chunks[body_idx].height as usize);
     let row_idx = scroll + mouse.y.saturating_sub(chunks[body_idx].y) as usize;
     let row = rows.get(row_idx)?;
-    if let Some(path) = &row.file_path {
-        Some(SidebarHitTarget::File(path.clone()))
-    } else {
-        Some(SidebarHitTarget::Todo(row_idx))
-    }
+    row.target.clone()
 }
 
 #[cfg(test)]

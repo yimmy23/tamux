@@ -85,6 +85,7 @@ mod thread_crud;
 mod thread_handoffs;
 mod thread_participant_runner;
 pub(crate) mod thread_participants;
+mod thread_pins;
 mod tool_synthesis;
 pub(crate) mod weles_governance;
 mod weles_health;
@@ -131,6 +132,7 @@ use task_prompt::*;
 use task_scheduler::*;
 use thread_handoffs::*;
 pub(crate) use thread_participants::*;
+use thread_pins::*;
 
 // Imports needed by child modules via `use super::*;`.
 use std::collections::{HashMap, HashSet, VecDeque};

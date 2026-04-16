@@ -4,6 +4,8 @@ if matches!(
         ClientMessage::AgentListThreads |
         ClientMessage::AgentGetThread{ .. } |
         ClientMessage::AgentDeleteThread{ .. } |
+        ClientMessage::AgentPinThreadMessageForCompaction{ .. } |
+        ClientMessage::AgentUnpinThreadMessageForCompaction{ .. } |
         ClientMessage::AgentAddTask{ .. } |
         ClientMessage::AgentCancelTask{ .. } |
         ClientMessage::AgentListTasks |
@@ -107,6 +109,32 @@ if matches!(
                     let deleted = agent.delete_thread(&thread_id).await;
                     framed
                         .send(DaemonMessage::AgentThreadDeleted { thread_id, deleted })
+                        .await?;
+                }
+
+                ClientMessage::AgentPinThreadMessageForCompaction {
+                    thread_id,
+                    message_id,
+                } => {
+                    let result = agent
+                        .pin_thread_message_for_compaction(&thread_id, &message_id)
+                        .await;
+                    let result_json = serde_json::to_string(&result).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentThreadMessagePinResult { result_json })
+                        .await?;
+                }
+
+                ClientMessage::AgentUnpinThreadMessageForCompaction {
+                    thread_id,
+                    message_id,
+                } => {
+                    let result = agent
+                        .unpin_thread_message_for_compaction(&thread_id, &message_id)
+                        .await;
+                    let result_json = serde_json::to_string(&result).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentThreadMessagePinResult { result_json })
                         .await?;
                 }
 

@@ -318,6 +318,7 @@ impl<'a> SendMessageRunner<'a> {
                     compaction_payload: None,
                     offloaded_payload_id: prepared_tool_result.offloaded_payload_id.clone(),
                     structural_refs,
+                    pinned_for_compaction: false,
                     timestamp: now_millis(),
                 });
             }

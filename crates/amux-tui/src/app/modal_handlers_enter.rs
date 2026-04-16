@@ -116,6 +116,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         modal::ModalKind::QueuedPrompts => {
             model.execute_selected_queued_prompt_action();
         }
+        modal::ModalKind::PinnedBudgetExceeded => {
+            model.close_pinned_budget_exceeded_modal();
+        }
         modal::ModalKind::ProviderPicker => {
             let cursor = model.modal.picker_cursor();
             let provider_defs = widgets::provider_picker::available_provider_defs(&model.auth);

@@ -12,6 +12,7 @@ import type { GoalRun } from "@/lib/goalRuns";
 import type { WelesHealthState } from "@/lib/agentStore/types";
 import { useDaemonAgentActions } from "./useDaemonAgentActions";
 import { useDaemonAgentEvents } from "./useDaemonAgentEvents";
+import { reloadDaemonThreadIntoLocalState } from "./daemonHelpers";
 import { useLegacyAgentMessaging } from "./useLegacyAgentMessaging";
 import type { AgentChatPanelRuntimeValue, AgentChatPanelView } from "./types";
 
@@ -242,6 +243,72 @@ export function useAgentChatPanelProviderValue(): {
     await amux.agentDismissParticipantSuggestion({ threadId, suggestionId, sessionId: null });
   }, []);
 
+  const pinMessageForCompaction = useCallback(async (threadId: string, messageId: string) => {
+    const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
+    const daemonThreadId = thread?.daemonThreadId ?? (threadId === activeThreadId ? daemonThreadIdRef.current : null);
+    const amux = getAgentBridge();
+
+    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && amux?.agentPinThreadMessageForCompaction) {
+      const result = await amux.agentPinThreadMessageForCompaction(daemonThreadId, messageId) as AmuxThreadMessagePinResult;
+      if (result?.ok) {
+        await reloadDaemonThreadIntoLocalState({
+          daemonThreadId,
+          setThreadTodos,
+          setDaemonTodosByThread,
+        });
+      }
+      return result;
+    }
+
+    useAgentStore.setState((state) => ({
+      messages: {
+        ...state.messages,
+        [threadId]: (state.messages[threadId] ?? []).map((message) =>
+          message.id === messageId ? { ...message, pinnedForCompaction: true } : message),
+      },
+    }));
+    return {
+      ok: true,
+      thread_id: threadId,
+      message_id: messageId,
+      current_pinned_chars: 0,
+      pinned_budget_chars: 0,
+    } satisfies AmuxThreadMessagePinResult;
+  }, [activeThreadId, agentSettings.agent_backend, setThreadTodos]);
+
+  const unpinMessageForCompaction = useCallback(async (threadId: string, messageId: string) => {
+    const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
+    const daemonThreadId = thread?.daemonThreadId ?? (threadId === activeThreadId ? daemonThreadIdRef.current : null);
+    const amux = getAgentBridge();
+
+    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && amux?.agentUnpinThreadMessageForCompaction) {
+      const result = await amux.agentUnpinThreadMessageForCompaction(daemonThreadId, messageId) as AmuxThreadMessagePinResult;
+      if (result?.ok) {
+        await reloadDaemonThreadIntoLocalState({
+          daemonThreadId,
+          setThreadTodos,
+          setDaemonTodosByThread,
+        });
+      }
+      return result;
+    }
+
+    useAgentStore.setState((state) => ({
+      messages: {
+        ...state.messages,
+        [threadId]: (state.messages[threadId] ?? []).map((message) =>
+          message.id === messageId ? { ...message, pinnedForCompaction: false } : message),
+      },
+    }));
+    return {
+      ok: true,
+      thread_id: threadId,
+      message_id: messageId,
+      current_pinned_chars: 0,
+      pinned_budget_chars: 0,
+    } satisfies AmuxThreadMessagePinResult;
+  }, [activeThreadId, agentSettings.agent_backend, setThreadTodos]);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
@@ -256,9 +323,28 @@ export function useAgentChatPanelProviderValue(): {
     }
   }, [handleSend]);
 
+  const pinnedMessages = useMemo(
+    () => messages.filter((message) => message.pinnedForCompaction),
+    [messages],
+  );
+  const pinnedUsageChars = useMemo(
+    () => pinnedMessages.reduce((sum, message) => sum + message.content.length, 0),
+    [pinnedMessages],
+  );
+  const pinnedBudgetChars = useMemo(() => {
+    const activeProviderId = (agentSettings as { active_provider?: keyof typeof agentSettings }).active_provider;
+    const activeProvider = activeProviderId
+      ? agentSettings[activeProviderId] as { context_window_tokens?: number | null } | undefined
+      : undefined;
+    const contextWindowTokens = Number(activeProvider?.context_window_tokens ?? agentSettings.context_window_tokens ?? 0);
+    return Math.floor(contextWindowTokens * 0.25 * 4);
+  }, [agentSettings]);
+  const pinnedOverBudget = pinnedUsageChars > pinnedBudgetChars;
+
   const tabItems = [
     { id: "threads", label: "Threads", count: threads.length },
     { id: "chat", label: "Chat", count: null },
+    ...(pinnedMessages.length > 0 ? [{ id: "pinned" as const, label: "Pinned", count: pinnedMessages.length }] : []),
     { id: "trace", label: "Trace", count: scopedCognitiveEvents.length },
     { id: "usage", label: "Usage", count: usageMessageCount },
     { id: "context", label: "Context", count: null },
@@ -319,6 +405,8 @@ export function useAgentChatPanelProviderValue(): {
     sendParticipantSuggestion,
     dismissParticipantSuggestion,
     deleteMessage,
+    pinMessageForCompaction,
+    unpinMessageForCompaction,
     stopStreaming,
     handleSend,
     handleKeyDown,
@@ -328,6 +416,10 @@ export function useAgentChatPanelProviderValue(): {
     startGoalRunFromPrompt,
     submitBuiltinAgentSetup,
     tabItems,
+    pinnedMessages,
+    pinnedBudgetChars,
+    pinnedUsageChars,
+    pinnedOverBudget,
     welesHealth,
   }), [
     activeThread,
@@ -358,6 +450,11 @@ export function useAgentChatPanelProviderValue(): {
     memory,
     messages,
     pendingApprovals,
+    pinMessageForCompaction,
+    pinnedBudgetChars,
+    pinnedMessages,
+    pinnedOverBudget,
+    pinnedUsageChars,
     scopeController,
     scopePaneId,
     scopedCognitiveEvents,
@@ -375,6 +472,7 @@ export function useAgentChatPanelProviderValue(): {
     todos,
     togglePanel,
     transcripts,
+    unpinMessageForCompaction,
     updateMemory,
     usageMessageCount,
     view,

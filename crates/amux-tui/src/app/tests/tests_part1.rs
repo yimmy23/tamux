@@ -416,6 +416,44 @@
     }
 
     #[test]
+    fn pin_action_dispatches_without_confirmation_modal() {
+        let (_daemon_tx, daemon_rx) = mpsc::channel();
+        let (cmd_tx, mut cmd_rx) = unbounded_channel();
+        let mut model = TuiModel::new(daemon_rx, cmd_tx);
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+        model.chat.reduce(chat::ChatAction::AppendMessage {
+            thread_id: "thread-1".to_string(),
+            message: chat::AgentMessage {
+                id: Some("message-1".to_string()),
+                role: chat::MessageRole::User,
+                content: "Original prompt".to_string(),
+                ..Default::default()
+            },
+        });
+        model.chat.select_message(Some(0));
+        model.chat.select_message_action(2);
+
+        assert!(model.execute_selected_inline_message_action());
+        assert_ne!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::PinThreadMessageForCompaction {
+                thread_id,
+                message_id,
+            }) => {
+                assert_eq!(thread_id, "thread-1");
+                assert_eq!(message_id, "message-1");
+            }
+            other => panic!("expected pin command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn delete_message_requires_confirmation_before_removing_message() {
         let (_daemon_tx, daemon_rx) = mpsc::channel();
         let (cmd_tx, mut cmd_rx) = unbounded_channel();

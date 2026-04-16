@@ -79,6 +79,8 @@ pub struct AgentMessage {
     #[serde(default)]
     pub is_streaming: bool,
     #[serde(default)]
+    pub pinned_for_compaction: bool,
+    #[serde(default)]
     pub message_kind: String,
     #[serde(default)]
     pub compaction_strategy: Option<String>,

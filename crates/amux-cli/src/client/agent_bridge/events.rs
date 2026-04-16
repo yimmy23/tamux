@@ -149,6 +149,10 @@ where
             let msg = serde_json::json!({"type":"thread-detail","data":serde_json::from_str::<serde_json::Value>(&thread_json).unwrap_or_default()});
             emit_agent_event(&msg.to_string())?;
         }
+        Some(Ok(DaemonMessage::AgentThreadMessagePinResult { result_json })) => {
+            let msg = serde_json::json!({"type":"thread-message-pin-result","data":serde_json::from_str::<serde_json::Value>(&result_json).unwrap_or_default()});
+            emit_agent_event(&msg.to_string())?;
+        }
         Some(Ok(DaemonMessage::AgentThreadDetailChunk {
             thread_id,
             thread_json_chunk,

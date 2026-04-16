@@ -55,6 +55,7 @@ type AgentDbMessageRecord = {
 };
 
 export type RemoteAgentMessageRecord = {
+  id?: string;
   role?: AgentRole;
   content?: string;
   author_agent_id?: string | null;
@@ -77,6 +78,7 @@ export type RemoteAgentMessageRecord = {
   message_kind?: "normal" | "compaction_artifact";
   compaction_strategy?: "heuristic" | "weles" | "custom_model" | null;
   compaction_payload?: string | null;
+  pinned_for_compaction?: boolean | null;
 };
 
 export type RemoteAgentThreadRecord = {
@@ -195,7 +197,7 @@ export function buildHydratedRemoteMessage(
 ): AgentMessage {
   const provider = typeof message.provider === "string" ? message.provider : undefined;
   return {
-    id: nextMessageId(),
+    id: typeof message.id === "string" && message.id.trim() ? message.id : nextMessageId(),
     threadId,
     createdAt: Number(message.timestamp ?? Date.now()),
     role: message.role ?? "assistant",
@@ -235,6 +237,7 @@ export function buildHydratedRemoteMessage(
     messageKind: message.message_kind ?? "normal",
     compactionStrategy: message.compaction_strategy ?? undefined,
     compactionPayload: typeof message.compaction_payload === "string" ? message.compaction_payload : undefined,
+    pinnedForCompaction: Boolean(message.pinned_for_compaction),
     isStreaming: false,
   };
 }
@@ -440,6 +443,8 @@ export function serializeMessage(message: AgentMessage): AgentDbMessageRecord {
       messageKind: message.messageKind ?? "normal",
       compactionStrategy: message.compactionStrategy ?? null,
       compactionPayload: message.compactionPayload ?? null,
+      pinned_for_compaction: Boolean(message.pinnedForCompaction),
+      pinnedForCompaction: Boolean(message.pinnedForCompaction),
       isStreaming: message.isStreaming ?? false,
     }),
   };
@@ -556,6 +561,12 @@ export function deserializeMessage(message: AgentDbMessageRecord): AgentMessage 
     compactionPayload:
       typeof metadata.compactionPayload === "string"
         ? metadata.compactionPayload
+        : undefined,
+    pinnedForCompaction:
+      typeof metadata.pinned_for_compaction === "boolean"
+        ? metadata.pinned_for_compaction
+        : typeof metadata.pinnedForCompaction === "boolean"
+        ? metadata.pinnedForCompaction
         : undefined,
     isStreaming: Boolean(metadata.isStreaming),
   };

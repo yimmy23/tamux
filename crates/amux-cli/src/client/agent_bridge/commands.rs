@@ -96,6 +96,28 @@ where
                 .send(ClientMessage::AgentDeleteThread { thread_id })
                 .await?;
         }
+        AgentBridgeCommand::PinThreadMessageForCompaction {
+            thread_id,
+            message_id,
+        } => {
+            framed
+                .send(ClientMessage::AgentPinThreadMessageForCompaction {
+                    thread_id,
+                    message_id,
+                })
+                .await?;
+        }
+        AgentBridgeCommand::UnpinThreadMessageForCompaction {
+            thread_id,
+            message_id,
+        } => {
+            framed
+                .send(ClientMessage::AgentUnpinThreadMessageForCompaction {
+                    thread_id,
+                    message_id,
+                })
+                .await?;
+        }
         AgentBridgeCommand::AddTask {
             title,
             description,

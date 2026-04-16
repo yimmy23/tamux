@@ -8,6 +8,7 @@ import { BuiltinAgentSetupModal } from "../BuiltinAgentSetupModal";
 import { ChatView } from "../ChatView";
 import { CodingAgentsView } from "../CodingAgentsView";
 import { ContextView } from "../ContextView";
+import { PinnedMessagesView } from "../PinnedMessagesView";
 import { SubagentsView } from "../SubagentsView";
 import { TasksView } from "../TasksView";
 import { MetricRibbon, SectionTitle, iconButtonStyle } from "../shared";
@@ -178,6 +179,7 @@ export function AgentChatPanelCurrentSurface() {
 
   if (view === "threads") return <AgentChatPanelThreadsSurface />;
   if (view === "chat") return <AgentChatPanelChatSurface />;
+  if (view === "pinned") return <AgentChatPanelPinnedSurface />;
   if (view === "trace") return <AgentChatPanelTraceSurface />;
   if (view === "usage") return <AgentChatPanelUsageSurface />;
   if (view === "context") return <AgentChatPanelContextSurface />;
@@ -228,10 +230,37 @@ export function AgentChatPanelChatSurface() {
         const tid = runtime.activeThreadId;
         if (tid) runtime.deleteMessage(tid, messageId);
       }}
+      onPinMessage={runtime.activeThreadId ? (messageId) => runtime.pinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
+      onUnpinMessage={runtime.activeThreadId ? (messageId) => runtime.unpinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
       onUpdateReasoningEffort={(value) => runtime.updateAgentSetting("reasoning_effort", value as AgentSettings["reasoning_effort"])}
       canStartGoalRun={runtime.canStartGoalRun}
       onStartGoalRun={runtime.startGoalRunFromPrompt}
       welesHealth={runtime.welesHealth}
+    />
+  );
+}
+
+export function AgentChatPanelPinnedSurface() {
+  const runtime = useAgentChatPanelRuntime();
+  return (
+    <PinnedMessagesView
+      messages={runtime.pinnedMessages}
+      pinnedUsageChars={runtime.pinnedUsageChars}
+      pinnedBudgetChars={runtime.pinnedBudgetChars}
+      pinnedOverBudget={runtime.pinnedOverBudget}
+      onJumpToMessage={(messageId) => {
+        runtime.setChatBackView("pinned");
+        runtime.setView("chat");
+        window.setTimeout(() => {
+          document.getElementById(`agent-message-${messageId}`)?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        }, 50);
+      }}
+      onUnpinMessage={(messageId) => runtime.activeThreadId
+        ? runtime.unpinMessageForCompaction(runtime.activeThreadId, messageId)
+        : Promise.resolve(null)}
     />
   );
 }

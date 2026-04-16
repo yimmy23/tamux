@@ -50,12 +50,16 @@ export function MessageBubble({
   onRerun,
   onRegenerate,
   onDelete,
+  onPin,
+  onUnpin,
 }: {
   message: AgentMessage;
   onCopy?: () => void;
   onRerun?: () => void;
   onRegenerate?: () => void;
   onDelete?: () => void;
+  onPin?: () => void | Promise<void>;
+  onUnpin?: () => void | Promise<void>;
 }) {
   const isCompactionArtifact = message.messageKind === "compaction_artifact";
   const isUser = message.role === "user";
@@ -113,6 +117,7 @@ export function MessageBubble({
 
     return (
       <div
+        id={`agent-message-${message.id}`}
         style={{
           width: "100%",
           borderTop: "1px solid color-mix(in srgb, var(--text-muted) 35%, transparent)",
@@ -172,6 +177,7 @@ export function MessageBubble({
   return (
     <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
       <div
+        id={`agent-message-${message.id}`}
         style={{
           maxWidth: "85%",
           position: "relative",
@@ -191,7 +197,20 @@ export function MessageBubble({
         onMouseLeave={() => setHovered(false)}
       >
         {isAssistant && (
-          <div style={{ color: "#5ee7df", opacity: 0.95, marginBottom: 4, fontSize: 12 }}>{`> ${message.authorAgentName || "assistant"}`}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#5ee7df", opacity: 0.95, marginBottom: 4, fontSize: 12 }}>
+            <span>{`> ${message.authorAgentName || "assistant"}`}</span>
+            {message.pinnedForCompaction && (
+              <span style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--warning)" }}>
+                pinned
+              </span>
+            )}
+          </div>
+        )}
+
+        {!isAssistant && message.pinnedForCompaction && (
+          <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--warning)", marginBottom: 6 }}>
+            pinned
+          </div>
         )}
 
         {isAssistant && message.reasoning && (
@@ -374,6 +393,9 @@ export function MessageBubble({
             }}
           >
             <ActionBtn label={copied ? "Copied!" : "Copy"} onClick={handleCopy} />
+            {message.pinnedForCompaction
+              ? onUnpin && <ActionBtn label="Unpin" onClick={() => { void onUnpin(); }} />
+              : onPin && <ActionBtn label="Pin" onClick={() => { void onPin(); }} />}
             {isUser && onRerun && <ActionBtn label="Rerun" onClick={onRerun} />}
             {isAssistant && onRegenerate && <ActionBtn label="Regen" onClick={onRegenerate} />}
             {onDelete && <ActionBtn label="Delete" onClick={onDelete} />}
