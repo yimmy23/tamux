@@ -129,15 +129,47 @@ fn submit_key_does_not_treat_plain_m_as_enter() {
 }
 
 #[test]
-fn raw_mode_guard_requests_full_keyboard_enhancement_flags() {
+fn raw_mode_guard_requests_only_disambiguate_enhancement_flag() {
     let flags = wizard_keyboard_enhancement_flags();
 
     assert!(flags.contains(crossterm::event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES));
-    assert!(flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES));
-    assert!(flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
-    assert!(
-        flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES)
-    );
+    assert!(!flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES));
+    assert!(!flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
+    assert!(!flags.contains(
+        crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+    ));
+}
+
+#[test]
+fn submit_key_recognizes_carriage_return_char() {
+    assert!(terminal_ui::is_submit_key(
+        KeyCode::Char('\r'),
+        KeyModifiers::NONE
+    ));
+}
+
+#[test]
+fn submit_key_recognizes_newline_char() {
+    assert!(terminal_ui::is_submit_key(
+        KeyCode::Char('\n'),
+        KeyModifiers::NONE
+    ));
+}
+
+#[test]
+fn submit_key_recognizes_control_j_as_enter() {
+    assert!(terminal_ui::is_submit_key(
+        KeyCode::Char('j'),
+        KeyModifiers::CONTROL
+    ));
+}
+
+#[test]
+fn submit_key_does_not_treat_plain_j_as_enter() {
+    assert!(!terminal_ui::is_submit_key(
+        KeyCode::Char('j'),
+        KeyModifiers::NONE
+    ));
 }
 
 #[test]
