@@ -1319,3 +1319,96 @@ async fn status_diagnostics_snapshot_includes_persisted_implicit_feedback_histor
     assert_eq!(scores.len(), 1);
     assert_eq!(scores[0]["label"], "healthy");
 }
+
+#[tokio::test]
+async fn status_diagnostics_snapshot_includes_system_outcome_foresight_details() {
+    let root = tempdir().expect("tempdir");
+    let repo_root = root.path().join("repo-build-risk-diagnostics");
+    std::fs::create_dir_all(&repo_root).expect("create repo root");
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .expect("write cargo manifest");
+    std::fs::create_dir_all(repo_root.join("src")).expect("create src dir");
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn broken() {}\n").expect("write lib");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention(
+            "conversation:chat",
+            Some("thread-build-risk-diagnostics"),
+            None,
+        )
+        .await
+        .expect("record operator attention");
+    engine.thread_work_contexts.write().await.insert(
+        "thread-build-risk-diagnostics".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-build-risk-diagnostics".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+    engine
+        .history
+        .insert_health_log(
+            "health-build-risk-diagnostics",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis(),
+        )
+        .await
+        .expect("save health log");
+
+    engine.run_anticipatory_tick().await;
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let foresight = &snapshot["system_outcome_foresight"];
+    assert_eq!(
+        foresight["thread_id"].as_str(),
+        Some("thread-build-risk-diagnostics")
+    );
+    assert_eq!(
+        foresight["prediction_type"].as_str(),
+        Some("build_test_risk")
+    );
+    assert_eq!(
+        foresight["predicted_outcome"].as_str(),
+        Some("build/test failure")
+    );
+    assert!(foresight["confidence"]
+        .as_f64()
+        .is_some_and(|value| value >= 0.7));
+    assert!(foresight["summary"]
+        .as_str()
+        .is_some_and(|text| text.contains("build/test failure risk")));
+    assert!(foresight["bullets"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item
+            .as_str()
+            .is_some_and(|text| text.contains("prediction_type=build_test_risk")))));
+}

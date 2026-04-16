@@ -1104,11 +1104,8 @@ impl AgentEngine {
             })
             .collect::<Vec<_>>();
         let cognitive_resonance = CognitiveResonanceSnapshot::from_model(&operator_model);
-        let intent_prediction = self
-            .anticipatory
-            .read()
-            .await
-            .items
+        let anticipatory_items = self.anticipatory.read().await.items.clone();
+        let intent_prediction = anticipatory_items
             .iter()
             .filter_map(|item| {
                 item.intent_prediction.as_ref().map(|prediction| {
@@ -1126,12 +1123,43 @@ impl AgentEngine {
                     .partial_cmp(&right.get("confidence").and_then(|value| value.as_f64()))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
+        let system_outcome_foresight = anticipatory_items
+            .iter()
+            .filter(|item| item.kind == "system_outcome_foresight")
+            .map(|item| {
+                let prediction_type = item
+                    .bullets
+                    .iter()
+                    .find_map(|bullet| bullet.strip_prefix("prediction_type="))
+                    .unwrap_or("unknown")
+                    .to_string();
+                let predicted_outcome = if prediction_type == "stale_context" {
+                    "hydration-needed risk"
+                } else {
+                    "build/test failure"
+                };
+                serde_json::json!({
+                    "thread_id": item.thread_id,
+                    "prediction_type": prediction_type,
+                    "predicted_outcome": predicted_outcome,
+                    "confidence": item.confidence,
+                    "summary": item.summary,
+                    "bullets": item.bullets,
+                })
+            })
+            .max_by(|left, right| {
+                left.get("confidence")
+                    .and_then(|value| value.as_f64())
+                    .partial_cmp(&right.get("confidence").and_then(|value| value.as_f64()))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
         serde_json::json!({
             "operator_profile_sync_state": sync_state,
             "operator_profile_sync_dirty": sync_state != "clean",
             "operator_profile_scheduler_fallback": false,
             "intent_prediction": intent_prediction,
+            "system_outcome_foresight": system_outcome_foresight,
             "operator_satisfaction": {
                 "label": operator_model.operator_satisfaction.label,
                 "score": operator_model.operator_satisfaction.score,
