@@ -1412,3 +1412,52 @@ async fn status_diagnostics_snapshot_includes_system_outcome_foresight_details()
             .as_str()
             .is_some_and(|text| text.contains("prediction_type=build_test_risk")))));
 }
+
+#[tokio::test]
+async fn status_diagnostics_snapshot_includes_meta_cognitive_self_model() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    {
+        let mut model = engine.meta_cognitive_self_model.write().await;
+        model.agent_id = "svarog".to_string();
+        model.calibration_offset = -0.22;
+        model.last_updated_ms = 1_717_299_999;
+        if let Some(bias) = model
+            .biases
+            .iter_mut()
+            .find(|bias| bias.name == "sunk_cost")
+        {
+            bias.occurrence_count = 4;
+            bias.severity = 0.81;
+        }
+        if let Some(profile) = model
+            .workflow_profiles
+            .iter_mut()
+            .find(|profile| profile.name == "debug_loop")
+        {
+            profile.avg_success_rate = 0.63;
+            profile.avg_steps = 7;
+        }
+    }
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let self_model = &snapshot["meta_cognitive_self_model"];
+    assert_eq!(self_model["agent_id"], "svarog");
+    assert_eq!(self_model["last_updated_ms"].as_u64(), Some(1_717_299_999));
+    assert!(self_model["calibration_offset"]
+        .as_f64()
+        .is_some_and(|value| (value + 0.22).abs() < f64::EPSILON));
+    assert!(self_model["biases"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| {
+            item["name"].as_str() == Some("sunk_cost")
+                && item["occurrence_count"].as_u64() == Some(4)
+        })));
+    assert!(self_model["workflow_profiles"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| {
+            item["name"].as_str() == Some("debug_loop") && item["avg_steps"].as_u64() == Some(7)
+        })));
+}

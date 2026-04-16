@@ -1104,6 +1104,7 @@ impl AgentEngine {
             })
             .collect::<Vec<_>>();
         let cognitive_resonance = CognitiveResonanceSnapshot::from_model(&operator_model);
+        let meta_cognitive_self_model = self.meta_cognitive_self_model.read().await.clone();
         let anticipatory_items = self.anticipatory.read().await.items.clone();
         let intent_prediction = anticipatory_items
             .iter()
@@ -1177,6 +1178,7 @@ impl AgentEngine {
                 "recent_implicit_signals": recent_implicit_signals,
                 "recent_satisfaction_scores": recent_satisfaction_scores,
             },
+            "meta_cognitive_self_model": meta_cognitive_self_model,
             "cognitive_resonance": cognitive_resonance,
             "aline": {
                 "available": aline_available,
