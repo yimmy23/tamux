@@ -394,6 +394,7 @@ fn format_consolidation_dream_summary_surfaces_what_the_system_considered_while_
     .expect("dream summary should be present when consolidation learned something");
 
     assert!(output.contains("what the system considered while idle"));
+    assert!(output.contains("where better strategies might have changed outcomes"));
     assert!(output.contains("4 thread(s)"));
     assert!(output.contains("2 memory update(s)"));
     assert!(output.contains("3 recurring pattern(s)"));

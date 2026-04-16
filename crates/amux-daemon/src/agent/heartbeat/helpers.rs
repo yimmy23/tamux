@@ -177,7 +177,7 @@ pub(super) fn format_consolidation_dream_summary(result: &ConsolidationResult) -
     };
 
     Some(format!(
-        "Dream state: what the system considered while idle — {} thread(s), {} memory update(s){}, {} recurring pattern(s), {} refined fact(s), {} promoted skill(s).",
+        "Dream state: what the system considered while idle and where better strategies might have changed outcomes — {} thread(s), {} memory update(s){}, {} recurring pattern(s), {} refined fact(s), {} promoted skill(s).",
         result.distillation_threads_analyzed,
         result.distillation_auto_applied,
         review_queue_suffix,
