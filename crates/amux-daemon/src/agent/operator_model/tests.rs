@@ -867,6 +867,72 @@ async fn status_diagnostics_snapshot_exposes_cached_prewarm_for_intent_predictio
     );
 }
 
+#[tokio::test]
+async fn status_diagnostics_snapshot_includes_memory_distillation_activity() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .history
+        .append_memory_distillation_log(
+            "thread-distill-diag",
+            Some("last_turn"),
+            None,
+            "Use the cargo package name `tamux-daemon` for `cargo -p`.",
+            "MEMORY.md",
+            "convention",
+            0.91,
+            1_717_190_001,
+            true,
+            "rarog",
+        )
+        .await
+        .expect("append distillation log");
+    engine
+        .history
+        .upsert_memory_distillation_progress(&crate::history::MemoryDistillationProgressRow {
+            source_thread_id: "thread-distill-diag".to_string(),
+            last_processed_cursor: crate::history::AgentMessageCursor {
+                created_at: 1_717_190_000,
+                message_id: "m-last".to_string(),
+            },
+            last_processed_span: Some(crate::history::AgentMessageSpan::LastTurn {
+                message: crate::history::AgentMessageCursor {
+                    created_at: 1_717_190_000,
+                    message_id: "m-last".to_string(),
+                },
+            }),
+            last_run_at_ms: 1_717_190_010,
+            updated_at_ms: 1_717_190_020,
+            agent_id: "rarog".to_string(),
+        })
+        .await
+        .expect("upsert distillation progress");
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let distillation = &snapshot["memory_distillation"];
+    let recent = distillation["recent_activity"]
+        .as_array()
+        .expect("recent distillation activity array");
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0]["source_thread_id"], "thread-distill-diag");
+    assert_eq!(recent[0]["target_file"], "MEMORY.md");
+    assert_eq!(recent[0]["category"], "convention");
+    assert_eq!(recent[0]["applied_to_memory"].as_bool(), Some(true));
+    assert!(recent[0]["confidence"]
+        .as_f64()
+        .is_some_and(|value| value >= 0.9));
+
+    let progress = distillation["progress_by_thread"]
+        .as_array()
+        .expect("distillation progress array");
+    assert_eq!(progress.len(), 1);
+    assert_eq!(progress[0]["source_thread_id"], "thread-distill-diag");
+    assert_eq!(progress[0]["agent_id"], "rarog");
+    assert_eq!(progress[0]["last_processed_message_id"], "m-last");
+}
+
 #[test]
 fn preferred_tool_fallback_targets_deduplicates_and_skips_invalid_pairs() {
     let preferred = preferred_tool_fallback_targets(

@@ -133,6 +133,31 @@ pub(super) fn map_memory_distillation_progress_row(
     })
 }
 
+pub(super) fn map_memory_distillation_log_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<MemoryDistillationLogRow> {
+    let span_json: Option<String> = row.get(3)?;
+    let source_message_span = span_json
+        .as_deref()
+        .map(|json| serde_json::from_str::<AgentMessageSpan>(json))
+        .transpose()
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+
+    Ok(MemoryDistillationLogRow {
+        id: row.get(0)?,
+        source_thread_id: row.get(1)?,
+        source_message_range: row.get(2)?,
+        source_message_span,
+        distilled_fact: row.get(4)?,
+        target_file: row.get(5)?,
+        category: row.get(6)?,
+        confidence: row.get(7)?,
+        created_at_ms: row.get(8)?,
+        applied_to_memory: row.get::<_, i64>(9)? != 0,
+        agent_id: row.get(10)?,
+    })
+}
+
 pub(super) fn map_transcript_index_entry(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<TranscriptIndexEntry> {

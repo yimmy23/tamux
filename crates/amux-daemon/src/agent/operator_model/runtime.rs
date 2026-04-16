@@ -1103,6 +1103,60 @@ impl AgentEngine {
                 })
             })
             .collect::<Vec<_>>();
+        let recent_memory_distillation = self
+            .history
+            .list_memory_distillation_log(5)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "id": row.id,
+                    "source_thread_id": row.source_thread_id,
+                    "source_message_range": row.source_message_range,
+                    "distilled_fact": row.distilled_fact,
+                    "target_file": row.target_file,
+                    "category": row.category,
+                    "confidence": row.confidence,
+                    "created_at_ms": row.created_at_ms,
+                    "applied_to_memory": row.applied_to_memory,
+                    "agent_id": row.agent_id,
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut memory_distillation_progress = self
+            .history
+            .list_memory_distillation_progress(5)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "source_thread_id": row.source_thread_id,
+                    "last_processed_created_at_ms": row.last_processed_cursor.created_at,
+                    "last_processed_message_id": row.last_processed_cursor.message_id,
+                    "last_run_at_ms": row.last_run_at_ms,
+                    "updated_at_ms": row.updated_at_ms,
+                    "agent_id": row.agent_id,
+                })
+            })
+            .collect::<Vec<_>>();
+        memory_distillation_progress.sort_by(|left, right| {
+            right
+                .get("updated_at_ms")
+                .and_then(|value| value.as_i64())
+                .cmp(&left.get("updated_at_ms").and_then(|value| value.as_i64()))
+                .then(
+                    left.get("source_thread_id")
+                        .and_then(|value| value.as_str())
+                        .cmp(
+                            &right
+                                .get("source_thread_id")
+                                .and_then(|value| value.as_str()),
+                        ),
+                )
+        });
+        memory_distillation_progress.truncate(5);
         let cognitive_resonance = CognitiveResonanceSnapshot::from_model(&operator_model);
         let meta_cognitive_self_model = self.meta_cognitive_self_model.read().await.clone();
         let anticipatory_runtime = self.anticipatory.read().await;
@@ -1185,6 +1239,10 @@ impl AgentEngine {
                 "rapid_switch_count": operator_model.attention_topology.rapid_switch_count,
                 "recent_implicit_signals": recent_implicit_signals,
                 "recent_satisfaction_scores": recent_satisfaction_scores,
+            },
+            "memory_distillation": {
+                "recent_activity": recent_memory_distillation,
+                "progress_by_thread": memory_distillation_progress,
             },
             "meta_cognitive_self_model": meta_cognitive_self_model,
             "cognitive_resonance": cognitive_resonance,

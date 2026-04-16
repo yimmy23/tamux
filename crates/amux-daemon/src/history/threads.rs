@@ -749,6 +749,44 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn list_memory_distillation_log(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<MemoryDistillationLogRow>> {
+        let limit = limit.max(1) as i64;
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, source_thread_id, source_message_range, source_message_span_json, distilled_fact, target_file, category, confidence, created_at_ms, applied_to_memory, agent_id \
+                     FROM memory_distillation_log ORDER BY created_at_ms DESC, id DESC LIMIT ?1",
+                )?;
+                let rows = stmt.query_map(params![limit], map_memory_distillation_log_row)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_memory_distillation_progress(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<MemoryDistillationProgressRow>> {
+        let limit = limit.max(1) as i64;
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT source_thread_id, last_processed_created_at_ms, last_processed_message_id, last_processed_span_json, last_run_at_ms, updated_at_ms, agent_id \
+                     FROM memory_distillation_progress ORDER BY updated_at_ms DESC, source_thread_id ASC LIMIT ?1",
+                )?;
+                let rows = stmt.query_map(params![limit], map_memory_distillation_progress_row)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn get_worm_chain_tip(&self, kind: &str) -> Result<Option<WormChainTip>> {
         let kind = kind.to_string();
         let kind = kind.to_string();

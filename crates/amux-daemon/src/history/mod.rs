@@ -495,6 +495,21 @@ pub struct MemoryDistillationProgressRow {
     pub agent_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MemoryDistillationLogRow {
+    pub id: i64,
+    pub source_thread_id: String,
+    pub source_message_range: Option<String>,
+    pub source_message_span: Option<AgentMessageSpan>,
+    pub distilled_fact: String,
+    pub target_file: String,
+    pub category: String,
+    pub confidence: f64,
+    pub created_at_ms: i64,
+    pub applied_to_memory: bool,
+    pub agent_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ApprovalRecordRow {
     pub approval_id: String,
