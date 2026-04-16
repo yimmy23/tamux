@@ -558,7 +558,8 @@ impl TuiModel {
                                         if raw.get("skill_recommendation").is_none() {
                                             raw["skill_recommendation"] = serde_json::json!({});
                                         }
-                                        raw["skill_recommendation"]["community_preapprove_timeout_secs"] =
+                                        raw["skill_recommendation"]
+                                            ["community_preapprove_timeout_secs"] =
                                             serde_json::json!(clamped);
                                     }
                                 }
@@ -576,7 +577,8 @@ impl TuiModel {
                                         if raw.get("skill_recommendation").is_none() {
                                             raw["skill_recommendation"] = serde_json::json!({});
                                         }
-                                        raw["skill_recommendation"]["suggest_global_enable_after_approvals"] =
+                                        raw["skill_recommendation"]
+                                            ["suggest_global_enable_after_approvals"] =
                                             serde_json::json!(clamped);
                                     }
                                 }
