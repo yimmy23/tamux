@@ -1365,6 +1365,18 @@ async fn very_short_attention_dwell_persists_short_dwell_signal_with_duration() 
         .context_snapshot_json
         .as_deref()
         .is_some_and(|json| json.contains("dwell_secs") && json.contains("conversation:chat")));
+
+    let scores = engine
+        .history
+        .list_satisfaction_scores("global", 10)
+        .await
+        .expect("load short dwell satisfaction scores");
+    assert_eq!(scores.len(), 1);
+    assert_eq!(
+        scores[0].signal_count, 1,
+        "short dwell should contribute to the satisfaction snapshot signal count"
+    );
+    assert!(scores[0].score < 0.8);
 }
 
 #[tokio::test]

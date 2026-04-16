@@ -47,7 +47,12 @@ impl<'a> SendMessageRunner<'a> {
                                 .rev()
                                 .find(|message| message.role == MessageRole::Assistant)
                         })
-                        .map(|message| message.content.clone())
+                        .map(|message| message.content.trim().to_string())
+                        .filter(|content| !content.is_empty())
+                })
+                .or_else(|| {
+                    let trimmed = self.stored_user_content.trim();
+                    (!trimmed.is_empty()).then(|| trimmed.to_string())
                 })
         };
         let current_tool_signature = normalized_tool_signature(tc);
@@ -368,6 +373,22 @@ impl<'a> SendMessageRunner<'a> {
 
         if self.should_break_for_termination().await {
             return Ok(LoopDisposition::Break);
+        }
+
+        let executed_sequence = self
+            .recent_policy_tool_outcomes
+            .iter()
+            .map(|summary| summary.tool_name.clone())
+            .collect::<Vec<_>>();
+        let completed = !executed_sequence.is_empty()
+            && self
+                .recent_policy_tool_outcomes
+                .iter()
+                .all(|summary| summary.outcome.eq_ignore_ascii_case("success"));
+        if !executed_sequence.is_empty() {
+            self.engine
+                .record_meta_cognitive_workflow_profile(&executed_sequence, completed)
+                .await;
         }
 
         Ok(LoopDisposition::Continue)

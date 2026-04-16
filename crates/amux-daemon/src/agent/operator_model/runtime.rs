@@ -34,7 +34,8 @@ impl AgentEngine {
             + model.implicit_feedback.correction_message_count
             + model.implicit_feedback.fast_denial_count
             + model.implicit_feedback.rapid_revert_count
-            + model.implicit_feedback.session_abandon_count;
+            + model.implicit_feedback.session_abandon_count
+            + model.attention_topology.rapid_switch_count;
         self.history
             .insert_satisfaction_score(&crate::history::SatisfactionScoreRow {
                 id: format!("satisfaction_{}", uuid::Uuid::new_v4()),

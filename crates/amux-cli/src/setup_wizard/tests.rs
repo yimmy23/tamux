@@ -135,9 +135,8 @@ fn raw_mode_guard_requests_only_disambiguate_enhancement_flag() {
     assert!(flags.contains(crossterm::event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES));
     assert!(!flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES));
     assert!(!flags.contains(crossterm::event::KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS));
-    assert!(!flags.contains(
-        crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
-    ));
+    assert!(!flags
+        .contains(crossterm::event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES));
 }
 
 #[test]
@@ -236,12 +235,13 @@ fn whatsapp_setup_invalid_submission_requests_retry() {
 }
 
 #[test]
-fn whatsapp_setup_persists_allowlist_before_gateway_enable() {
-    let writes = whatsapp_gateway_config_writes("+48 123 456 789").expect("valid writes");
+fn whatsapp_setup_persists_allowlist_as_string_before_gateway_enable() {
+    let writes =
+        whatsapp_gateway_config_writes("+48 123 456 789, 15551230000").expect("valid writes");
 
     assert_eq!(writes.len(), 2);
     assert_eq!(writes[0].key_path, "/gateway/whatsapp_allowed_contacts");
-    assert_eq!(writes[0].value_json, "[\"48123456789\"]");
+    assert_eq!(writes[0].value_json, "\"48123456789,15551230000\"");
     assert_eq!(writes[1].key_path, "/gateway/enabled");
     assert_eq!(writes[1].value_json, "true");
 }

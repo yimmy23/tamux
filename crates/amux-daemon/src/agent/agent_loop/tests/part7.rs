@@ -254,6 +254,108 @@ async fn metacognitive_learning_updates_persist_across_rehydrate() {
 }
 
 #[tokio::test]
+async fn metacognitive_workflow_profiles_learn_from_live_outcomes_and_persist() {
+    let root = tempdir().unwrap();
+    let readable_path = root.path().join("workflow-learning.txt");
+    fs::write(
+        &readable_path,
+        "workflow learning target
+",
+    )
+    .expect("write workflow file");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![
+        (
+            "read_file".to_string(),
+            serde_json::json!({ "path": readable_path, "offset": 0, "limit": 1 }).to_string(),
+        ),
+        (
+            "search_files".to_string(),
+            serde_json::json!({
+                "path": root.path(),
+                "pattern": "workflow learning",
+                "file_pattern": "*.txt",
+                "max_results": 5,
+                "timeout_seconds": 30
+            })
+            .to_string(),
+        ),
+    ])
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 2;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-metacognitive-workflow-profile-learning";
+
+    let before_model = engine.meta_cognitive_self_model.read().await.clone();
+    assert!(
+        !before_model.workflow_profiles.iter().any(|profile| {
+            profile.name == "read_file__search_files"
+                && profile.typical_tools
+                    == vec!["read_file".to_string(), "search_files".to_string()]
+        }),
+        "sequence-specific workflow profile should not exist before learning"
+    );
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "inspect the workflow file and search for the learning string",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let live_model = engine.meta_cognitive_self_model.read().await.clone();
+    let learned_profile = live_model
+        .workflow_profiles
+        .iter()
+        .find(|profile| {
+            profile.name == "read_file__search_files"
+                && profile.typical_tools
+                    == vec!["read_file".to_string(), "search_files".to_string()]
+        })
+        .cloned()
+        .expect("sequence-specific workflow profile should be learned from live outcomes");
+
+    assert_eq!(learned_profile.avg_steps, 2);
+    assert!(
+        (learned_profile.avg_success_rate - 1.0).abs() < f64::EPSILON,
+        "successful workflow should learn a perfect initial success rate"
+    );
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let loaded_model = rehydrated.meta_cognitive_self_model.read().await.clone();
+    assert!(loaded_model.workflow_profiles.iter().any(|profile| {
+        profile.name == learned_profile.name
+            && profile.avg_steps == learned_profile.avg_steps
+            && (profile.avg_success_rate - learned_profile.avg_success_rate).abs() < f64::EPSILON
+            && profile.typical_tools == learned_profile.typical_tools
+    }));
+}
+
+#[tokio::test]
 async fn neutral_investigative_sequence_does_not_false_positive_confirmation_bias() {
     let root = tempdir().unwrap();
     let readable_path = root.path().join("neutral.txt");

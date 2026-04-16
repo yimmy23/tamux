@@ -312,7 +312,7 @@ fn render_gateway_text_field<'a>(
         lines.push(Line::from(vec![
             Span::styled(marker, marker_style),
             Span::styled(format!("{:<16}", label), theme.fg_dim),
-            Span::styled(" [Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
+            Span::styled(" [Ctrl+S/Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
         ]));
         lines.push(Line::from(Span::styled(
             "  ╭──────────────────────────────────────────╮",
@@ -375,4 +375,3 @@ fn render_gateway_text_field<'a>(
     }
     lines.push(Line::from(spans));
 }
-

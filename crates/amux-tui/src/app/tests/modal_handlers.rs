@@ -1080,12 +1080,14 @@ fn provider_picker_filters_to_authenticated_entries_plus_custom() {
     ];
 
     let defs = widgets::provider_picker::available_provider_defs(&model.auth);
-    assert!(defs
-        .iter()
-        .any(|provider| provider.id == PROVIDER_ID_OPENAI));
-    assert!(defs
-        .iter()
-        .any(|provider| provider.id == PROVIDER_ID_CUSTOM));
+    assert!(
+        defs.iter()
+            .any(|provider| provider.id == PROVIDER_ID_OPENAI)
+    );
+    assert!(
+        defs.iter()
+            .any(|provider| provider.id == PROVIDER_ID_CUSTOM)
+    );
     assert!(!defs.iter().any(|provider| provider.id == "groq"));
 }
 
@@ -2082,6 +2084,84 @@ fn subagent_inline_edit_does_not_sync_main_config() {
     );
 }
 
+#[test]
+fn settings_textarea_ctrl_j_confirms_whatsapp_allowlist_edit() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
+    model
+        .settings
+        .start_editing("whatsapp_allowed_contacts", "123123123123");
+    model.settings.reduce(SettingsAction::InsertChar('\n'));
+    model.settings.reduce(SettingsAction::InsertChar('4'));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('j'),
+        KeyModifiers::CONTROL,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.settings.editing_field(), None);
+    assert_eq!(model.config.whatsapp_allowed_contacts, "123123123123\n4");
+}
+
+#[test]
+fn settings_textarea_ctrl_m_confirms_whatsapp_allowlist_edit() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
+    model
+        .settings
+        .start_editing("whatsapp_allowed_contacts", "123123123123");
+    model.settings.reduce(SettingsAction::InsertChar('\n'));
+    model.settings.reduce(SettingsAction::InsertChar('5'));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('m'),
+        KeyModifiers::CONTROL,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.settings.editing_field(), None);
+    assert_eq!(model.config.whatsapp_allowed_contacts, "123123123123\n5");
+}
+
+#[test]
+fn settings_textarea_ctrl_s_confirms_whatsapp_allowlist_edit() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
+    model
+        .settings
+        .start_editing("whatsapp_allowed_contacts", "123123123123");
+    model.settings.reduce(SettingsAction::InsertChar('\n'));
+    model.settings.reduce(SettingsAction::InsertChar('6'));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('s'),
+        KeyModifiers::CONTROL,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.settings.editing_field(), None);
+    assert_eq!(model.config.whatsapp_allowed_contacts, "123123123123\n6");
+}
+
 fn sample_notification(read_at: Option<i64>) -> amux_protocol::InboxNotification {
     amux_protocol::InboxNotification {
         id: "n1".to_string(),
@@ -2247,11 +2327,13 @@ fn notifications_modal_row_action_focus_uses_left_right_and_enter() {
         modal::ModalKind::Notifications,
     );
     assert!(!quit);
-    assert!(model
-        .notifications
-        .selected_item()
-        .and_then(|notification| notification.read_at)
-        .is_some());
+    assert!(
+        model
+            .notifications
+            .selected_item()
+            .and_then(|notification| notification.read_at)
+            .is_some()
+    );
 }
 
 #[test]

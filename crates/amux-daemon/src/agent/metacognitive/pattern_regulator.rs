@@ -131,6 +131,54 @@ impl AgentEngine {
         }
     }
 
+    pub(crate) async fn record_meta_cognitive_workflow_profile(
+        &self,
+        tool_sequence: &[String],
+        completed: bool,
+    ) {
+        if tool_sequence.is_empty() {
+            return;
+        }
+
+        let now = now_millis();
+        let model_to_persist = {
+            let mut model = self.meta_cognitive_self_model.write().await;
+            let profile_name = tool_sequence.join("__");
+            let steps = tool_sequence.len() as u32;
+
+            if let Some(profile) = model
+                .workflow_profiles
+                .iter_mut()
+                .find(|profile| profile.name == profile_name)
+            {
+                let prior_steps = profile.avg_steps.max(1) as f64;
+                profile.avg_steps = ((prior_steps + steps as f64) / 2.0).round() as u32;
+                let prior_rate = profile.avg_success_rate.clamp(0.0, 1.0);
+                let observed = if completed { 1.0 } else { 0.0 };
+                profile.avg_success_rate = ((prior_rate + observed) / 2.0).clamp(0.0, 1.0);
+                profile.typical_tools = tool_sequence.to_vec();
+            } else {
+                model
+                    .workflow_profiles
+                    .push(crate::agent::metacognitive::types::WorkflowProfile {
+                        name: profile_name,
+                        avg_success_rate: if completed { 1.0 } else { 0.0 },
+                        avg_steps: steps,
+                        typical_tools: tool_sequence.to_vec(),
+                    });
+            }
+            model.last_updated_ms = now;
+            model.clone()
+        };
+
+        if let Err(error) = self
+            .persist_meta_cognitive_self_model(&model_to_persist)
+            .await
+        {
+            tracing::warn!("failed to persist meta-cognitive workflow profile update: {error}");
+        }
+    }
+
     pub(crate) async fn apply_meta_cognitive_calibration_adjustment(
         &self,
         adjustment: f64,

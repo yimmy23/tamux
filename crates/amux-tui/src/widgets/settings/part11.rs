@@ -63,9 +63,9 @@ fn render_auth_tab<'a>(
     for (i, entry) in auth.entries.iter().enumerate() {
         let is_selected = auth.selected == i;
         let marker = if is_selected { "> " } else { "  " };
-        let openai_has_chatgpt_auth =
-            entry.provider_id == amux_shared::providers::PROVIDER_ID_OPENAI
-                && config.chatgpt_auth_available;
+        let openai_has_chatgpt_auth = entry.provider_id
+            == amux_shared::providers::PROVIDER_ID_OPENAI
+            && config.chatgpt_auth_available;
         let effective_authenticated = entry.authenticated || openai_has_chatgpt_auth;
         let dot_style = if effective_authenticated {
             Style::default().fg(Color::Green)
@@ -209,7 +209,7 @@ fn render_agent_tab<'a>(
             lines.push(Line::from(vec![
                 Span::styled(marker, marker_style),
                 Span::styled(*label, theme.fg_dim),
-                Span::styled(" [Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
+                Span::styled(" [Ctrl+S/Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
             ]));
             // Render the edit buffer as a multi-line textarea with border
             lines.push(Line::from(Span::styled(

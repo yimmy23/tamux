@@ -15,6 +15,10 @@ import { useDaemonAgentEvents } from "./useDaemonAgentEvents";
 import { reloadDaemonThreadIntoLocalState } from "./daemonHelpers";
 import { useLegacyAgentMessaging } from "./useLegacyAgentMessaging";
 import type { AgentChatPanelRuntimeValue, AgentChatPanelView } from "./types";
+import {
+  pinnedMessageBudgetChars,
+  sumMessageContentChars,
+} from "@/lib/agent-client/pinnedMessageBudget";
 
 const EMPTY_MESSAGES: ReturnType<typeof useAgentStore.getState>["messages"][string] = [];
 
@@ -328,7 +332,7 @@ export function useAgentChatPanelProviderValue(): {
     [messages],
   );
   const pinnedUsageChars = useMemo(
-    () => pinnedMessages.reduce((sum, message) => sum + message.content.length, 0),
+    () => sumMessageContentChars(pinnedMessages),
     [pinnedMessages],
   );
   const pinnedBudgetChars = useMemo(() => {
@@ -337,7 +341,7 @@ export function useAgentChatPanelProviderValue(): {
       ? agentSettings[activeProviderId] as { context_window_tokens?: number | null } | undefined
       : undefined;
     const contextWindowTokens = Number(activeProvider?.context_window_tokens ?? agentSettings.context_window_tokens ?? 0);
-    return Math.floor(contextWindowTokens * 0.25 * 4);
+    return pinnedMessageBudgetChars(contextWindowTokens);
   }, [agentSettings]);
   const pinnedOverBudget = pinnedUsageChars > pinnedBudgetChars;
 

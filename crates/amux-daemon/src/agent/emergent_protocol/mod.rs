@@ -59,15 +59,6 @@ impl AgentEngine {
                 durable_store.updated_at_ms,
             )
             .await?;
-        self.activate_accepted_protocol_candidates(thread_id, &mut durable_store)
-            .await?;
-        self.history
-            .upsert_thread_protocol_candidates_state(
-                thread_id,
-                &durable_store,
-                durable_store.updated_at_ms,
-            )
-            .await?;
 
         let strongest = durable_store.candidates.first().cloned();
         if let Some(candidate) = strongest {
@@ -120,6 +111,135 @@ impl AgentEngine {
             return Ok(None);
         }
         Ok(Some(self.protocol_registry_entry_from_row(row).await?))
+    }
+
+    pub(crate) async fn list_thread_protocol_proposals(
+        &self,
+        thread_id: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let store = self.get_thread_protocol_candidate_store(thread_id).await?;
+        let proposals = store
+            .candidates
+            .into_iter()
+            .filter(|candidate| candidate.state == ProtocolCandidateState::Proposed)
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "thread_id": thread_id,
+            "proposal_count": proposals.len(),
+            "proposals": proposals,
+        }))
+    }
+
+    pub(crate) async fn respond_to_protocol_proposal(
+        &self,
+        thread_id: &str,
+        candidate_id: &str,
+        accept: bool,
+    ) -> anyhow::Result<serde_json::Value> {
+        let mut store = self.get_thread_protocol_candidate_store(thread_id).await?;
+        let now = crate::agent::task_prompt::now_millis();
+
+        let Some(index) = store
+            .candidates
+            .iter()
+            .position(|candidate| candidate.id == candidate_id)
+        else {
+            return Ok(json!({
+                "thread_id": thread_id,
+                "candidate_id": candidate_id,
+                "status": "not_found",
+            }));
+        };
+
+        if store.candidates[index].state != ProtocolCandidateState::Proposed {
+            let candidate = store.candidates[index].clone();
+            return Ok(json!({
+                "thread_id": thread_id,
+                "candidate_id": candidate_id,
+                "status": "invalid_state",
+                "candidate": candidate,
+            }));
+        }
+
+        let candidate = if accept {
+            store.candidates[index].state = ProtocolCandidateState::Accepted;
+            let candidate = store.candidates[index].clone();
+            let entry = self
+                .activate_protocol_candidate(thread_id, &candidate, now)
+                .await?;
+
+            let row = AgentEventRow {
+                id: format!("emergent_protocol_activation_{}", uuid::Uuid::new_v4()),
+                category: "emergent_protocol".to_string(),
+                kind: "protocol_activated".to_string(),
+                pane_id: Some(thread_id.to_string()),
+                workspace_id: None,
+                surface_id: None,
+                session_id: None,
+                payload_json: serde_json::to_string(&json!({
+                    "thread_id": thread_id,
+                    "candidate_id": candidate.id,
+                    "token": entry.token,
+                    "protocol_id": entry.protocol_id,
+                }))?,
+                timestamp: now as i64,
+            };
+            self.history.upsert_agent_event(&row).await?;
+            candidate
+        } else {
+            store.candidates[index].state = ProtocolCandidateState::Rejected;
+            store.candidates[index].clone()
+        };
+
+        store.updated_at_ms = now;
+        self.history
+            .upsert_thread_protocol_candidates_state(thread_id, &store, store.updated_at_ms)
+            .await?;
+
+        let row = AgentEventRow {
+            id: format!(
+                "emergent_protocol_proposal_response_{}",
+                uuid::Uuid::new_v4()
+            ),
+            category: "emergent_protocol".to_string(),
+            kind: if accept {
+                "proposal_accepted".to_string()
+            } else {
+                "proposal_rejected".to_string()
+            },
+            pane_id: Some(thread_id.to_string()),
+            workspace_id: None,
+            surface_id: None,
+            session_id: None,
+            payload_json: serde_json::to_string(&json!({
+                "thread_id": thread_id,
+                "candidate": candidate,
+            }))?,
+            timestamp: now as i64,
+        };
+        self.history.upsert_agent_event(&row).await?;
+
+        let entry = if accept {
+            if let Some(row) = self
+                .history
+                .get_emergent_protocol_by_pattern(thread_id, &candidate.normalized_pattern)
+                .await?
+            {
+                Some(self.protocol_registry_entry_from_row(row).await?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(json!({
+            "thread_id": thread_id,
+            "candidate_id": candidate_id,
+            "status": if accept { "accepted" } else { "rejected" },
+            "candidate": candidate,
+            "entry": entry,
+        }))
     }
 
     pub(crate) async fn reload_thread_protocol_registry(
@@ -370,85 +490,60 @@ impl AgentEngine {
         })
     }
 
-    async fn activate_accepted_protocol_candidates(
+    async fn activate_protocol_candidate(
         &self,
         thread_id: &str,
-        store: &mut ProtocolCandidateStore,
-    ) -> anyhow::Result<()> {
-        let now = crate::agent::task_prompt::now_millis();
-        let accepted_candidates = store
-            .candidates
-            .iter()
-            .filter(|candidate| candidate.state == ProtocolCandidateState::Accepted)
-            .cloned()
-            .collect::<Vec<_>>();
-
-        for candidate in accepted_candidates {
-            if self
-                .history
-                .get_emergent_protocol_by_pattern(thread_id, &candidate.normalized_pattern)
-                .await?
-                .is_some()
-            {
-                continue;
-            }
-
-            let token = compressor::stable_protocol_token(&candidate.normalized_pattern, thread_id);
-            let context_signature = build_context_signature(thread_id, &candidate);
-            let entry = ProtocolRegistryEntry {
-                protocol_id: format!("proto_reg_{}", uuid::Uuid::new_v4()),
-                token: token.clone(),
-                description: format!(
-                    "Accepted emergent protocol for '{}' in thread {}",
-                    candidate.normalized_pattern, thread_id
-                ),
-                agent_a: "user".to_string(),
-                agent_b: "assistant".to_string(),
-                thread_id: thread_id.to_string(),
-                normalized_pattern: candidate.normalized_pattern.clone(),
-                trigger_phrase: candidate.trigger_phrase.clone(),
-                signal_kind: candidate.kind,
-                context_signature,
-                steps: vec![ProtocolStep {
-                    step_index: 0,
-                    intent: format!(
-                        "expand '{}' as recurring coordination cue '{}'",
-                        token, candidate.trigger_phrase
-                    ),
-                    tool: None,
-                    args_template: serde_json::json!({
-                        "normalized_pattern": candidate.normalized_pattern,
-                        "trigger_phrase": candidate.trigger_phrase,
-                    }),
-                }],
-                created_at_ms: candidate.first_seen_at_ms,
-                activated_at_ms: now,
-                last_used_ms: None,
-                usage_count: 0,
-                success_rate: 1.0,
-                source_candidate_id: Some(candidate.id.clone()),
-            };
-            self.persist_protocol_registry_entry(&entry).await?;
-
-            let row = AgentEventRow {
-                id: format!("emergent_protocol_activation_{}", uuid::Uuid::new_v4()),
-                category: "emergent_protocol".to_string(),
-                kind: "protocol_activated".to_string(),
-                pane_id: Some(thread_id.to_string()),
-                workspace_id: None,
-                surface_id: None,
-                session_id: None,
-                payload_json: serde_json::to_string(&json!({
-                    "thread_id": thread_id,
-                    "candidate_id": candidate.id,
-                    "token": entry.token,
-                    "protocol_id": entry.protocol_id,
-                }))?,
-                timestamp: now as i64,
-            };
-            self.history.upsert_agent_event(&row).await?;
+        candidate: &ProtocolCandidate,
+        now: u64,
+    ) -> anyhow::Result<ProtocolRegistryEntry> {
+        if let Some(row) = self
+            .history
+            .get_emergent_protocol_by_pattern(thread_id, &candidate.normalized_pattern)
+            .await?
+        {
+            return self.protocol_registry_entry_from_row(row).await;
         }
-        Ok(())
+
+        let token = crate::agent::emergent_protocol::compressor::stable_protocol_token(
+            &candidate.normalized_pattern,
+            thread_id,
+        );
+        let context_signature = build_context_signature(thread_id, candidate);
+        let entry = ProtocolRegistryEntry {
+            protocol_id: format!("proto_reg_{}", uuid::Uuid::new_v4()),
+            token: token.clone(),
+            description: format!(
+                "Accepted emergent protocol for '{}' in thread {}",
+                candidate.normalized_pattern, thread_id
+            ),
+            agent_a: "user".to_string(),
+            agent_b: "assistant".to_string(),
+            thread_id: thread_id.to_string(),
+            normalized_pattern: candidate.normalized_pattern.clone(),
+            trigger_phrase: candidate.trigger_phrase.clone(),
+            signal_kind: candidate.kind,
+            context_signature,
+            steps: vec![ProtocolStep {
+                step_index: 0,
+                intent: format!(
+                    "expand '{}' as recurring coordination cue '{}'",
+                    token, candidate.trigger_phrase
+                ),
+                tool: None,
+                args_template: serde_json::json!({
+                    "normalized_pattern": candidate.normalized_pattern,
+                    "trigger_phrase": candidate.trigger_phrase,
+                }),
+            }],
+            created_at_ms: candidate.first_seen_at_ms,
+            activated_at_ms: now,
+            last_used_ms: None,
+            usage_count: 0,
+            success_rate: 1.0,
+            source_candidate_id: Some(candidate.id.clone()),
+        };
+        self.persist_protocol_registry_entry(&entry).await?;
+        Ok(entry)
     }
 
     async fn persist_protocol_registry_entry(
@@ -576,8 +671,11 @@ fn merge_detected_candidates(
             existing.first_seen_at_ms = existing.first_seen_at_ms.min(detected.first_seen_at_ms);
             existing.last_seen_at_ms = existing.last_seen_at_ms.max(detected.last_seen_at_ms);
             existing.observations = detected.observations.clone();
-            existing.state =
-                classify_candidate_state(existing.observation_count, existing.confidence);
+            existing.state = match existing.state {
+                ProtocolCandidateState::Accepted => ProtocolCandidateState::Accepted,
+                ProtocolCandidateState::Rejected => ProtocolCandidateState::Rejected,
+                _ => classify_candidate_state(existing.observation_count, existing.confidence),
+            };
         } else {
             let mut candidate = detected;
             candidate.state =
@@ -600,7 +698,7 @@ fn merge_detected_candidates(
 
 fn classify_candidate_state(observation_count: u32, confidence: f64) -> ProtocolCandidateState {
     if observation_count >= ACCEPTANCE_OBSERVATION_THRESHOLD && confidence >= 0.20 {
-        ProtocolCandidateState::Accepted
+        ProtocolCandidateState::Proposed
     } else if observation_count < SUPPRESSION_OBSERVATION_THRESHOLD && confidence < 0.20 {
         ProtocolCandidateState::Rejected
     } else {
@@ -610,7 +708,8 @@ fn classify_candidate_state(observation_count: u32, confidence: f64) -> Protocol
 
 fn rank_state(state: ProtocolCandidateState) -> u8 {
     match state {
-        ProtocolCandidateState::Accepted => 4,
+        ProtocolCandidateState::Accepted => 5,
+        ProtocolCandidateState::Proposed => 4,
         ProtocolCandidateState::Candidate => 3,
         ProtocolCandidateState::Observing => 2,
         ProtocolCandidateState::Rejected => 1,
@@ -691,8 +790,33 @@ mod tests {
         }
     }
 
+    async fn accept_proposal(
+        engine: &AgentEngine,
+        thread_id: &str,
+        normalized_pattern: &str,
+    ) -> serde_json::Value {
+        let store = engine
+            .get_thread_protocol_candidate_store(thread_id)
+            .await
+            .expect("candidate store should load");
+        let candidate_id = store
+            .candidates
+            .iter()
+            .find(|candidate| {
+                candidate.state == ProtocolCandidateState::Proposed
+                    && candidate.normalized_pattern == normalized_pattern
+            })
+            .map(|candidate| candidate.id.clone())
+            .expect("proposed candidate should exist");
+
+        engine
+            .respond_to_protocol_proposal(thread_id, &candidate_id, true)
+            .await
+            .expect("proposal acceptance should succeed")
+    }
+
     #[tokio::test]
-    async fn candidate_gets_accepted_after_sufficient_observation() {
+    async fn candidate_gets_proposed_after_sufficient_observation() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
         let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
@@ -713,7 +837,7 @@ mod tests {
             .expect("candidate store should be returned");
 
         assert!(analyzed.candidates.iter().any(|candidate| candidate.state
-            == ProtocolCandidateState::Accepted
+            == ProtocolCandidateState::Proposed
             && candidate.normalized_pattern == "continue"));
 
         let stored = engine
@@ -721,12 +845,12 @@ mod tests {
             .await
             .expect("stored protocol candidates should load");
         assert!(stored.candidates.iter().any(|candidate| candidate.state
-            == ProtocolCandidateState::Accepted
+            == ProtocolCandidateState::Proposed
             && candidate.normalized_pattern == "continue"));
     }
 
     #[tokio::test]
-    async fn repeated_multi_step_tool_sequence_becomes_accepted_protocol_candidate() {
+    async fn repeated_multi_step_tool_sequence_becomes_proposed_protocol_candidate() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
         let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
@@ -769,7 +893,7 @@ mod tests {
             .expect("candidate store should be returned");
 
         assert!(analyzed.candidates.iter().any(|candidate| {
-            candidate.state == ProtocolCandidateState::Accepted
+            candidate.state == ProtocolCandidateState::Proposed
                 && candidate.normalized_pattern == "search_files -> read_file -> apply_patch"
         }));
 
@@ -777,10 +901,7 @@ mod tests {
             .list_thread_protocol_registry_entries(thread_id)
             .await
             .expect("registry should load");
-        assert!(registry.iter().any(|entry| {
-            entry.normalized_pattern == "search_files -> read_file -> apply_patch"
-                && entry.source_candidate_id.is_some()
-        }));
+        assert!(registry.is_empty());
     }
 
     #[tokio::test]
@@ -825,9 +946,8 @@ mod tests {
             == ProtocolCandidateState::Rejected
             && candidate.normalized_pattern == "k"));
     }
-
     #[tokio::test]
-    async fn accepted_candidate_promotes_into_registry_entry() {
+    async fn accepted_proposal_promotes_into_registry_entry() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
         let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
@@ -841,11 +961,24 @@ mod tests {
             msg("m5", thread_id, 5, "user", "continue"),
         ];
 
-        engine
+        let analyzed = engine
             .analyze_emergent_protocol_from_messages(thread_id, &messages)
             .await
             .expect("analysis should succeed")
             .expect("candidate store should be returned");
+        assert!(analyzed.candidates.iter().any(|candidate| {
+            candidate.state == ProtocolCandidateState::Proposed
+                && candidate.normalized_pattern == "continue"
+        }));
+
+        let pre_registry = engine
+            .list_thread_protocol_registry_entries(thread_id)
+            .await
+            .expect("registry should load");
+        assert!(pre_registry.is_empty());
+
+        let response = accept_proposal(&engine, thread_id, "continue").await;
+        assert_eq!(response["status"].as_str(), Some("accepted"));
 
         let registry = engine
             .list_thread_protocol_registry_entries(thread_id)
@@ -862,7 +995,6 @@ mod tests {
             .as_deref()
             .is_some_and(|value| value.starts_with("proto_")));
     }
-
     #[tokio::test]
     async fn registry_lookup_can_record_usage_and_fallback() {
         let root = tempdir().expect("tempdir");
@@ -878,11 +1010,17 @@ mod tests {
             msg("m5", thread_id, 5, "user", "continue"),
         ];
 
-        engine
+        let analyzed = engine
             .analyze_emergent_protocol_from_messages(thread_id, &messages)
             .await
             .expect("analysis should succeed")
             .expect("candidate store should be returned");
+        assert!(analyzed.candidates.iter().any(|candidate| {
+            candidate.state == ProtocolCandidateState::Proposed
+                && candidate.normalized_pattern == "continue"
+        }));
+        let response = accept_proposal(&engine, thread_id, "continue").await;
+        assert_eq!(response["status"].as_str(), Some("accepted"));
 
         let registry = engine
             .list_thread_protocol_registry_entries(thread_id)
@@ -949,7 +1087,6 @@ mod tests {
             .expect("reload should succeed");
         assert_eq!(reloaded["protocol_count"].as_u64(), Some(1));
     }
-
     #[tokio::test]
     async fn decode_returns_expanded_steps_on_context_match() {
         let root = tempdir().expect("tempdir");
@@ -965,10 +1102,16 @@ mod tests {
             msg("m5", thread_id, 5, "user", "continue"),
         ];
 
-        engine
+        let analyzed = engine
             .analyze_emergent_protocol_from_messages(thread_id, &messages)
             .await
-            .expect("analysis should succeed");
+            .expect("analysis should succeed")
+            .expect("candidate store should be returned");
+        assert!(analyzed.candidates.iter().any(|candidate| {
+            candidate.state == ProtocolCandidateState::Proposed
+                && candidate.normalized_pattern == "continue"
+        }));
+        accept_proposal(&engine, thread_id, "continue").await;
 
         let registry = engine
             .list_thread_protocol_registry_entries(thread_id)
@@ -987,7 +1130,6 @@ mod tests {
         assert_eq!(decoded.expanded_steps.len(), 1);
         assert!(decoded.expanded_steps[0].intent.contains("expand"));
     }
-
     #[tokio::test]
     async fn decode_returns_structured_fallback_on_context_mismatch() {
         let root = tempdir().expect("tempdir");
@@ -1003,10 +1145,16 @@ mod tests {
             msg("m5", thread_id, 5, "user", "continue"),
         ];
 
-        engine
+        let analyzed = engine
             .analyze_emergent_protocol_from_messages(thread_id, &messages)
             .await
-            .expect("analysis should succeed");
+            .expect("analysis should succeed")
+            .expect("candidate store should be returned");
+        assert!(analyzed.candidates.iter().any(|candidate| {
+            candidate.state == ProtocolCandidateState::Proposed
+                && candidate.normalized_pattern == "continue"
+        }));
+        accept_proposal(&engine, thread_id, "continue").await;
 
         let registry = engine
             .list_thread_protocol_registry_entries(thread_id)
@@ -1043,6 +1191,68 @@ mod tests {
             .expect("usage entries should be an array");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["success"].as_bool(), Some(false));
+    }
+
+    #[tokio::test]
+    async fn rejected_proposal_does_not_activate_registry_entry() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-emergent-rejected-proposal";
+
+        let messages = vec![
+            msg("m1", thread_id, 1, "user", "continue"),
+            msg("m2", thread_id, 2, "assistant", "working"),
+            msg("m3", thread_id, 3, "user", "continue"),
+            msg("m4", thread_id, 4, "assistant", "still working"),
+            msg("m5", thread_id, 5, "user", "continue"),
+        ];
+
+        let analyzed = engine
+            .analyze_emergent_protocol_from_messages(thread_id, &messages)
+            .await
+            .expect("analysis should succeed")
+            .expect("candidate store should be returned");
+        assert!(analyzed.candidates.iter().any(|candidate| {
+            candidate.state == ProtocolCandidateState::Proposed
+                && candidate.normalized_pattern == "continue"
+        }));
+
+        let store = engine
+            .get_thread_protocol_candidate_store(thread_id)
+            .await
+            .expect("candidate store should load");
+        let candidate_id = store
+            .candidates
+            .iter()
+            .find(|candidate| {
+                candidate.state == ProtocolCandidateState::Proposed
+                    && candidate.normalized_pattern == "continue"
+            })
+            .map(|candidate| candidate.id.clone())
+            .expect("proposed candidate should exist");
+
+        let response = engine
+            .respond_to_protocol_proposal(thread_id, &candidate_id, false)
+            .await
+            .expect("proposal rejection should succeed");
+        assert_eq!(response["status"].as_str(), Some("rejected"));
+        assert_eq!(response["entry"], serde_json::Value::Null);
+
+        let registry = engine
+            .list_thread_protocol_registry_entries(thread_id)
+            .await
+            .expect("registry should load");
+        assert!(registry.is_empty());
+
+        let stored = engine
+            .get_thread_protocol_candidate_store(thread_id)
+            .await
+            .expect("candidate store should load");
+        assert!(stored.candidates.iter().any(|candidate| {
+            candidate.state == ProtocolCandidateState::Rejected
+                && candidate.normalized_pattern == "continue"
+        }));
     }
 
     #[tokio::test]

@@ -14,6 +14,7 @@ impl TuiModel {
                 .tasks
                 .work_context_for_thread(thread_id)
                 .is_some_and(|context| !context.entries.is_empty())
+            || self.chat.active_thread_has_pinned_messages()
     }
 
     fn current_attention_target(&self) -> (String, Option<String>, Option<String>) {

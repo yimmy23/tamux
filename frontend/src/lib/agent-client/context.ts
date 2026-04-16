@@ -16,6 +16,10 @@ import type {
   PreparedOpenAIRequest,
 } from "./types";
 import { APPROX_CHARS_PER_TOKEN, MIN_CONTEXT_TARGET_TOKENS } from "./types";
+import {
+  countUnicodeScalars,
+  pinnedMessageBudgetChars,
+} from "./pinnedMessageBudget";
 
 export function messagesToApiFormat(messages: AgentMessage[]): ApiChatMessage[] {
   const announcedToolCalls = new Set<string>();
@@ -169,14 +173,6 @@ export function prepareOpenAIRequest(
   };
 }
 
-function pinnedMessageBudgetChars(
-  settings: ContextCompactionSettings,
-): number {
-  return Math.floor(
-    Number(settings.context_window_tokens || 0) * 0.25 * APPROX_CHARS_PER_TOKEN,
-  );
-}
-
 function appendPinnedMessagesAfterCompactionArtifact(
   compacted: AgentMessage[],
   allMessages: AgentMessage[],
@@ -189,13 +185,15 @@ function appendPinnedMessagesAfterCompactionArtifact(
     return compacted;
   }
 
-  const budgetChars = pinnedMessageBudgetChars(settings);
+  const budgetChars = pinnedMessageBudgetChars(
+    Number(settings.context_window_tokens || 0),
+  );
   let usedChars = 0;
   const pinnedMessages = allMessages.filter((message) => message.pinnedForCompaction);
   const injectedPins: AgentMessage[] = [];
 
   for (const message of pinnedMessages) {
-    const messageChars = message.content.length;
+    const messageChars = countUnicodeScalars(message.content);
     if (usedChars + messageChars > budgetChars) {
       break;
     }

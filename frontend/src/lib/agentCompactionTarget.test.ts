@@ -149,4 +149,53 @@ describe("agent compaction target", () => {
     expect(prepared).toHaveLength(101);
     expect(prepared[0]?.content).toBe("m0");
   });
+
+  it("injects pinned messages using Unicode scalar counts instead of UTF-16 length", () => {
+    const prepared = buildApiMessagesForRequest(
+      [
+        {
+          id: "pin-1",
+          threadId: "thread-1",
+          createdAt: 1,
+          role: "user" as const,
+          content: "😀",
+          pinnedForCompaction: true,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          isCompactionSummary: false,
+          isStreaming: false,
+        },
+        {
+          id: "msg-2",
+          threadId: "thread-1",
+          createdAt: 2,
+          role: "user" as const,
+          content: "latest",
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          isCompactionSummary: false,
+          isStreaming: false,
+        },
+      ],
+      {
+        auto_compact_context: true,
+        max_context_messages: 1,
+        context_window_tokens: 1,
+        compact_threshold_pct: 100,
+        keep_recent_on_compact: 1,
+        compaction: {
+          ...DEFAULT_AGENT_SETTINGS.compaction,
+          strategy: "heuristic",
+        },
+      },
+    );
+
+    expect(prepared).toHaveLength(3);
+    expect(prepared[1]).toMatchObject({
+      role: "user",
+      content: "😀",
+    });
+  });
 });

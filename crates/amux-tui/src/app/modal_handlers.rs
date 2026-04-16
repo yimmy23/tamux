@@ -3,6 +3,15 @@ use super::*;
 #[path = "modal_handlers_enter.rs"]
 mod enter;
 
+fn is_settings_textarea_submit_key(code: KeyCode, modifiers: KeyModifiers) -> bool {
+    matches!(
+        code,
+        KeyCode::Enter | KeyCode::Char('\r') | KeyCode::Char('\n')
+    ) || (code == KeyCode::Char('m') && modifiers.contains(KeyModifiers::CONTROL))
+        || (code == KeyCode::Char('j') && modifiers.contains(KeyModifiers::CONTROL))
+        || (code == KeyCode::Char('s') && modifiers.contains(KeyModifiers::CONTROL))
+}
+
 impl TuiModel {
     pub(crate) fn begin_custom_model_edit(&mut self) {
         enter::begin_custom_model_edit(self);
@@ -193,9 +202,11 @@ impl TuiModel {
             }
 
             if self.settings.is_editing() {
+                let textarea_submit =
+                    self.settings.is_textarea() && is_settings_textarea_submit_key(code, modifiers);
                 if self.settings.is_textarea() {
                     match code {
-                        KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => {}
+                        _ if textarea_submit => {}
                         KeyCode::Enter => {
                             self.settings.reduce(SettingsAction::InsertChar('\n'));
                             return false;
@@ -217,7 +228,7 @@ impl TuiModel {
                 }
 
                 match code {
-                    KeyCode::Enter => {
+                    _ if textarea_submit || code == KeyCode::Enter => {
                         let field = self.settings.editing_field().unwrap_or("").to_string();
                         let value = self.settings.edit_buffer().to_string();
                         match field.as_str() {
@@ -547,8 +558,7 @@ impl TuiModel {
                                         if raw.get("skill_recommendation").is_none() {
                                             raw["skill_recommendation"] = serde_json::json!({});
                                         }
-                                        raw["skill_recommendation"]
-                                            ["community_preapprove_timeout_secs"] =
+                                        raw["skill_recommendation"]["community_preapprove_timeout_secs"] =
                                             serde_json::json!(clamped);
                                     }
                                 }
@@ -566,8 +576,7 @@ impl TuiModel {
                                         if raw.get("skill_recommendation").is_none() {
                                             raw["skill_recommendation"] = serde_json::json!({});
                                         }
-                                        raw["skill_recommendation"]
-                                            ["suggest_global_enable_after_approvals"] =
+                                        raw["skill_recommendation"]["suggest_global_enable_after_approvals"] =
                                             serde_json::json!(clamped);
                                     }
                                 }

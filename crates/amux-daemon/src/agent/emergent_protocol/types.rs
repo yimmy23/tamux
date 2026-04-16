@@ -32,6 +32,7 @@ impl ProtocolSignalKind {
 pub enum ProtocolCandidateState {
     Observing,
     Candidate,
+    Proposed,
     Accepted,
     Rejected,
 }

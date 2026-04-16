@@ -33,11 +33,12 @@ pub(super) fn whatsapp_gateway_config_writes(raw_allowlist: &str) -> Result<Vec<
     let parsed_allowlist = parse_whatsapp_setup_allowlist(raw_allowlist).ok_or_else(|| {
         anyhow::anyhow!("Enter at least one valid WhatsApp phone number before linking.")
     })?;
+    let normalized_allowlist = parsed_allowlist.join(",");
 
     Ok(vec![
         ConfigWrite {
             key_path: "/gateway/whatsapp_allowed_contacts".to_string(),
-            value_json: serde_json::to_string(&parsed_allowlist)
+            value_json: serde_json::to_string(&normalized_allowlist)
                 .context("Failed to encode WhatsApp allowlist")?,
         },
         ConfigWrite {

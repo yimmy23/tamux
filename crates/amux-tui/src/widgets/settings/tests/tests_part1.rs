@@ -297,7 +297,7 @@ fn gateway_tab_renders_whatsapp_allowlist_as_textarea_when_editing() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(text.contains("Allowed Contacts [Ctrl+Enter: save, Esc: cancel]"));
+    assert!(text.contains("Allowed Contacts [Ctrl+S/Ctrl+Enter: save, Esc: cancel]"));
     assert!(text.contains("+15551234567"));
     assert!(text.contains("+15557654321"));
     assert!(text.contains("╭"));

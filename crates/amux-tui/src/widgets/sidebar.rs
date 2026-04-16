@@ -30,6 +30,8 @@ pub enum SidebarHitTarget {
     Pinned(usize),
 }
 
+type PinnedSidebarRows<'a> = Vec<(usize, &'a crate::state::chat::AgentMessage)>;
+
 fn file_entry_matches(entry: &crate::state::task::WorkContextEntry, filter: &str) -> bool {
     let query = filter.trim();
     if query.is_empty() {
@@ -87,9 +89,16 @@ pub fn filtered_file_index(
 }
 
 pub fn selected_pinned_message_index(chat: &ChatState, sidebar: &SidebarState) -> Option<usize> {
-    chat.active_thread_pinned_messages()
-        .get(sidebar.selected_item())
-        .map(|(message_index, _)| *message_index)
+    chat.active_thread()
+        .and_then(|thread| {
+            thread
+                .messages
+                .iter()
+                .enumerate()
+                .filter(|(_, message)| message.pinned_for_compaction)
+                .nth(sidebar.selected_item())
+        })
+        .map(|(message_index, _)| message_index)
 }
 
 fn pinned_message_chars(message: &crate::state::chat::AgentMessage) -> usize {
@@ -122,13 +131,37 @@ fn pinned_message_snippet(content: &str, width: usize) -> String {
     }
 }
 
+fn active_thread_pinned_rows(chat: &ChatState) -> PinnedSidebarRows<'_> {
+    chat.active_thread()
+        .map(|thread| {
+            thread
+                .messages
+                .iter()
+                .enumerate()
+                .filter(|(_, message)| message.pinned_for_compaction)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn pinned_footer_line(theme: &ThemeTokens) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(" Enter", theme.fg_active),
+        Span::styled(" jump  ", theme.fg_dim),
+        Span::styled("u", theme.fg_active),
+        Span::styled(" unpin  ", theme.fg_dim),
+        Span::styled("Ctrl+C", theme.fg_active),
+        Span::styled(" copy", theme.fg_dim),
+    ])
+}
+
 fn rows_for_thread(
     tasks: &TaskState,
-    chat: &ChatState,
     sidebar: &SidebarState,
     thread_id: Option<&str>,
     theme: &ThemeTokens,
     width: usize,
+    pinned_rows: &[(usize, &crate::state::chat::AgentMessage)],
 ) -> Vec<SidebarRow> {
     let Some(thread_id) = thread_id else {
         return vec![SidebarRow {
@@ -256,16 +289,15 @@ fn rows_for_thread(
                 .collect()
         }
         SidebarTab::Pinned => {
-            let pinned = chat.active_thread_pinned_messages();
-            if pinned.is_empty() {
+            if pinned_rows.is_empty() {
                 return vec![SidebarRow {
                     line: Line::from(Span::styled(" No pinned messages", theme.fg_dim)),
                     target: None,
                 }];
             }
 
-            pinned
-                .into_iter()
+            pinned_rows
+                .iter()
                 .enumerate()
                 .map(|(row_idx, (message_index, message))| {
                     let snippet = pinned_message_snippet(&message.content, width);
@@ -291,7 +323,7 @@ fn rows_for_thread(
                         } else {
                             line
                         },
-                        target: Some(SidebarHitTarget::Pinned(message_index)),
+                        target: Some(SidebarHitTarget::Pinned(*message_index)),
                     }
                 })
                 .collect()
@@ -500,8 +532,14 @@ pub fn render(
         Vec::new()
     };
     let gw_height = gw_lines.len() as u16;
-    let show_pinned = chat.active_thread_has_pinned_messages();
+    let pinned_rows = active_thread_pinned_rows(chat);
+    let show_pinned = !pinned_rows.is_empty();
     let filter_height = if sidebar.active_tab() == SidebarTab::Files {
+        1
+    } else {
+        0
+    };
+    let footer_height = if sidebar.active_tab() == SidebarTab::Pinned {
         1
     } else {
         0
@@ -522,6 +560,7 @@ pub fn render(
             Constraint::Length(gw_height),
             Constraint::Length(ra_height),
             Constraint::Length(tier_height),
+            Constraint::Length(footer_height),
         ])
         .split(area);
 
@@ -560,11 +599,11 @@ pub fn render(
     let body_idx = 2;
     let rows = rows_for_thread(
         tasks,
-        chat,
         sidebar,
         thread_id,
         theme,
         chunks[body_idx].width as usize,
+        &pinned_rows,
     );
     let scroll = resolved_scroll(&rows, sidebar, chunks[body_idx].height as usize);
     let paragraph = Paragraph::new(rows.into_iter().map(|row| row.line).collect::<Vec<_>>())
@@ -582,6 +621,13 @@ pub fn render(
     if !tier_lines.is_empty() {
         frame.render_widget(Paragraph::new(tier_lines), chunks[body_idx + 3]);
     }
+
+    if footer_height > 0 {
+        frame.render_widget(
+            Paragraph::new(pinned_footer_line(theme)).alignment(Alignment::Center),
+            chunks[body_idx + 4],
+        );
+    }
 }
 
 pub fn body_item_count(
@@ -590,12 +636,13 @@ pub fn body_item_count(
     sidebar: &SidebarState,
     thread_id: Option<&str>,
 ) -> usize {
+    let pinned_rows = active_thread_pinned_rows(chat);
     match (sidebar.active_tab(), thread_id) {
         (SidebarTab::Files, _) => filtered_file_entries(tasks, thread_id, sidebar)
             .len()
             .max(1),
         (SidebarTab::Todos, Some(thread_id)) => tasks.todos_for_thread(thread_id).len().max(1),
-        (SidebarTab::Pinned, _) => chat.active_thread_pinned_messages().len().max(1),
+        (SidebarTab::Pinned, _) => pinned_rows.len().max(1),
         _ => 1,
     }
 }
@@ -630,8 +677,10 @@ pub fn hit_test(
         ])
         .split(area);
 
+    let pinned_rows = active_thread_pinned_rows(chat);
+
     if mouse.y == chunks[0].y {
-        return tab_hit_test(chunks[0], mouse.x, chat.active_thread_has_pinned_messages())
+        return tab_hit_test(chunks[0], mouse.x, !pinned_rows.is_empty())
             .map(SidebarHitTarget::Tab);
     }
 
@@ -642,11 +691,11 @@ pub fn hit_test(
 
     let rows = rows_for_thread(
         tasks,
-        chat,
         sidebar,
         thread_id,
         &ThemeTokens::default(),
         chunks[body_idx].width as usize,
+        &pinned_rows,
     );
     let scroll = resolved_scroll(&rows, sidebar, chunks[body_idx].height as usize);
     let row_idx = scroll + mouse.y.saturating_sub(chunks[body_idx].y) as usize;

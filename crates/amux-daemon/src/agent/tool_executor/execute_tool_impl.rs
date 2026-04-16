@@ -1619,6 +1619,12 @@ async fn dispatch_tool_execution(
         "lookup_emergent_protocol" => {
             execute_lookup_emergent_protocol(args, agent, thread_id).await
         }
+        "list_emergent_protocol_proposals" => {
+            execute_list_emergent_protocol_proposals(args, agent, thread_id).await
+        }
+        "respond_emergent_protocol_proposal" => {
+            execute_respond_emergent_protocol_proposal(args, agent, thread_id).await
+        }
         "reload_emergent_protocol_registry" => {
             execute_reload_emergent_protocol_registry(args, agent, thread_id).await
         }

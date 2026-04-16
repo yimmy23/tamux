@@ -147,7 +147,7 @@ fn render_subagents_tab<'a>(
                     },
                 ),
                 Span::styled("System Prompt", theme.fg_dim),
-                Span::styled(" [Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
+                Span::styled(" [Ctrl+S/Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
             ]));
             lines.push(Line::from(Span::styled(
                 "  ╭──────────────────────────────────────────╮",

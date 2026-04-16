@@ -1266,6 +1266,37 @@ async fn execute_lookup_emergent_protocol(
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
+async fn execute_list_emergent_protocol_proposals(
+    _args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+) -> Result<String> {
+    let payload = agent.list_thread_protocol_proposals(thread_id).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_respond_emergent_protocol_proposal(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+) -> Result<String> {
+    let candidate_id = args
+        .get("candidate_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'candidate_id' argument"))?;
+    let accept = args
+        .get("accept")
+        .and_then(|v| v.as_bool())
+        .ok_or_else(|| anyhow::anyhow!("missing 'accept' argument"))?;
+
+    let payload = agent
+        .respond_to_protocol_proposal(thread_id, candidate_id, accept)
+        .await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
 async fn execute_reload_emergent_protocol_registry(
     _args: &serde_json::Value,
     agent: &AgentEngine,

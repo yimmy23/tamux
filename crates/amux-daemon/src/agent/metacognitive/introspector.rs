@@ -179,7 +179,7 @@ fn detect_confirmation_bias(
         .rev()
         .take(4)
         .collect::<Vec<_>>();
-    if recent.len() < 3 {
+    if recent.len() < 1 {
         return None;
     }
 
@@ -199,6 +199,7 @@ fn detect_confirmation_bias(
         )
     });
     let repeated_probe = input.predicted_repeat_count >= 2
+        || recent.len() >= 2
         || recent
             .iter()
             .filter(|outcome| outcome.tool_name == input.proposed_tool_name)

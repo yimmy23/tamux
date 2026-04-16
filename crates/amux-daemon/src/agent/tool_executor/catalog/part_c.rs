@@ -391,6 +391,18 @@ fn add_available_tools_part_c(
         },
         "required": ["token"]
     })));
+    tools.push(tool_def("list_emergent_protocol_proposals", "List pending emergent protocol proposals for the current thread that require explicit acceptance or rejection before activation.", serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })));
+    tools.push(tool_def("respond_emergent_protocol_proposal", "Accept or reject a pending emergent protocol proposal in the current thread. Accepted proposals activate into the registry; rejected proposals remain suppressed.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "candidate_id": { "type": "string", "description": "Pending protocol candidate ID to respond to" },
+            "accept": { "type": "boolean", "description": "True to accept and activate the proposal; false to reject it" }
+        },
+        "required": ["candidate_id", "accept"]
+    })));
     tools.push(tool_def("reload_emergent_protocol_registry", "Reload and return accepted emergent protocol registry entries for the current thread from durable storage.", serde_json::json!({
         "type": "object",
         "properties": {}
