@@ -1,4 +1,5 @@
 use super::*;
+use tempfile::tempdir;
 
 #[test]
 fn parse_cli_help_extracts_long_flags() {
@@ -180,6 +181,125 @@ fn prune_generated_tools_keeps_active_and_promoted_records() -> Result<()> {
     assert!(remaining.iter().any(|id| id == "tool-promoted"));
     assert!(!remaining.iter().any(|id| id == "tool-new-old"));
     let _ = std::fs::remove_dir_all(&agent_data_dir);
+    Ok(())
+}
+
+#[tokio::test]
+async fn synthesize_openapi_tool_reuses_equivalent_existing_generated_tool_record() -> Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let spec_body = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Demo API", "version": "1.0.0" },
+        "servers": [{ "url": "https://api.example.test" }],
+        "paths": {
+            "/status": {
+                "get": {
+                    "operationId": "getStatus",
+                    "summary": "Get current status",
+                    "responses": {
+                        "200": { "description": "ok" }
+                    }
+                }
+            }
+        }
+    })
+    .to_string();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind openapi server");
+    let addr = listener.local_addr().expect("openapi addr");
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let spec_body = spec_body.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 8192];
+                let _ = socket.read(&mut buffer).await.expect("read spec request");
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    spec_body.len(),
+                    spec_body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write spec response");
+            });
+        }
+    });
+
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.tool_synthesis.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let spec_url = format!("http://{addr}/openapi.json");
+    let first = engine
+        .synthesize_tool_json(
+            &serde_json::json!({
+                "kind": "openapi",
+                "target": spec_url,
+                "operation_id": "getStatus",
+                "name": "getstatus",
+                "activate": false,
+            })
+            .to_string(),
+        )
+        .await
+        .expect("first synthesize generated OpenAPI tool");
+    let first_record: serde_json::Value = serde_json::from_str(&first).expect("parse first synth record");
+
+    let second = engine
+        .synthesize_tool_json(
+            &serde_json::json!({
+                "kind": "openapi",
+                "target": spec_url,
+                "operation_id": "getStatus",
+                "name": "getstatus_duplicate",
+                "activate": false,
+            })
+            .to_string(),
+        )
+        .await
+        .expect("second synthesize generated OpenAPI tool");
+    let second_record: serde_json::Value = serde_json::from_str(&second).expect("parse second synth record");
+
+    assert_eq!(
+        second_record.get("id").and_then(|value| value.as_str()),
+        first_record.get("id").and_then(|value| value.as_str())
+    );
+    assert_eq!(
+        second_record.get("openapi").and_then(|value| value.get("operation_id")).and_then(|value| value.as_str()),
+        Some("getStatus")
+    );
+
+    let tools: Vec<serde_json::Value> = serde_json::from_str(
+        &engine.list_generated_tools_json().await.expect("list generated tools json"),
+    )
+    .expect("parse generated tools list");
+    let matching = tools
+        .iter()
+        .filter(|tool| {
+            tool.get("openapi")
+                .and_then(|value| value.get("spec_url"))
+                .and_then(|value| value.as_str())
+                == Some(spec_url.as_str())
+                && tool
+                    .get("openapi")
+                    .and_then(|value| value.get("operation_id"))
+                    .and_then(|value| value.as_str())
+                    == Some("getStatus")
+        })
+        .count();
+    assert_eq!(
+        matching, 1,
+        "equivalent direct OpenAPI synthesis requests should not create duplicate generated tools"
+    );
+
     Ok(())
 }
 

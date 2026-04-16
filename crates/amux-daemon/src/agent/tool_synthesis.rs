@@ -174,7 +174,19 @@ pub(super) async fn synthesize_tool(
 
     let record = match kind {
         "cli" => synthesize_cli_tool(target, requested_name).await?,
-        "openapi" => synthesize_openapi_tool(target, requested_name, args, http_client).await?,
+        "openapi" => {
+            let operation_id = args.get("operation_id").and_then(|value| value.as_str());
+            if let Some(existing) =
+                find_equivalent_generated_openapi_tool(agent_data_dir, target, operation_id)?
+            {
+                if let Some(existing_id) = existing.get("id").and_then(|value| value.as_str()) {
+                    if let Some(record) = load_generated_tool(agent_data_dir, existing_id)? {
+                        return Ok(serde_json::to_string_pretty(&record)?);
+                    }
+                }
+            }
+            synthesize_openapi_tool(target, requested_name, args, http_client).await?
+        }
         other => anyhow::bail!("unsupported synthesis kind: {other}"),
     };
     let mut record = record;
