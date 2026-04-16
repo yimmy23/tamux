@@ -3152,6 +3152,10 @@ async fn list_subagents_reports_exhausted_budget_limits() {
     );
     assert_eq!(items[0]["budget_exhausted"].as_bool(), Some(true));
     assert_eq!(
+        items[0]["effective_status"].as_str(),
+        Some("budget_exhausted")
+    );
+    assert_eq!(
         items[0]["exhausted_limits"]
             .as_array()
             .map(|items| items.len()),

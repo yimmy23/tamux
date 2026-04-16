@@ -126,10 +126,23 @@ async fn execute_list_subagents(
         }
         let budget_exhausted = !exhausted_limits.is_empty();
 
+        let effective_status = if budget_exhausted {
+            "budget_exhausted".to_string()
+        } else {
+            serde_json::to_value(task.status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                .unwrap_or_else(|| "unknown".to_string())
+        };
+
         let mut value = serde_json::to_value(&task).unwrap_or_else(|_| serde_json::json!({}));
         if let Some(obj) = value.as_object_mut() {
             obj.insert("depth".to_string(), serde_json::json!(depth));
             obj.insert("max_depth".to_string(), serde_json::json!(max_depth));
+            obj.insert(
+                "effective_status".to_string(),
+                serde_json::json!(effective_status),
+            );
             obj.insert(
                 "budget_remaining".to_string(),
                 serde_json::json!({
