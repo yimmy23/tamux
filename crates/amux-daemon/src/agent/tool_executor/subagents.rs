@@ -1021,6 +1021,7 @@ async fn execute_route_to_specialist(
                 "routing_score": result.routing_score,
                 "fallback_used": result.fallback_used,
                 "routing_rationale": result.routing_rationale,
+                "specialization_diagnostics": result.specialization_diagnostics,
             });
             Ok(serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string()))
         }

@@ -245,6 +245,21 @@ impl AgentEngine {
                 routing_score,
             )
         };
+        let matched_capability_tags = capability_tags
+            .iter()
+            .filter(|required_tag| {
+                specialist
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability.tag == required_tag.as_str())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let specialization_diagnostics = serde_json::json!({
+            "matched_capability_tags": matched_capability_tags,
+            "learned_routing_influenced": matches!(routing_method, RoutingMethod::Probabilistic),
+            "fallback_used": fallback_used,
+        });
 
         // Assemble context bundle
         let bundle = self
@@ -391,6 +406,7 @@ impl AgentEngine {
             routing_score,
             fallback_used,
             routing_rationale,
+            specialization_diagnostics,
         })
     }
 

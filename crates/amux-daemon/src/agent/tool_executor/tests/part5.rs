@@ -849,6 +849,14 @@ fn apply_patch_tool_uses_top_level_object_schema() {
             .is_some_and(|text| {
                 text.contains("routing") || text.contains("fallback") || text.contains("score")
             }));
+        assert!(payload
+            .get("specialization_diagnostics")
+            .and_then(|v| v.as_object())
+            .is_some_and(|diag| {
+                diag.get("matched_capability_tags")
+                    .and_then(|v| v.as_array())
+                    .is_some_and(|tags| !tags.is_empty())
+            }));
     }
 
     #[tokio::test]
