@@ -217,6 +217,15 @@ async fn execute_read_skill(
             .unwrap_or_default(),
         None => Vec::new(),
     };
+    let inspection = match variant.as_ref() {
+        Some(selected) => history
+            .inspect_skill_variants(&selected.skill_name, &context_tags)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .find(|item| item.record.variant_id == selected.variant_id),
+        None => None,
+    };
     let skill_path = resolve_skill_path(&skills_root, skill, variant.as_ref())?;
     let content = tokio::fs::read_to_string(&skill_path).await?;
     if let Some(variant) = variant.as_ref() {
@@ -266,6 +275,31 @@ async fn execute_read_skill(
         body.push_str(&format!(
             "\n\n... (truncated, showing {max_lines} of {total_lines} lines)"
         ));
+    }
+    if let Some(inspection) = inspection.as_ref() {
+        let recent_history = inspection
+            .fitness_history
+            .iter()
+            .rev()
+            .take(3)
+            .map(|row| format!("{}:{:.2}", row.outcome, row.fitness_score))
+            .collect::<Vec<_>>();
+        let history_summary = if recent_history.is_empty() {
+            "none".to_string()
+        } else {
+            recent_history.join(", ")
+        };
+        let fitness_block = format!(
+            "\n\nFitness snapshot:\n- fitness={:.2} success_rate={:.0}% uses={} recorded_at={}\n- lifecycle={}\n- selection={}\n- Recent fitness history: {}",
+            inspection.fitness_snapshot.fitness_score,
+            inspection.fitness_snapshot.success_rate * 100.0,
+            inspection.fitness_snapshot.use_count,
+            inspection.fitness_snapshot.recorded_at,
+            inspection.lifecycle_summary,
+            inspection.selection_summary,
+            history_summary,
+        );
+        body.push_str(&fitness_block);
     }
     if let Some(variant) = variant.as_ref() {
         let first_state = agent

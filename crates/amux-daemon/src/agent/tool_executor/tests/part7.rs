@@ -2985,6 +2985,92 @@ async fn read_skill_records_graph_links_for_consulted_skill_variant() {
 }
 
 #[tokio::test]
+async fn read_skill_surfaces_variant_fitness_snapshot_for_operator_inspection() {
+    let root = tempdir().expect("tempdir");
+    let agent_data_dir = root.path().join("agent");
+    fs::create_dir_all(&agent_data_dir).expect("create agent data dir");
+    let skill_path = root
+        .path()
+        .join("skills")
+        .join("generated")
+        .join("systematic-debugging.md");
+    fs::create_dir_all(skill_path.parent().expect("skill directory"))
+        .expect("create skill directory");
+    fs::write(
+        &skill_path,
+        "---\nname: systematic-debugging\ndescription: Debug backend failures systematically.\nkeywords: [debug, backend]\n---\n# Systematic Debugging\n",
+    )
+    .expect("write skill");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let variant = engine
+        .history
+        .register_skill_document(&skill_path)
+        .await
+        .expect("register skill variant");
+    engine
+        .history
+        .record_skill_variant_use(&variant.variant_id, Some(true))
+        .await
+        .expect("record first successful usage");
+    engine
+        .history
+        .record_skill_variant_use(&variant.variant_id, Some(false))
+        .await
+        .expect("record failed usage");
+    engine
+        .history
+        .record_skill_variant_use(&variant.variant_id, Some(true))
+        .await
+        .expect("record second successful usage");
+
+    let (event_tx, _) = broadcast::channel(8);
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-read-skill-fitness-snapshot".to_string(),
+        ToolFunction {
+            name: "read_skill".to_string(),
+            arguments: serde_json::json!({
+                "skill": "systematic-debugging",
+                "max_lines": 50
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-read-skill-fitness-snapshot",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        &agent_data_dir,
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "read_skill should succeed: {}", result.content);
+    assert!(
+        result.content.contains("Fitness snapshot:"),
+        "read_skill should expose the selected variant fitness snapshot: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("fitness=") && result.content.contains("success_rate="),
+        "read_skill should include compact fitness metrics for operator inspection: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("Recent fitness history:"),
+        "read_skill should include recent fitness history summary: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
 async fn settled_success_strengthens_skill_consultation_graph_edge() {
     let root = tempdir().expect("tempdir");
     let agent_data_dir = root.path().join("agent");
