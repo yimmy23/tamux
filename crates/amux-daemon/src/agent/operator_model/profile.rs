@@ -372,6 +372,7 @@ impl AgentEngine {
         let model = self.operator_model.read().await.clone();
         let config = self.config.read().await.operator_model.clone();
         let adaptation = BehaviorAdaptationProfile::from_model(&model);
+        let resonance = CognitiveResonanceSnapshot::from_model(&model);
         let adaptation_mode = match adaptation.mode {
             SatisfactionAdaptationMode::Normal => "normal",
             SatisfactionAdaptationMode::Tightened => "tightened",
@@ -385,6 +386,7 @@ impl AgentEngine {
                 "compact_response": adaptation.compact_response,
                 "preferred_tool_fallbacks": adaptation.preferred_tool_fallbacks,
             },
+            "cognitive_resonance": resonance,
             "consents": {
                 "enabled": config.enabled,
                 "allow_message_statistics": config.allow_message_statistics,

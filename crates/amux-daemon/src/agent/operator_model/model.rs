@@ -211,6 +211,34 @@ pub(crate) struct BehaviorAdaptationProfile {
     pub preferred_tool_fallbacks: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CognitiveResonanceState {
+    Frustrated,
+    Scattered,
+    Focused,
+    Teaching,
+    Flow,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct CognitiveResonanceAdjustments {
+    pub verbosity: f64,
+    pub risk_tolerance: f64,
+    pub proactiveness: f64,
+    pub memory_urgency: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct CognitiveResonanceSnapshot {
+    pub state: CognitiveResonanceState,
+    pub score: f64,
+    pub compact_response: bool,
+    pub prompt_for_clarification: bool,
+    pub preferred_tool_fallbacks: Vec<String>,
+    pub adjustments: CognitiveResonanceAdjustments,
+}
+
 impl BehaviorAdaptationProfile {
     pub(crate) fn from_model(model: &OperatorModel) -> Self {
         let mode = SatisfactionAdaptationMode::from_label(&model.operator_satisfaction.label);
@@ -232,6 +260,21 @@ impl BehaviorAdaptationProfile {
                 &model.implicit_feedback.top_tool_fallbacks,
                 3,
             ),
+        }
+    }
+}
+
+impl CognitiveResonanceSnapshot {
+    pub(crate) fn from_model(model: &OperatorModel) -> Self {
+        let adaptation = BehaviorAdaptationProfile::from_model(model);
+        let state = CognitiveResonanceState::from_model(model, &adaptation);
+        Self {
+            state,
+            score: model.operator_satisfaction.score,
+            compact_response: adaptation.compact_response,
+            prompt_for_clarification: adaptation.prompt_for_clarification,
+            preferred_tool_fallbacks: adaptation.preferred_tool_fallbacks.clone(),
+            adjustments: CognitiveResonanceAdjustments::from_model(model, &adaptation, state),
         }
     }
 }
@@ -286,6 +329,86 @@ impl SatisfactionAdaptationMode {
         match self {
             Self::Normal => default,
             Self::Tightened | Self::Minimal => default.min(1),
+        }
+    }
+}
+
+impl CognitiveResonanceState {
+    pub(crate) fn from_model(
+        model: &OperatorModel,
+        adaptation: &BehaviorAdaptationProfile,
+    ) -> Self {
+        match model.operator_satisfaction.label.as_str() {
+            "strained" => Self::Frustrated,
+            "fragile" => {
+                if model.attention_topology.rapid_switch_count >= 3 {
+                    Self::Scattered
+                } else {
+                    Self::Focused
+                }
+            }
+            "strong" => Self::Flow,
+            _ => {
+                if matches!(model.cognitive_style.reading_depth, ReadingDepth::Deep)
+                    && !adaptation.compact_response
+                {
+                    Self::Teaching
+                } else {
+                    Self::Focused
+                }
+            }
+        }
+    }
+}
+
+impl CognitiveResonanceAdjustments {
+    pub(crate) fn from_model(
+        model: &OperatorModel,
+        adaptation: &BehaviorAdaptationProfile,
+        state: CognitiveResonanceState,
+    ) -> Self {
+        let verbosity = match state {
+            CognitiveResonanceState::Frustrated => 0.2,
+            CognitiveResonanceState::Scattered => 0.35,
+            CognitiveResonanceState::Focused => 0.55,
+            CognitiveResonanceState::Teaching => 0.8,
+            CognitiveResonanceState::Flow => 0.9,
+        };
+        let risk_tolerance = match model.risk_fingerprint.risk_tolerance {
+            RiskTolerance::Conservative => 0.2,
+            RiskTolerance::Moderate => match state {
+                CognitiveResonanceState::Frustrated => 0.25,
+                CognitiveResonanceState::Scattered => 0.4,
+                CognitiveResonanceState::Focused => 0.55,
+                CognitiveResonanceState::Teaching => 0.65,
+                CognitiveResonanceState::Flow => 0.75,
+            },
+            RiskTolerance::Aggressive => 0.85,
+        };
+        let proactiveness = match state {
+            CognitiveResonanceState::Frustrated => 0.15,
+            CognitiveResonanceState::Scattered => 0.25,
+            CognitiveResonanceState::Focused => 0.5,
+            CognitiveResonanceState::Teaching => 0.65,
+            CognitiveResonanceState::Flow => 0.8,
+        };
+        let memory_urgency = if adaptation.compact_response {
+            0.8
+        } else {
+            match state {
+                CognitiveResonanceState::Flow => 0.3,
+                CognitiveResonanceState::Teaching => 0.45,
+                CognitiveResonanceState::Focused => 0.55,
+                CognitiveResonanceState::Scattered => 0.7,
+                CognitiveResonanceState::Frustrated => 0.85,
+            }
+        };
+
+        Self {
+            verbosity,
+            risk_tolerance,
+            proactiveness,
+            memory_urgency,
         }
     }
 }

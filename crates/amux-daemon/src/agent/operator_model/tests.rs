@@ -751,6 +751,12 @@ async fn status_diagnostics_snapshot_includes_operator_satisfaction_summary() {
         .expect("operator satisfaction summary string");
     assert!(summary.contains("strong >=0.80"));
     assert!(summary.contains("signal present"));
+    let resonance = &snapshot["cognitive_resonance"];
+    assert_eq!(resonance["state"], "flow");
+    assert_eq!(resonance["compact_response"].as_bool(), Some(false));
+    assert!(resonance["adjustments"]["proactiveness"]
+        .as_f64()
+        .is_some_and(|value| value >= 0.8));
 }
 
 #[tokio::test]
@@ -795,14 +801,18 @@ async fn status_diagnostics_snapshot_includes_ranked_intent_prediction_confidenc
     let snapshot = engine.status_diagnostics_snapshot().await;
     let intent = &snapshot["intent_prediction"];
     assert_eq!(intent["primary_action"], "review pending approval");
-    assert!(intent["confidence"].as_f64().is_some_and(|value| value >= 0.86));
+    assert!(intent["confidence"]
+        .as_f64()
+        .is_some_and(|value| value >= 0.86));
     let ranked = intent["ranked_actions"]
         .as_array()
         .expect("ranked actions should be present in diagnostics");
     assert!(ranked.len() >= 3);
     assert_eq!(ranked[0]["rank"].as_u64(), Some(1));
     assert_eq!(ranked[0]["action"], "review pending approval");
-    assert!(ranked[0]["confidence"].as_f64().is_some_and(|value| value >= 0.86));
+    assert!(ranked[0]["confidence"]
+        .as_f64()
+        .is_some_and(|value| value >= 0.86));
 }
 
 #[test]
@@ -1133,6 +1143,51 @@ fn persisted_satisfaction_decay_uses_recent_signal_history() {
     assert!((model.operator_satisfaction.score - 0.34).abs() < 0.02);
 }
 
+#[test]
+fn cognitive_resonance_snapshot_maps_strained_feedback_to_frustrated_state() {
+    let mut model = OperatorModel::default();
+    model.cognitive_style.message_count = 1;
+    model.operator_satisfaction.label = "strained".to_string();
+    model.operator_satisfaction.score = 0.18;
+    model.implicit_feedback.correction_message_count = 1;
+    model.implicit_feedback.top_tool_fallbacks = vec![
+        "read_file -> search_files".to_string(),
+        "bash_command -> read_file".to_string(),
+    ];
+
+    let resonance = CognitiveResonanceSnapshot::from_model(&model);
+    assert_eq!(resonance.state, CognitiveResonanceState::Frustrated);
+    assert!((resonance.score - 0.18).abs() < f64::EPSILON);
+    assert!(resonance.compact_response);
+    assert!(resonance.prompt_for_clarification);
+    assert!(resonance.adjustments.verbosity <= 0.2);
+    assert!(resonance.adjustments.proactiveness <= 0.15);
+    assert!(resonance.adjustments.memory_urgency >= 0.8);
+    assert_eq!(
+        resonance.preferred_tool_fallbacks,
+        vec!["search_files".to_string(), "read_file".to_string()]
+    );
+}
+
+#[test]
+fn cognitive_resonance_snapshot_maps_strong_feedback_to_flow_state() {
+    let mut model = OperatorModel::default();
+    model.cognitive_style.message_count = 1;
+    model.operator_satisfaction.label = "strong".to_string();
+    model.operator_satisfaction.score = 0.8;
+    model.risk_fingerprint.risk_tolerance = RiskTolerance::Aggressive;
+
+    let resonance = CognitiveResonanceSnapshot::from_model(&model);
+    assert_eq!(resonance.state, CognitiveResonanceState::Flow);
+    assert!((resonance.score - 0.8).abs() < f64::EPSILON);
+    assert!(!resonance.compact_response);
+    assert!(!resonance.prompt_for_clarification);
+    assert!(resonance.adjustments.verbosity >= 0.9);
+    assert!(resonance.adjustments.risk_tolerance >= 0.85);
+    assert!(resonance.adjustments.proactiveness >= 0.8);
+    assert!(resonance.adjustments.memory_urgency <= 0.3);
+}
+
 #[tokio::test]
 async fn operator_profile_summary_json_exposes_behavior_adaptation_from_satisfaction_signals() {
     let root = tempdir().expect("tempdir");
@@ -1182,7 +1237,26 @@ async fn operator_profile_summary_json_exposes_behavior_adaptation_from_satisfac
     );
     assert!(payload["behavior_adaptation"]["preferred_tool_fallbacks"]
         .as_array()
-        .is_some_and(|items| items.iter().any(|item| item.as_str() == Some("search_files"))));
+        .is_some_and(|items| items
+            .iter()
+            .any(|item| item.as_str() == Some("search_files"))));
+    assert_eq!(
+        payload["cognitive_resonance"]["state"].as_str(),
+        Some("frustrated")
+    );
+    assert_eq!(
+        payload["cognitive_resonance"]["compact_response"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        payload["cognitive_resonance"]["prompt_for_clarification"].as_bool(),
+        Some(true)
+    );
+    assert!(
+        payload["cognitive_resonance"]["adjustments"]["memory_urgency"]
+            .as_f64()
+            .is_some_and(|value| value >= 0.8)
+    );
 }
 
 #[test]
