@@ -9,6 +9,7 @@ import { ChatView } from "../ChatView";
 import { CodingAgentsView } from "../CodingAgentsView";
 import { ContextView } from "../ContextView";
 import { PinnedMessagesView } from "../PinnedMessagesView";
+import { SpawnedAgentsPanel } from "../SpawnedAgentsPanel";
 import { SubagentsView } from "../SubagentsView";
 import { TasksView } from "../TasksView";
 import { MetricRibbon, SectionTitle, iconButtonStyle } from "../shared";
@@ -47,7 +48,18 @@ export function AgentChatPanelScaffold({ style, className }: { style?: CSSProper
 
 export function AgentChatPanelHeader() {
   const runtime = useAgentChatPanelRuntime();
-  const { view, activeThread, setActiveThread, setView, chatBackView, setChatBackView, togglePanel, createThread } = runtime;
+  const {
+    view,
+    activeThread,
+    setActiveThread,
+    setView,
+    chatBackView,
+    setChatBackView,
+    togglePanel,
+    createThread,
+    threadNavigationDepth,
+    backThreadTitle,
+  } = runtime;
   const activeParticipants = activeThread?.threadParticipants?.filter((participant) => participant.status === "active") ?? [];
   const inactiveParticipants = activeThread?.threadParticipants?.filter((participant) => participant.status === "inactive") ?? [];
 
@@ -102,9 +114,18 @@ export function AgentChatPanelHeader() {
       </div>
 
       <div style={{ justifyContent: "center", display: "flex", alignItems: "center" }}>
-        <span style={{ fontSize: "var(--text-md)", fontWeight: 700 }}>
-          {view === "threads" ? "Live Intelligence Surfaces" : activeThread?.title ?? "Conversation Lane"}
-        </span>
+        <div style={{ display: "grid", gap: 2, justifyItems: "center" }}>
+          <span style={{ fontSize: "var(--text-md)", fontWeight: 700 }}>
+            {view === "threads" ? "Live Intelligence Surfaces" : activeThread?.title ?? "Conversation Lane"}
+          </span>
+          {view === "chat" && threadNavigationDepth > 0 && (
+            <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+              {backThreadTitle
+                ? `${threadNavigationDepth} hop return path to ${backThreadTitle}`
+                : `${threadNavigationDepth} hop return path`}
+            </span>
+          )}
+        </div>
       </div>
 
       {view === "chat" && activeThread && (activeParticipants.length > 0 || inactiveParticipants.length > 0) && (
@@ -211,32 +232,67 @@ export function AgentChatPanelThreadsSurface() {
 export function AgentChatPanelChatSurface() {
   const runtime = useAgentChatPanelRuntime();
   return (
-    <ChatView
-      messages={runtime.messages}
-      todos={runtime.todos}
-      input={runtime.input}
-      setInput={runtime.setInput}
-      inputRef={runtime.inputRef}
-      onKeyDown={runtime.handleKeyDown}
-      agentSettings={runtime.agentSettings}
-      isStreamingResponse={runtime.isStreamingResponse}
-      activeThread={runtime.activeThread}
-      messagesEndRef={runtime.messagesEndRef}
-      onSendMessage={runtime.sendMessage}
-      onSendParticipantSuggestion={runtime.sendParticipantSuggestion}
-      onDismissParticipantSuggestion={runtime.dismissParticipantSuggestion}
-      onStopStreaming={() => runtime.stopStreaming(runtime.activeThreadId)}
-      onDeleteMessage={(messageId) => {
-        const tid = runtime.activeThreadId;
-        if (tid) runtime.deleteMessage(tid, messageId);
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        display: "flex",
+        gap: "var(--space-3)",
+        padding: "var(--space-3)",
       }}
-      onPinMessage={runtime.activeThreadId ? (messageId) => runtime.pinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
-      onUnpinMessage={runtime.activeThreadId ? (messageId) => runtime.unpinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
-      onUpdateReasoningEffort={(value) => runtime.updateAgentSetting("reasoning_effort", value as AgentSettings["reasoning_effort"])}
-      canStartGoalRun={runtime.canStartGoalRun}
-      onStartGoalRun={runtime.startGoalRunFromPrompt}
-      welesHealth={runtime.welesHealth}
-    />
+    >
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)",
+          overflow: "hidden",
+          background: "var(--bg-primary)",
+        }}
+      >
+        <ChatView
+          messages={runtime.messages}
+          todos={runtime.todos}
+          input={runtime.input}
+          setInput={runtime.setInput}
+          inputRef={runtime.inputRef}
+          onKeyDown={runtime.handleKeyDown}
+          agentSettings={runtime.agentSettings}
+          isStreamingResponse={runtime.isStreamingResponse}
+          activeThread={runtime.activeThread}
+          messagesEndRef={runtime.messagesEndRef}
+          onSendMessage={runtime.sendMessage}
+          onSendParticipantSuggestion={runtime.sendParticipantSuggestion}
+          onDismissParticipantSuggestion={runtime.dismissParticipantSuggestion}
+          onStopStreaming={() => runtime.stopStreaming(runtime.activeThreadId)}
+          onDeleteMessage={(messageId) => {
+            const tid = runtime.activeThreadId;
+            if (tid) runtime.deleteMessage(tid, messageId);
+          }}
+          onPinMessage={runtime.activeThreadId ? (messageId) => runtime.pinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
+          onUnpinMessage={runtime.activeThreadId ? (messageId) => runtime.unpinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
+          onUpdateReasoningEffort={(value) => runtime.updateAgentSetting("reasoning_effort", value as AgentSettings["reasoning_effort"])}
+          canStartGoalRun={runtime.canStartGoalRun}
+          onStartGoalRun={runtime.startGoalRunFromPrompt}
+          welesHealth={runtime.welesHealth}
+        />
+      </div>
+
+      <SpawnedAgentsPanel
+        tree={runtime.spawnedAgentTree}
+        selectedDaemonThreadId={runtime.activeThread?.daemonThreadId ?? null}
+        canGoBackThread={runtime.canGoBackThread}
+        threadNavigationDepth={runtime.threadNavigationDepth}
+        backThreadTitle={runtime.backThreadTitle}
+        canOpenSpawnedThread={runtime.canOpenSpawnedThread}
+        openSpawnedThread={runtime.openSpawnedThread}
+        goBackThread={runtime.goBackThread}
+      />
+    </div>
   );
 }
 

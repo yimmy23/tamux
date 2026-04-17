@@ -1,8 +1,10 @@
 import type React from "react";
 import type { getTerminalController } from "@/lib/terminalRegistry";
 import type { AgentMessage, AgentThread, AgentTodoItem, useAgentStore } from "@/lib/agentStore";
+import type { AgentRun } from "@/lib/agentRuns";
 import type { GoalRun } from "@/lib/goalRuns";
 import type { useAgentMissionStore } from "@/lib/agentMissionStore";
+import type { SpawnedAgentTree } from "@/lib/spawnedAgentTree";
 import type { useSnippetStore } from "@/lib/snippetStore";
 import type { useTranscriptStore } from "@/lib/transcriptStore";
 import type { useWorkspaceStore } from "@/lib/workspaceStore";
@@ -43,6 +45,13 @@ export type AgentChatPanelRuntimeValue = {
   messages: AgentMessage[];
   todos: AgentTodoItem[];
   daemonTodosByThread: Record<string, AgentTodoItem[]>;
+  spawnedAgentTree: SpawnedAgentTree<AgentRun> | null;
+  canGoBackThread: boolean;
+  goBackThread: AgentStoreState["goBackThread"];
+  canOpenSpawnedThread: (run: AgentRun) => boolean;
+  openSpawnedThread: (run: AgentRun) => Promise<boolean>;
+  threadNavigationDepth: number;
+  backThreadTitle: string | null;
   goalRunsForTrace: GoalRun[];
   allMessagesByThread: Record<string, AgentMessage[]>;
   pendingApprovals: AgentMissionStoreState["approvals"];

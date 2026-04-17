@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { abortThreadStream, useAgentStore } from "@/lib/agentStore";
+import { abortThreadStream, buildHydratedRemoteMessage, useAgentStore } from "@/lib/agentStore";
 import { getAgentBridge, shouldUseDaemonRuntime } from "@/lib/agentDaemonConfig";
+import { fetchAgentRuns, isSubagentRun, type AgentRun } from "@/lib/agentRuns";
+import { fetchThreadTodos } from "@/lib/agentTodos";
+import { resolveReactChatHistoryMessageLimit } from "@/lib/chatHistoryPageSize";
+import { deriveSpawnedAgentTree } from "@/lib/spawnedAgentTree";
+import type { SpawnedAgentTree } from "@/lib/spawnedAgentTree";
 import { getTerminalController } from "@/lib/terminalRegistry";
 import { useAgentMissionStore } from "@/lib/agentMissionStore";
 import { useNotificationStore } from "@/lib/notificationStore";
 import { useSnippetStore } from "@/lib/snippetStore";
 import { useTranscriptStore } from "@/lib/transcriptStore";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
-import type { AgentTodoItem } from "@/lib/agentStore";
+import type { AgentThread, AgentTodoItem, RemoteAgentMessageRecord } from "@/lib/agentStore";
 import type { GoalRun } from "@/lib/goalRuns";
+import type { Workspace } from "@/lib/types";
+import { findTaskWorkspaceLocation } from "../tasks-view/helpers";
 import type { WelesHealthState } from "@/lib/agentStore/types";
 import { useDaemonAgentActions } from "./useDaemonAgentActions";
 import { useDaemonAgentEvents } from "./useDaemonAgentEvents";
@@ -22,6 +29,119 @@ import {
 
 const EMPTY_MESSAGES: ReturnType<typeof useAgentStore.getState>["messages"][string] = [];
 
+type RemoteAgentThread = {
+  id: string;
+  title: string;
+  messages: RemoteAgentMessageRecord[];
+};
+
+type SpawnedAgentNavigationState = {
+  tree: SpawnedAgentTree<AgentRun> | null;
+  canGoBackThread: boolean;
+  threadNavigationDepth: number;
+  backThreadTitle: string | null;
+};
+
+function findLocalThreadByDaemonThreadId(
+  threads: AgentThread[],
+  daemonThreadId: string,
+): AgentThread | undefined {
+  return threads.find((thread) => thread.daemonThreadId === daemonThreadId);
+}
+
+export function deriveSpawnedAgentNavigationState({
+  activeThread,
+  threads,
+  threadHistoryStack,
+  runs,
+}: {
+  activeThread: AgentThread | undefined;
+  threads: AgentThread[];
+  threadHistoryStack: string[];
+  runs: AgentRun[];
+}): SpawnedAgentNavigationState {
+  const activeDaemonThreadId = activeThread?.daemonThreadId ?? null;
+  const backThreadId = threadHistoryStack[threadHistoryStack.length - 1] ?? null;
+  const backThreadTitle = backThreadId
+    ? threads.find((thread) => thread.id === backThreadId)?.title ?? null
+    : null;
+
+  return {
+    tree: deriveSpawnedAgentTree(runs, activeDaemonThreadId),
+    canGoBackThread: threadHistoryStack.length > 0,
+    threadNavigationDepth: threadHistoryStack.length,
+    backThreadTitle,
+  };
+}
+
+export async function openSpawnedAgentThreadFromRun({
+  activeThreadId,
+  threads,
+  workspaces,
+  run,
+  messageLimit,
+  getRemoteThread,
+  fetchThreadTodos: fetchThreadTodosForThread,
+  createThread,
+  addMessage,
+  setThreadDaemonId,
+  setThreadTodos,
+  openSpawnedThread,
+}: {
+  activeThreadId: string | null;
+  threads: AgentThread[];
+  workspaces: Workspace[];
+  run: AgentRun;
+  messageLimit: number | null;
+  getRemoteThread?: (threadId: string, options: { messageLimit: number | null }) => Promise<RemoteAgentThread | null>;
+  fetchThreadTodos: (threadId: string) => Promise<AgentTodoItem[]>;
+  createThread: ReturnType<typeof useAgentStore.getState>["createThread"];
+  addMessage: ReturnType<typeof useAgentStore.getState>["addMessage"];
+  setThreadDaemonId: ReturnType<typeof useAgentStore.getState>["setThreadDaemonId"];
+  setThreadTodos: ReturnType<typeof useAgentStore.getState>["setThreadTodos"];
+  openSpawnedThread: ReturnType<typeof useAgentStore.getState>["openSpawnedThread"];
+}): Promise<boolean> {
+  if (!activeThreadId || !run.thread_id) {
+    return false;
+  }
+
+  const existingThread = findLocalThreadByDaemonThreadId(threads, run.thread_id);
+  if (existingThread) {
+    if (existingThread.id === activeThreadId) {
+      return false;
+    }
+    openSpawnedThread(activeThreadId, existingThread.id);
+    return true;
+  }
+
+  if (!getRemoteThread) {
+    return false;
+  }
+
+  const remoteThread = await getRemoteThread(run.thread_id, { messageLimit });
+  if (!remoteThread) {
+    return false;
+  }
+
+  const location = findTaskWorkspaceLocation(workspaces, run.session_id);
+  const localThreadId = createThread({
+    workspaceId: location?.workspaceId ?? null,
+    surfaceId: location?.surfaceId ?? null,
+    paneId: location?.paneId ?? null,
+    title: remoteThread.title || run.title,
+  });
+  setThreadDaemonId(localThreadId, remoteThread.id);
+
+  for (const message of remoteThread.messages ?? []) {
+    addMessage(localThreadId, buildHydratedRemoteMessage(localThreadId, message));
+  }
+
+  const todos = await fetchThreadTodosForThread(remoteThread.id).catch(() => []);
+  setThreadTodos(localThreadId, todos);
+  openSpawnedThread(activeThreadId, localThreadId);
+  return true;
+}
+
 export function useAgentChatPanelProviderValue(): {
   isOpen: boolean;
   value: AgentChatPanelRuntimeValue;
@@ -30,12 +150,16 @@ export function useAgentChatPanelProviderValue(): {
   const togglePanel = useWorkspaceStore((state) => state.toggleAgentPanel);
   const activePaneId = useWorkspaceStore((state) => state.activePaneId());
   const activeWorkspace = useWorkspaceStore((state) => state.activeWorkspace());
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
 
   const threads = useAgentStore((state) => state.threads);
   const activeThreadId = useAgentStore((state) => state.activeThreadId);
+  const threadHistoryStack = useAgentStore((state) => state.threadHistoryStack);
   const createThread = useAgentStore((state) => state.createThread);
   const deleteThread = useAgentStore((state) => state.deleteThread);
   const setActiveThread = useAgentStore((state) => state.setActiveThread);
+  const openSpawnedThreadInStore = useAgentStore((state) => state.openSpawnedThread);
+  const goBackThread = useAgentStore((state) => state.goBackThread);
   const addMessage = useAgentStore((state) => state.addMessage);
   const deleteMessage = useAgentStore((state) => state.deleteMessage);
   const updateLastAssistantMessage = useAgentStore((state) => state.updateLastAssistantMessage);
@@ -70,6 +194,7 @@ export function useAgentChatPanelProviderValue(): {
   const [symbolQuery, setSymbolQuery] = useState("");
   const [daemonTodosByThread, setDaemonTodosByThread] = useState<Record<string, AgentTodoItem[]>>({});
   const [goalRunsForTrace, setGoalRunsForTrace] = useState<GoalRun[]>([]);
+  const [spawnedAgentRuns, setSpawnedAgentRuns] = useState<AgentRun[]>([]);
   const [latestDivergentSessionId, setLatestDivergentSessionId] = useState<string | null>(null);
   const [welesHealth, setWelesHealth] = useState<WelesHealthState | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -175,6 +300,34 @@ export function useAgentChatPanelProviderValue(): {
     });
   }, [daemonTodosByThread, setThreadTodos, threads]);
 
+  const refreshSpawnedAgentRuns = useCallback(async () => {
+    const runs = await fetchAgentRuns();
+    setSpawnedAgentRuns(runs.filter(isSubagentRun));
+  }, []);
+
+  useEffect(() => {
+    void refreshSpawnedAgentRuns();
+    const interval = window.setInterval(() => {
+      void refreshSpawnedAgentRuns();
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [refreshSpawnedAgentRuns]);
+
+  useEffect(() => {
+    const amux = getAgentBridge();
+    if (!amux?.onAgentEvent) {
+      return;
+    }
+
+    const unsubscribe = amux.onAgentEvent((event: any) => {
+      if (event?.type === "task_update") {
+        void refreshSpawnedAgentRuns();
+      }
+    });
+
+    return () => unsubscribe?.();
+  }, [refreshSpawnedAgentRuns]);
+
   const messages = useMemo(() => storeMessages ?? EMPTY_MESSAGES, [storeMessages]);
   const todos = useMemo(() => storeTodos ?? [], [storeTodos]);
   const scopePaneId = activeThread?.paneId ?? activePaneId;
@@ -198,6 +351,15 @@ export function useAgentChatPanelProviderValue(): {
     if (!scopePaneId) return contextSnapshots[0];
     return contextSnapshots.find((snapshot) => snapshot.paneId === scopePaneId) ?? contextSnapshots[0];
   }, [contextSnapshots, scopePaneId]);
+  const spawnedAgentNavigation = useMemo(
+    () => deriveSpawnedAgentNavigationState({
+      activeThread,
+      threads,
+      threadHistoryStack,
+      runs: spawnedAgentRuns,
+    }),
+    [activeThread, spawnedAgentRuns, threadHistoryStack, threads],
+  );
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -219,6 +381,50 @@ export function useAgentChatPanelProviderValue(): {
     )
     : threads;
   const isStreamingResponse = messages.some((message) => message.role === "assistant" && message.isStreaming);
+  const canOpenSpawnedThread = useCallback((run: AgentRun) => {
+    if (!run.thread_id) {
+      return false;
+    }
+
+    const existingThread = findLocalThreadByDaemonThreadId(threads, run.thread_id);
+    if (existingThread) {
+      return existingThread.id !== activeThreadId;
+    }
+
+    return Boolean(getAgentBridge()?.agentGetThread);
+  }, [activeThreadId, threads]);
+  const openSpawnedThread = useCallback(async (run: AgentRun) => {
+    const amux = getAgentBridge();
+    return openSpawnedAgentThreadFromRun({
+      activeThreadId,
+      threads,
+      workspaces,
+      run,
+      messageLimit: resolveReactChatHistoryMessageLimit(agentSettings.react_chat_history_page_size) ?? null,
+      getRemoteThread: amux?.agentGetThread
+        ? async (threadId, options): Promise<RemoteAgentThread | null> => {
+          const result = await amux.agentGetThread?.(threadId, options);
+          return (result as RemoteAgentThread | null | undefined) ?? null;
+        }
+        : undefined,
+      fetchThreadTodos,
+      createThread,
+      addMessage,
+      setThreadDaemonId,
+      setThreadTodos,
+      openSpawnedThread: openSpawnedThreadInStore,
+    });
+  }, [
+    activeThreadId,
+    addMessage,
+    agentSettings.react_chat_history_page_size,
+    createThread,
+    openSpawnedThreadInStore,
+    setThreadDaemonId,
+    setThreadTodos,
+    threads,
+    workspaces,
+  ]);
 
   const sendMessage = useCallback((text: string) => {
     if (!text) return;
@@ -375,6 +581,13 @@ export function useAgentChatPanelProviderValue(): {
     messages,
     todos,
     daemonTodosByThread,
+    spawnedAgentTree: spawnedAgentNavigation.tree,
+    canGoBackThread: spawnedAgentNavigation.canGoBackThread,
+    goBackThread,
+    canOpenSpawnedThread,
+    openSpawnedThread,
+    threadNavigationDepth: spawnedAgentNavigation.threadNavigationDepth,
+    backThreadTitle: spawnedAgentNavigation.backThreadTitle,
     goalRunsForTrace,
     allMessagesByThread,
     pendingApprovals,
@@ -443,6 +656,7 @@ export function useAgentChatPanelProviderValue(): {
     dismissParticipantSuggestion,
     filteredThreads,
     goalRunsForTrace,
+    goBackThread,
     handleSend,
     handleKeyDown,
     historyHits,
@@ -454,6 +668,7 @@ export function useAgentChatPanelProviderValue(): {
     memory,
     messages,
     pendingApprovals,
+    spawnedAgentNavigation,
     pinMessageForCompaction,
     pinnedBudgetChars,
     pinnedMessages,
@@ -464,6 +679,8 @@ export function useAgentChatPanelProviderValue(): {
     scopedCognitiveEvents,
     scopedOperationalEvents,
     searchQuery,
+    canOpenSpawnedThread,
+    openSpawnedThread,
     setActiveThread,
     setSearchQuery,
     snippets,
