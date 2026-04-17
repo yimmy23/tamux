@@ -245,6 +245,7 @@ impl TuiModel {
                 .todos_for_thread(thread_id)
                 .get(self.sidebar.selected_item())
                 .is_some(),
+            SidebarTab::Spawned => false,
             SidebarTab::Pinned => false,
         }
     }

@@ -350,6 +350,60 @@ impl TuiModel {
         )
     }
 
+    pub(super) fn open_selected_spawned_thread(&mut self) {
+        let Some(from_thread_id) = self.chat.active_thread_id().map(str::to_string) else {
+            return;
+        };
+        let Some(to_thread_id) = widgets::sidebar::selected_spawned_thread_id(
+            &self.tasks,
+            &self.sidebar,
+            Some(from_thread_id.as_str()),
+        ) else {
+            return;
+        };
+
+        self.cleanup_concierge_on_navigate();
+        self.clear_chat_drag_selection();
+        self.clear_work_context_drag_selection();
+        self.pending_new_thread_target_agent = None;
+
+        if !self
+            .chat
+            .open_spawned_thread(&from_thread_id, &to_thread_id)
+        {
+            return;
+        }
+
+        self.request_latest_thread_page(to_thread_id.clone(), true);
+        self.main_pane_view = MainPaneView::Conversation;
+        self.task_view_scroll = 0;
+        self.focus = FocusArea::Chat;
+        self.status_line = format!("Opened spawned thread {to_thread_id}");
+    }
+
+    pub(super) fn go_back_thread(&mut self) {
+        if !self.chat.can_go_back_thread() {
+            self.status_line = "No previous thread".to_string();
+            return;
+        }
+
+        self.cleanup_concierge_on_navigate();
+        self.clear_chat_drag_selection();
+        self.clear_work_context_drag_selection();
+        self.pending_new_thread_target_agent = None;
+
+        let Some(thread_id) = self.chat.go_back_thread() else {
+            self.status_line = "No previous thread".to_string();
+            return;
+        };
+
+        self.request_latest_thread_page(thread_id.clone(), true);
+        self.main_pane_view = MainPaneView::Conversation;
+        self.task_view_scroll = 0;
+        self.focus = FocusArea::Chat;
+        self.status_line = format!("Returned to {thread_id}");
+    }
+
     pub(super) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
         self.cleanup_concierge_on_navigate();
         if let sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } = &target {
@@ -1100,6 +1154,9 @@ impl TuiModel {
                 self.focus = FocusArea::Chat;
                 self.status_line = "Todo details".to_string();
             }
+            sidebar::SidebarTab::Spawned => {
+                self.open_selected_spawned_thread();
+            }
             sidebar::SidebarTab::Pinned => {
                 let Some(pinned_message) =
                     widgets::sidebar::selected_pinned_message(&self.chat, &self.sidebar)
@@ -1234,6 +1291,7 @@ impl TuiModel {
                 .get(self.sidebar.selected_item())
                 .map(|todo| todo.content.clone())
                 .filter(|value| !value.trim().is_empty()),
+            sidebar::SidebarTab::Spawned => None,
             sidebar::SidebarTab::Pinned => {
                 widgets::sidebar::selected_pinned_message(&self.chat, &self.sidebar)
                     .map(|message| message.content)

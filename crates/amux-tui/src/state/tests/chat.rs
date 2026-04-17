@@ -203,7 +203,7 @@ fn thread_history_stack_suppresses_duplicate_top_entries() {
 }
 
 #[test]
-fn thread_history_stack_clears_on_ordinary_selection_and_prunes_deleted_threads() {
+fn thread_history_stack_survives_ordinary_selection_and_prunes_deleted_threads() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadListReceived(vec![
         make_thread("thread-a", "A"),
@@ -217,14 +217,21 @@ fn thread_history_stack_clears_on_ordinary_selection_and_prunes_deleted_threads(
     assert_eq!(state.thread_navigation_depth(), 2);
 
     state.reduce(ChatAction::SelectThread("thread-c".into()));
-    assert!(state.thread_history_stack().is_empty());
-    assert_eq!(state.go_back_thread(), None);
+    assert_eq!(
+        state.thread_history_stack(),
+        &["thread-a".to_string(), "thread-b".to_string()]
+    );
+    assert_eq!(state.go_back_thread(), Some("thread-b".to_string()));
+    assert_eq!(state.active_thread_id(), Some("thread-b"));
 
-    state.open_spawned_thread("thread-c", "thread-a");
+    assert!(state.open_spawned_thread("thread-b", "thread-c"));
     state.reduce(ChatAction::ThreadDeleted {
         thread_id: "thread-c".into(),
     });
-    assert!(state.thread_history_stack().is_empty());
+    assert!(
+        state.thread_history_stack().is_empty(),
+        "deleting the active thread should reset spawned-thread history"
+    );
     assert_eq!(state.go_back_thread(), None);
 }
 

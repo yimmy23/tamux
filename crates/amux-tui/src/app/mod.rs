@@ -505,6 +505,7 @@ fn sidebar_tab_label(tab: SidebarTab) -> &'static str {
     match tab {
         SidebarTab::Files => "files",
         SidebarTab::Todos => "todos",
+        SidebarTab::Spawned => "spawned",
         SidebarTab::Pinned => "pinned",
     }
 }

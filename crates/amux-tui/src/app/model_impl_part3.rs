@@ -59,6 +59,7 @@ impl TuiModel {
                 .work_context_for_thread(thread_id)
                 .is_some_and(|context| !context.entries.is_empty())
             || self.chat.active_thread_has_pinned_messages()
+            || crate::widgets::sidebar::has_spawned_tab(&self.tasks, &self.chat, Some(thread_id))
     }
 
     fn current_attention_target(&self) -> (String, Option<String>, Option<String>) {
@@ -71,9 +72,7 @@ impl TuiModel {
                     )
                 }
                 modal::ModalKind::ApprovalOverlay => "modal:approval".to_string(),
-                modal::ModalKind::OperatorQuestionOverlay => {
-                    "modal:operator_question".to_string()
-                }
+                modal::ModalKind::OperatorQuestionOverlay => "modal:operator_question".to_string(),
                 modal::ModalKind::ApprovalCenter => "modal:approval_center".to_string(),
                 modal::ModalKind::ChatActionConfirm => "modal:chat_action_confirm".to_string(),
                 modal::ModalKind::PinnedBudgetExceeded => {

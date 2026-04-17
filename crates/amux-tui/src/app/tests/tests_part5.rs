@@ -618,6 +618,149 @@ fn clicking_chat_file_chip_requests_file_preview() {
     assert!(matches!(model.main_pane_view, MainPaneView::FilePreview(_)));
 }
 
+fn spawned_thread_navigation_task(
+    id: &str,
+    title: &str,
+    created_at: u64,
+    thread_id: Option<&str>,
+    parent_task_id: Option<&str>,
+    parent_thread_id: Option<&str>,
+    status: Option<task::TaskStatus>,
+) -> task::AgentTask {
+    task::AgentTask {
+        id: id.to_string(),
+        title: title.to_string(),
+        created_at,
+        thread_id: thread_id.map(str::to_string),
+        parent_task_id: parent_task_id.map(str::to_string),
+        parent_thread_id: parent_thread_id.map(str::to_string),
+        status,
+        ..Default::default()
+    }
+}
+
+fn seed_spawned_thread_navigation_model() -> TuiModel {
+    let mut model = build_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-root".to_string(),
+        title: "Root".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-child".to_string(),
+        title: "Child".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-other".to_string(),
+        title: "Other".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-root".to_string()));
+    model.tasks.reduce(task::TaskAction::TaskListReceived(vec![
+        spawned_thread_navigation_task(
+            "root-task",
+            "Root worker",
+            10,
+            Some("thread-root"),
+            None,
+            None,
+            Some(task::TaskStatus::InProgress),
+        ),
+        spawned_thread_navigation_task(
+            "child-task",
+            "Child worker",
+            20,
+            Some("thread-child"),
+            Some("root-task"),
+            Some("thread-root"),
+            Some(task::TaskStatus::InProgress),
+        ),
+    ]));
+    model
+}
+
+#[test]
+fn spawned_thread_navigation_enter_switches_to_child_thread_and_pushes_history() {
+    let mut model = seed_spawned_thread_navigation_model();
+    model.focus = FocusArea::Sidebar;
+    model
+        .sidebar
+        .reduce(SidebarAction::SwitchTab(SidebarTab::Spawned));
+    model.sidebar.navigate(1, model.sidebar_item_count());
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert_eq!(model.chat.active_thread_id(), Some("thread-child"));
+    assert_eq!(
+        model.chat.thread_history_stack(),
+        &["thread-root".to_string()]
+    );
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.focus, FocusArea::Chat);
+}
+
+#[test]
+fn spawned_thread_navigation_back_action_pops_to_previous_thread() {
+    let mut model = seed_spawned_thread_navigation_model();
+    model.focus = FocusArea::Sidebar;
+    model
+        .sidebar
+        .reduce(SidebarAction::SwitchTab(SidebarTab::Spawned));
+    model.sidebar.navigate(1, model.sidebar_item_count());
+    model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    model.focus = FocusArea::Sidebar;
+
+    let handled = model.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert_eq!(model.chat.active_thread_id(), Some("thread-root"));
+    assert!(
+        model.chat.thread_history_stack().is_empty(),
+        "back navigation should pop the spawned thread stack"
+    );
+}
+
+#[test]
+fn spawned_thread_navigation_back_is_disabled_when_stack_is_empty() {
+    let mut model = seed_spawned_thread_navigation_model();
+    model.focus = FocusArea::Sidebar;
+    model
+        .sidebar
+        .reduce(SidebarAction::SwitchTab(SidebarTab::Spawned));
+
+    let handled = model.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert_eq!(model.chat.active_thread_id(), Some("thread-root"));
+    assert!(
+        model.chat.thread_history_stack().is_empty(),
+        "empty stack should stay unchanged"
+    );
+}
+
+#[test]
+fn spawned_thread_navigation_ordinary_thread_switches_do_not_mutate_stack() {
+    let mut model = seed_spawned_thread_navigation_model();
+    model.focus = FocusArea::Sidebar;
+    model
+        .sidebar
+        .reduce(SidebarAction::SwitchTab(SidebarTab::Spawned));
+    model.sidebar.navigate(1, model.sidebar_item_count());
+    model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-other".to_string()));
+
+    assert_eq!(model.chat.active_thread_id(), Some("thread-other"));
+    assert_eq!(
+        model.chat.thread_history_stack(),
+        &["thread-root".to_string()],
+        "direct thread selection should preserve existing spawned thread history"
+    );
+}
+
 #[test]
 fn clicking_repo_backed_chat_file_chip_requests_git_diff() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();

@@ -1301,7 +1301,6 @@ impl ChatState {
                 } else {
                     Some(thread_id)
                 };
-                self.clear_thread_history_stack();
                 self.scroll_offset = 0;
                 self.scroll_locked = false;
             }

@@ -11,6 +11,8 @@ use crate::state::task::TaskState;
 use crate::state::tier::TierState;
 use crate::theme::ThemeTokens;
 
+#[path = "sidebar/spawned_agents.rs"]
+mod spawned_agents;
 #[path = "sidebar/tab_layout.rs"]
 mod tab_layout;
 
@@ -139,6 +141,14 @@ fn pinned_footer_line(theme: &ThemeTokens) -> Line<'static> {
         Span::styled(" unpin  ", theme.fg_dim),
         Span::styled("Ctrl+C", theme.fg_active),
         Span::styled(" copy", theme.fg_dim),
+    ])
+}
+
+fn thread_history_footer_line(theme: &ThemeTokens, depth: usize) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(" Backspace", theme.fg_active),
+        Span::styled(" previous thread", theme.fg_dim),
+        Span::styled(format!(" ({depth})"), theme.fg_dim),
     ])
 }
 
@@ -275,6 +285,7 @@ fn rows_for_thread(
                 })
                 .collect()
         }
+        SidebarTab::Spawned => spawned_agents::rows(tasks, selected, Some(thread_id), theme, width),
         SidebarTab::Pinned => {
             if pinned_rows.is_empty() {
                 return vec![SidebarRow {
@@ -316,6 +327,29 @@ fn rows_for_thread(
                 .collect()
         }
     }
+}
+
+pub fn has_spawned_tab(tasks: &TaskState, chat: &ChatState, thread_id: Option<&str>) -> bool {
+    spawned_agents::has_content(tasks, thread_id) || chat.can_go_back_thread()
+}
+
+pub fn visible_tabs(
+    tasks: &TaskState,
+    chat: &ChatState,
+    thread_id: Option<&str>,
+) -> Vec<SidebarTab> {
+    tab_layout::visible_tabs(
+        has_spawned_tab(tasks, chat, thread_id),
+        chat.active_thread_has_pinned_messages(),
+    )
+}
+
+pub fn selected_spawned_thread_id(
+    tasks: &TaskState,
+    sidebar: &SidebarState,
+    thread_id: Option<&str>,
+) -> Option<String> {
+    spawned_agents::selected_thread_id(tasks, sidebar.selected_item(), thread_id)
 }
 
 fn resolved_scroll(rows: &[SidebarRow], sidebar: &SidebarState, body_height: usize) -> usize {
@@ -520,17 +554,24 @@ pub fn render(
     };
     let gw_height = gw_lines.len() as u16;
     let pinned_rows = active_thread_pinned_rows(chat);
+    let show_spawned = has_spawned_tab(tasks, chat, thread_id);
     let show_pinned = !pinned_rows.is_empty();
     let filter_height = if sidebar.active_tab() == SidebarTab::Files {
         1
     } else {
         0
     };
-    let footer_height = if sidebar.active_tab() == SidebarTab::Pinned {
-        1
-    } else {
-        0
-    };
+    let mut footer_lines = Vec::new();
+    if chat.can_go_back_thread() {
+        footer_lines.push(thread_history_footer_line(
+            theme,
+            chat.thread_navigation_depth(),
+        ));
+    }
+    if sidebar.active_tab() == SidebarTab::Pinned {
+        footer_lines.push(pinned_footer_line(theme));
+    }
+    let footer_height = footer_lines.len() as u16;
 
     let ra_lines = recent_actions_lines(recent_actions, theme);
     let ra_height = ra_lines.len() as u16;
@@ -553,7 +594,7 @@ pub fn render(
 
     // Agent status line at the very top
 
-    for (tab, cell) in tab_cells(chunks[0], show_pinned) {
+    for (tab, cell) in tab_cells(chunks[0], show_spawned, show_pinned) {
         let style = if sidebar.active_tab() == tab {
             theme.fg_active.bg(Color::Indexed(236))
         } else {
@@ -610,10 +651,7 @@ pub fn render(
     }
 
     if footer_height > 0 {
-        frame.render_widget(
-            Paragraph::new(pinned_footer_line(theme)).alignment(Alignment::Center),
-            chunks[body_idx + 4],
-        );
+        frame.render_widget(Paragraph::new(footer_lines), chunks[body_idx + 4]);
     }
 }
 
@@ -629,6 +667,7 @@ pub fn body_item_count(
             .len()
             .max(1),
         (SidebarTab::Todos, Some(thread_id)) => tasks.todos_for_thread(thread_id).len().max(1),
+        (SidebarTab::Spawned, _) => spawned_agents::item_count(tasks, thread_id),
         (SidebarTab::Pinned, _) => pinned_rows.len().max(1),
         _ => 1,
     }
@@ -667,8 +706,13 @@ pub fn hit_test(
     let pinned_rows = active_thread_pinned_rows(chat);
 
     if mouse.y == chunks[0].y {
-        return tab_hit_test(chunks[0], mouse.x, !pinned_rows.is_empty())
-            .map(SidebarHitTarget::Tab);
+        return tab_hit_test(
+            chunks[0],
+            mouse.x,
+            has_spawned_tab(tasks, chat, thread_id),
+            !pinned_rows.is_empty(),
+        )
+        .map(SidebarHitTarget::Tab);
     }
 
     if sidebar.active_tab() == SidebarTab::Files && mouse.y == chunks[1].y {

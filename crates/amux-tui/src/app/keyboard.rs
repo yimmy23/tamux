@@ -10,6 +10,24 @@ impl TuiModel {
             && self.chat.active_thread_has_pinned_messages()
     }
 
+    fn sidebar_navigation_tabs(&self) -> Vec<sidebar::SidebarTab> {
+        widgets::sidebar::visible_tabs(&self.tasks, &self.chat, self.chat.active_thread_id())
+    }
+
+    fn step_sidebar_tab(&mut self, delta: i32) {
+        let tabs = self.sidebar_navigation_tabs();
+        let Some(last_index) = tabs.len().checked_sub(1) else {
+            return;
+        };
+        let current_index = tabs
+            .iter()
+            .position(|tab| *tab == self.sidebar.active_tab())
+            .unwrap_or(0);
+        let next_index = (current_index as i32 + delta).clamp(0, last_index as i32) as usize;
+        self.sidebar
+            .reduce(sidebar::SidebarAction::SwitchTab(tabs[next_index]));
+    }
+
     fn arm_pinned_shortcut_leader(&mut self) {
         self.pending_pinned_shortcut_leader = Some(PendingPinnedShortcutLeader::Active);
         self.status_line = "Pinned shortcuts: J jump, U unpin".to_string();
@@ -178,6 +196,14 @@ impl TuiModel {
                 }
                 _ => {}
             }
+        }
+
+        if code == KeyCode::Backspace
+            && self.focus == FocusArea::Sidebar
+            && self.chat.can_go_back_thread()
+        {
+            self.go_back_thread();
+            return false;
         }
 
         if !self.chat.active_actions().is_empty() && self.focus == FocusArea::Chat {
@@ -615,44 +641,16 @@ impl TuiModel {
                 }
             }
             KeyCode::Left if self.focus == FocusArea::Sidebar => {
-                let next_tab = match self.sidebar.active_tab() {
-                    sidebar::SidebarTab::Pinned => sidebar::SidebarTab::Files,
-                    sidebar::SidebarTab::Files => sidebar::SidebarTab::Todos,
-                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Todos,
-                };
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
+                self.step_sidebar_tab(-1);
             }
             KeyCode::Right if self.focus == FocusArea::Sidebar => {
-                let next_tab = match self.sidebar.active_tab() {
-                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Files,
-                    sidebar::SidebarTab::Files if self.chat.active_thread_has_pinned_messages() => {
-                        sidebar::SidebarTab::Pinned
-                    }
-                    current => current,
-                };
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
+                self.step_sidebar_tab(1);
             }
             KeyCode::Char('[') if self.sidebar_visible() && self.focus != FocusArea::Input => {
-                let next_tab = match self.sidebar.active_tab() {
-                    sidebar::SidebarTab::Pinned => sidebar::SidebarTab::Files,
-                    sidebar::SidebarTab::Files => sidebar::SidebarTab::Todos,
-                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Todos,
-                };
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
+                self.step_sidebar_tab(-1);
             }
             KeyCode::Char(']') if self.sidebar_visible() && self.focus != FocusArea::Input => {
-                let next_tab = match self.sidebar.active_tab() {
-                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Files,
-                    sidebar::SidebarTab::Files if self.chat.active_thread_has_pinned_messages() => {
-                        sidebar::SidebarTab::Pinned
-                    }
-                    current => current,
-                };
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
+                self.step_sidebar_tab(1);
             }
             KeyCode::Char('u')
                 if self.focus == FocusArea::Sidebar
