@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRun } from "@/lib/agentRuns";
-import type { AgentThread } from "@/lib/agentStore";
+import { useAgentStore } from "@/lib/agentStore";
+import type { AgentThread, AgentTodoItem } from "@/lib/agentStore";
 import type { Workspace } from "@/lib/types";
 import {
   deriveSpawnedAgentNavigationState,
   openSpawnedAgentThreadFromRun,
+  resetPendingSpawnedThreadHydrationsForTest,
 } from "./useAgentChatPanelProviderValue";
 
 function makeRun(overrides: Partial<AgentRun> = {}): AgentRun {
@@ -144,9 +146,57 @@ describe("deriveSpawnedAgentNavigationState", () => {
 });
 
 describe("openSpawnedAgentThreadFromRun", () => {
+  function createLiveStoreWrappers() {
+    const createThread = useAgentStore.getState().createThread;
+    const addMessage = useAgentStore.getState().addMessage;
+    const setThreadDaemonId = useAgentStore.getState().setThreadDaemonId;
+    const setThreadTodos = useAgentStore.getState().setThreadTodos;
+    const openSpawnedThread = useAgentStore.getState().openSpawnedThread;
+
+    return {
+      createThread: vi.fn((...args: Parameters<typeof createThread>) =>
+        createThread(...args)),
+      addMessage: vi.fn((...args: Parameters<typeof addMessage>) =>
+        addMessage(...args)),
+      setThreadDaemonId: vi.fn((...args: Parameters<typeof setThreadDaemonId>) =>
+        setThreadDaemonId(...args)),
+      setThreadTodos: vi.fn((...args: Parameters<typeof setThreadTodos>) =>
+        setThreadTodos(...args)),
+      openSpawnedThread: vi.fn((...args: Parameters<typeof openSpawnedThread>) =>
+        openSpawnedThread(...args)),
+    };
+  }
+
+  function findHydratedThread(daemonThreadId: string): AgentThread {
+    const thread = useAgentStore.getState().threads.find((entry) => entry.daemonThreadId === daemonThreadId);
+    expect(thread).toBeDefined();
+    return thread!;
+  }
+
+  beforeEach(() => {
+    resetPendingSpawnedThreadHydrationsForTest();
+    const rootThread = makeThread("local-root", "Root Thread", "daemon-root");
+    const parentThread = makeThread("local-parent", "Parent Thread", "daemon-parent");
+    const otherThread = makeThread("local-other", "Other Thread", "daemon-other");
+    useAgentStore.setState({
+      threads: [rootThread, parentThread, otherThread],
+      messages: {
+        [rootThread.id]: [],
+        [parentThread.id]: [],
+        [otherThread.id]: [],
+      },
+      todos: {
+        [rootThread.id]: [],
+        [parentThread.id]: [],
+        [otherThread.id]: [],
+      },
+      activeThreadId: "local-root",
+      threadHistoryStack: ["local-parent"],
+    } as any);
+  });
+
   it("hydrates a missing daemon thread into local state before navigating", async () => {
-    const addMessage = vi.fn();
-    const createThread = vi.fn(() => "local-child");
+    const liveStore = createLiveStoreWrappers();
     const getRemoteThread = vi.fn(async () => ({
       id: "daemon-child",
       title: "Hydrated Child",
@@ -162,13 +212,10 @@ describe("openSpawnedAgentThreadFromRun", () => {
       ],
     }));
     const fetchThreadTodos = vi.fn(async () => [{ id: "todo-1" }]);
-    const openSpawnedThread = vi.fn();
-    const setThreadDaemonId = vi.fn();
-    const setThreadTodos = vi.fn();
 
     const result = await openSpawnedAgentThreadFromRun({
       activeThreadId: "local-root",
-      threads: [makeThread("local-root", "Root Thread", "daemon-root")],
+      threads: useAgentStore.getState().threads,
       workspaces: [makeWorkspace("session-child")],
       run: makeRun({
         id: "run-child",
@@ -182,24 +229,200 @@ describe("openSpawnedAgentThreadFromRun", () => {
       messageLimit: 75,
       getRemoteThread,
       fetchThreadTodos,
-      createThread,
-      addMessage,
-      setThreadDaemonId,
-      setThreadTodos,
-      openSpawnedThread,
+      ...liveStore,
     });
 
+    const hydratedThread = findHydratedThread("daemon-child");
     expect(result).toBe(true);
     expect(getRemoteThread).toHaveBeenCalledWith("daemon-child", { messageLimit: 75 });
-    expect(createThread).toHaveBeenCalledWith({
+    expect(liveStore.createThread).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       surfaceId: "surface-1",
       paneId: "pane-1",
       title: "Hydrated Child",
     });
-    expect(setThreadDaemonId).toHaveBeenCalledWith("local-child", "daemon-child");
-    expect(addMessage).toHaveBeenCalledTimes(1);
-    expect(setThreadTodos).toHaveBeenCalledWith("local-child", [{ id: "todo-1" }]);
-    expect(openSpawnedThread).toHaveBeenCalledWith("local-root", "local-child");
+    expect(liveStore.setThreadDaemonId).toHaveBeenCalledWith(hydratedThread.id, "daemon-child");
+    expect(liveStore.addMessage).toHaveBeenCalledTimes(1);
+    expect(liveStore.setThreadTodos).toHaveBeenCalledWith(hydratedThread.id, [{ id: "todo-1" }]);
+    expect(liveStore.openSpawnedThread).toHaveBeenCalledWith("local-root", hydratedThread.id);
+    expect(useAgentStore.getState().activeThreadId).toBe(hydratedThread.id);
+    expect(useAgentStore.getState().threadHistoryStack).toEqual(["local-parent", "local-root"]);
+    expect(useAgentStore.getState().messages[hydratedThread.id]).toHaveLength(1);
+    expect(useAgentStore.getState().todos[hydratedThread.id]).toEqual([{ id: "todo-1" }]);
+  });
+
+  it("dedupes concurrent hydrations and only replays navigation for the active caller", async () => {
+    let releaseTodos: ((value: AgentTodoItem[]) => void) | null = null;
+    const liveStore = createLiveStoreWrappers();
+    const getRemoteThread = vi.fn(async () => ({
+      id: "daemon-child",
+      title: "Hydrated Child",
+      messages: [],
+    }));
+    const fetchThreadTodos = vi.fn(
+      () =>
+        new Promise<AgentTodoItem[]>((resolve) => {
+          releaseTodos = resolve;
+        }),
+    );
+
+    const params = {
+      activeThreadId: "local-root",
+      threads: useAgentStore.getState().threads,
+      workspaces: [makeWorkspace("session-child")],
+      run: makeRun({
+        id: "run-child",
+        task_id: "task-child",
+        title: "Spawned Child",
+        thread_id: "daemon-child",
+        session_id: "session-child",
+      }),
+      messageLimit: 75,
+      getRemoteThread,
+      fetchThreadTodos,
+      ...liveStore,
+    };
+
+    const firstOpen = openSpawnedAgentThreadFromRun(params);
+    const secondOpen = openSpawnedAgentThreadFromRun(params);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(liveStore.createThread).toHaveBeenCalledTimes(1);
+    expect(getRemoteThread).toHaveBeenCalledTimes(1);
+    expect(liveStore.openSpawnedThread).not.toHaveBeenCalled();
+
+    releaseTodos?.([{ id: "todo-1" }]);
+
+    const hydratedThread = findHydratedThread("daemon-child");
+    await expect(firstOpen).resolves.toBe(true);
+    await expect(secondOpen).resolves.toBe(true);
+    expect(liveStore.openSpawnedThread).toHaveBeenCalledTimes(1);
+    expect(liveStore.openSpawnedThread).toHaveBeenCalledWith("local-root", hydratedThread.id);
+    expect(liveStore.setThreadTodos).toHaveBeenCalledWith(hydratedThread.id, [{ id: "todo-1" }]);
+    expect(useAgentStore.getState().activeThreadId).toBe(hydratedThread.id);
+    expect(useAgentStore.getState().threadHistoryStack).toEqual(["local-parent", "local-root"]);
+  });
+
+  it("replays navigation for a later caller from a different source thread", async () => {
+    let releaseTodos: ((value: AgentTodoItem[]) => void) | null = null;
+    const liveStore = createLiveStoreWrappers();
+    const getRemoteThread = vi.fn(async () => ({
+      id: "daemon-child",
+      title: "Hydrated Child",
+      messages: [],
+    }));
+    const fetchThreadTodos = vi.fn(
+      () =>
+        new Promise<AgentTodoItem[]>((resolve) => {
+          releaseTodos = resolve;
+        }),
+    );
+
+    const sharedRun = makeRun({
+      id: "run-child",
+      task_id: "task-child",
+      title: "Spawned Child",
+      thread_id: "daemon-child",
+      session_id: "session-child",
+    });
+
+    const firstOpen = openSpawnedAgentThreadFromRun({
+      activeThreadId: "local-root",
+      threads: [
+        makeThread("local-root", "Root Thread", "daemon-root"),
+        makeThread("local-other", "Other Thread", "daemon-other"),
+      ],
+      workspaces: [makeWorkspace("session-child")],
+      run: sharedRun,
+      messageLimit: 75,
+      getRemoteThread,
+      fetchThreadTodos,
+      ...liveStore,
+    });
+
+    useAgentStore.setState({
+      activeThreadId: "local-other",
+      threadHistoryStack: ["local-upstream"],
+    } as any);
+
+    const secondOpen = openSpawnedAgentThreadFromRun({
+      activeThreadId: "local-other",
+      threads: useAgentStore.getState().threads,
+      workspaces: [makeWorkspace("session-child")],
+      run: sharedRun,
+      messageLimit: 75,
+      getRemoteThread,
+      fetchThreadTodos,
+      ...liveStore,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    releaseTodos?.([{ id: "todo-1" }]);
+
+    const hydratedThread = findHydratedThread("daemon-child");
+    await expect(firstOpen).resolves.toBe(false);
+    await expect(secondOpen).resolves.toBe(true);
+    expect(liveStore.createThread).toHaveBeenCalledTimes(1);
+    expect(liveStore.openSpawnedThread).toHaveBeenCalledTimes(1);
+    expect(liveStore.openSpawnedThread).toHaveBeenCalledWith("local-other", hydratedThread.id);
+    expect(useAgentStore.getState().activeThreadId).toBe(hydratedThread.id);
+    expect(useAgentStore.getState().threadHistoryStack).toEqual(["local-upstream", "local-other"]);
+  });
+
+  it("clears pending hydration state after a failed daemon fetch", async () => {
+    const error = new Error("boom");
+    const getRemoteThread = vi.fn()
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(null);
+
+    const firstOpen = openSpawnedAgentThreadFromRun({
+      activeThreadId: "local-root",
+      threads: useAgentStore.getState().threads,
+      workspaces: [makeWorkspace("session-child")],
+      run: makeRun({
+        id: "run-child",
+        task_id: "task-child",
+        title: "Spawned Child",
+        thread_id: "daemon-child",
+        session_id: "session-child",
+      }),
+      messageLimit: 75,
+      getRemoteThread,
+      fetchThreadTodos: vi.fn(),
+      createThread: vi.fn(),
+      addMessage: vi.fn(),
+      setThreadDaemonId: vi.fn(),
+      setThreadTodos: vi.fn(),
+      openSpawnedThread: vi.fn(),
+    });
+
+    await expect(firstOpen).rejects.toThrow("boom");
+
+    const secondOpen = openSpawnedAgentThreadFromRun({
+      activeThreadId: "local-root",
+      threads: useAgentStore.getState().threads,
+      workspaces: [makeWorkspace("session-child")],
+      run: makeRun({
+        id: "run-child",
+        task_id: "task-child",
+        title: "Spawned Child",
+        thread_id: "daemon-child",
+        session_id: "session-child",
+      }),
+      messageLimit: 75,
+      getRemoteThread,
+      fetchThreadTodos: vi.fn(),
+      createThread: vi.fn(),
+      addMessage: vi.fn(),
+      setThreadDaemonId: vi.fn(),
+      setThreadTodos: vi.fn(),
+      openSpawnedThread: vi.fn(),
+    });
+
+    await expect(secondOpen).resolves.toBe(false);
+    expect(getRemoteThread).toHaveBeenCalledTimes(2);
   });
 });

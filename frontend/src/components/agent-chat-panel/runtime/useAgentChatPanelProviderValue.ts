@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { abortThreadStream, buildHydratedRemoteMessage, useAgentStore } from "@/lib/agentStore";
+import { abortThreadStream, useAgentStore } from "@/lib/agentStore";
 import { getAgentBridge, shouldUseDaemonRuntime } from "@/lib/agentDaemonConfig";
 import { fetchAgentRuns, isSubagentRun, type AgentRun } from "@/lib/agentRuns";
 import { fetchThreadTodos } from "@/lib/agentTodos";
@@ -12,14 +12,16 @@ import { useNotificationStore } from "@/lib/notificationStore";
 import { useSnippetStore } from "@/lib/snippetStore";
 import { useTranscriptStore } from "@/lib/transcriptStore";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
-import type { AgentThread, AgentTodoItem, RemoteAgentMessageRecord } from "@/lib/agentStore";
+import type { AgentThread, AgentTodoItem } from "@/lib/agentStore";
 import type { GoalRun } from "@/lib/goalRuns";
 import type { Workspace } from "@/lib/types";
-import { findTaskWorkspaceLocation } from "../tasks-view/helpers";
 import type { WelesHealthState } from "@/lib/agentStore/types";
 import { useDaemonAgentActions } from "./useDaemonAgentActions";
 import { useDaemonAgentEvents } from "./useDaemonAgentEvents";
-import { reloadDaemonThreadIntoLocalState } from "./daemonHelpers";
+import {
+  hydrateDaemonThreadIntoLocalState,
+  reloadDaemonThreadIntoLocalState,
+} from "./daemonHelpers";
 import { useLegacyAgentMessaging } from "./useLegacyAgentMessaging";
 import type { AgentChatPanelRuntimeValue, AgentChatPanelView } from "./types";
 import {
@@ -29,18 +31,28 @@ import {
 
 const EMPTY_MESSAGES: ReturnType<typeof useAgentStore.getState>["messages"][string] = [];
 
-type RemoteAgentThread = {
-  id: string;
-  title: string;
-  messages: RemoteAgentMessageRecord[];
-};
-
 type SpawnedAgentNavigationState = {
   tree: SpawnedAgentTree<AgentRun> | null;
   canGoBackThread: boolean;
   threadNavigationDepth: number;
   backThreadTitle: string | null;
 };
+
+type RemoteAgentThread = {
+  id: string;
+  title: string;
+  messages: unknown[];
+};
+
+type PendingSpawnedThreadHydration = {
+  promise: Promise<string | null>;
+};
+
+const pendingSpawnedThreadHydrations = new Map<string, PendingSpawnedThreadHydration>();
+
+export function resetPendingSpawnedThreadHydrationsForTest(): void {
+  pendingSpawnedThreadHydrations.clear();
+}
 
 function findLocalThreadByDaemonThreadId(
   threads: AgentThread[],
@@ -93,7 +105,10 @@ export async function openSpawnedAgentThreadFromRun({
   workspaces: Workspace[];
   run: AgentRun;
   messageLimit: number | null;
-  getRemoteThread?: (threadId: string, options: { messageLimit: number | null }) => Promise<RemoteAgentThread | null>;
+  getRemoteThread?: (
+    threadId: string,
+    options: { messageLimit: number | null },
+  ) => Promise<{ id: string; title: string; messages: unknown[] } | null>;
   fetchThreadTodos: (threadId: string) => Promise<AgentTodoItem[]>;
   createThread: ReturnType<typeof useAgentStore.getState>["createThread"];
   addMessage: ReturnType<typeof useAgentStore.getState>["addMessage"];
@@ -103,6 +118,29 @@ export async function openSpawnedAgentThreadFromRun({
 }): Promise<boolean> {
   if (!activeThreadId || !run.thread_id) {
     return false;
+  }
+
+  const completeSpawnedThreadOpen = async (
+    pendingHydration: PendingSpawnedThreadHydration,
+  ) => {
+    const localThreadId = await pendingHydration.promise;
+    if (!localThreadId) {
+      return false;
+    }
+    const currentActiveThreadId = useAgentStore.getState().activeThreadId;
+    if (currentActiveThreadId === localThreadId) {
+      return true;
+    }
+    if (currentActiveThreadId !== activeThreadId) {
+      return false;
+    }
+    openSpawnedThread(activeThreadId, localThreadId);
+    return true;
+  };
+
+  const pendingHydration = pendingSpawnedThreadHydrations.get(run.thread_id);
+  if (pendingHydration) {
+    return completeSpawnedThreadOpen(pendingHydration);
   }
 
   const existingThread = findLocalThreadByDaemonThreadId(threads, run.thread_id);
@@ -118,28 +156,60 @@ export async function openSpawnedAgentThreadFromRun({
     return false;
   }
 
-  const remoteThread = await getRemoteThread(run.thread_id, { messageLimit });
-  if (!remoteThread) {
-    return false;
-  }
-
-  const location = findTaskWorkspaceLocation(workspaces, run.session_id);
-  const localThreadId = createThread({
-    workspaceId: location?.workspaceId ?? null,
-    surfaceId: location?.surfaceId ?? null,
-    paneId: location?.paneId ?? null,
-    title: remoteThread.title || run.title,
+  let resolveHydration!: (threadId: string | null) => void;
+  let rejectHydration!: (reason?: unknown) => void;
+  const hydratePromise = new Promise<string | null>((resolve, reject) => {
+    resolveHydration = resolve;
+    rejectHydration = reject;
   });
-  setThreadDaemonId(localThreadId, remoteThread.id);
 
-  for (const message of remoteThread.messages ?? []) {
-    addMessage(localThreadId, buildHydratedRemoteMessage(localThreadId, message));
+  const pendingEntry: PendingSpawnedThreadHydration = { promise: hydratePromise };
+  pendingSpawnedThreadHydrations.set(run.thread_id, pendingEntry);
+
+  void (async () => {
+    try {
+      const remoteThread = await getRemoteThread(run.thread_id!, { messageLimit });
+      if (!remoteThread) {
+        resolveHydration(null);
+        return;
+      }
+
+      const preservedSelection = {
+        activeThreadId: useAgentStore.getState().activeThreadId,
+        threadHistoryStack: [...useAgentStore.getState().threadHistoryStack],
+      };
+      const localThreadId = await hydrateDaemonThreadIntoLocalState({
+        sessionId: run.session_id,
+        fallbackTitle: run.title,
+        workspaces,
+        remoteThread: remoteThread as any,
+        fetchThreadTodos: fetchThreadTodosForThread,
+        createThread,
+        addMessage,
+        setThreadDaemonId,
+        setThreadTodos,
+        onThreadReady: () => {
+          useAgentStore.setState({
+            activeThreadId: preservedSelection.activeThreadId,
+            threadHistoryStack: preservedSelection.threadHistoryStack,
+          });
+        },
+      });
+      resolveHydration(localThreadId);
+    } catch (error) {
+      rejectHydration(error);
+    } finally {
+      if (pendingSpawnedThreadHydrations.get(run.thread_id!) === pendingEntry) {
+        pendingSpawnedThreadHydrations.delete(run.thread_id!);
+      }
+    }
+  })();
+
+  try {
+    return completeSpawnedThreadOpen(pendingEntry);
+  } finally {
+    // Cleanup happens in the async hydration runner once the promise settles.
   }
-
-  const todos = await fetchThreadTodosForThread(remoteThread.id).catch(() => []);
-  setThreadTodos(localThreadId, todos);
-  openSpawnedThread(activeThreadId, localThreadId);
-  return true;
 }
 
 export function useAgentChatPanelProviderValue(): {
