@@ -62,6 +62,15 @@ describe("agentStore spawned thread navigation", () => {
     expect((useAgentStore.getState() as any).threadHistoryStack).toEqual(["thread-a"]);
   });
 
+  it("ignores same-thread navigation requests", () => {
+    const store = useAgentStore.getState() as any;
+
+    store.openSpawnedThread("thread-a", "thread-a");
+
+    expect(useAgentStore.getState().activeThreadId).toBe("thread-a");
+    expect((useAgentStore.getState() as any).threadHistoryStack).toEqual([]);
+  });
+
   it("pops back to the previous thread", () => {
     resetStoreState([makeThread("thread-a"), makeThread("thread-b"), makeThread("thread-c")], "thread-c", [
       "thread-a",
@@ -86,6 +95,37 @@ describe("agentStore spawned thread navigation", () => {
     store.goBackThread();
 
     expect(useAgentStore.getState().activeThreadId).toBe("thread-a");
+    expect((useAgentStore.getState() as any).threadHistoryStack).toEqual([]);
+  });
+
+  it("clears spawned-thread history on ordinary thread switches", () => {
+    resetStoreState([makeThread("thread-a"), makeThread("thread-b"), makeThread("thread-c")], "thread-b", [
+      "thread-a",
+    ]);
+
+    const store = useAgentStore.getState() as any;
+    store.setActiveThread("thread-c");
+
+    expect(useAgentStore.getState().activeThreadId).toBe("thread-c");
+    expect((useAgentStore.getState() as any).threadHistoryStack).toEqual([]);
+  });
+
+  it("keeps the current thread when back history is empty", () => {
+    const store = useAgentStore.getState() as any;
+
+    store.goBackThread();
+
+    expect(useAgentStore.getState().activeThreadId).toBe("thread-a");
+    expect((useAgentStore.getState() as any).threadHistoryStack).toEqual([]);
+  });
+
+  it("clears spawned-thread history when creating a new thread", () => {
+    resetStoreState([makeThread("thread-a"), makeThread("thread-b")], "thread-b", ["thread-a"]);
+
+    const store = useAgentStore.getState() as any;
+    const createdThreadId = store.createThread({ title: "new-thread" });
+
+    expect(useAgentStore.getState().activeThreadId).toBe(createdThreadId);
     expect((useAgentStore.getState() as any).threadHistoryStack).toEqual([]);
   });
 });
