@@ -108,6 +108,7 @@ pub struct ForgeResult {
     pub hints_generated: usize,
     pub hints_auto_applied: usize,
     pub hints_logged_only: usize,
+    pub auto_applied_hints: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -152,10 +153,11 @@ pub async fn run_forge_pass(
         list_recent_trace_rows(db, &config.agent_id, period_start_ms, TRACE_SCAN_LIMIT).await?;
     let traces_analyzed = traces.len();
     let patterns = detect_patterns(&traces, config.min_pattern_frequency);
-    let mut hints = generate_hints(&patterns, &config.agent_id);
-    hints.truncate(config.max_forge_entries_per_pass);
+    let hints = generate_hints(&patterns, &config.agent_id);
+    let ranked_hints =
+        rank_hints_for_application(&hints, &patterns, config.max_forge_entries_per_pass);
     let applied = apply_forge_hints(
-        &hints,
+        &ranked_hints,
         config.min_auto_apply_priority,
         agent_data_dir,
         config.max_forge_entries_per_pass,
@@ -168,6 +170,11 @@ pub async fn run_forge_pass(
         hints_generated: hints.len(),
         hints_auto_applied: applied.len(),
         hints_logged_only: hints.len().saturating_sub(applied.len()),
+        auto_applied_hints: applied
+            .iter()
+            .map(|line| strip_forge_markup(line))
+            .filter(|hint| !hint.is_empty())
+            .collect(),
     };
 
     log_forge_pass(
@@ -235,7 +242,7 @@ fn format_forge_note(hint: &str, timestamp_ms: u64) -> String {
     format!("- [forge][{timestamp}] {}", hint.trim())
 }
 
-fn content_contains_equivalent_hint(content: &str, hint: &str) -> bool {
+pub(super) fn content_contains_equivalent_hint(content: &str, hint: &str) -> bool {
     let normalized_hint = normalize_forge_hint(hint);
     if normalized_hint.is_empty() {
         return false;
@@ -258,7 +265,7 @@ fn normalized_line_hint(line: &str) -> Option<String> {
     (!normalized.is_empty()).then_some(normalized)
 }
 
-fn strip_forge_markup(line: &str) -> String {
+pub(super) fn strip_forge_markup(line: &str) -> String {
     let mut cleaned = line.trim();
     while let Some(rest) = cleaned.strip_prefix(['-', '*', '>', ' ']) {
         cleaned = rest.trim_start();
@@ -497,6 +504,47 @@ fn generate_hints(patterns: &[ExecutionPattern], agent_id: &str) -> Vec<Strategy
     hints
 }
 
+fn rank_hints_for_application(
+    hints: &[StrategyHint],
+    patterns: &[ExecutionPattern],
+    limit: usize,
+) -> Vec<StrategyHint> {
+    let pattern_scores: BTreeMap<String, (usize, u64)> = patterns
+        .iter()
+        .map(|pattern| {
+            (
+                pattern.pattern_type.to_string(),
+                (
+                    pattern.frequency,
+                    (pattern.confidence.clamp(0.0, 1.0) * 1000.0).round() as u64,
+                ),
+            )
+        })
+        .collect();
+
+    let mut ranked = hints.to_vec();
+    ranked.sort_by(|left, right| {
+        let left_score = pattern_scores
+            .get(left.source_pattern.as_str())
+            .copied()
+            .unwrap_or((0, 0));
+        let right_score = pattern_scores
+            .get(right.source_pattern.as_str())
+            .copied()
+            .unwrap_or((0, 0));
+
+        right
+            .priority
+            .cmp(&left.priority)
+            .then_with(|| right_score.0.cmp(&left_score.0))
+            .then_with(|| right_score.1.cmp(&left_score.1))
+            .then_with(|| left.target.cmp(&right.target))
+            .then_with(|| left.hint.cmp(&right.hint))
+    });
+    ranked.truncate(limit);
+    ranked
+}
+
 async fn log_forge_pass(
     db: &crate::history::HistoryStore,
     agent_id: &str,
@@ -592,6 +640,98 @@ mod tests {
         assert!(patterns
             .iter()
             .any(|pattern| pattern.pattern_type == PatternType::ToolFallbackLoop));
+    }
+
+    #[test]
+    fn timeout_pattern_targets_repeated_primary_slow_tool_not_every_tool_in_trace() {
+        let slow_metrics = serde_json::json!({
+            "total_duration_ms": 45_000,
+            "exit_code": 1,
+            "step_count": 2,
+            "success_rate": 0.5,
+        })
+        .to_string();
+        let traces = vec![
+            ForgeTraceRow {
+                tool_sequence_json: Some("[\"bash_command\",\"read_file\"]".into()),
+                metrics_json: Some(slow_metrics.clone()),
+            },
+            ForgeTraceRow {
+                tool_sequence_json: Some("[\"bash_command\",\"search_files\"]".into()),
+                metrics_json: Some(slow_metrics.clone()),
+            },
+            ForgeTraceRow {
+                tool_sequence_json: Some("[\"bash_command\",\"read_file\"]".into()),
+                metrics_json: Some(slow_metrics),
+            },
+        ];
+
+        let patterns = detect_patterns(&traces, 3);
+        let timeout = patterns
+            .into_iter()
+            .find(|pattern| pattern.pattern_type == PatternType::TimeoutProne)
+            .expect("expected timeout-prone pattern");
+
+        assert_eq!(timeout.affected_tools, vec!["bash_command".to_string()]);
+        assert!(
+            !timeout.operator_impact.contains("read_file")
+                && !timeout.operator_impact.contains("search_files")
+        );
+    }
+
+    #[test]
+    fn ranks_hints_before_applying_write_cap() {
+        let hints = vec![
+            StrategyHint {
+                for_agent: "svarog".into(),
+                target: "bash_command -> read_file".into(),
+                hint: "fallback hint".into(),
+                priority: 4,
+                source_pattern: "tool_fallback_loop".into(),
+            },
+            StrategyHint {
+                for_agent: "svarog".into(),
+                target: "response_style".into(),
+                hint: "revision hint".into(),
+                priority: 4,
+                source_pattern: "revision_trigger".into(),
+            },
+            StrategyHint {
+                for_agent: "svarog".into(),
+                target: "bash_command".into(),
+                hint: "timeout hint".into(),
+                priority: 5,
+                source_pattern: "timeout_prone".into(),
+            },
+        ];
+        let patterns = vec![
+            ExecutionPattern {
+                pattern_type: PatternType::ToolFallbackLoop,
+                frequency: 10,
+                affected_tools: vec!["bash_command".into(), "read_file".into()],
+                operator_impact: "observed 10 consecutive fallback transitions".into(),
+                confidence: 0.72,
+            },
+            ExecutionPattern {
+                pattern_type: PatternType::RevisionTrigger,
+                frequency: 12,
+                affected_tools: Vec::new(),
+                operator_impact: "12 traces required operator revision".into(),
+                confidence: 0.75,
+            },
+            ExecutionPattern {
+                pattern_type: PatternType::TimeoutProne,
+                frequency: 3,
+                affected_tools: vec!["bash_command".into()],
+                operator_impact: "involved in 3 slow or non-zero-exit traces".into(),
+                confidence: 0.67,
+            },
+        ];
+
+        let ranked = rank_hints_for_application(&hints, &patterns, 2);
+        assert_eq!(ranked.len(), 2);
+        assert_eq!(ranked[0].source_pattern, "timeout_prone");
+        assert_eq!(ranked[1].source_pattern, "revision_trigger");
     }
 
     #[test]

@@ -184,7 +184,17 @@ pub(super) fn agent_data_dir() -> std::path::PathBuf {
 
 pub(super) fn ordered_memory_dirs(agent_data_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let root = agent_data_dir.parent().unwrap_or(std::path::Path::new("."));
-    let mut dirs = vec![root.join("agent-mission"), agent_data_dir.to_path_buf()];
+    let legacy_dir = root.join("agent-mission");
+    let prefers_legacy = agent_data_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("agent"));
+
+    let mut dirs = if prefers_legacy {
+        vec![legacy_dir, agent_data_dir.to_path_buf()]
+    } else {
+        vec![agent_data_dir.to_path_buf(), legacy_dir]
+    };
     dirs.dedup();
     dirs
 }
@@ -283,6 +293,14 @@ pub(super) fn active_memory_dir_for_scope(
 ) -> std::path::PathBuf {
     if !is_main_agent_scope(scope_id) {
         return persona_memory_dir(agent_data_dir, scope_id);
+    }
+
+    let agent_dir_name = agent_data_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if !agent_dir_name.eq_ignore_ascii_case("agent") {
+        return agent_data_dir.to_path_buf();
     }
 
     let dirs = ordered_memory_dirs(agent_data_dir);

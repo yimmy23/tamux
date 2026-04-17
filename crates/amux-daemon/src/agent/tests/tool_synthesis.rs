@@ -36,6 +36,18 @@ fn detect_cli_wrapper_synthesis_proposal_from_command_maps_safe_readonly_shell_c
 }
 
 #[test]
+fn detect_cli_wrapper_synthesis_proposal_from_command_accepts_safe_flag_values() {
+    let proposal =
+        super::detect_cli_wrapper_synthesis_proposal_from_command("cargo test -p tamux-daemon")
+            .expect(
+            "safe readonly shell command with flag values should produce a CLI wrapper proposal",
+        );
+
+    assert_eq!(proposal.tool_name, "cargo_test");
+    assert_eq!(proposal.target, "cargo test");
+}
+
+#[test]
 fn detect_cli_wrapper_synthesis_proposal_rejects_mutating_tokens() {
     assert!(super::detect_cli_wrapper_synthesis_proposal("cargo_install").is_none());
 }

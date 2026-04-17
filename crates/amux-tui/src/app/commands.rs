@@ -12,16 +12,15 @@ impl TuiModel {
             "svarog".to_string(),
             "swarog".to_string(),
             "weles".to_string(),
+            "veles".to_string(),
             amux_protocol::AGENT_ID_RAROG.to_string(),
-            amux_protocol::AGENT_NAME_RAROG.to_string(),
             "swarozyc".to_string(),
-            "Swarozyc".to_string(),
             "radogost".to_string(),
-            "Radogost".to_string(),
             "domowoj".to_string(),
-            "Domowoj".to_string(),
             "swietowit".to_string(),
-            "Swietowit".to_string(),
+            "perun".to_string(),
+            "mokosh".to_string(),
+            "dazhbog".to_string(),
         ];
         for entry in &self.subagents.entries {
             aliases.push(entry.id.clone());
@@ -33,25 +32,8 @@ impl TuiModel {
     }
 
     fn participant_display_name(&self, agent_alias: &str) -> String {
-        if agent_alias.eq_ignore_ascii_case(amux_protocol::AGENT_ID_RAROG)
-            || agent_alias.eq_ignore_ascii_case(amux_protocol::AGENT_NAME_RAROG)
-        {
-            return amux_protocol::AGENT_NAME_RAROG.to_string();
-        }
-        if agent_alias.eq_ignore_ascii_case("weles") {
-            return "Weles".to_string();
-        }
-        if agent_alias.eq_ignore_ascii_case("swarozyc") {
-            return "Swarozyc".to_string();
-        }
-        if agent_alias.eq_ignore_ascii_case("radogost") {
-            return "Radogost".to_string();
-        }
-        if agent_alias.eq_ignore_ascii_case("domowoj") {
-            return "Domowoj".to_string();
-        }
-        if agent_alias.eq_ignore_ascii_case("swietowit") {
-            return "Swietowit".to_string();
+        if let Some(display_name) = builtin_participant_display_name(agent_alias) {
+            return display_name;
         }
         if let Some(entry) = self.subagents.entries.iter().find(|entry| {
             entry.id.eq_ignore_ascii_case(agent_alias)
@@ -71,6 +53,9 @@ impl TuiModel {
             "radogost" => "radogost",
             "domowoj" => "domowoj",
             "swietowit" => "swietowit",
+            "perun" => "perun",
+            "mokosh" => "mokosh",
+            "dazhbog" => "dazhbog",
             _ => return true,
         };
         let Some(entry) = raw
@@ -437,7 +422,7 @@ impl TuiModel {
         };
         self.cancelled_thread_id = Some(thread_id.clone());
         self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-        self.agent_activity = None;
+        self.clear_active_thread_activity();
         self.pending_stop = false;
         self.send_daemon_command(DaemonCommand::StopStream { thread_id });
     }
@@ -578,10 +563,9 @@ impl TuiModel {
                         api_key: self.config.api_key.clone(),
                     });
                 }
-                let count = widgets::model_picker::available_models(&self.config).len() + 1;
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
-                self.modal.set_picker_item_count(count);
+                self.sync_model_picker_item_count();
             }
             "tools" => {
                 self.open_settings_tab(SettingsTab::Tools);
@@ -752,7 +736,7 @@ impl TuiModel {
         ) {
             if matches!(
                 directive.agent_alias.to_ascii_lowercase().as_str(),
-                "swarozyc" | "radogost" | "domowoj" | "swietowit"
+                "swarozyc" | "radogost" | "domowoj" | "swietowit" | "perun" | "mokosh" | "dazhbog"
             ) && !self.builtin_persona_configured(&directive.agent_alias)
             {
                 self.open_builtin_persona_setup_flow(
@@ -775,7 +759,7 @@ impl TuiModel {
                     self.focus = FocusArea::Chat;
                     self.input.set_mode(input::InputMode::Insert);
                     self.status_line = format!("Delegated internally to {}", directive.agent_alias);
-                    self.agent_activity = None;
+                    self.clear_active_thread_activity();
                     self.error_active = false;
                     return;
                 }
@@ -811,7 +795,7 @@ impl TuiModel {
                         120,
                         false,
                     );
-                    self.agent_activity = None;
+                    self.clear_active_thread_activity();
                     self.error_active = false;
                     return;
                 }
@@ -847,7 +831,7 @@ impl TuiModel {
                         120,
                         false,
                     );
-                    self.agent_activity = None;
+                    self.clear_active_thread_activity();
                     self.error_active = false;
                     return;
                 }
@@ -899,22 +883,26 @@ impl TuiModel {
         }
 
         if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) {
-            self.chat.reduce(chat::ChatAction::AppendMessage {
-                thread_id,
-                message: chat::AgentMessage {
-                    role: chat::MessageRole::User,
-                    content: final_content.clone(),
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0),
-                    ..Default::default()
+            let active_thread_id = thread_id.clone();
+            self.reduce_chat_for_thread(
+                Some(active_thread_id.as_str()),
+                chat::ChatAction::AppendMessage {
+                    thread_id,
+                    message: chat::AgentMessage {
+                        role: chat::MessageRole::User,
+                        content: final_content.clone(),
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0),
+                        ..Default::default()
+                    },
                 },
-            });
+            );
         }
 
         self.send_daemon_command(DaemonCommand::SendMessage {
-            thread_id,
+            thread_id: thread_id.clone(),
             content: final_content,
             session_id: None,
             target_agent_id,
@@ -924,7 +912,7 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
         self.input.set_mode(input::InputMode::Insert);
         self.status_line = "Prompt sent".to_string();
-        self.agent_activity = Some("thinking".to_string());
+        self.set_agent_activity_for(thread_id.clone(), "thinking");
         self.error_active = false;
     }
 
@@ -1235,14 +1223,36 @@ impl TuiModel {
             (thread.id.clone(), message_id)
         };
 
-        self.unpin_message_for_compaction_by_id(thread_id, message_id);
+        let absolute_index = self
+            .chat
+            .active_thread()
+            .map(|thread| thread.loaded_message_start.saturating_add(index));
+        self.unpin_message_for_compaction_by_id(thread_id, message_id, absolute_index);
     }
 
-    fn unpin_message_for_compaction_by_id(&mut self, thread_id: String, message_id: String) {
+    fn unpin_message_for_compaction_by_id(
+        &mut self,
+        thread_id: String,
+        message_id: String,
+        absolute_index: Option<usize>,
+    ) {
         self.send_daemon_command(DaemonCommand::UnpinThreadMessageForCompaction {
-            thread_id,
-            message_id,
+            thread_id: thread_id.clone(),
+            message_id: message_id.clone(),
         });
+        self.chat
+            .reduce(chat::ChatAction::UnpinMessageForCompaction {
+                thread_id,
+                message_id,
+                absolute_index,
+            });
+        if self.sidebar.active_tab() == sidebar::SidebarTab::Pinned
+            && !self.chat.active_thread_has_pinned_messages()
+        {
+            self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
+                sidebar::SidebarTab::Todos,
+            ));
+        }
     }
 
     pub(super) fn unpin_selected_sidebar_message(&mut self) {
@@ -1254,7 +1264,11 @@ impl TuiModel {
         let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
             return;
         };
-        self.unpin_message_for_compaction_by_id(thread_id, pinned_message.message_id);
+        self.unpin_message_for_compaction_by_id(
+            thread_id,
+            pinned_message.message_id,
+            Some(pinned_message.absolute_index),
+        );
     }
 
     pub(super) fn delete_message(&mut self, index: usize) {
@@ -1298,6 +1312,31 @@ impl TuiModel {
             self.submit_prompt(prompt);
         }
     }
+}
+
+fn builtin_participant_display_name(agent_alias: &str) -> Option<String> {
+    let normalized = agent_alias.trim().to_ascii_lowercase();
+    if normalized == amux_protocol::AGENT_ID_RAROG {
+        return Some(amux_protocol::AGENT_NAME_RAROG.to_string());
+    }
+    let canonical = match normalized.as_str() {
+        "veles" => "weles",
+        "weles" | "swarozyc" | "radogost" | "domowoj" | "swietowit" | "perun" | "mokosh"
+        | "dazhbog" => normalized.as_str(),
+        _ => return None,
+    };
+    Some(ascii_title_case(canonical))
+}
+
+fn ascii_title_case(value: &str) -> String {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut out = String::with_capacity(value.len());
+    out.push(first.to_ascii_uppercase());
+    out.push_str(chars.as_str());
+    out
 }
 
 fn format_queued_prompt_viewer_body(prompt: &QueuedPrompt) -> String {

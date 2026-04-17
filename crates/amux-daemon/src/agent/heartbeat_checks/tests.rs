@@ -124,6 +124,7 @@ async fn make_test_engine(
         thread_structural_memories: RwLock::new(HashMap::new()),
         thread_todos: RwLock::new(todos),
         thread_work_contexts: RwLock::new(HashMap::new()),
+        resonance_context_cache: RwLock::new(HashMap::new()),
         tasks: Mutex::new(VecDeque::new()),
         goal_runs: Mutex::new(goal_runs),
         goal_run_client_surfaces: RwLock::new(HashMap::new()),

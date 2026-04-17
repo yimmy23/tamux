@@ -1,6 +1,4 @@
-use amux_shared::providers::{
-    PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI,
-};
+use amux_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
 impl TuiModel {
     pub(super) fn current_settings_field_name(&self) -> &str {
@@ -69,7 +67,8 @@ impl TuiModel {
         let provider_id = self.config.compaction_weles_provider.clone();
         let (_, api_key, auth_source) = self.provider_auth_snapshot(&provider_id);
         let models = providers::known_models_for_provider_auth(&provider_id, &auth_source);
-        self.config.reduce(config::ConfigAction::ModelsFetched(models));
+        self.config
+            .reduce(config::ConfigAction::ModelsFetched(models));
         if providers::supports_model_fetch_for(&provider_id) {
             let base_url = providers::find_by_id(&provider_id)
                 .map(|provider| provider.default_base_url.to_string())
@@ -81,10 +80,9 @@ impl TuiModel {
             });
         }
         self.settings_picker_target = Some(SettingsPickerTarget::CompactionWelesModel);
-        let count = widgets::model_picker::available_models(&self.config).len() + 1;
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
-        self.modal.set_picker_item_count(count);
+        self.sync_model_picker_item_count();
     }
 
     pub(super) fn open_compaction_custom_model_picker(&mut self) {
@@ -93,7 +91,8 @@ impl TuiModel {
             &provider_id,
             &self.config.compaction_custom_auth_source,
         );
-        self.config.reduce(config::ConfigAction::ModelsFetched(models));
+        self.config
+            .reduce(config::ConfigAction::ModelsFetched(models));
         if providers::supports_model_fetch_for(&provider_id) {
             self.send_daemon_command(DaemonCommand::FetchModels {
                 provider_id,
@@ -102,10 +101,98 @@ impl TuiModel {
             });
         }
         self.settings_picker_target = Some(SettingsPickerTarget::CompactionCustomModel);
-        let count = widgets::model_picker::available_models(&self.config).len() + 1;
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+        self.sync_model_picker_item_count();
+    }
+
+    pub(super) fn model_picker_current_selection(&self) -> (String, Option<String>) {
+        match self
+            .settings_picker_target
+            .unwrap_or(SettingsPickerTarget::Model)
+        {
+            SettingsPickerTarget::CompactionWelesModel => {
+                (self.config.compaction_weles_model.clone(), None)
+            }
+            SettingsPickerTarget::CompactionCustomModel => {
+                (self.config.compaction_custom_model.clone(), None)
+            }
+            SettingsPickerTarget::SubAgentModel => self
+                .subagents
+                .editor
+                .as_ref()
+                .map(|editor| (editor.model.clone(), None))
+                .unwrap_or_else(|| (String::new(), None)),
+            SettingsPickerTarget::ConciergeModel => {
+                (self.concierge.model.clone().unwrap_or_default(), None)
+            }
+            _ => (
+                self.config.model.clone(),
+                Some(self.config.custom_model_name.clone()),
+            ),
+        }
+    }
+
+    pub(super) fn available_model_picker_models(&self) -> Vec<crate::state::config::FetchedModel> {
+        let (current_model, custom_model_name) = self.model_picker_current_selection();
+        widgets::model_picker::available_models_for(
+            &self.config,
+            &current_model,
+            custom_model_name.as_deref(),
+        )
+    }
+
+    pub(super) fn sync_model_picker_item_count(&mut self) {
+        let count = self.available_model_picker_models().len() + 1;
         self.modal.set_picker_item_count(count);
+    }
+
+    pub(super) fn begin_targeted_custom_model_edit(
+        &mut self,
+        target: Option<SettingsPickerTarget>,
+    ) {
+        match target.unwrap_or(SettingsPickerTarget::Model) {
+            SettingsPickerTarget::BuiltinPersonaModel => {
+                self.status_line =
+                    "Custom model entry is not available for builtin persona setup".to_string();
+            }
+            SettingsPickerTarget::CompactionWelesModel => self.settings.start_editing(
+                "compaction_weles_model",
+                &self.config.compaction_weles_model,
+            ),
+            SettingsPickerTarget::CompactionCustomModel => self.settings.start_editing(
+                "compaction_custom_model",
+                &self.config.compaction_custom_model,
+            ),
+            SettingsPickerTarget::SubAgentModel => {
+                let Some(editor) = self.subagents.editor.as_ref() else {
+                    self.status_line = "No sub-agent editor is active".to_string();
+                    return;
+                };
+                if self.modal.top() != Some(modal::ModalKind::Settings) {
+                    self.modal
+                        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+                }
+                self.settings
+                    .reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
+                self.settings.start_editing("subagent_model", &editor.model);
+                self.status_line = "Enter sub-agent model ID".to_string();
+            }
+            SettingsPickerTarget::ConciergeModel => {
+                if self.modal.top() != Some(modal::ModalKind::Settings) {
+                    self.modal
+                        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+                }
+                self.settings
+                    .reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));
+                self.settings.start_editing(
+                    "concierge_model",
+                    self.concierge.model.as_deref().unwrap_or(""),
+                );
+                self.status_line = "Enter Rarog model ID".to_string();
+            }
+            _ => self.begin_custom_model_edit(),
+        }
     }
 
     fn whatsapp_linking_allowed(&self) -> bool {
@@ -128,7 +215,8 @@ impl TuiModel {
         }
 
         if let Some(provider_config) = self.saved_provider_config(provider_id) {
-            if let Some(value) = TuiModel::provider_field_str(provider_config, "base_url", "base_url")
+            if let Some(value) =
+                TuiModel::provider_field_str(provider_config, "base_url", "base_url")
             {
                 if !value.is_empty() {
                     base_url = value.to_string();
@@ -268,9 +356,7 @@ impl TuiModel {
                 .and_then(|providers| providers.get(def.id))
                 .or_else(|| raw.get(def.id))
             {
-                // For predefined providers, always use the canonical base_url
-                // from the definition — stale DB values must not override it.
-                if def.id == PROVIDER_ID_CUSTOM {
+                if providers::provider_uses_configurable_base_url(def.id) {
                     if let Some(saved_base_url) =
                         TuiModel::provider_field_str(provider_config, "base_url", "base_url")
                     {

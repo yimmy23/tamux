@@ -21,6 +21,17 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
+        id: PROVIDER_ID_AZURE_OPENAI,
+        name: "Azure OpenAI",
+        default_base_url: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1",
+        default_model: "",
+        supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
+        default_transport: "responses",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
         id: PROVIDER_ID_GITHUB_COPILOT,
         name: "GitHub Copilot",
         default_base_url: "https://api.githubcopilot.com",

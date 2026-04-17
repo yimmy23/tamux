@@ -200,9 +200,7 @@ impl AgentEngine {
             if !row.enabled {
                 continue;
             }
-            if row.target_state.as_deref().is_some()
-                && row.target_state.as_deref() != state
-            {
+            if row.target_state.as_deref().is_some() && row.target_state.as_deref() != state {
                 continue;
             }
             if row.thread_id.as_deref().is_some() && row.thread_id.as_deref() != thread_id {
@@ -223,7 +221,9 @@ impl AgentEngine {
                 title,
                 Some(body),
             );
-            self.history.record_event_trigger_fired(&row.id, now).await?;
+            self.history
+                .record_event_trigger_fired(&row.id, now)
+                .await?;
             fired = fired.saturating_add(1);
         }
 
@@ -248,4 +248,3 @@ fn render_event_trigger_template(
     }
     rendered
 }
-

@@ -120,7 +120,7 @@ impl TuiModel {
             let thread_id = "concierge".to_string();
             self.cancelled_thread_id = Some(thread_id.clone());
             self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-            self.agent_activity = None;
+            self.clear_agent_activity_for(Some(thread_id.as_str()));
             self.send_daemon_command(DaemonCommand::StopStream { thread_id });
         }
 
@@ -132,7 +132,6 @@ impl TuiModel {
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
         self.pending_new_thread_target_agent = None;
-        self.agent_activity = None;
         self.chat
             .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
         self.request_latest_thread_page(thread_id, true);
@@ -149,7 +148,6 @@ impl TuiModel {
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
         self.pending_new_thread_target_agent = target_agent_id.map(str::to_string);
-        self.agent_activity = None;
         self.thread_loading_id = None;
         self.chat.reduce(chat::ChatAction::NewThread);
         self.main_pane_view = MainPaneView::Conversation;

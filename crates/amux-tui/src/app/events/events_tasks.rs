@@ -219,6 +219,11 @@ impl TuiModel {
         } else {
             0
         };
+        let viewport_anchor = if should_preserve_prepend_anchor {
+            None
+        } else {
+            self.capture_locked_chat_viewport(Some(thread_id.as_str()))
+        };
         self.finish_thread_loading(&thread_id);
         let should_select_thread = self.chat.active_thread_id().is_none();
         if self.chat.active_thread_id() == Some(thread_id.as_str()) {
@@ -233,6 +238,8 @@ impl TuiModel {
         self.sync_participant_queued_prompts_for_thread(&thread_id, &live_suggestion_ids);
         if should_preserve_prepend_anchor {
             self.chat.preserve_prepend_scroll_anchor(preserved_scroll);
+        } else {
+            self.restore_locked_chat_viewport(viewport_anchor);
         }
         if self.sidebar.active_tab() == crate::state::sidebar::SidebarTab::Pinned
             && !self.chat.active_thread_has_pinned_messages()

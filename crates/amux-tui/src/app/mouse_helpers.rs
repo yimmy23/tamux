@@ -108,7 +108,7 @@ impl TuiModel {
                     });
                     self.send_daemon_command(DaemonCommand::RetryStreamNow { thread_id });
                     self.status_line = "Retrying now...".to_string();
-                    self.agent_activity = Some("retrying".to_string());
+                    self.set_active_thread_activity("retrying");
                 }
             }
             Some(chat::ChatHitTarget::RetryStop) => {
@@ -116,7 +116,7 @@ impl TuiModel {
                     self.retry_wait_start_selected = false;
                     self.cancelled_thread_id = Some(thread_id.clone());
                     self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-                    self.agent_activity = None;
+                    self.clear_active_thread_activity();
                     self.send_daemon_command(DaemonCommand::StopStream { thread_id });
                     self.status_line = "Stopped retry loop".to_string();
                 }
@@ -686,7 +686,7 @@ impl TuiModel {
                         && mouse.row < inner.y.saturating_add(inner.height.saturating_sub(1))
                     {
                         let idx = mouse.row.saturating_sub(inner.y) as usize;
-                        if idx <= widgets::model_picker::available_models(&self.config).len() {
+                        if idx <= self.available_model_picker_models().len() {
                             self.modal_navigate_to(idx);
                             self.handle_modal_enter(kind);
                         }

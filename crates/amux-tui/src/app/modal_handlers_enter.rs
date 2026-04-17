@@ -150,12 +150,10 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                                     api_key: model.config.api_key.clone(),
                                 });
                             }
-                            let count =
-                                widgets::model_picker::available_models(&model.config).len() + 1;
                             model
                                 .modal
                                 .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
-                            model.modal.set_picker_item_count(count);
+                            model.sync_model_picker_item_count();
                         }
                         return;
                     }
@@ -178,14 +176,12 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                                 api_key: model.config.api_key.clone(),
                             });
                         }
-                        let count =
-                            widgets::model_picker::available_models(&model.config).len() + 1;
                         model.settings_picker_target =
                             Some(SettingsPickerTarget::BuiltinPersonaModel);
                         model
                             .modal
                             .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
-                        model.modal.set_picker_item_count(count);
+                        model.sync_model_picker_item_count();
                         if let Some(setup) = model.pending_builtin_persona_setup.as_ref() {
                             model.status_line =
                                 format!("Configure {} model", setup.target_agent_name);
@@ -275,33 +271,13 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             model.close_top_modal();
         }
         modal::ModalKind::ModelPicker => {
-            let models = widgets::model_picker::available_models(&model.config);
+            let models = model.available_model_picker_models();
             let cursor = model.modal.picker_cursor();
             if cursor == models.len() {
                 let picker_target = model.settings_picker_target;
                 model.settings_picker_target = None;
                 model.close_top_modal();
-                match picker_target {
-                    Some(SettingsPickerTarget::BuiltinPersonaModel) => {
-                        model.status_line =
-                            "Custom model entry is not available for builtin persona setup"
-                                .to_string();
-                        return;
-                    }
-                    Some(SettingsPickerTarget::CompactionWelesModel) => {
-                        model.settings.start_editing(
-                            "compaction_weles_model",
-                            &model.config.compaction_weles_model,
-                        )
-                    }
-                    Some(SettingsPickerTarget::CompactionCustomModel) => {
-                        model.settings.start_editing(
-                            "compaction_custom_model",
-                            &model.config.compaction_custom_model,
-                        )
-                    }
-                    _ => begin_custom_model_edit(model),
-                }
+                model.begin_targeted_custom_model_edit(picker_target);
                 return;
             }
             if models.is_empty() {

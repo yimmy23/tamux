@@ -519,7 +519,16 @@ async fn apply_distilled_candidate(
         MemoryTarget::Memory => paths.memory_path,
         MemoryTarget::User => paths.user_path,
     };
-    let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    let mut existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    if target == MemoryTarget::User && config.max_entries_per_file > 0 {
+        let retained_existing_distilled = config.max_entries_per_file.saturating_sub(1);
+        let trimmed_existing =
+            trim_distilled_entries_to_capacity(&existing, retained_existing_distilled);
+        if trimmed_existing != existing {
+            tokio::fs::write(&path, &trimmed_existing).await?;
+            existing = trimmed_existing;
+        }
+    }
     if content_contains_equivalent_fact(&existing, &candidate.distilled_fact) {
         return Ok(false);
     }
@@ -542,9 +551,7 @@ async fn apply_distilled_candidate(
 
     match applied {
         Ok(_) => {
-            if target != MemoryTarget::User {
-                trim_distilled_entries_to_limit(&path, config.max_entries_per_file).await?;
-            }
+            trim_distilled_entries_to_limit(&path, config.max_entries_per_file).await?;
             Ok(true)
         }
         Err(error) => {
@@ -746,6 +753,10 @@ fn trim_distilled_entries_in_content(content: &str, max_entries: usize) -> Strin
         return content.to_string();
     }
 
+    trim_distilled_entries_to_capacity(content, max_entries)
+}
+
+fn trim_distilled_entries_to_capacity(content: &str, max_entries: usize) -> String {
     let lines = content.lines().collect::<Vec<_>>();
     let distilled_indices = lines
         .iter()
@@ -756,7 +767,7 @@ fn trim_distilled_entries_in_content(content: &str, max_entries: usize) -> Strin
         return content.to_string();
     }
 
-    let remove_count = distilled_indices.len() - max_entries;
+    let remove_count = distilled_indices.len().saturating_sub(max_entries);
     let to_remove = distilled_indices
         .into_iter()
         .take(remove_count)
@@ -1098,6 +1109,53 @@ mod tests {
             !memory.contains(fact),
             "SOUL.md-targeted candidate must not be redirected into MEMORY.md"
         );
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn apply_distilled_candidate_trims_user_file_to_entry_limit() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("tamux-distill-test-{}", Uuid::new_v4()));
+        let history = HistoryStore::new_test_store(&root).await?;
+        ensure_memory_files(&root).await?;
+
+        let paths = memory_paths_for_scope(&root, &current_agent_scope_id());
+        tokio::fs::write(
+            &paths.user_path,
+            concat!(
+                "# User\n\n",
+                "- durable user fact\n",
+                "- [distilled][2026-01-01T00:00:00Z] Prefer terse answers first.\n",
+                "- [distilled][2026-01-02T00:00:00Z] Ask one targeted clarification question when needed.\n"
+            ),
+        )
+        .await?;
+
+        let candidate = DistillationCandidate {
+            source_thread_id: "thread-user-trim".into(),
+            source_message_range: Some("msg#1".into()),
+            source_message_span: None,
+            last_processed_cursor: None,
+            distilled_fact: "Prefer direct answers with concrete next actions.".into(),
+            target_file: "USER.md".into(),
+            category: MemoryCategory::Preference,
+            confidence: 0.88,
+            reasoning: "explicit operator preference".into(),
+        };
+        let config = DistillationConfig {
+            max_entries_per_file: 2,
+            ..DistillationConfig::default()
+        };
+
+        assert!(apply_distilled_candidate(&history, &root, &config, &candidate).await?);
+
+        let user = tokio::fs::read_to_string(&paths.user_path).await?;
+        assert!(user.contains("- durable user fact"));
+        assert!(!user.contains("Prefer terse answers first."));
+        assert!(user.contains("Ask one targeted clarification question when needed."));
+        assert!(user.contains("Prefer direct answers with concrete next actions."));
+        assert_eq!(user.matches("- [distilled]").count(), 2);
 
         fs::remove_dir_all(root)?;
         Ok(())

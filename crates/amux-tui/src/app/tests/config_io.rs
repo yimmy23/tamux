@@ -1,7 +1,8 @@
 use super::*;
 use amux_shared::providers::{
-    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM,
+    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENROUTER,
 };
 use rusqlite::Connection;
 use std::sync::mpsc;
@@ -219,6 +220,33 @@ fn build_config_patch_value_preserves_custom_model_context_override_for_non_cust
         json["openrouter"]["context_window_tokens"],
         serde_json::json!(333000)
     );
+}
+
+#[test]
+fn apply_config_json_preserves_azure_openai_base_url() {
+    let mut model = make_model();
+
+    model.apply_config_json(&serde_json::json!({
+        "provider": PROVIDER_ID_AZURE_OPENAI,
+        "base_url": "https://my-resource.openai.azure.com/openai/v1",
+        "model": "my-deployment",
+        "providers": {
+            PROVIDER_ID_AZURE_OPENAI: {
+                "base_url": "https://my-resource.openai.azure.com/openai/v1",
+                "model": "my-deployment",
+                "auth_source": "api_key",
+                "api_transport": "responses"
+            }
+        }
+    }));
+
+    assert_eq!(model.config.provider, PROVIDER_ID_AZURE_OPENAI);
+    assert_eq!(
+        model.config.base_url,
+        "https://my-resource.openai.azure.com/openai/v1"
+    );
+    assert_eq!(model.config.model, "my-deployment");
+    assert_eq!(model.config.api_transport, "responses");
 }
 
 #[test]

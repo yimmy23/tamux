@@ -453,6 +453,38 @@ fn anthropic_setup_uses_api_key_prompt_and_validation() {
 }
 
 #[test]
+fn setup_agent_model_hints_match_agent_roles() {
+    assert_eq!(
+        super::agents::setup_agent_model_hint("Svarog"),
+        "Svarog is the main working fire. Prefer your strongest model."
+    );
+    assert_eq!(
+        super::agents::setup_agent_model_hint("Rarog"),
+        "Rarog should stay light, cheap, and responsive."
+    );
+    assert_eq!(
+        super::agents::setup_agent_model_hint("WELES"),
+        "Weles should stay strong enough for review and governance."
+    );
+}
+
+#[test]
+fn setup_agent_reasoning_hints_match_agent_roles() {
+    assert_eq!(
+        super::agents::setup_agent_reasoning_hint("Svarog"),
+        "Svarog handles primary execution and longer reasoning chains."
+    );
+    assert_eq!(
+        super::agents::setup_agent_reasoning_hint("Rarog"),
+        "Non-reasoning is fine for Rarog; add more only if it clearly helps."
+    );
+    assert_eq!(
+        super::agents::setup_agent_reasoning_hint("WELES"),
+        "Weles does not need to be your top model, but avoid weak review setups."
+    );
+}
+
+#[test]
 fn github_cli_token_output_trims_trailing_newlines() {
     assert_eq!(
         parse_gh_cli_token_output(b"copilot-token\n"),
@@ -463,4 +495,38 @@ fn github_cli_token_output_trims_trailing_newlines() {
 #[test]
 fn github_cli_token_output_rejects_empty_stdout() {
     assert_eq!(parse_gh_cli_token_output(b"\n"), None);
+}
+
+#[test]
+fn remote_model_pricing_subtitle_formats_prompt_and_completion_costs() {
+    let model: super::types::RemoteModelOption = serde_json::from_value(serde_json::json!({
+        "id": "openai/gpt-5.4",
+        "pricing": {
+            "prompt": "0.0000025",
+            "completion": "0.00001"
+        }
+    }))
+    .expect("parse remote model option");
+
+    assert_eq!(
+        super::flow::format_remote_model_pricing_subtitle(&model),
+        Some("Prompt $2.50/M tok, completion $10.00/M tok".to_string())
+    );
+}
+
+#[test]
+fn remote_model_pricing_subtitle_returns_free_for_zero_prompt_and_completion() {
+    let model: super::types::RemoteModelOption = serde_json::from_value(serde_json::json!({
+        "id": "meta-llama/free",
+        "pricing": {
+            "prompt": "0",
+            "completion": "0"
+        }
+    }))
+    .expect("parse remote model option");
+
+    assert_eq!(
+        super::flow::format_remote_model_pricing_subtitle(&model),
+        Some("free".to_string())
+    );
 }

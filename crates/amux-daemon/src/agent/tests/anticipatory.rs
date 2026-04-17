@@ -1010,6 +1010,278 @@ async fn intent_prediction_resolution_treats_inspect_changes_as_repo_verificatio
 }
 
 #[tokio::test]
+async fn intent_prediction_updates_active_prediction_instead_of_duplicating_when_confidence_changes(
+) {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-intent-update"), None)
+        .await
+        .unwrap();
+
+    let mut task = sample_task("task-intent-update", Some("thread-intent-update"), None);
+    task.title = "Need approval".to_string();
+    task.status = TaskStatus::AwaitingApproval;
+    engine.tasks.lock().await.push_back(task);
+
+    engine.run_anticipatory_tick().await;
+
+    let before = engine
+        .history
+        .list_intent_predictions("thread-intent-update", 10)
+        .await
+        .expect("list initial intent predictions");
+    assert_eq!(before.len(), 1);
+    let initial_confidence = before[0].confidence;
+
+    engine
+        .history
+        .insert_intent_prediction(&IntentPredictionRow {
+            id: "intent-prior-1".to_string(),
+            session_id: "thread-prior".to_string(),
+            context_state_hash: "ctx-prior-1".to_string(),
+            predicted_action: "review pending approval".to_string(),
+            confidence: 0.90,
+            actual_action: Some("review pending approval".to_string()),
+            was_correct: Some(true),
+            created_at_ms: now_millis(),
+        })
+        .await
+        .expect("seed first resolved intent prior");
+    engine
+        .history
+        .insert_intent_prediction(&IntentPredictionRow {
+            id: "intent-prior-2".to_string(),
+            session_id: "thread-prior".to_string(),
+            context_state_hash: "ctx-prior-2".to_string(),
+            predicted_action: "review pending approval".to_string(),
+            confidence: 0.90,
+            actual_action: Some("review pending approval".to_string()),
+            was_correct: Some(true),
+            created_at_ms: now_millis().saturating_add(1),
+        })
+        .await
+        .expect("seed second resolved intent prior");
+
+    {
+        let mut runtime = engine.anticipatory.write().await;
+        runtime.last_surface_at = None;
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    let predictions = engine
+        .history
+        .list_intent_predictions("thread-intent-update", 10)
+        .await
+        .expect("list updated intent predictions");
+    let unresolved = predictions
+        .iter()
+        .filter(|row| row.was_correct.is_none() && row.actual_action.is_none())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        unresolved.len(), 1,
+        "confidence changes for the same unresolved intent prediction should update the active prediction instead of duplicating it"
+    );
+    assert!(
+        unresolved[0].confidence >= initial_confidence,
+        "updated unresolved intent prediction should retain or improve confidence after stronger evidence"
+    );
+}
+
+#[tokio::test]
+async fn system_outcome_foresight_does_not_persist_duplicate_unresolved_predictions() {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-foresight-dedupe");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn broken() {}\n").unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-foresight-dedupe"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-foresight-dedupe".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-foresight-dedupe".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+    engine
+        .history
+        .insert_health_log(
+            "health-foresight-dedupe-degraded",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis(),
+        )
+        .await
+        .expect("save degraded health log");
+
+    engine.run_anticipatory_tick().await;
+    engine.run_anticipatory_tick().await;
+
+    let predictions = engine
+        .history
+        .list_system_outcome_predictions("thread-foresight-dedupe", 10)
+        .await
+        .expect("list persisted system outcome predictions after duplicate ticks");
+    let unresolved = predictions
+        .iter()
+        .filter(|row| row.was_correct.is_none() && row.actual_outcome.is_none())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        unresolved.len(),
+        1,
+        "repeated identical foresight ticks should not persist duplicate unresolved predictions"
+    );
+}
+
+#[tokio::test]
+async fn system_outcome_foresight_updates_active_prediction_instead_of_duplicating_when_confidence_changes(
+) {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-foresight-update");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn broken() {}\n").unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-foresight-update"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-foresight-update".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-foresight-update".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+    engine
+        .history
+        .insert_health_log(
+            "health-foresight-update-1",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis() - 2_000,
+        )
+        .await
+        .expect("save first degraded health log");
+
+    engine.run_anticipatory_tick().await;
+
+    let before = engine
+        .history
+        .list_system_outcome_predictions("thread-foresight-update", 10)
+        .await
+        .expect("list initial system outcome predictions");
+    assert_eq!(before.len(), 1);
+    let initial_confidence = before[0].confidence;
+
+    engine
+        .history
+        .insert_health_log(
+            "health-foresight-update-2",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis() - 1_000,
+        )
+        .await
+        .expect("save second degraded health log");
+
+    engine.run_anticipatory_tick().await;
+
+    let predictions = engine
+        .history
+        .list_system_outcome_predictions("thread-foresight-update", 10)
+        .await
+        .expect("list updated system outcome predictions");
+    let unresolved = predictions
+        .iter()
+        .filter(|row| row.was_correct.is_none() && row.actual_outcome.is_none())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        unresolved.len(), 1,
+        "confidence changes for the same unresolved foresight should update the active prediction instead of duplicating it"
+    );
+    assert!(
+        unresolved[0].confidence >= initial_confidence,
+        "updated unresolved prediction should retain or improve confidence after stronger evidence"
+    );
+}
+
+#[tokio::test]
 async fn system_outcome_foresight_persists_and_resolves_when_health_feedback_arrives() {
     let root = tempdir().unwrap();
     let repo_root = root.path().join("repo-foresight-persist");
@@ -1480,7 +1752,9 @@ async fn event_trigger_defaults_can_be_seeded_and_listed() {
         .expect("list_event_triggers should succeed");
     let rows = payload.as_array().expect("payload should be an array");
     assert!(rows.iter().any(|row| row["event_kind"] == "weles_health"));
-    assert!(rows.iter().any(|row| row["event_kind"] == "subagent_health"));
+    assert!(rows
+        .iter()
+        .any(|row| row["event_kind"] == "subagent_health"));
 }
 
 #[tokio::test]

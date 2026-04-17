@@ -317,6 +317,42 @@ fn thread_detail_hydrates_pinned_summaries_outside_loaded_window() {
 }
 
 #[test]
+fn local_unpin_removes_offscreen_pinned_summary_immediately() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Pinned".into(),
+        messages: vec![AgentMessage {
+            id: Some("m3".into()),
+            role: MessageRole::Assistant,
+            content: "latest".into(),
+            pinned_for_compaction: false,
+            ..Default::default()
+        }],
+        pinned_messages: vec![PinnedThreadMessage {
+            message_id: "m1".into(),
+            absolute_index: 0,
+            role: MessageRole::User,
+            content: "offscreen pin".into(),
+        }],
+        loaded_message_start: 2,
+        loaded_message_end: 3,
+        total_message_count: 3,
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    state.reduce(ChatAction::UnpinMessageForCompaction {
+        thread_id: "t1".into(),
+        message_id: "m1".into(),
+        absolute_index: Some(0),
+    });
+
+    assert!(!state.active_thread_has_pinned_messages());
+    assert!(state.active_thread_pinned_messages().is_empty());
+}
+
+#[test]
 fn thread_created_moves_new_thread_to_front() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadListReceived(vec![

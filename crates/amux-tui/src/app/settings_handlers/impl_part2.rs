@@ -208,10 +208,9 @@ impl TuiModel {
         self.config
             .reduce(config::ConfigAction::ModelsFetched(models.clone()));
         self.settings_picker_target = Some(SettingsPickerTarget::SubAgentModel);
-        let count = widgets::model_picker::available_models(&self.config).len() + 1;
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
-        self.modal.set_picker_item_count(count);
+        self.sync_model_picker_item_count();
     }
 
     fn open_subagent_effort_picker(&mut self) {

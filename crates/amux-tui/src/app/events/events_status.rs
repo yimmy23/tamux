@@ -113,8 +113,7 @@ impl TuiModel {
         self.config
             .reduce(config::ConfigAction::ModelsFetched(models));
         if self.modal.top() == Some(crate::state::modal::ModalKind::ModelPicker) {
-            let count = widgets::model_picker::available_models(&self.config).len() + 1;
-            self.modal.set_picker_item_count(count);
+            self.sync_model_picker_item_count();
         }
     }
 

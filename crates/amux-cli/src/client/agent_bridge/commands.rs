@@ -244,6 +244,19 @@ where
                 .send(ClientMessage::AgentSetProviderModel { provider_id, model })
                 .await?;
         }
+        AgentBridgeCommand::FetchModels {
+            provider_id,
+            base_url,
+            api_key,
+        } => {
+            framed
+                .send(ClientMessage::AgentFetchModels {
+                    provider_id,
+                    base_url,
+                    api_key,
+                })
+                .await?;
+        }
         AgentBridgeCommand::SetTargetAgentProviderModel {
             target_agent_id,
             provider_id,

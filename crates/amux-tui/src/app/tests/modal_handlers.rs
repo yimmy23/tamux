@@ -1439,6 +1439,195 @@ fn protected_weles_editor_can_open_provider_model_and_effort_pickers() {
 }
 
 #[test]
+fn subagent_model_picker_uses_subagent_current_model_instead_of_primary_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.model = "gpt-5.4".to_string();
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        Some("weles_builtin".to_string()),
+        1,
+        PROVIDER_ID_OPENAI.to_string(),
+        "claude-sonnet-4-5".to_string(),
+    );
+    editor.name = "WELES".to_string();
+    editor.builtin = true;
+    editor.immutable_identity = true;
+    model.subagents.editor = Some(editor);
+    model.settings_picker_target = Some(SettingsPickerTarget::SubAgentModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model
+            .subagents
+            .editor
+            .as_ref()
+            .map(|editor| editor.model.as_str()),
+        Some("claude-sonnet-4-5")
+    );
+    assert_eq!(model.config.model, "gpt-5.4");
+}
+
+#[test]
+fn subagent_custom_model_entry_does_not_mutate_primary_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.model = "gpt-5.4".to_string();
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        Some("weles_builtin".to_string()),
+        1,
+        PROVIDER_ID_OPENAI.to_string(),
+        "gpt-5.4-mini".to_string(),
+    );
+    editor.name = "WELES".to_string();
+    editor.builtin = true;
+    editor.immutable_identity = true;
+    editor.field = crate::state::subagents::SubAgentEditorField::Model;
+    model.subagents.editor = Some(editor);
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model.settings_picker_target = Some(SettingsPickerTarget::SubAgentModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.settings.editing_field(), Some("subagent_model"));
+    model.settings.reduce(SettingsAction::InsertChar('x'));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model
+            .subagents
+            .editor
+            .as_ref()
+            .map(|editor| editor.model.as_str()),
+        Some("gpt-5.4-minix")
+    );
+    assert_eq!(model.config.model, "gpt-5.4");
+}
+
+#[test]
+fn concierge_model_picker_uses_rarog_current_model_instead_of_primary_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.model = "gpt-5.4".to_string();
+    model.concierge.model = Some("claude-sonnet-4-5".to_string());
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::ConciergeModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.concierge.model.as_deref(), Some("claude-sonnet-4-5"));
+    assert_eq!(model.config.model, "gpt-5.4");
+}
+
+#[test]
+fn concierge_custom_model_entry_does_not_mutate_primary_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.model = "gpt-5.4".to_string();
+    model.concierge.model = Some("gpt-5.4-mini".to_string());
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::ConciergeModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.settings.editing_field(), Some("concierge_model"));
+    model.settings.reduce(SettingsAction::InsertChar('x'));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.concierge.model.as_deref(), Some("gpt-5.4-minix"));
+    assert_eq!(model.config.model, "gpt-5.4");
+}
+
+#[test]
 fn thread_picker_right_arrow_switches_to_rarog_tab() {
     let (mut model, _daemon_rx) = make_model();
     model
@@ -2158,6 +2347,91 @@ fn settings_textarea_ctrl_s_confirms_whatsapp_allowlist_edit() {
     assert!(!quit);
     assert_eq!(model.settings.editing_field(), None);
     assert_eq!(model.config.whatsapp_allowed_contacts, "123123123123\n6");
+}
+
+#[test]
+fn subagent_system_prompt_textarea_supports_arrow_keys() {
+    let (mut model, _daemon_rx) = make_model();
+    let editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        1,
+        "openai".to_string(),
+        "gpt-5.4".to_string(),
+    );
+    model.subagents.editor = Some(editor);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
+    model
+        .settings
+        .start_editing("subagent_system_prompt", "abc\ndef");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Left,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.settings.edit_cursor_line_col(), (1, 2));
+
+    let quit = model.handle_key_modal(KeyCode::Up, KeyModifiers::NONE, modal::ModalKind::Settings);
+    assert!(!quit);
+    assert_eq!(model.settings.edit_cursor_line_col(), (0, 2));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.settings.edit_cursor_line_col(), (0, 3));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.settings.edit_cursor_line_col(), (1, 3));
+}
+
+#[test]
+fn subagent_editor_navigation_wraps_between_first_and_last_fields() {
+    let (mut model, _daemon_rx) = make_model();
+    let editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        1,
+        "openai".to_string(),
+        "gpt-5.4".to_string(),
+    );
+    model.subagents.editor = Some(editor);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
+
+    let quit = model.handle_key_modal(KeyCode::Up, KeyModifiers::NONE, modal::ModalKind::Settings);
+    assert!(!quit);
+    assert_eq!(
+        model.subagents.editor.as_ref().map(|editor| editor.field),
+        Some(crate::state::subagents::SubAgentEditorField::Cancel)
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.subagents.editor.as_ref().map(|editor| editor.field),
+        Some(crate::state::subagents::SubAgentEditorField::Name)
+    );
 }
 
 fn sample_notification(read_at: Option<i64>) -> amux_protocol::InboxNotification {

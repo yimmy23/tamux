@@ -315,7 +315,10 @@ impl AgentEngine {
                         "Task completed".into()
                     }),
                 );
-                if matches!(updated.status, TaskStatus::Completed | TaskStatus::BudgetExceeded) {
+                if matches!(
+                    updated.status,
+                    TaskStatus::Completed | TaskStatus::BudgetExceeded
+                ) {
                     self.settle_task_skill_consultations(&updated, "success")
                         .await;
                     if updated.source == "divergent" {

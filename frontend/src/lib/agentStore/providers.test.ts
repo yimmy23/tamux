@@ -4,6 +4,7 @@ import {
   getDefaultModelForProvider,
   getProviderDefinition,
   normalizeAgentProviderId,
+  normalizeProviderConfig,
 } from "./providers.ts";
 
 describe("frontend NVIDIA provider catalog", () => {
@@ -92,5 +93,49 @@ describe("frontend Nous Portal provider catalog", () => {
   it("recognizes Nous Portal as a valid provider id", () => {
     expect(normalizeAgentProviderId("nous-portal")).toBe("nous-portal");
     expect(getDefaultModelForProvider("nous-portal" as any)).toBe("nousresearch/hermes-4-70b");
+  });
+});
+
+describe("frontend Azure OpenAI provider catalog", () => {
+  it("registers Azure OpenAI with OpenAI-compatible defaults", () => {
+    const azure = getProviderDefinition("azure-openai" as any);
+
+    expect(azure).toBeDefined();
+    expect(azure?.defaultBaseUrl).toBe(
+      "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1",
+    );
+    expect(azure?.defaultModel).toBe("");
+    expect(azure?.supportsModelFetch).toBe(true);
+    expect(azure?.defaultTransport).toBe("responses");
+    expect(azure?.supportedAuthSources).toEqual(["api_key"]);
+    expect(azure?.supportsResponseContinuity).toBe(true);
+  });
+
+  it("recognizes Azure OpenAI as a valid provider id", () => {
+    expect(normalizeAgentProviderId("azure-openai")).toBe("azure-openai");
+    expect(getDefaultModelForProvider("azure-openai" as any)).toBe("");
+  });
+
+  it("preserves the configured resource-specific base URL", () => {
+    const normalized = normalizeProviderConfig(
+      "azure-openai" as any,
+      {
+        base_url: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1",
+        model: "",
+        custom_model_name: "",
+        api_key: "",
+        assistant_id: "",
+        api_transport: "responses",
+        auth_source: "api_key",
+        context_window_tokens: null,
+      },
+      {
+        base_url: "https://my-real-resource.openai.azure.com/openai/v1",
+        model: "deployment-name",
+      },
+    );
+
+    expect(normalized.base_url).toBe("https://my-real-resource.openai.azure.com/openai/v1");
+    expect(normalized.model).toBe("deployment-name");
   });
 });

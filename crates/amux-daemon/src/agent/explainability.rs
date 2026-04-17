@@ -111,11 +111,18 @@ impl AgentEngine {
             // then pick the requested step index so step 0 means the earliest step.
             let mut step_traces: Vec<_> = traces.iter().filter(|t| t.task_id.is_some()).collect();
             step_traces.sort_by_key(|trace| trace.created_at);
-            step_traces
-                .get(idx)
-                .copied()
-                .or_else(|| step_traces.last().copied())
-                .or(traces.first())
+            if let Some(trace) = step_traces.get(idx).copied() {
+                Some(trace)
+            } else if let Some(trace) = step_traces.last().copied() {
+                Some(trace)
+            } else {
+                let mut chronological = traces.iter().collect::<Vec<_>>();
+                chronological.sort_by_key(|trace| trace.created_at);
+                chronological
+                    .get(idx)
+                    .copied()
+                    .or_else(|| chronological.last().copied())
+            }
         } else {
             traces.first()
         }?;
@@ -429,5 +436,89 @@ mod tests {
                 .as_deref(),
             Some("lower confidence")
         );
+    }
+
+    #[tokio::test]
+    async fn explain_action_step_index_falls_back_to_earliest_goal_level_trace_when_no_step_traces_exist(
+    ) {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let earlier_selected = serde_json::json!({
+            "option_type": "goal_plan",
+            "reasoning": "first goal-level reasoning",
+            "rejection_reason": null,
+            "estimated_success_prob": 0.58,
+            "arguments_hash": "ctx-early-goal"
+        })
+        .to_string();
+        let later_selected = serde_json::json!({
+            "option_type": "goal_replan",
+            "reasoning": "later goal-level reasoning",
+            "rejection_reason": null,
+            "estimated_success_prob": 0.67,
+            "arguments_hash": "ctx-late-goal"
+        })
+        .to_string();
+        let factors_json = serde_json::json!([
+            {
+                "factor_type": "pattern_match",
+                "description": "matched prior goal-level pattern",
+                "weight": 0.6
+            }
+        ])
+        .to_string();
+        let unresolved =
+            serde_json::to_string(&crate::agent::learning::traces::CausalTraceOutcome::Unresolved)
+                .expect("serialize unresolved outcome");
+
+        engine
+            .history
+            .insert_causal_trace(
+                "causal-explain-goal-level-early",
+                Some("thread-explain-goal-level-order"),
+                Some("goal-explain-goal-level-order"),
+                None,
+                "plan_selection",
+                &earlier_selected,
+                "[]",
+                "ctx-early-goal",
+                &factors_json,
+                &unresolved,
+                Some("gpt-4o-mini"),
+                1_717_180_001,
+            )
+            .await
+            .expect("insert earlier goal-level causal trace");
+        engine
+            .history
+            .insert_causal_trace(
+                "causal-explain-goal-level-late",
+                Some("thread-explain-goal-level-order"),
+                Some("goal-explain-goal-level-order"),
+                None,
+                "replan_selection",
+                &later_selected,
+                "[]",
+                "ctx-late-goal",
+                &factors_json,
+                &unresolved,
+                Some("gpt-4o-mini"),
+                1_717_180_999,
+            )
+            .await
+            .expect("insert later goal-level causal trace");
+
+        let explanation = engine
+            .handle_explain_action("goal-explain-goal-level-order", Some(0))
+            .await;
+
+        assert_eq!(explanation.source, "causal_trace");
+        assert_eq!(
+            explanation.chosen_approach, "first goal-level reasoning",
+            "step_index=0 should fall back to the earliest goal-level causal trace when no step traces exist"
+        );
+        assert_eq!(explanation.decision_point, "plan_selection");
     }
 }

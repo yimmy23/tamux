@@ -832,6 +832,24 @@ fn behavior_adaptation_profile_tightens_clarification_and_compactness_when_fragi
     assert!(profile.compact_response);
 }
 
+#[test]
+fn behavior_adaptation_profile_requests_clarification_when_fragile_feedback_includes_rapid_revert()
+{
+    let mut model = OperatorModel::default();
+    model.cognitive_style.message_count = 1;
+    model.operator_satisfaction.label = "fragile".to_string();
+    model.operator_satisfaction.score = 0.49;
+    model.implicit_feedback.rapid_revert_count = 1;
+
+    let profile = BehaviorAdaptationProfile::from_model(&model);
+    assert_eq!(profile.mode, SatisfactionAdaptationMode::Tightened);
+    assert!(
+        profile.prompt_for_clarification,
+        "fragile rapid-revert feedback should trigger targeted clarification"
+    );
+    assert!(profile.compact_response);
+}
+
 #[tokio::test]
 async fn request_goal_plan_injects_targeted_clarification_guidance_when_behavior_adapter_requires_it(
 ) {

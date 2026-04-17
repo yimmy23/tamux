@@ -327,9 +327,61 @@ fn ctrl_k_then_u_unpins_selected_pinned_message_from_input_focus() {
 
     assert!(!handled);
     assert_eq!(model.input.buffer(), "draft");
+    assert!(
+        !model.chat.active_thread_has_pinned_messages(),
+        "selected pin should disappear immediately from the sidebar state"
+    );
+    assert_eq!(model.sidebar.active_tab(), SidebarTab::Todos);
     let command = cmd_rx
         .try_recv()
         .expect("Ctrl+K then U should unpin the selected message");
+    assert!(matches!(
+        command,
+        DaemonCommand::UnpinThreadMessageForCompaction {
+            thread_id,
+            message_id
+        } if thread_id == "thread-1" && message_id == "message-1"
+    ));
+}
+
+#[test]
+fn chat_unpin_updates_pinned_sidebar_without_waiting_for_thread_refresh() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-1".to_string(),
+            title: "Pinned".to_string(),
+            messages: vec![chat::AgentMessage {
+                id: Some("message-1".to_string()),
+                role: chat::MessageRole::Assistant,
+                content: "Pinned content".to_string(),
+                pinned_for_compaction: true,
+                ..Default::default()
+            }],
+            loaded_message_end: 1,
+            total_message_count: 1,
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model
+        .sidebar
+        .reduce(SidebarAction::SwitchTab(SidebarTab::Pinned));
+
+    model.unpin_message_for_compaction(0);
+
+    assert!(
+        !model.chat.active_thread_has_pinned_messages(),
+        "chat-side unpin should clear the pinned sidebar immediately"
+    );
+    assert_eq!(model.sidebar.active_tab(), SidebarTab::Todos);
+    let command = cmd_rx
+        .try_recv()
+        .expect("chat-side unpin should still notify the daemon");
     assert!(matches!(
         command,
         DaemonCommand::UnpinThreadMessageForCompaction {

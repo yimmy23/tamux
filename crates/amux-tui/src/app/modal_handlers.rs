@@ -206,6 +206,30 @@ impl TuiModel {
                     self.settings.is_textarea() && is_settings_textarea_submit_key(code, modifiers);
                 if self.settings.is_textarea() {
                     match code {
+                        KeyCode::Left => {
+                            self.settings.reduce(SettingsAction::MoveCursorLeft);
+                            return false;
+                        }
+                        KeyCode::Right => {
+                            self.settings.reduce(SettingsAction::MoveCursorRight);
+                            return false;
+                        }
+                        KeyCode::Up => {
+                            self.settings.reduce(SettingsAction::MoveCursorUp);
+                            return false;
+                        }
+                        KeyCode::Down => {
+                            self.settings.reduce(SettingsAction::MoveCursorDown);
+                            return false;
+                        }
+                        KeyCode::Home => {
+                            self.settings.reduce(SettingsAction::MoveCursorHome);
+                            return false;
+                        }
+                        KeyCode::End => {
+                            self.settings.reduce(SettingsAction::MoveCursorEnd);
+                            return false;
+                        }
                         _ if textarea_submit => {}
                         KeyCode::Enter => {
                             self.settings.reduce(SettingsAction::InsertChar('\n'));
@@ -228,6 +252,12 @@ impl TuiModel {
                 }
 
                 match code {
+                    KeyCode::Left => self.settings.reduce(SettingsAction::MoveCursorLeft),
+                    KeyCode::Right => self.settings.reduce(SettingsAction::MoveCursorRight),
+                    KeyCode::Up => self.settings.reduce(SettingsAction::MoveCursorUp),
+                    KeyCode::Down => self.settings.reduce(SettingsAction::MoveCursorDown),
+                    KeyCode::Home => self.settings.reduce(SettingsAction::MoveCursorHome),
+                    KeyCode::End => self.settings.reduce(SettingsAction::MoveCursorEnd),
                     _ if textarea_submit || code == KeyCode::Enter => {
                         let field = self.settings.editing_field().unwrap_or("").to_string();
                         let value = self.settings.edit_buffer().to_string();
@@ -449,6 +479,11 @@ impl TuiModel {
                                 if let Some(editor) = self.subagents.editor.as_mut() {
                                     editor.role = value;
                                     editor.previous_role_preset = None;
+                                }
+                            }
+                            "subagent_model" => {
+                                if let Some(editor) = self.subagents.editor.as_mut() {
+                                    editor.model = value.trim().to_string();
                                 }
                             }
                             "subagent_system_prompt" => {

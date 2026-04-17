@@ -10,6 +10,22 @@ const REASONING_EFFORT_ITEMS: [(&str, &str); 6] = [
     ("Extra High", "xhigh"),
 ];
 
+pub(super) fn setup_agent_model_hint(label: &str) -> &'static str {
+    match label.trim().to_ascii_lowercase().as_str() {
+        "rarog" => "Rarog should stay light, cheap, and responsive.",
+        "weles" => "Weles should stay strong enough for review and governance.",
+        _ => "Svarog is the main working fire. Prefer your strongest model.",
+    }
+}
+
+pub(super) fn setup_agent_reasoning_hint(label: &str) -> &'static str {
+    match label.trim().to_ascii_lowercase().as_str() {
+        "rarog" => "Non-reasoning is fine for Rarog; add more only if it clearly helps.",
+        "weles" => "Weles does not need to be your top model, but avoid weak review setups.",
+        _ => "Svarog handles primary execution and longer reasoning chains.",
+    }
+}
+
 pub(super) async fn configure_advanced_agents(
     framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
     tier: &str,
@@ -44,7 +60,10 @@ async fn configure_secondary_agent_override(
             &format!("Configure {label} separately?"),
             &[
                 ("No, keep current defaults", ""),
-                ("Yes, choose provider, model, and reasoning effort", ""),
+                (
+                    "Yes, choose provider, model, and reasoning effort",
+                    setup_agent_model_hint(label),
+                ),
             ],
             true,
             0,
@@ -91,6 +110,7 @@ async fn configure_secondary_model(
     base_path: &str,
     provider: &ProviderSelection,
 ) -> Result<String> {
+    println!("{}", setup_agent_model_hint(label));
     let prompt = format!(
         "Enter {label}'s model (press Enter to use {})",
         if provider.default_model.is_empty() {
@@ -127,7 +147,10 @@ async fn configure_secondary_reasoning_effort(
     none_uses_null: bool,
 ) -> Result<Option<String>> {
     let idx = select_list(
-        &format!("Select {label}'s reasoning effort:"),
+        &format!(
+            "Select {label}'s reasoning effort:\n{}",
+            setup_agent_reasoning_hint(label)
+        ),
         &REASONING_EFFORT_ITEMS,
         true,
         0,

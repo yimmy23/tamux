@@ -66,6 +66,7 @@ mod provenance;
 mod provider_auth_store;
 mod provider_resolution;
 pub mod rate_limiter;
+mod resonance;
 mod runtime_continuity;
 mod semantic_env;
 mod session_recall;

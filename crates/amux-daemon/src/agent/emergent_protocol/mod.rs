@@ -673,6 +673,12 @@ fn merge_detected_candidates(
             existing.observations = detected.observations.clone();
             existing.state = match existing.state {
                 ProtocolCandidateState::Accepted => ProtocolCandidateState::Accepted,
+                ProtocolCandidateState::Rejected
+                    if detected.observation_count >= ACCEPTANCE_OBSERVATION_THRESHOLD
+                        && detected.confidence >= 0.20 =>
+                {
+                    classify_candidate_state(existing.observation_count, existing.confidence)
+                }
                 ProtocolCandidateState::Rejected => ProtocolCandidateState::Rejected,
                 _ => classify_candidate_state(existing.observation_count, existing.confidence),
             };
@@ -946,6 +952,55 @@ mod tests {
             == ProtocolCandidateState::Rejected
             && candidate.normalized_pattern == "k"));
     }
+    #[tokio::test]
+    async fn rejected_candidate_can_reenter_proposed_state_after_stronger_future_evidence() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-emergent-reproposal";
+
+        let weak = ProtocolCandidate {
+            id: "proto_rejected_then_reobserved".to_string(),
+            thread_id: thread_id.to_string(),
+            kind: types::ProtocolSignalKind::RepeatedContinuationCue,
+            trigger_phrase: "continue".to_string(),
+            normalized_pattern: "continue".to_string(),
+            state: ProtocolCandidateState::Rejected,
+            confidence: 0.05,
+            observation_count: 1,
+            first_seen_at_ms: 1,
+            last_seen_at_ms: 1,
+            observations: vec![],
+        };
+
+        let mut store = ProtocolCandidateStore::default();
+        store.candidates.push(weak);
+        engine
+            .history
+            .upsert_thread_protocol_candidates_state(thread_id, &store, 10)
+            .await
+            .expect("initial rejected store should persist");
+
+        let messages = vec![
+            msg("m1", thread_id, 1, "user", "continue"),
+            msg("m2", thread_id, 2, "assistant", "working"),
+            msg("m3", thread_id, 3, "user", "continue"),
+            msg("m4", thread_id, 4, "assistant", "still working"),
+            msg("m5", thread_id, 5, "user", "continue"),
+        ];
+
+        let analyzed = engine
+            .analyze_emergent_protocol_from_messages(thread_id, &messages)
+            .await
+            .expect("analysis should succeed")
+            .expect("candidate store should be returned");
+
+        assert!(analyzed.candidates.iter().any(|candidate| {
+            candidate.normalized_pattern == "continue"
+                && candidate.state == ProtocolCandidateState::Proposed
+        }));
+    }
+
     #[tokio::test]
     async fn accepted_proposal_promotes_into_registry_entry() {
         let root = tempdir().expect("tempdir");

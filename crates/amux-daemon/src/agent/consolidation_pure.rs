@@ -10,6 +10,18 @@ pub(crate) const DEFAULT_IDLE_THRESHOLD_MS: u64 = 5 * 60 * 1000;
 #[allow(dead_code)]
 pub(crate) const DEFAULT_BUDGET_SECS: u64 = 30;
 
+pub(crate) fn dream_content_contains_equivalent_hint(content: &str, hint: &str) -> bool {
+    let normalized_hint = super::forge::strip_forge_markup(hint);
+    if normalized_hint.is_empty() {
+        return false;
+    }
+
+    content.lines().any(|line| {
+        line.contains("[dream]")
+            && super::forge::strip_forge_markup(line).eq_ignore_ascii_case(&normalized_hint)
+    })
+}
+
 /// Check all four idle conditions required for consolidation per D-01.
 /// Returns true only when ALL conditions are simultaneously met:
 /// no active tasks, no active goal runs, no active streams, and operator idle > threshold.

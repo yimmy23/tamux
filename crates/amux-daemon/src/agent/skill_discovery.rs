@@ -93,6 +93,25 @@ impl AgentEngine {
                 continue;
             }
 
+            let had_skill_consultation = match self
+                .history
+                .trace_has_skill_consultation(
+                    None,
+                    trace.task_id.as_deref(),
+                    trace.goal_run_id.as_deref(),
+                )
+                .await
+            {
+                Ok(value) => value,
+                Err(e) => {
+                    tracing::warn!(error = %e, trace_id = %trace.id, "failed to inspect skill consultation history for trace");
+                    continue;
+                }
+            };
+            if had_skill_consultation {
+                continue;
+            }
+
             let outcome = trace.outcome.as_deref().unwrap_or("unknown");
 
             // Get replan_count from goal_run if present (Pitfall 1)

@@ -234,6 +234,33 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn trace_has_skill_consultation(
+        &self,
+        thread_id: Option<&str>,
+        task_id: Option<&str>,
+        goal_run_id: Option<&str>,
+    ) -> Result<bool> {
+        let thread_id = thread_id.map(str::to_string);
+        let task_id = task_id.map(str::to_string);
+        let goal_run_id = goal_run_id.map(str::to_string);
+        self.read_conn
+            .call(move |conn| {
+                let count: i64 = conn.query_row(
+                    "SELECT COUNT(1) FROM skill_variant_usage \
+                     WHERE ( \
+                        (?1 IS NOT NULL AND task_id = ?1) OR \
+                        (?2 IS NOT NULL AND goal_run_id = ?2) OR \
+                        (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3) \
+                     )",
+                    params![task_id, goal_run_id, thread_id],
+                    |row| row.get(0),
+                )?;
+                Ok(count > 0)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub(crate) async fn append_telemetry(
         &self,
         kind: &str,

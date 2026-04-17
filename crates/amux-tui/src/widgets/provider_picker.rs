@@ -8,13 +8,14 @@ use crate::state::auth::AuthState;
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
-use amux_shared::providers::PROVIDER_ID_CUSTOM;
+use amux_shared::providers::{PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM};
 
 pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
     PROVIDERS
         .iter()
         .filter(|provider| {
             provider.id == PROVIDER_ID_CUSTOM
+                || provider.id == PROVIDER_ID_AZURE_OPENAI
                 || auth
                     .entries
                     .iter()

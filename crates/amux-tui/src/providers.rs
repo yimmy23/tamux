@@ -94,6 +94,10 @@ pub fn model_uses_context_window_override(
         .is_none()
 }
 
+pub fn provider_uses_configurable_base_url(provider_id: &str) -> bool {
+    matches!(provider_id, PROVIDER_ID_CUSTOM | PROVIDER_ID_AZURE_OPENAI)
+}
+
 pub const PROVIDERS: &[ProviderDef] = &[
     ProviderDef {
         id: PROVIDER_ID_OPENAI,
@@ -103,6 +107,17 @@ pub const PROVIDERS: &[ProviderDef] = &[
         supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
         default_transport: "responses",
         supported_auth_sources: OPENAI_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
+        id: PROVIDER_ID_AZURE_OPENAI,
+        name: "Azure OpenAI",
+        default_base_url: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1",
+        default_model: "",
+        supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
+        default_transport: "responses",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
         default_auth_source: "api_key",
         native_base_url: None,
     },

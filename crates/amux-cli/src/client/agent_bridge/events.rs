@@ -121,6 +121,16 @@ fn bridge_event_from_daemon_message(message: &DaemonMessage) -> Option<serde_jso
                 "error": error,
             }
         })),
+        DaemonMessage::AgentModelsResponse {
+            operation_id,
+            models_json,
+        } => Some(serde_json::json!({
+            "type": "provider-models",
+            "data": {
+                "operation_id": operation_id,
+                "models": serde_json::from_str::<serde_json::Value>(models_json).unwrap_or_default(),
+            }
+        })),
         _ => None,
     }
 }

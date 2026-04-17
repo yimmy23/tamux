@@ -33,6 +33,7 @@ impl TuiModel {
             default_session_id: None,
             tick_counter: 0,
             agent_activity: None,
+            thread_agent_activity: std::collections::HashMap::new(),
             participant_playground_activity: std::collections::HashMap::new(),
             last_error: None,
             error_active: false,
@@ -785,8 +786,47 @@ impl TuiModel {
         self.pending_stop && self.tick_counter.saturating_sub(self.pending_stop_tick) < 100
     }
 
+    fn current_thread_agent_activity(&self) -> Option<&str> {
+        self.chat
+            .active_thread_id()
+            .and_then(|thread_id| self.thread_agent_activity.get(thread_id))
+            .map(String::as_str)
+            .or(self.agent_activity.as_deref())
+    }
+
+    fn set_agent_activity_for(&mut self, thread_id: Option<String>, activity: impl Into<String>) {
+        let activity = activity.into();
+        if let Some(thread_id) = thread_id {
+            self.thread_agent_activity.insert(thread_id, activity);
+        } else {
+            self.agent_activity = Some(activity);
+        }
+    }
+
+    fn set_active_thread_activity(&mut self, activity: impl Into<String>) {
+        self.set_agent_activity_for(self.chat.active_thread_id().map(str::to_string), activity);
+    }
+
+    fn clear_agent_activity_for(&mut self, thread_id: Option<&str>) {
+        if let Some(thread_id) = thread_id {
+            self.thread_agent_activity.remove(thread_id);
+        } else {
+            self.agent_activity = None;
+        }
+    }
+
+    fn clear_active_thread_activity(&mut self) {
+        let thread_id = self.chat.active_thread_id().map(str::to_string);
+        self.clear_agent_activity_for(thread_id.as_deref());
+    }
+
+    fn clear_all_agent_activity(&mut self) {
+        self.agent_activity = None;
+        self.thread_agent_activity.clear();
+    }
+
     fn assistant_busy(&self) -> bool {
-        self.chat.is_streaming() || self.agent_activity.is_some()
+        self.chat.is_streaming() || self.current_thread_agent_activity().is_some()
     }
 
     fn queue_barrier_active(&self) -> bool {

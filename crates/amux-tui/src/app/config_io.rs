@@ -161,9 +161,7 @@ impl TuiModel {
             .map(|v| v.max(1000) as u32);
 
             self.config.provider = provider_id.to_string();
-            // For predefined providers, always use the canonical base URL from the
-            // provider definition so stale DB values cannot override it.
-            self.config.base_url = if provider_id != PROVIDER_ID_CUSTOM {
+            self.config.base_url = if !providers::provider_uses_configurable_base_url(provider_id) {
                 providers::find_by_id(provider_id)
                     .map(|def| def.default_base_url.to_string())
                     .unwrap_or_else(|| base_url.unwrap_or("").to_string())

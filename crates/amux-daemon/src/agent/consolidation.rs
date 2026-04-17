@@ -276,6 +276,12 @@ impl AgentEngine {
                 result.forge_hints_generated = pass.hints_generated;
                 result.forge_hints_auto_applied = pass.hints_auto_applied;
                 result.forge_hints_logged_only = pass.hints_logged_only;
+                if let Err(error) = self
+                    .persist_dream_hints_from_forge(&pass.auto_applied_hints)
+                    .await
+                {
+                    tracing::warn!(agent_id = %agent_id, "failed to persist dream hints from forge pass: {error}");
+                }
                 self.record_learning_subphase_run(FORGE_LAST_RUN_KEY_PREFIX, &agent_id)
                     .await;
             }
@@ -322,6 +328,54 @@ impl AgentEngine {
         {
             tracing::warn!(key = %key, "failed to persist learning sub-phase cadence state: {error}");
         }
+    }
+
+    async fn persist_dream_hints_from_forge(&self, hints: &[String]) -> anyhow::Result<usize> {
+        if hints.is_empty() {
+            return Ok(0);
+        }
+
+        let scope_id = current_agent_scope_id();
+        ensure_memory_files_for_scope(&self.data_dir, &scope_id).await?;
+        let memory_path = memory_paths_for_scope(&self.data_dir, &scope_id).memory_path;
+        let mut existing = tokio::fs::read_to_string(&memory_path)
+            .await
+            .unwrap_or_default();
+        let mut applied = 0usize;
+
+        for hint in hints {
+            let normalized_hint = super::forge::strip_forge_markup(hint);
+            if normalized_hint.is_empty()
+                || pure::dream_content_contains_equivalent_hint(&existing, &normalized_hint)
+            {
+                continue;
+            }
+
+            let timestamp_ms = now_millis();
+            let line = format!(
+                "- [dream][{}] {}",
+                chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64)
+                    .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+                    .unwrap_or_else(|| timestamp_ms.to_string()),
+                normalized_hint.trim()
+            );
+            let next = if existing.trim().is_empty() {
+                line.clone()
+            } else {
+                format!("{}\n\n{}", existing.trim_end(), line)
+            };
+            if next.chars().count() > 2_200 {
+                break;
+            }
+            existing = next;
+            applied += 1;
+        }
+
+        if applied > 0 {
+            tokio::fs::write(&memory_path, existing).await?;
+        }
+
+        Ok(applied)
     }
 
     /// Review recent execution traces and promote successful tool sequences to

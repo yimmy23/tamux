@@ -772,7 +772,7 @@ impl TuiModel {
                 self.focus == FocusArea::Sidebar,
                 &self.gateway_statuses,
                 &self.tier,
-                self.agent_activity.as_deref(),
+                self.current_thread_agent_activity(),
                 self.weles_health.as_ref(),
                 &self.recent_actions,
             );
@@ -1017,11 +1017,14 @@ impl TuiModel {
                     );
                 }
                 modal::ModalKind::ModelPicker => {
-                    widgets::model_picker::render(
+                    let (current_model, custom_model_name) = self.model_picker_current_selection();
+                    widgets::model_picker::render_for(
                         frame,
                         overlay_area,
                         &self.modal,
                         &self.config,
+                        &current_model,
+                        custom_model_name.as_deref(),
                         &self.theme,
                     );
                 }

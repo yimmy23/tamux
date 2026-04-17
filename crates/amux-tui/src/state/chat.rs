@@ -1182,6 +1182,36 @@ impl ChatState {
                 }
             }
 
+            ChatAction::UnpinMessageForCompaction {
+                thread_id,
+                message_id,
+                absolute_index,
+            } => {
+                if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                    let loaded_message_start = thread.loaded_message_start;
+                    for (index, message) in thread.messages.iter_mut().enumerate() {
+                        let matches_message_id = !message_id.is_empty()
+                            && message.id.as_deref() == Some(message_id.as_str());
+                        let matches_absolute_index = absolute_index.is_some_and(|absolute| {
+                            loaded_message_start.saturating_add(index) == absolute
+                        });
+                        if matches_message_id || matches_absolute_index {
+                            message.pinned_for_compaction = false;
+                        }
+                    }
+
+                    thread.pinned_messages.retain(|message| {
+                        let matches_message_id = !message_id.is_empty()
+                            && !message.message_id.is_empty()
+                            && message.message_id == message_id;
+                        let matches_absolute_index = absolute_index
+                            .is_some_and(|absolute| message.absolute_index == absolute);
+                        !(matches_message_id || matches_absolute_index)
+                    });
+                    thread.pinned_messages = effective_pinned_messages(thread);
+                }
+            }
+
             ChatAction::SelectThread(thread_id) => {
                 self.pinned_message_top = None;
                 self.active_thread_id = if thread_id.is_empty() {

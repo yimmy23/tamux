@@ -248,7 +248,9 @@ impl BehaviorAdaptationProfile {
                 || model.implicit_feedback.correction_message_count > 0)
             || matches!(mode, SatisfactionAdaptationMode::Tightened)
                 && (model.implicit_feedback.correction_message_count > 0
-                    || model.implicit_feedback.fast_denial_count > 0);
+                    || model.implicit_feedback.fast_denial_count > 0
+                    || model.implicit_feedback.rapid_revert_count > 0
+                    || model.implicit_feedback.session_abandon_count > 0);
         let compact_response = !matches!(mode, SatisfactionAdaptationMode::Normal)
             || model.implicit_feedback.correction_message_count > 0
             || model.implicit_feedback.fast_denial_count > 0;

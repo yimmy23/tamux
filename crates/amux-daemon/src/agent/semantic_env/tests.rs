@@ -275,6 +275,33 @@ fn render_imported_by_lists_matching_files() {
 }
 
 #[test]
+fn render_imports_rejects_ambiguous_file_matches() {
+    let graph = SemanticGraph {
+        packages: Vec::new(),
+        services: Vec::new(),
+        infra_resources: Vec::new(),
+        import_files: vec![
+            SemanticImportFile {
+                language: "typescript",
+                source_path: "/tmp/src/lib/api.ts".to_string(),
+                imports: vec!["react".to_string()],
+            },
+            SemanticImportFile {
+                language: "typescript",
+                source_path: "/tmp/src/lib/auth/api.ts".to_string(),
+                imports: vec!["zod".to_string()],
+            },
+        ],
+    };
+
+    let error = render_imports(Path::new("/tmp"), &graph, Some("api"), 10)
+        .expect_err("ambiguous import file target should require a more specific query");
+    assert!(error
+        .to_string()
+        .contains("multiple import files matched `api`; be more specific"));
+}
+
+#[test]
 fn render_dependents_lists_local_reverse_edges() {
     let graph = SemanticGraph {
         packages: vec![

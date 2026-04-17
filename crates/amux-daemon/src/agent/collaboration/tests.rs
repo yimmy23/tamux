@@ -362,6 +362,115 @@ async fn collaboration_bid_protocol_assigns_primary_and_reviewer_and_persists_ou
 }
 
 #[tokio::test]
+async fn resolve_bids_rejects_when_no_bid_clears_minimum_confidence_threshold() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Choose the best owner for a risky workstream".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_a = engine
+        .enqueue_task(
+            "Low confidence child A".to_string(),
+            "Prepare a weak bid".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_b = engine
+        .enqueue_task(
+            "Low confidence child B".to_string(),
+            "Prepare another weak bid".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child_a)
+        .await;
+    engine
+        .register_subagent_collaboration(&parent.id, &child_b)
+        .await;
+
+    let eligible = vec![child_a.id.clone(), child_b.id.clone()];
+    engine
+        .call_for_bids(&parent.id, &eligible)
+        .await
+        .expect("call_for_bids should succeed");
+
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_a.id,
+            0.21,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("first low-confidence bid should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_b.id,
+            0.29,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("second low-confidence bid should succeed");
+
+    let error = engine
+        .resolve_bids(&parent.id)
+        .await
+        .expect_err("resolve_bids should fail safe when no bid clears threshold");
+    assert!(
+        error.to_string().contains("minimum confidence threshold")
+            || error.to_string().contains("fallback"),
+        "error should explain the safe fallback threshold breach: {error}"
+    );
+
+    let persisted = engine
+        .collaboration_sessions_json(Some(&parent.id))
+        .await
+        .expect("persisted collaboration session should be readable");
+    assert!(
+        persisted.get("role_assignment").is_none() || persisted["role_assignment"].is_null(),
+        "role assignment should remain unset when all bids are below threshold"
+    );
+}
+
+#[tokio::test]
 async fn resolve_bids_prefers_available_over_busy_and_persists_assignment_roles() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

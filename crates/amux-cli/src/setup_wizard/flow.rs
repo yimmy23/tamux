@@ -50,6 +50,41 @@ pub(super) fn parse_gh_cli_token_output(stdout: &[u8]) -> Option<String> {
     }
 }
 
+fn parse_price_rate(raw: Option<&str>) -> Option<f64> {
+    raw?.trim().parse::<f64>().ok()
+}
+
+fn format_price_per_million(raw: Option<&str>) -> Option<String> {
+    let per_token = parse_price_rate(raw)?;
+    Some(format!("${:.2}/M tok", per_token * 1_000_000.0))
+}
+
+pub(super) fn format_remote_model_pricing_subtitle(model: &RemoteModelOption) -> Option<String> {
+    let pricing = model.pricing.as_ref()?;
+    let prompt_rate = parse_price_rate(pricing.prompt.as_deref());
+    let completion_rate = parse_price_rate(pricing.completion.as_deref());
+
+    if matches!(prompt_rate, Some(rate) if rate == 0.0)
+        && matches!(completion_rate, Some(rate) if rate == 0.0)
+    {
+        return Some("free".to_string());
+    }
+
+    let mut parts = Vec::new();
+    if let Some(formatted) = format_price_per_million(pricing.prompt.as_deref()) {
+        parts.push(format!("Prompt {formatted}"));
+    }
+    if let Some(formatted) = format_price_per_million(pricing.completion.as_deref()) {
+        parts.push(format!("completion {formatted}"));
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    Some(parts.join(", "))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct AuthSetupResult {
     pub auth_source: String,
@@ -454,7 +489,9 @@ async fn configure_model(
         user_wants_replace || (existing_model.is_none() && tier_shows_step(tier_string, "model"));
 
     if show_model_picker {
+        let svarog_model_hint = super::agents::setup_agent_model_hint("Svarog");
         println!("Fetching available models...");
+        println!("{svarog_model_hint}");
         wizard_send(
             framed,
             ClientMessage::AgentFetchModels {
@@ -468,14 +505,41 @@ async fn configure_model(
 
         match recv_fetch_models_terminal_response(framed).await {
             Ok(models_json) => {
-                let models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
+                let models: Vec<RemoteModelOption> = serde_json::from_str(&models_json)
+                    .or_else(|_| {
+                        serde_json::from_str::<Vec<String>>(&models_json).map(|ids| {
+                            ids.into_iter()
+                                .map(|id| RemoteModelOption {
+                                    id,
+                                    name: None,
+                                    context_window: None,
+                                    pricing: None,
+                                    metadata: None,
+                                })
+                                .collect()
+                        })
+                    })
+                    .unwrap_or_default();
                 if !models.is_empty() {
-                    let items: Vec<(&str, &str)> =
-                        models.iter().map(|m| (m.as_str(), "")).collect();
-                    if let Some(idx) =
-                        select_list("Select default Svarog's model:", &items, true, 0)?
-                    {
-                        let chosen = &models[idx];
+                    let items: Vec<RichSelectItem> = models
+                        .iter()
+                        .map(|model| RichSelectItem {
+                            label: model.id.clone(),
+                            detail: model
+                                .name
+                                .as_ref()
+                                .filter(|name| name.as_str() != model.id)
+                                .cloned(),
+                            subtitle: format_remote_model_pricing_subtitle(model),
+                        })
+                        .collect();
+                    if let Some(idx) = select_rich_list(
+                        &format!("Select default Svarog's model:\n{}", svarog_model_hint),
+                        &items,
+                        true,
+                        0,
+                    )? {
+                        let chosen = &models[idx].id;
                         set_config_item(framed, "/model", format!("\"{}\"", chosen))
                             .await
                             .context("Failed to set Svarog's model")?;
@@ -489,9 +553,11 @@ async fn configure_model(
                     } else {
                         &provider.default_model
                     };
-                    if let Some(m) =
-                        text_input("Enter model name (or Esc to skip)", fallback, false)?
-                    {
+                    if let Some(m) = text_input(
+                        &format!("Enter Svarog's model ({svarog_model_hint}) or Esc to skip"),
+                        fallback,
+                        false,
+                    )? {
                         if !m.is_empty() {
                             set_config_item(framed, "/model", format!("\"{}\"", m))
                                 .await
@@ -513,7 +579,11 @@ async fn configure_model(
                 } else {
                     &provider.default_model
                 };
-                if let Some(m) = text_input("Enter model name (or Esc to skip)", fallback, false)? {
+                if let Some(m) = text_input(
+                    &format!("Enter Svarog's model ({svarog_model_hint}) or Esc to skip"),
+                    fallback,
+                    false,
+                )? {
                     if !m.is_empty() {
                         set_config_item(framed, "/model", format!("\"{}\"", m))
                             .await

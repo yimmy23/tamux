@@ -282,6 +282,11 @@ pub enum ChatAction {
         thread_id: String,
         message: AgentMessage,
     },
+    UnpinMessageForCompaction {
+        thread_id: String,
+        message_id: String,
+        absolute_index: Option<usize>,
+    },
     ClearThread {
         thread_id: String,
     },

@@ -307,11 +307,17 @@ pub(super) fn render_imports(
         .iter()
         .filter(|file| normalize_convention_text(&file.source_path).contains(&normalized_target))
         .collect::<Vec<_>>();
-    let Some(file) = matches.first().copied() else {
-        return Ok(format!(
-            "No import file matched `{target}` under {}.",
-            root.display()
-        ));
+    let file = match matches.as_slice() {
+        [single] => *single,
+        [] => {
+            return Ok(format!(
+                "No import file matched `{target}` under {}.",
+                root.display()
+            ));
+        }
+        _ => {
+            anyhow::bail!("multiple import files matched `{target}`; be more specific");
+        }
     };
 
     Ok(format!(

@@ -125,7 +125,7 @@ impl TuiModel {
             if self.assistant_busy() {
                 self.cancelled_thread_id = self.chat.active_thread_id().map(String::from);
                 self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-                self.agent_activity = None;
+                self.clear_active_thread_activity();
                 self.show_input_notice("Stopped stream", InputNoticeKind::Success, 100, false);
             } else if self.focus == FocusArea::Chat {
                 if matches!(self.main_pane_view, MainPaneView::WorkContext) {
@@ -282,11 +282,11 @@ impl TuiModel {
                             });
                             self.send_daemon_command(DaemonCommand::RetryStreamNow { thread_id });
                             self.status_line = "Retrying now...".to_string();
-                            self.agent_activity = Some("retrying".to_string());
+                            self.set_active_thread_activity("retrying");
                         } else {
                             self.cancelled_thread_id = Some(thread_id.clone());
                             self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-                            self.agent_activity = None;
+                            self.clear_active_thread_activity();
                             self.send_daemon_command(DaemonCommand::StopStream { thread_id });
                             self.status_line = "Stopped retry loop".to_string();
                         }
@@ -442,7 +442,7 @@ impl TuiModel {
                     if self.pending_stop_active() {
                         self.cancelled_thread_id = self.chat.active_thread_id().map(String::from);
                         self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-                        self.agent_activity = None;
+                        self.clear_active_thread_activity();
                         self.status_line = "Stopped stream".to_string();
                         self.show_input_notice(
                             "Stopped stream",
