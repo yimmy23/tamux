@@ -497,6 +497,47 @@ fn cap_agent_event_for_ipc(event: &crate::agent::types::AgentEvent) -> Option<(S
         return Some((event_json, false));
     }
 
+    if let crate::agent::types::AgentEvent::WorkflowNotice {
+        thread_id,
+        kind,
+        message,
+        ..
+    } = event
+    {
+        let without_details = crate::agent::types::AgentEvent::WorkflowNotice {
+            thread_id: thread_id.clone(),
+            kind: kind.clone(),
+            message: message.clone(),
+            details: None,
+        };
+        let without_details_json = serde_json::to_string(&without_details).ok()?;
+        if agent_event_frame_fits_ipc(&without_details_json) {
+            return Some((without_details_json, true));
+        }
+
+        let (capped_message, _truncated) = cap_string_prefix_for_ipc(message.clone(), |candidate| {
+            let candidate_event = crate::agent::types::AgentEvent::WorkflowNotice {
+                thread_id: thread_id.clone(),
+                kind: kind.clone(),
+                message: candidate.to_string(),
+                details: None,
+            };
+            serde_json::to_string(&candidate_event)
+                .map(|json| agent_event_frame_fits_ipc(&json))
+                .unwrap_or(false)
+        });
+        let candidate_event = crate::agent::types::AgentEvent::WorkflowNotice {
+            thread_id: thread_id.clone(),
+            kind: kind.clone(),
+            message: capped_message,
+            details: None,
+        };
+        let candidate_json = serde_json::to_string(&candidate_event).ok()?;
+        if agent_event_frame_fits_ipc(&candidate_json) {
+            return Some((candidate_json, true));
+        }
+    }
+
     if let Some(thread_id) = agent_event_thread_id(event) {
         let fallback = crate::agent::types::AgentEvent::ThreadReloadRequired {
             thread_id: thread_id.to_string(),

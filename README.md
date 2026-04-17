@@ -15,6 +15,10 @@ In practice that means:
 - the built-in runtime can plan work, run tools, spawn bounded sub-agents, pause for approval, and learn over time
 - memory, queue state, and operational history stay durable instead of vanishing with a single terminal tab
 
+## Best Practices
+
+Before you jump into installation and setup, read the operational guidance in [`docs/best-pracites.md`](docs/best-pracites.md). It covers model role selection, compaction strategy, governance usage, cost control, and the day-to-day habits that make tamux work well.
+
 ## Quick Start
 
 ### Quick Install
@@ -168,6 +172,7 @@ Together they give the system a little presence without hiding what it is doing.
 
 ### Documentation
 
+- [Best Practices](docs/best-pracites.md)
 - [Reference](docs/reference.md)
 - [Getting Started](docs/getting-started.md)
 - [How tamux Works](docs/how-tamux-works.md)

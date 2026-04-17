@@ -1035,6 +1035,16 @@ async fn execute_run_divergent(
     thread_id: &str,
     task_id: Option<&str>,
 ) -> Result<String> {
+    let mode = args
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("divergent");
+    if !matches!(mode, "divergent" | "debate") {
+        anyhow::bail!("invalid 'mode' argument: {mode}");
+    }
+
     let problem_statement = args
         .get("problem_statement")
         .and_then(|v| v.as_str())
@@ -1079,6 +1089,25 @@ async fn execute_run_divergent(
         None::<&str>
     });
 
+    if mode == "debate" {
+        return match agent
+            .start_debate_session(&problem_statement, custom_framings, thread_id, goal_run_id)
+            .await
+        {
+            Ok(session_id) => {
+                let response = serde_json::json!({
+                    "status": "started",
+                    "session_id": session_id,
+                    "mode": "debate",
+                    "topic": problem_statement,
+                    "message": "Debate session started via run_divergent(mode=debate). Use get_debate_session with this session_id to retrieve debate state and verdict."
+                });
+                Ok(serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string()))
+            }
+            Err(e) => Ok(format!("Debate session failed: {e}")),
+        };
+    }
+
     match agent
         .start_divergent_session(&problem_statement, custom_framings, thread_id, goal_run_id)
         .await
@@ -1087,6 +1116,7 @@ async fn execute_run_divergent(
             let response = serde_json::json!({
                 "status": "started",
                 "session_id": session_id,
+                "mode": "divergent",
                 "problem_statement": problem_statement,
                 "message": "Divergent session started. Parallel framings are being processed. Use get_divergent_session with this session_id to retrieve progress, tensions, and mediator output."
             });

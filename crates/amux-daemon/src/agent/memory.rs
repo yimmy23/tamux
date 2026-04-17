@@ -12,7 +12,7 @@ const SOUL_LIMIT_CHARS: usize = 1_500;
 const MEMORY_LIMIT_CHARS: usize = 2_200;
 const USER_LIMIT_CHARS: usize = 1_375;
 
-const DEFAULT_MEMORY: &str = "# Memory\n\n## tamux Architecture (Verified)\n- ~101k LOC Rust, 596 daemon files, 429 agent-module files\n- Daemon-first: daemon owns all state; TUI/Electron/CLI/MCP/gateway are clients\n- Memory: SOUL.md (identity), MEMORY.md (facts), USER.md (operator profile from SQLite)\n- Provenance-backed: every write tracked in SQLite with contradiction checks\n- Persistence: SQLite (threads, tasks, goals, provenance); Files (markdown, skills, ledgers)\n- Goal runners: durable autonomy — plan, dispatch, monitor, replan, reflect\n- M1–M10: operator model, causal traces, skill evolution, semantic env, collaboration,\n  trusted provenance, implicit feedback, tool synthesis, anticipatory runtime\n- Safety: risk labels, blast-radius, approvals, sandbox, rate limits, audit trails\n\n## First-Run Truth\nDaemon = source of truth. Memory = curated, not dumped. Goals = autonomy.\nSafety = visible. Rust codebase — `cargo build`, `./scripts/setup.sh --check --profile source`.\n";
+const DEFAULT_MEMORY: &str = "# Memory\n\n## tamux Architecture (Verified)\n- tamux is a Rust, daemon-first terminal multiplexer and multi-agent runtime\n- Daemon-first: daemon owns all state; TUI/Electron/CLI/MCP/gateway are clients\n- Memory: layered — SOUL.md (identity), MEMORY.md (durable facts/strategy), USER.md (operator profile), plus daemon state, recall, skills, and provenance\n- Provenance-backed: durable memory writes are tracked in SQLite with contradiction handling and operator-auditable lifecycle\n- Persistence: SQLite (threads, tasks, goals, provenance); Files (markdown, skills, ledgers)\n- Goal runners: durable autonomy — plan, dispatch, monitor, replan, reflect\n- M1–M10: operator model, causal traces, skill evolution, semantic env, collaboration,\n  trusted provenance, implicit feedback, tool synthesis, anticipatory runtime\n- Security: governance over transitions with approvals, critique, sandbox constraints, and audit trails\n\n## First-Run Truth\nDaemon = source of truth. Memory = curated, not dumped. Goals = autonomy.\nSecurity = governance, not vibes. Rust codebase — `cargo build`, `./scripts/setup.sh --check --profile source`.\n";
 
 const DEFAULT_USER: &str =
     "# User\nStable operator preferences, constraints, and workflow habits belong here.\n";
@@ -20,10 +20,10 @@ const DEFAULT_USER: &str =
 // Shared SOUL footer — common architecture every agent knows about
 const SHARED_SOUL_FOOTER: &str = "\
 \n\n## tamux Platform (Shared)\n\
-- ~101k LOC Rust, daemon-first architecture\n\
-- Memory: SOUL.md/MEMORY.md/USER.md with SQLite provenance\n\
+- tamux is a Rust, daemon-first terminal multiplexer and multi-agent runtime\n\
+- Memory: layered — SOUL.md/MEMORY.md/USER.md plus daemon state, recall, skills, and provenance\n\
 - Goal runners: durable autonomy; M1–M10 self-orchestration\n\
-- Safety: risk labels, approvals, audit trails\n\
+- Security: governance, approvals, critique, and audit trails\n\
 - Daemon is the source of truth. Memory is curated, not dumped.\n";
 
 fn default_soul_for_scope(scope_id: &str) -> String {
@@ -223,11 +223,12 @@ pub(super) fn memory_curation_guidance() -> &'static str {
     "SAVE:
 - user preferences, constraints, and workflow habits
 - stable workspace facts and project conventions
-- recurring corrections and learned patterns
+- recurring corrections and reusable strategy hints
 
 DO NOT SAVE:
 - task progress or work-in-progress state
 - temporary TODOs or short-lived outcomes
+- approval state, risk labels, or transient governance outcomes
 - details that can be trivially rediscovered from the environment"
 }
 

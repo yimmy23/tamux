@@ -136,6 +136,8 @@ impl AgentEngine {
             || lowered.contains("build")
             || lowered.contains("repo")
             || lowered.contains("diff")
+            || lowered.contains("inspect")
+            || lowered.contains("change")
         {
             "inspect or test recent repo changes"
         } else {

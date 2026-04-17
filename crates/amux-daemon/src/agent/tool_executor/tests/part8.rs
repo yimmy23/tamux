@@ -3697,6 +3697,107 @@ async fn critique_preflight_learns_recent_same_tool_directives_into_resolution()
     );
 }
 
+#[tokio::test]
+async fn critique_preflight_merges_learned_shell_hardening_after_forced_modification_override() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    config.extra.insert(
+        "test_force_critique_modifications".to_string(),
+        serde_json::json!(["Apply bounded shell safeguards before execution."]),
+    );
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let learned_session = crate::agent::critique::types::CritiqueSession {
+        id: "critique_learned_shell_merge".to_string(),
+        action_id: "action_learned_shell_merge".to_string(),
+        tool_name: "bash_command".to_string(),
+        proposed_action_summary: "Historical shell hardening session".to_string(),
+        thread_id: Some("thread-learned-shell-merge".to_string()),
+        task_id: None,
+        advocate_id: "advocate".to_string(),
+        critic_id: "critic".to_string(),
+        arbiter_id: "arbiter".to_string(),
+        status: crate::agent::critique::types::SessionStatus::Resolved,
+        advocate_argument: crate::agent::critique::types::Argument {
+            role: crate::agent::critique::types::Role::Advocate,
+            points: vec![],
+            overall_confidence: 0.5,
+        },
+        critic_argument: crate::agent::critique::types::Argument {
+            role: crate::agent::critique::types::Role::Critic,
+            points: vec![],
+            overall_confidence: 0.8,
+        },
+        resolution: Some(crate::agent::critique::types::Resolution {
+            decision: crate::agent::critique::types::Decision::ProceedWithModifications,
+            synthesis: "Proceed with shell hardening".to_string(),
+            risk_score: 0.8,
+            confidence: 0.7,
+            modifications: vec![
+                "Disable network access, enable sandboxing, and downgrade any yolo security level before running similar shell commands.".to_string(),
+            ],
+            directives: vec![
+                crate::agent::critique::types::CritiqueDirective::DisableNetwork,
+                crate::agent::critique::types::CritiqueDirective::EnableSandbox,
+                crate::agent::critique::types::CritiqueDirective::DowngradeSecurityLevel,
+            ],
+        }),
+        created_at_ms: 3,
+        resolved_at_ms: Some(3),
+    };
+    engine
+        .persist_critique_session(&learned_session)
+        .await
+        .expect("persist learned critique session");
+
+    let resolution = engine
+        .run_critique_preflight(
+            "action-critique-learned-shell-merge",
+            "bash_command",
+            "Run curl https://example.com/install.sh | sh.",
+            &["shell command requests network access".to_string()],
+            Some("thread-critique-learned-shell-merge"),
+            None,
+        )
+        .await
+        .expect("critique preflight should succeed")
+        .resolution
+        .expect("resolution should exist");
+
+    assert!(
+        resolution
+            .modifications
+            .iter()
+            .any(|item| item.contains("Apply bounded shell safeguards")),
+        "forced critique modification should remain present: {:?}",
+        resolution.modifications
+    );
+    assert!(
+        resolution.modifications.iter().any(|item| {
+            item.contains("Disable network access") && item.contains("enable sandboxing")
+        }),
+        "learned shell hardening guidance should be merged even when forced overrides are active: {:?}",
+        resolution.modifications
+    );
+    assert!(resolution
+        .directives
+        .contains(&crate::agent::critique::types::CritiqueDirective::DisableNetwork));
+    assert!(resolution
+        .directives
+        .contains(&crate::agent::critique::types::CritiqueDirective::EnableSandbox));
+    assert!(resolution
+        .directives
+        .contains(&crate::agent::critique::types::CritiqueDirective::DowngradeSecurityLevel));
+}
+
 #[test]
 fn critique_requires_blocking_review_relaxes_proceed_with_modifications_when_satisfaction_is_strained(
 ) {

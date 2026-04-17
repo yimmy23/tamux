@@ -166,6 +166,11 @@ struct PendingPinnedJump {
     absolute_index: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PendingPinnedShortcutLeader {
+    Active,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct QueuedPrompt {
     pub(crate) text: String,
@@ -368,6 +373,7 @@ pub struct TuiModel {
     pending_chat_action_confirm: Option<PendingChatActionConfirm>,
     pending_pinned_budget_exceeded: Option<PendingPinnedBudgetExceeded>,
     pending_pinned_jump: Option<PendingPinnedJump>,
+    pending_pinned_shortcut_leader: Option<PendingPinnedShortcutLeader>,
     chat_action_confirm_accept_selected: bool,
     retry_wait_start_selected: bool,
     auto_response_selection: AutoResponseActionSelection,

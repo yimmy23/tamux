@@ -75,7 +75,7 @@ impl AgentEngine {
             .remove(thread_id);
     }
 
-    pub(super) async fn ensure_thread_messages_loaded(&self, thread_id: &str) -> bool {
+    pub(crate) async fn ensure_thread_messages_loaded(&self, thread_id: &str) -> bool {
         let needs_hydration = self
             .thread_message_hydration_pending
             .read()

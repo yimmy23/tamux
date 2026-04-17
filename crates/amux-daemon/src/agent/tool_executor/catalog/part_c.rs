@@ -291,6 +291,7 @@ fn add_available_tools_part_c(
         "type": "object",
         "properties": {
             "problem_statement": { "type": "string", "description": "The problem to analyze from multiple perspectives" },
+            "mode": { "type": "string", "enum": ["divergent", "debate"], "description": "Execution mode. `divergent` (default) runs tension-mapping. `debate` runs the multi-round debate protocol on the same statement." },
             "custom_framings": {
                 "type": "array",
                 "items": {

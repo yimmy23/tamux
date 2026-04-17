@@ -155,13 +155,16 @@ pub(super) fn build_system_prompt(
     prompt.push_str(
         "\n\n## Recall and Memory Maintenance\n\
          - Prefer `read_memory`, `read_user`, and `read_soul` for memory recall before raw file reads. They return structured JSON and avoid duplicating already injected fresh base markdown.\n\
+         - Treat tamux memory as layered: SOUL.md is identity, MEMORY.md stores durable facts and reusable strategy hints, USER.md stores operator profile, and structured daemon state plus recall systems carry the rest.\n\
          - Use `session_search` or `onecontext_search` when the user asks about prior decisions, existing implementations, or historical debugging context.\n\
          - Use `semantic_query` when you need local package/crate summaries, compose service topology, code import relationships, or learned workspace conventions before editing.\n\
          - Before big or multi-step work, write or update a short working spec in `/tmp/*.md` capturing scope, constraints, plan, and open questions before implementation starts.\n\
          - Before proceeding after a pause, handoff, or context shift, look up and reread the relevant `/tmp/*.md` spec so execution stays anchored to the latest written plan.\n\
          - For any non-trivial or multi-step task, call `update_todo` early to enter plan mode, then keep that todo list current as work progresses.\n\
          - Create a general specs todo for big work, keep follow-up items visible, and continue following up on spawned/background tasks until each one is resolved, explicitly blocked, or cancelled.\n\
-         - When you learn durable operator preferences or stable project facts, call `update_memory` with a concise update so future sessions start with that context.\n\
+         - When you learn durable operator preferences, stable project facts, or reusable strategy hints, call `update_memory` with a concise update so future sessions start with that context.\n\
+         - Do not write task progress, temporary TODOs, approval status, or transient risk labels into durable memory.\n\
+         - Memory is provenance-backed and operator-auditable. Correct or retract stale durable facts explicitly instead of silently layering contradictions on top.\n\
          - Memory files have hard limits: SOUL.md 1500 chars, MEMORY.md 2200 chars, USER.md 1375 chars.\n",
     );
     prompt.push_str(&format!(
@@ -170,6 +173,12 @@ pub(super) fn build_system_prompt(
     ));
     prompt.push_str(
         "         - If the operator wants to talk directly to another agent, or if another agent should own future replies in this thread, use `handoff_thread_agent` instead. A successful handoff changes the active responder and future operator turns route to that agent until a return handoff.\n",
+    );
+    prompt.push_str(
+        "         - Security in tamux is governance over transitions, not a casual suggestion. If scope, targets, privilege posture, environment, or command family materially changed, treat prior approval as stale until a fresh approval path says otherwise.\n",
+    );
+    prompt.push_str(
+        "         - If work is paused behind approval or another governance gate, treat it as blocked work that needs resolution, not as permission to keep pushing similar side effects through another path.\n",
     );
     if config.enable_honcho_memory && !config.honcho_api_key.trim().is_empty() {
         prompt.push_str(
@@ -679,10 +688,42 @@ mod tests {
         );
 
         assert!(prompt.contains("Prefer `read_memory`, `read_user`, and `read_soul`"));
+        assert!(prompt.contains("Treat tamux memory as layered"));
+        assert!(prompt.contains("Memory is provenance-backed and operator-auditable"));
         assert!(
             !prompt.contains("consult MEMORY.md and USER.md"),
             "system prompt should not keep the old raw-file-first memory guidance"
         );
+    }
+
+    #[tokio::test]
+    async fn system_prompt_mentions_governance_semantics_for_security() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let engine =
+            crate::agent::AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let prompt = build_system_prompt(
+            &AgentConfig::default(),
+            "Base prompt",
+            &crate::agent::types::AgentMemory::default(),
+            &crate::agent::task_prompt::memory_paths_for_scope(
+                root.path(),
+                crate::agent::agent_identity::MAIN_AGENT_ID,
+            ),
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+            &engine.list_sub_agents().await,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert!(prompt.contains("Security in tamux is governance over transitions"));
+        assert!(prompt.contains("treat prior approval as stale"));
     }
 
     #[tokio::test]

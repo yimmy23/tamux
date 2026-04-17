@@ -834,6 +834,90 @@ fn apply_patch_tool_uses_top_level_object_schema() {
     }
 
     #[tokio::test]
+    async fn run_divergent_mode_debate_starts_debate_session() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.debate.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let response = execute_run_divergent(
+            &serde_json::json!({
+                "problem_statement": "decide rollout strategy",
+                "mode": "debate"
+            }),
+            &engine,
+            "thread-run-divergent-debate",
+            None,
+        )
+        .await
+        .expect("run_divergent(mode=debate) should succeed");
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&response).expect("payload should be valid JSON");
+        assert_eq!(payload.get("status").and_then(|v| v.as_str()), Some("started"));
+        assert_eq!(payload.get("mode").and_then(|v| v.as_str()), Some("debate"));
+
+        let session_id = payload
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .expect("session_id should exist")
+            .to_string();
+
+        let debate_payload = engine
+            .get_debate_session_payload(&session_id)
+            .await
+            .expect("debate session should be retrievable");
+        assert_eq!(
+            debate_payload.get("status").and_then(|v| v.as_str()),
+            Some("in_progress")
+        );
+        assert_eq!(
+            debate_payload.get("topic").and_then(|v| v.as_str()),
+            Some("decide rollout strategy")
+        );
+    }
+
+    #[tokio::test]
+    async fn run_divergent_default_mode_remains_divergent() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let response = execute_run_divergent(
+            &serde_json::json!({
+                "problem_statement": "compare indexing plans"
+            }),
+            &engine,
+            "thread-run-divergent-default",
+            None,
+        )
+        .await
+        .expect("run_divergent default mode should succeed");
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&response).expect("payload should be valid JSON");
+        assert_eq!(payload.get("status").and_then(|v| v.as_str()), Some("started"));
+        assert_eq!(
+            payload.get("mode").and_then(|v| v.as_str()),
+            Some("divergent")
+        );
+
+        let session_id = payload
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .expect("session_id should exist");
+        let divergent_payload = engine
+            .get_divergent_session(session_id)
+            .await
+            .expect("divergent session should exist");
+        assert_eq!(
+            divergent_payload.get("status").and_then(|v| v.as_str()),
+            Some("running")
+        );
+    }
+
+    #[tokio::test]
     async fn route_to_specialist_surfaces_routing_rationale_in_dispatch_result() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;

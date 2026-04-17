@@ -241,6 +241,105 @@ fn pinned_summary_only_thread_keeps_sidebar_visible() {
 }
 
 #[test]
+fn ctrl_k_then_j_jumps_to_selected_pinned_message_from_input_focus() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, _cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-1".to_string(),
+            title: "Pinned".to_string(),
+            messages: vec![
+                chat::AgentMessage {
+                    id: Some("message-1".to_string()),
+                    role: chat::MessageRole::User,
+                    content: "Pinned user message".to_string(),
+                    pinned_for_compaction: true,
+                    ..Default::default()
+                },
+                chat::AgentMessage {
+                    id: Some("message-2".to_string()),
+                    role: chat::MessageRole::Assistant,
+                    content: "Later reply".to_string(),
+                    ..Default::default()
+                },
+            ],
+            loaded_message_end: 2,
+            total_message_count: 2,
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model
+        .sidebar
+        .reduce(SidebarAction::SwitchTab(SidebarTab::Pinned));
+    model.focus = FocusArea::Input;
+    model.input.set_text("draft");
+
+    let handled = model.handle_key(KeyCode::Char('k'), KeyModifiers::CONTROL);
+    assert!(!handled);
+
+    let handled = model.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert_eq!(model.focus, FocusArea::Chat);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.selected_message(), Some(0));
+    assert_eq!(model.input.buffer(), "draft");
+}
+
+#[test]
+fn ctrl_k_then_u_unpins_selected_pinned_message_from_input_focus() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-1".to_string(),
+            title: "Pinned".to_string(),
+            messages: vec![chat::AgentMessage {
+                id: Some("message-1".to_string()),
+                role: chat::MessageRole::Assistant,
+                content: "Pinned content".to_string(),
+                pinned_for_compaction: true,
+                ..Default::default()
+            }],
+            loaded_message_end: 1,
+            total_message_count: 1,
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model
+        .sidebar
+        .reduce(SidebarAction::SwitchTab(SidebarTab::Pinned));
+    model.focus = FocusArea::Input;
+    model.input.set_text("draft");
+
+    let handled = model.handle_key(KeyCode::Char('k'), KeyModifiers::CONTROL);
+    assert!(!handled);
+
+    let handled = model.handle_key(KeyCode::Char('u'), KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert_eq!(model.input.buffer(), "draft");
+    let command = cmd_rx
+        .try_recv()
+        .expect("Ctrl+K then U should unpin the selected message");
+    assert!(matches!(
+        command,
+        DaemonCommand::UnpinThreadMessageForCompaction {
+            thread_id,
+            message_id
+        } if thread_id == "thread-1" && message_id == "message-1"
+    ));
+}
+
+#[test]
 fn submit_operator_profile_answer_allows_empty_input_when_question_is_optional() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();

@@ -4,6 +4,61 @@ use super::*;
 mod enter;
 
 impl TuiModel {
+    fn pinned_shortcut_scope_active(&self) -> bool {
+        self.sidebar_visible()
+            && self.sidebar.active_tab() == sidebar::SidebarTab::Pinned
+            && self.chat.active_thread_has_pinned_messages()
+    }
+
+    fn arm_pinned_shortcut_leader(&mut self) {
+        self.pending_pinned_shortcut_leader = Some(PendingPinnedShortcutLeader::Active);
+        self.status_line = "Pinned shortcuts: J jump, U unpin".to_string();
+        self.show_input_notice(
+            "Pinned shortcuts: Ctrl+K J jump, Ctrl+K U unpin",
+            InputNoticeKind::Success,
+            60,
+            true,
+        );
+    }
+
+    fn handle_pending_pinned_shortcut_leader(
+        &mut self,
+        code: KeyCode,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        if self.pending_pinned_shortcut_leader.is_none() {
+            return false;
+        }
+        self.pending_pinned_shortcut_leader = None;
+
+        if !self.pinned_shortcut_scope_active() {
+            return false;
+        }
+
+        match code {
+            KeyCode::Esc => {
+                self.status_line = "Pinned shortcut cancelled".to_string();
+                true
+            }
+            KeyCode::Char(ch)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                match ch.to_ascii_lowercase() {
+                    'j' => {
+                        self.handle_sidebar_enter();
+                        true
+                    }
+                    'u' => {
+                        self.unpin_selected_sidebar_message();
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn paste_from_clipboard(&mut self) {
         if let Ok(text) = arboard::Clipboard::new().and_then(|mut cb| cb.get_text()) {
             if !text.is_empty() {
@@ -97,6 +152,10 @@ impl TuiModel {
         }
         if let Some(modal_kind) = self.modal.top() {
             return self.handle_key_modal(code, modifiers, modal_kind);
+        }
+
+        if self.handle_pending_pinned_shortcut_leader(code, modifiers) {
+            return false;
         }
 
         if self.focus == FocusArea::Sidebar
@@ -300,6 +359,9 @@ impl TuiModel {
             KeyCode::Char('b') if ctrl => {
                 let current = self.show_sidebar_override.unwrap_or(self.width >= 80);
                 self.show_sidebar_override = Some(!current);
+            }
+            KeyCode::Char('k') if ctrl && self.pinned_shortcut_scope_active() => {
+                self.arm_pinned_shortcut_leader();
             }
             KeyCode::Char('d') if ctrl => {
                 if matches!(

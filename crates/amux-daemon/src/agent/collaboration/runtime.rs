@@ -683,13 +683,31 @@ impl AgentEngine {
             anyhow::bail!("at least two bids are required to assign primary and reviewer roles");
         }
         let mut ranked = session.bids.clone();
+        let agent_confidence_by_task = session
+            .agents
+            .iter()
+            .map(|agent| (agent.task_id.clone(), agent.confidence))
+            .collect::<std::collections::HashMap<_, _>>();
         ranked.sort_by(|left, right| {
+            let left_profile_confidence = agent_confidence_by_task
+                .get(&left.task_id)
+                .copied()
+                .unwrap_or(0.0);
+            let right_profile_confidence = agent_confidence_by_task
+                .get(&right.task_id)
+                .copied()
+                .unwrap_or(0.0);
             bid_sort_key(&left.availability)
                 .cmp(&bid_sort_key(&right.availability))
                 .then_with(|| {
                     right
                         .confidence
                         .partial_cmp(&left.confidence)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| {
+                    right_profile_confidence
+                        .partial_cmp(&left_profile_confidence)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .then_with(|| left.created_at.cmp(&right.created_at))

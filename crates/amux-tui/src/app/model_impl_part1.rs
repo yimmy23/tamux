@@ -54,6 +54,7 @@ impl TuiModel {
             pending_chat_action_confirm: None,
             pending_pinned_budget_exceeded: None,
             pending_pinned_jump: None,
+            pending_pinned_shortcut_leader: None,
             chat_action_confirm_accept_selected: true,
             retry_wait_start_selected: false,
             auto_response_selection: AutoResponseActionSelection::Yes,

@@ -133,9 +133,9 @@ fn active_thread_pinned_rows(chat: &ChatState) -> PinnedSidebarRows {
 
 fn pinned_footer_line(theme: &ThemeTokens) -> Line<'static> {
     Line::from(vec![
-        Span::styled(" Enter", theme.fg_active),
+        Span::styled(" Ctrl+K J", theme.fg_active),
         Span::styled(" jump  ", theme.fg_dim),
-        Span::styled("u", theme.fg_active),
+        Span::styled("Ctrl+K U", theme.fg_active),
         Span::styled(" unpin  ", theme.fg_dim),
         Span::styled("Ctrl+C", theme.fg_active),
         Span::styled(" copy", theme.fg_dim),

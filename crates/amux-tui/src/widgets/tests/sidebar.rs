@@ -388,11 +388,11 @@ fn pinned_sidebar_renders_footer_hints() {
         .join("\n");
 
     assert!(
-        plain.contains("Enter jump"),
+        plain.contains("Ctrl+K J jump"),
         "expected jump hint, got: {plain}"
     );
     assert!(
-        plain.contains("u unpin"),
+        plain.contains("Ctrl+K U unpin"),
         "expected unpin hint, got: {plain}"
     );
     assert!(

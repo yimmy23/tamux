@@ -936,6 +936,80 @@ async fn intent_prediction_persists_and_resolves_when_operator_action_matches() 
 }
 
 #[tokio::test]
+async fn intent_prediction_resolution_treats_inspect_changes_as_repo_verification_action() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_message_statistics = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention(
+            "conversation:chat",
+            Some("thread-intent-repo-resolve"),
+            None,
+        )
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-intent-repo-resolve".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-intent-repo-resolve".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some("/tmp/repo".to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+
+    engine.run_anticipatory_tick().await;
+
+    let before = engine
+        .history
+        .list_intent_predictions("thread-intent-repo-resolve", 10)
+        .await
+        .expect("list persisted intent predictions before inspect resolution");
+    assert_eq!(before.len(), 1);
+    assert_eq!(
+        before[0].predicted_action,
+        "inspect or test recent repo changes"
+    );
+    assert_eq!(before[0].was_correct, None);
+
+    engine
+        .record_operator_message(
+            "thread-intent-repo-resolve",
+            "please inspect the recent changes first",
+            false,
+        )
+        .await
+        .expect("record operator inspect message");
+
+    let after = engine
+        .history
+        .list_intent_predictions("thread-intent-repo-resolve", 10)
+        .await
+        .expect("list persisted intent predictions after inspect resolution");
+    assert_eq!(after.len(), 1);
+    assert_eq!(
+        after[0].actual_action.as_deref(),
+        Some("inspect or test recent repo changes")
+    );
+    assert_eq!(after[0].was_correct, Some(true));
+}
+
+#[tokio::test]
 async fn system_outcome_foresight_persists_and_resolves_when_health_feedback_arrives() {
     let root = tempdir().unwrap();
     let repo_root = root.path().join("repo-foresight-persist");

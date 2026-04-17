@@ -320,6 +320,37 @@ fn assistant_messages_fall_back_to_thread_agent_name_when_handoff_marker_is_miss
 }
 
 #[test]
+fn concierge_thread_messages_render_rarog_as_the_responder() {
+    let mut chat = ChatState::new();
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "concierge".into(),
+        title: "Concierge".into(),
+    });
+    chat.reduce(ChatAction::AppendMessage {
+        thread_id: "concierge".into(),
+        message: AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Welcome back".into(),
+            ..Default::default()
+        },
+    });
+
+    let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+    let message_lines: Vec<String> = lines
+        .iter()
+        .filter(|line| line.message_index == Some(0))
+        .map(rendered_line_plain_text)
+        .collect();
+
+    assert!(
+        message_lines
+            .iter()
+            .any(|line| line.contains("Responder: Rarog")),
+        "expected concierge responder label to use Rarog, got: {message_lines:?}"
+    );
+}
+
+#[test]
 fn assistant_messages_prefer_message_author_name_when_available() {
     let mut chat = ChatState::new();
     chat.reduce(ChatAction::ThreadCreated {

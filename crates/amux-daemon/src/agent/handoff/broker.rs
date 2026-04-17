@@ -7,7 +7,9 @@
 use anyhow::{Context, Result};
 use uuid::Uuid;
 
-use super::profiles::{compute_learned_routing_weights, match_specialist, select_specialist};
+use super::profiles::{
+    compute_learned_routing_weights, match_specialist, select_learned_specialist, select_specialist,
+};
 use super::{
     AcceptanceCriteria, ContextBundle, EpisodeRef, HandoffResult, RoutingMethod, ValidationResult,
 };
@@ -168,25 +170,8 @@ impl AgentEngine {
                 Vec::new()
             };
 
-        let learned_selection = if learned_weights.len() >= 2 {
-            let weights: Vec<f64> = learned_weights.iter().map(|entry| entry.weight).collect();
-            if let Ok(dist) = rand::distributions::WeightedIndex::new(&weights) {
-                let selected = &learned_weights
-                    [rand::distributions::Distribution::sample(&dist, &mut rand::thread_rng())];
-                if selected.weight >= routing_cfg.confidence_threshold {
-                    Some((selected.profile_idx, selected.weight))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            learned_weights
-                .first()
-                .filter(|entry| entry.weight >= routing_cfg.confidence_threshold)
-                .map(|entry| (entry.profile_idx, entry.weight))
-        };
+        let learned_selection =
+            select_learned_specialist(&learned_weights, routing_cfg.confidence_threshold);
 
         // Match specialist
         let (selection, routing_confidence_threshold) = if let Some((profile_idx, routing_score)) =

@@ -1547,6 +1547,10 @@ async fn auto_compaction_notice_includes_artifact_location_details() {
         message.contains("Trigger: token-threshold"),
         "expected trigger line in auto-compaction message: {message}"
     );
+    assert!(
+        !message.contains("\n\nContent:\n"),
+        "workflow notice should stay concise for live delivery: {message}"
+    );
 }
 
 #[tokio::test]

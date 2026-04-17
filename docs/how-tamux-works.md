@@ -1,8 +1,8 @@
 # How tamux Works
 
-This document describes the current system as it exists in the repository now: the daemon, UI clients, agent runtime, memory model, persistence model, and the self-orchestrating capabilities layered on top.
+This document describes the current system as it exists in the repository now: the daemon, UI clients, agent runtime, memory model, security/governance model, persistence model, and the self-orchestrating capabilities layered on top.
 
-For implementation detail on the deeper agent internals, see [self-orchestrating-agent.md](./self-orchestrating-agent.md). For onboarding and local setup, see [getting-started.md](./getting-started.md). For the current provenance-backed memory model and operator controls, see [memory-and-security.md](./memory-and-security.md).
+For implementation detail on the deeper agent internals, see [self-orchestrating-agent.md](./self-orchestrating-agent.md). For onboarding and local setup, see [getting-started.md](./getting-started.md). For the canonical memory architecture, see [tamux-memory.md](./tamux-memory.md). For the canonical security and governance model, see [tamux-security.md](./tamux-security.md).
 
 ## System Shape
 
@@ -222,70 +222,22 @@ Critique payloads and operator-facing summaries are scrubbed for common secret p
 
 ## Memory Model
 
-tamux uses layered memory instead of treating chat history as the only context store.
+tamux uses layered memory rather than treating chat history as the only context store.
 
-### Persistent Markdown Memory
+At the minimum, that stack includes:
 
-The daemon maintains three editable markdown files under the agent memory directory:
+- `SOUL.md` for durable fire identity
+- `MEMORY.md` for durable facts, conventions, and strategy hints
+- `USER.md` for operator profile memory synchronized from daemon-owned profile state
+- persisted threads, tasks, goals, checkpoints, and telemetry in SQLite
+- recall systems over history and operational state
+- procedural memory encoded as skills and skill variants
+- provenance-backed durable memory facts
+- semantic and structural memory adjacent to the workspace
 
-- `SOUL.md`: stable agent identity and principles
-- `MEMORY.md`: learned project facts, conventions, durable environment knowledge
-- `USER.md`: daemon-rendered operator profile summary synchronized from SQLite-backed profile fields
+The important boundary is that memory is daemon-owned, layered, and increasingly provenance-backed. Some of it is prompt-facing markdown. Some of it is structured state. Some of it is learned from execution and operator behavior. Some of it is still part of the forward architecture rather than a fully finished product surface.
 
-These files have enforced size limits and are injected into future prompts.
-
-Operator profile onboarding and check-ins are daemon-first workflows. The concierge flow starts onboarding interview sessions in the daemon, persists answers/check-ins in SQLite, and then synchronizes `USER.md` from that structured profile state.
-
-### Curated Writes
-
-The built-in agent updates memory through `update_memory`, which requires:
-
-- a `target`
-- a `mode`
-- bounded content
-
-This is intentionally curated. Memory is meant to store durable signal, not transient run output.
-
-For `USER.md`, append-style updates are staged through the operator-profile reconciliation path instead of direct freeform-only file writes, so the daemon can keep profile state transparent and consistent.
-
-### Pre-compaction Memory Flush
-
-When older context is about to be compacted, the daemon can run a restricted memory-flush pass before compression. That gives the system one final chance to preserve stable facts before older conversation detail is summarized away.
-
-### Episodic Recall
-
-The system has multiple recall paths:
-
-- `search_history` for direct command/history FTS
-- `onecontext_search` for Aline history when available
-- `session_search` for grouped recall over:
-  - persisted threads/messages
-  - transcript snapshots
-  - behavioral events
-  - cognitive telemetry
-  - operational telemetry
-
-### Skills as Procedural Memory
-
-Skills are the procedural layer. The daemon can:
-
-- list local and generated skills
-- load full skill content on demand
-- generate new skills from successful trajectories
-- track variant usage and outcomes
-- branch/promote/archive/merge skill variants
-
-### Optional Honcho Layer
-
-When enabled, Honcho provides a cross-session memory layer beyond local daemon history.
-
-The daemon now supports:
-
-- syncing thread messages to Honcho
-- fetching cross-session context for prompt construction
-- direct `agent_query_memory` calls from the daemon agent
-
-Honcho is optional and disabled unless configured.
+For the full memory architecture, including episodic distillation, forge reflection, dream-state learning, semantic memory, and provenance-backed durable fact handling, see [tamux-memory.md](./tamux-memory.md).
 
 ## Persistence Model
 
@@ -403,23 +355,17 @@ The daemon can inspect the local workspace and answer bounded semantic questions
 
 ### M6: Deep Storage / Provenance-backed Memory
 
-Memory writes are backed by provenance records and contradiction checks. The daemon tracks:
+Deep storage means durable memory facts are not just file diffs. They carry provenance, confidence state, and explicit operator-visible lifecycle.
 
-- where a memory fact came from
+That layer tracks things such as:
+
+- where a durable memory fact came from
 - when it was written
-- which task/goal/thread produced it
-- how confidence should age over time
-- whether an operator explicitly confirmed or retracted the fact
-- which remove operations explicitly retract earlier facts with the same durable key
+- which thread, task, or goal produced it
+- whether it was confirmed or retracted
+- which later operation explicitly invalidated it
 
-On the operator side, the desktop Session Vault exposes a memory provenance mode with:
-
-- status counters for active, uncertain, confirmed, and retracted entries
-- per-entry provenance details
-- explicit confirm and retract actions
-- persisted `retracts` relationships rendered alongside the affected facts
-
-The TUI does not yet expose the same direct memory provenance controls.
+See [tamux-memory.md](./tamux-memory.md) for the deeper memory architecture and operator-memory surfaces.
 
 ### M7: Collaboration Protocol
 
@@ -449,20 +395,21 @@ When enabled, the daemon can synthesize guarded tools from conservative CLI/Open
 
 ## Safety Model
 
-tamux is designed so autonomous execution still passes through operator-visible controls.
+tamux is designed so autonomous execution passes through a real governance plane instead of relying on informal caution.
 
-Safety layers include:
+At a high level, the safety model includes:
 
-- managed command validation
-- structured approval requests
-- risk labeling and blast-radius summaries
-- sandbox controls
-- policy hooks
-- rate limiting
-- circuit-breaker behavior
-- provenance and audit trails
+- structured policy evaluation over transitions, not only raw commands
+- scoped approvals with freshness and invalidation semantics
+- risk and blast-radius analysis
+- sandbox and isolation constraints
+- adversarial critique for risky or suspicious actions
+- provenance and audit requirements
+- operator-visible blocked, approval-waiting, and review states
 
-Autonomy is real, but it is not meant to be invisible.
+Autonomy is real, but it is not meant to be invisible, silent, or structurally under-governed.
+
+For the full security and governance architecture, see [tamux-security.md](./tamux-security.md).
 
 ## Startup and Hydration
 
@@ -496,6 +443,7 @@ A realistic long-running flow looks like this:
 
 - [getting-started.md](./getting-started.md): install and first-run path
 - [self-orchestrating-agent.md](./self-orchestrating-agent.md): deeper execution internals
-- [memory-and-security.md](./memory-and-security.md): shipped memory provenance and operator controls
+- [tamux-memory.md](./tamux-memory.md): canonical memory architecture
+- [tamux-security.md](./tamux-security.md): canonical security and governance architecture
 - [../skills/operating/memory.md](../skills/operating/memory.md): skill/operator guidance for curated memory usage
 - [goal-runners.md](./goal-runners.md): goal-runner oriented behavior

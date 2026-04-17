@@ -43,12 +43,23 @@ pub(super) fn resolve_provider_config_for(
     let explicit_model_override = model_override
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let requested_model = model_override.unwrap_or(&config.model);
+    let requested_model = explicit_model_override.unwrap_or(config.model.trim());
+    let active_provider = provider_id == config.provider;
 
     if let Some(pc) = config.providers.get(provider_id) {
         let mut resolved = pc.clone();
         if let Some(model_override) = explicit_model_override {
             resolved.model = model_override.to_string();
+        } else if active_provider {
+            if !requested_model.is_empty() {
+                resolved.model = requested_model.to_string();
+            } else if resolved.model.is_empty() {
+                if let Some(def) = get_provider_definition(provider_id) {
+                    resolved.model = def.default_model.to_string();
+                }
+            }
+            resolved.base_url = config.base_url.clone();
+            resolved.context_window_tokens = config.context_window_tokens;
         } else if resolved.model.is_empty() {
             if !requested_model.is_empty() {
                 resolved.model = requested_model.to_string();
@@ -385,5 +396,93 @@ mod tests {
 
         assert_eq!(resolved.model, "llama-3.3-70b-versatile");
         assert_eq!(resolved.base_url, "https://api.groq.com/openai/v1");
+    }
+
+    #[test]
+    fn active_provider_resolution_ignores_stale_named_provider_model_and_window() {
+        let mut config = AgentConfig::default();
+        config.provider = PROVIDER_ID_OPENAI.to_string();
+        config.base_url = "https://api.openai.com/v1".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.context_window_tokens = 128_000;
+        config.api_key = "top-level-key".to_string();
+        config.providers.insert(
+            PROVIDER_ID_OPENAI.to_string(),
+            ProviderConfig {
+                base_url: "https://stale.invalid/v1".to_string(),
+                model: "gpt-5.4".to_string(),
+                api_key: "stored-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::Responses,
+                context_window_tokens: 400_000,
+                reasoning_effort: String::new(),
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+            },
+        );
+
+        let resolved = resolve_active_provider_config(&config).expect("active provider resolves");
+
+        assert_eq!(resolved.model, "gpt-5.4-mini");
+        assert_eq!(resolved.context_window_tokens, 128_000);
+        assert_eq!(resolved.base_url, "https://api.openai.com/v1");
+        assert_eq!(resolved.api_key, "stored-key");
+    }
+
+    #[test]
+    fn active_provider_resolution_keeps_nested_auth_source_and_transport() {
+        let mut config = AgentConfig::default();
+        config.provider = PROVIDER_ID_OPENAI.to_string();
+        config.base_url = "https://api.openai.com/v1".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.context_window_tokens = 128_000;
+        config.auth_source = AuthSource::ApiKey;
+        config.api_transport = ApiTransport::ChatCompletions;
+        config.providers.insert(
+            PROVIDER_ID_OPENAI.to_string(),
+            ProviderConfig {
+                base_url: "https://api.openai.com/v1".to_string(),
+                model: "gpt-5.4".to_string(),
+                api_key: String::new(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ChatgptSubscription,
+                api_transport: ApiTransport::Responses,
+                context_window_tokens: 400_000,
+                reasoning_effort: String::new(),
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+            },
+        );
+
+        let resolved = resolve_active_provider_config(&config).expect("active provider resolves");
+
+        assert_eq!(resolved.model, "gpt-5.4-mini");
+        assert_eq!(resolved.base_url, "https://api.openai.com/v1");
+        assert_eq!(resolved.context_window_tokens, 128_000);
+        assert_eq!(resolved.auth_source, AuthSource::ChatgptSubscription);
+        assert_eq!(resolved.api_transport, ApiTransport::Responses);
     }
 }

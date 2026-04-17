@@ -1,6 +1,36 @@
 use super::*;
+use crate::session_manager::SessionManager;
 
 impl ConciergeEngine {
+    pub(crate) async fn recent_persisted_history_thread_ids(
+        &self,
+        session_manager: &Arc<SessionManager>,
+        limit: usize,
+    ) -> Vec<String> {
+        match session_manager.list_agent_threads().await {
+            Ok(mut threads) => {
+                threads.retain(|thread| include_persisted_thread_in_concierge_context(thread));
+                threads.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                threads.truncate(limit.max(1));
+                threads.into_iter().map(|thread| thread.id).collect()
+            }
+            Err(error) => {
+                tracing::warn!("concierge: failed to inspect persisted thread history: {error}");
+                Vec::new()
+            }
+        }
+    }
+
+    pub(crate) async fn has_prior_user_history(
+        &self,
+        session_manager: &Arc<SessionManager>,
+    ) -> bool {
+        !self
+            .recent_persisted_history_thread_ids(session_manager, 1)
+            .await
+            .is_empty()
+    }
+
     pub(super) async fn gather_context(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
@@ -155,6 +185,15 @@ pub(super) fn is_heartbeat_thread(thread: &AgentThread) -> bool {
                 && (message.content.starts_with("HEARTBEAT SYNTHESIS")
                     || message.content.starts_with("Heartbeat check:"))
         })
+}
+
+fn include_persisted_thread_in_concierge_context(thread: &amux_protocol::AgentDbThread) -> bool {
+    thread.id != CONCIERGE_THREAD_ID
+        && !crate::agent::agent_identity::is_internal_dm_thread(&thread.id)
+        && !crate::agent::agent_identity::is_participant_playground_thread(&thread.id)
+        && !thread.title.starts_with("HEARTBEAT SYNTHESIS")
+        && !thread.title.starts_with("Heartbeat check:")
+        && thread.message_count > 0
 }
 
 fn format_message_snippet(message: &AgentMessage) -> String {

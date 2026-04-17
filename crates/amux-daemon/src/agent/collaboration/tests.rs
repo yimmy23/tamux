@@ -686,6 +686,121 @@ async fn dispatch_via_bid_protocol_persists_call_metadata_in_collaboration_sessi
 }
 
 #[tokio::test]
+async fn resolve_bids_tie_prefers_higher_agent_affinity_profile_confidence() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Choose the best owner for the next workstream".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_a = engine
+        .enqueue_task(
+            "Research child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_b = engine
+        .enqueue_task(
+            "Review child".to_string(),
+            "Prepare a bid for review ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child_a)
+        .await;
+    engine
+        .register_subagent_collaboration(&parent.id, &child_b)
+        .await;
+
+    {
+        let mut collaboration = engine.collaboration.write().await;
+        let session = collaboration
+            .get_mut(&parent.id)
+            .expect("collaboration session should exist");
+        for agent in &mut session.agents {
+            if agent.task_id == child_a.id {
+                agent.confidence = 0.22;
+            } else if agent.task_id == child_b.id {
+                agent.confidence = 0.91;
+            }
+        }
+    }
+
+    let eligible = vec![child_a.id.clone(), child_b.id.clone()];
+    engine
+        .call_for_bids(&parent.id, &eligible)
+        .await
+        .expect("call_for_bids should succeed");
+
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_a.id,
+            0.84,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("first tied bid should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_b.id,
+            0.84,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("second tied bid should succeed");
+
+    let resolution = engine
+        .resolve_bids(&parent.id)
+        .await
+        .expect("resolve_bids should succeed");
+
+    assert_eq!(
+        resolution["primary_task_id"], child_b.id,
+        "on exact bid ties, higher learned agent confidence profile should win primary routing"
+    );
+    assert_eq!(resolution["reviewer_task_id"], child_a.id);
+}
+
+#[tokio::test]
 async fn resolve_bids_tie_seeds_debate_session_with_bid_context() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

@@ -508,6 +508,7 @@ async fn apply_distilled_candidate(
     candidate: &DistillationCandidate,
 ) -> anyhow::Result<bool> {
     let target = match candidate.target_file.as_str() {
+        "SOUL.md" => MemoryTarget::Soul,
         "USER.md" => MemoryTarget::User,
         _ => MemoryTarget::Memory,
     };
@@ -1031,12 +1032,14 @@ mod tests {
         let history = HistoryStore::new_test_store(&root).await?;
         ensure_memory_files(&root).await?;
 
+        let fact =
+            "Prefer deterministic rust memory-distillation sequencing over ad-hoc extraction.";
         let candidate = DistillationCandidate {
             source_thread_id: "thread-1".into(),
             source_message_range: Some("msg#1".into()),
             source_message_span: None,
             last_processed_cursor: None,
-            distilled_fact: "Use the cargo package name `tamux-daemon` for `cargo -p`.".into(),
+            distilled_fact: fact.into(),
             target_file: "MEMORY.md".into(),
             category: MemoryCategory::Convention,
             confidence: 0.91,
@@ -1049,16 +1052,51 @@ mod tests {
         let memory_path = memory_paths_for_scope(&root, &current_agent_scope_id()).memory_path;
         let initial = tokio::fs::read_to_string(&memory_path).await?;
         assert!(initial.contains("- [distilled]["));
-        assert!(initial.contains("Use the cargo package name `tamux-daemon` for `cargo -p`."));
+        assert!(initial.contains(fact));
 
         assert!(!apply_distilled_candidate(&history, &root, &config, &candidate).await?);
 
         let final_content = tokio::fs::read_to_string(&memory_path).await?;
-        assert_eq!(
-            final_content
-                .matches("Use the cargo package name `tamux-daemon` for `cargo -p`.")
-                .count(),
-            1
+        assert_eq!(final_content.matches(fact).count(), 1);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn apply_distilled_candidate_targets_soul_file_when_requested() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("tamux-distill-test-{}", Uuid::new_v4()));
+        let history = HistoryStore::new_test_store(&root).await?;
+        ensure_memory_files(&root).await?;
+
+        let fact =
+            "Dream-state SOUL hint: prefer blacksmith-grade toolcraft for deterministic workflows.";
+        let candidate = DistillationCandidate {
+            source_thread_id: "thread-soul".into(),
+            source_message_range: Some("msg#1".into()),
+            source_message_span: None,
+            last_processed_cursor: None,
+            distilled_fact: fact.into(),
+            target_file: "SOUL.md".into(),
+            category: MemoryCategory::Lesson,
+            confidence: 0.93,
+            reasoning: "identity-level distilled lesson".into(),
+        };
+        let config = DistillationConfig::default();
+
+        assert!(apply_distilled_candidate(&history, &root, &config, &candidate).await?);
+
+        let paths = memory_paths_for_scope(&root, &current_agent_scope_id());
+        let soul = tokio::fs::read_to_string(&paths.soul_path).await?;
+        let memory = tokio::fs::read_to_string(&paths.memory_path).await?;
+
+        assert!(
+            soul.contains(fact),
+            "SOUL.md target should append the distilled fact to SOUL.md"
+        );
+        assert!(
+            !memory.contains(fact),
+            "SOUL.md-targeted candidate must not be redirected into MEMORY.md"
         );
 
         fs::remove_dir_all(root)?;

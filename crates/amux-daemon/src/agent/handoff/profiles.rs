@@ -343,6 +343,34 @@ pub(crate) fn compute_learned_routing_weights(
     weights
 }
 
+pub(crate) fn select_learned_specialist(
+    learned_weights: &[LearnedRoutingWeight],
+    confidence_threshold: f64,
+) -> Option<(usize, f64)> {
+    if learned_weights.is_empty() || !confidence_threshold.is_finite() {
+        return None;
+    }
+
+    let eligible: Vec<&LearnedRoutingWeight> = learned_weights
+        .iter()
+        .filter(|entry| entry.weight >= confidence_threshold)
+        .collect();
+
+    match eligible.len() {
+        0 => None,
+        1 => {
+            let only = eligible[0];
+            Some((only.profile_idx, only.weight))
+        }
+        _ => {
+            let weights: Vec<f64> = eligible.iter().map(|entry| entry.weight).collect();
+            let dist = WeightedIndex::new(&weights).ok()?;
+            let selected = eligible[dist.sample(&mut thread_rng())];
+            Some((selected.profile_idx, selected.weight))
+        }
+    }
+}
+
 /// Select a specialist using a probabilistic pass across all non-zero matches,
 /// with deterministic fallback when no candidate clears the threshold.
 pub fn select_specialist(
@@ -702,6 +730,65 @@ mod tests {
         assert_eq!(profiles[runner_up.profile_idx].id, "generalist");
         assert!(top.weight > runner_up.weight * 2.0);
         assert!(top.weight > cold_researcher);
+    }
+
+    #[test]
+    fn select_learned_specialist_returns_none_when_no_candidate_clears_threshold() {
+        let learned = vec![
+            LearnedRoutingWeight {
+                profile_idx: 0,
+                weight: 0.2,
+            },
+            LearnedRoutingWeight {
+                profile_idx: 1,
+                weight: 0.1,
+            },
+        ];
+
+        assert!(select_learned_specialist(&learned, 0.3).is_none());
+    }
+
+    #[test]
+    fn select_learned_specialist_uses_only_threshold_eligible_candidates() {
+        let learned = vec![
+            LearnedRoutingWeight {
+                profile_idx: 10,
+                weight: 0.6,
+            },
+            LearnedRoutingWeight {
+                profile_idx: 20,
+                weight: 0.4,
+            },
+            LearnedRoutingWeight {
+                profile_idx: 99,
+                weight: 0.2,
+            },
+        ];
+
+        for _ in 0..200 {
+            let (profile_idx, weight) =
+                select_learned_specialist(&learned, 0.3).expect("eligible candidate");
+            assert!(matches!(profile_idx, 10 | 20));
+            assert!(weight >= 0.3);
+        }
+    }
+
+    #[test]
+    fn select_learned_specialist_with_single_eligible_candidate_is_stable() {
+        let learned = vec![
+            LearnedRoutingWeight {
+                profile_idx: 3,
+                weight: 0.8,
+            },
+            LearnedRoutingWeight {
+                profile_idx: 4,
+                weight: 0.1,
+            },
+        ];
+
+        let selected = select_learned_specialist(&learned, 0.3).expect("single eligible");
+        assert_eq!(selected.0, 3);
+        assert_eq!(selected.1, 0.8);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 This document collects the practical reference material that used to live in the top-level README: providers, configuration, shortcuts, packaging, runtime integration, and development notes.
 
-For onboarding, see [getting-started.md](getting-started.md). For runtime architecture, see [how-tamux-works.md](how-tamux-works.md). For deeper agent internals, see [self-orchestrating-agent.md](self-orchestrating-agent.md). For the current memory provenance and operator-control model, see [memory-and-security.md](memory-and-security.md).
+For onboarding, see [getting-started.md](getting-started.md). For runtime architecture, see [how-tamux-works.md](how-tamux-works.md). For deeper agent internals, see [self-orchestrating-agent.md](self-orchestrating-agent.md). For the canonical memory architecture, see [tamux-memory.md](tamux-memory.md). For the canonical security and governance model, see [tamux-security.md](tamux-security.md).
 
 ## Paths And Locations
 

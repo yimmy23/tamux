@@ -6,7 +6,7 @@ Original design session: 2026-04-08
 
 This document defines the shared architecture for tamux orchestration and safety.
 
-For the current daemon/runtime shape, see [how-tamux-works.md](./how-tamux-works.md). For current memory and provenance behavior, see [memory-and-security.md](./memory-and-security.md).
+For the current daemon/runtime shape, see [how-tamux-works.md](./how-tamux-works.md). For the layered memory architecture, see [tamux-memory.md](./tamux-memory.md). For the current security and governance model, see [tamux-security.md](./tamux-security.md).
 
 This parent RFC defines the shared model for two child RFCs:
 

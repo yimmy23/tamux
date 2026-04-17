@@ -165,6 +165,38 @@ fn oversized_global_agent_event_downgrades_to_workflow_notice() {
 }
 
 #[test]
+fn oversized_thread_workflow_notice_stays_workflow_notice() {
+    let event = AgentEvent::WorkflowNotice {
+        thread_id: "thread-1".to_string(),
+        kind: "manual-compaction".to_string(),
+        message: "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024),
+        details: Some("y".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024)),
+    };
+
+    let (event_json, truncated) =
+        super::cap_agent_event_for_ipc(&event).expect("event should produce fallback payload");
+    assert!(truncated);
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&event_json).expect("parse fallback event json");
+    assert_eq!(
+        parsed.get("type").and_then(|value| value.as_str()),
+        Some("workflow_notice")
+    );
+    assert_eq!(
+        parsed.get("thread_id").and_then(|value| value.as_str()),
+        Some("thread-1")
+    );
+    assert_eq!(
+        parsed.get("kind").and_then(|value| value.as_str()),
+        Some("manual-compaction")
+    );
+    assert!(amux_protocol::daemon_message_fits_ipc(
+        &DaemonMessage::AgentEvent { event_json }
+    ));
+}
+
+#[test]
 fn operator_question_events_forward_for_subscribed_thread() {
     let event = AgentEvent::OperatorQuestion {
         question_id: "oq-1".to_string(),

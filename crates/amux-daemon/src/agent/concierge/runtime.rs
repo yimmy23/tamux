@@ -83,13 +83,14 @@ impl ConciergeEngine {
     ) {
         let mut threads_guard = threads.write().await;
         if let Some(thread) = threads_guard.get_mut(CONCIERGE_THREAD_ID) {
+            thread.agent_name = Some(CONCIERGE_AGENT_NAME.to_string());
             thread.messages.clear();
             tracing::info!("concierge: cleared stale messages from existing thread");
         } else {
             let now = super::super::now_millis();
             let thread = AgentThread {
                 id: CONCIERGE_THREAD_ID.to_string(),
-                agent_name: None,
+                agent_name: Some(CONCIERGE_AGENT_NAME.to_string()),
                 title: "Concierge".to_string(),
                 created_at: now,
                 updated_at: now,

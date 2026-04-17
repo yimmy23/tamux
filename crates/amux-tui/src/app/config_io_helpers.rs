@@ -160,7 +160,11 @@ impl TuiModel {
             .config
             .agent_config_raw
             .as_ref()
-            .and_then(|raw| raw.get(provider_id))
+            .and_then(|raw| {
+                raw.get("providers")
+                    .and_then(|providers| providers.get(provider_id))
+                    .or_else(|| raw.get(provider_id))
+            })
             .cloned()
         {
             return existing;
@@ -297,6 +301,36 @@ impl TuiModel {
             .clone()
             .unwrap_or_else(|| serde_json::json!({}));
 
+        let previous_main_provider = patch
+            .get("provider")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let previous_main_model = patch
+            .get("model")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                previous_main_provider.as_deref().and_then(|provider_id| {
+                    patch
+                        .get("providers")
+                        .and_then(|providers| providers.get(provider_id))
+                        .or_else(|| patch.get(provider_id))
+                        .and_then(|provider| provider.get("model"))
+                        .and_then(|value| value.as_str())
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                })
+            })
+            .map(str::to_string);
+        let main_provider_or_model_changed_after_setup =
+            previous_main_provider.as_deref().is_some_and(|provider| {
+                provider != self.config.provider
+                    || previous_main_model.as_deref() != Some(&self.config.model)
+            }) && previous_main_model.is_some();
+
         patch["provider"] = serde_json::Value::String(self.config.provider.clone());
         patch["providers"] = serde_json::Value::Object(self.all_provider_wire_config_values());
         patch[&self.config.provider] = self.provider_wire_config_value(&self.config.provider);
@@ -405,6 +439,48 @@ impl TuiModel {
         }
         if patch["builtin_sub_agents"].get("weles").is_none() {
             patch["builtin_sub_agents"]["weles"] = serde_json::json!({});
+        }
+        if main_provider_or_model_changed_after_setup {
+            if let (Some(provider_id), Some(model_id)) = (
+                previous_main_provider.as_deref(),
+                previous_main_model.as_deref(),
+            ) {
+                if patch.get("concierge").is_none() {
+                    patch["concierge"] = serde_json::json!({});
+                }
+                let concierge_provider_missing = patch["concierge"]
+                    .get("provider")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .is_none_or(str::is_empty);
+                let concierge_model_missing = patch["concierge"]
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .is_none_or(str::is_empty);
+                if concierge_provider_missing && concierge_model_missing {
+                    patch["concierge"]["provider"] =
+                        serde_json::Value::String(provider_id.to_string());
+                    patch["concierge"]["model"] = serde_json::Value::String(model_id.to_string());
+                }
+
+                let weles_provider_missing = patch["builtin_sub_agents"]["weles"]
+                    .get("provider")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .is_none_or(str::is_empty);
+                let weles_model_missing = patch["builtin_sub_agents"]["weles"]
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .is_none_or(str::is_empty);
+                if weles_provider_missing && weles_model_missing {
+                    patch["builtin_sub_agents"]["weles"]["provider"] =
+                        serde_json::Value::String(provider_id.to_string());
+                    patch["builtin_sub_agents"]["weles"]["model"] =
+                        serde_json::Value::String(model_id.to_string());
+                }
+            }
         }
         patch["builtin_sub_agents"]["weles"]["max_concurrent_reviews"] =
             serde_json::Value::from(self.config.weles_max_concurrent_reviews);

@@ -197,11 +197,11 @@ pub async fn apply_forge_hints(
         .unwrap_or_default();
     let mut applied = Vec::new();
 
-    for hint in hints
-        .iter()
-        .filter(|hint| hint.priority >= min_priority)
-        .take(max_entries)
-    {
+    for hint in hints.iter().filter(|hint| hint.priority >= min_priority) {
+        if applied.len() >= max_entries {
+            break;
+        }
+
         if content_contains_equivalent_hint(&existing, &hint.hint) {
             continue;
         }
@@ -626,6 +626,58 @@ mod tests {
             content,
             "Approval friction is recurring; choose lower-blast-radius tools first and avoid unnecessary approval-triggering actions."
         ));
+    }
+
+    #[tokio::test]
+    async fn apply_forge_hints_duplicate_does_not_consume_entry_budget() -> anyhow::Result<()> {
+        crate::agent::agent_identity::run_with_agent_scope(
+            crate::agent::agent_identity::RADOGOST_AGENT_ID.to_string(),
+            async {
+                let root = std::env::temp_dir().join(format!("tamux-forge-test-{}", Uuid::new_v4()));
+                let scope_id = current_agent_scope_id();
+                ensure_memory_files_for_scope(&root, &scope_id).await?;
+                let memory_path = memory_paths_for_scope(&root, &scope_id).memory_path;
+
+                let duplicate_hint = "Timeout-prone traces are recurring; prefer bounded reads, shorter commands, and non-blocking execution for long-running work.";
+                let unique_hint = "Prefer explicit retry windows when long-running tool paths are unavoidable.";
+                tokio::fs::write(
+                    &memory_path,
+                    format!("# Memory\n\n- [forge][2026-01-01T00:00:00Z] {duplicate_hint}\n"),
+                )
+                .await?;
+
+                let hints = vec![
+                    StrategyHint {
+                        for_agent: "svarog".into(),
+                        target: "timeout".into(),
+                        hint: duplicate_hint.into(),
+                        priority: 5,
+                        source_pattern: "timeout_prone".into(),
+                    },
+                    StrategyHint {
+                        for_agent: "svarog".into(),
+                        target: "retry_window".into(),
+                        hint: unique_hint.into(),
+                        priority: 4,
+                        source_pattern: "timeout_prone".into(),
+                    },
+                ];
+
+                let applied = apply_forge_hints(&hints, 3, &root, 1).await?;
+                assert_eq!(
+                    applied.len(),
+                    1,
+                    "duplicate hints should not consume the per-pass application budget"
+                );
+
+                let content = tokio::fs::read_to_string(&memory_path).await?;
+                assert!(content.contains(unique_hint));
+
+                fs::remove_dir_all(root)?;
+                Ok(())
+            },
+        )
+        .await
     }
 
     #[tokio::test]

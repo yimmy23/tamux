@@ -42,7 +42,16 @@ impl AgentEngine {
             .lock()
             .await
             .iter()
-            .filter(|g| matches!(g.status, GoalRunStatus::Running | GoalRunStatus::Planning))
+            .filter(|g| {
+                matches!(
+                    g.status,
+                    GoalRunStatus::Queued
+                        | GoalRunStatus::Planning
+                        | GoalRunStatus::Running
+                        | GoalRunStatus::AwaitingApproval
+                        | GoalRunStatus::Paused
+                )
+            })
             .count();
         let active_streams = self.stream_cancellations.lock().await.len();
         let last_presence = self.anticipatory.read().await.last_presence_at;
