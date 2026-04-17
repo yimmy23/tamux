@@ -19,6 +19,8 @@ type ThreadActionKeys =
   | "createThread"
   | "deleteThread"
   | "setActiveThread"
+  | "openSpawnedThread"
+  | "goBackThread"
   | "searchThreads"
   | "addMessage"
   | "updateLastAssistantMessage"
@@ -33,6 +35,35 @@ type ThreadActionKeys =
 
 function shouldPersistCurrentHistory(agentSettings: AgentSettings): boolean {
   return shouldPersistHistory(agentSettings.agent_backend);
+}
+
+function appendThreadHistory(stack: string[], fromThreadId: string): string[] {
+  if (stack[stack.length - 1] === fromThreadId) {
+    return stack;
+  }
+  return [...stack, fromThreadId];
+}
+
+function popPreviousThread(
+  threads: AgentState["threads"],
+  stack: string[],
+): { activeThreadId: string | null; threadHistoryStack: string[] } {
+  const nextStack = [...stack];
+
+  while (nextStack.length > 0) {
+    const nextThreadId = nextStack.pop();
+    if (!nextThreadId) {
+      continue;
+    }
+    if (threads.some((thread) => thread.id === nextThreadId)) {
+      return {
+        activeThreadId: nextThreadId,
+        threadHistoryStack: nextStack,
+      };
+    }
+  }
+
+  return { activeThreadId: null, threadHistoryStack: [] };
 }
 
 export function createThreadActions(
@@ -103,6 +134,15 @@ export function createThreadActions(
       if (shouldPersistCurrentHistory(get().agentSettings)) {
         scheduleJsonWrite(AGENT_ACTIVE_THREAD_FILE, { activeThreadId: id });
       }
+    },
+    openSpawnedThread: (fromThreadId, toThreadId) => {
+      set((state) => ({
+        activeThreadId: toThreadId,
+        threadHistoryStack: appendThreadHistory(state.threadHistoryStack, fromThreadId),
+      }));
+    },
+    goBackThread: () => {
+      set((state) => popPreviousThread(state.threads, state.threadHistoryStack));
     },
     searchThreads: (query) => {
       const lower = query.toLowerCase();

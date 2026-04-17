@@ -44,6 +44,7 @@ export interface AgentState {
   messages: Record<string, AgentMessage[]>;
   todos: Record<string, AgentTodoItem[]>;
   activeThreadId: string | null;
+  threadHistoryStack: string[];
   agentPanelOpen: boolean;
   agentSettings: AgentSettings;
   agentSettingsHydrated: boolean;
@@ -67,6 +68,8 @@ export interface AgentState {
   }) => string;
   deleteThread: (id: string) => void;
   setActiveThread: (id: string | null) => void;
+  openSpawnedThread: (fromThreadId: string, toThreadId: string) => void;
+  goBackThread: () => void;
   searchThreads: (query: string) => AgentThread[];
   addMessage: (threadId: string, msg: Omit<AgentMessage, "id" | "threadId" | "createdAt">) => void;
   updateLastAssistantMessage: (
