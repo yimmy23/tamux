@@ -1,4 +1,4 @@
-import { isTaskTerminal, type AgentTaskStatus } from "./agentTaskQueue";
+import type { AgentTaskStatus } from "./agentTaskQueue";
 
 export interface SpawnedAgentTreeSource {
     id: string;
@@ -118,6 +118,20 @@ function hasResolvedParent<T extends SpawnedAgentTreeSource>(item: T, identityLo
     return Boolean(item.parent_task_id && identityLookup.has(item.parent_task_id));
 }
 
+function isSpawnedAgentTreeTerminal(status: AgentTaskStatus): boolean {
+    return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function pickAnchorCandidate<T extends SpawnedAgentTreeSource>(
+    activeThreadItems: readonly T[],
+    identityLookup: ReadonlySet<string>,
+): T | null {
+    const topLevelActiveThreadItems = activeThreadItems.filter(
+        (item) => !hasResolvedParent(item, identityLookup),
+    );
+    return topLevelActiveThreadItems[0] ?? activeThreadItems[0] ?? null;
+}
+
 function buildChildren<T extends SpawnedAgentTreeSource>(
     item: T,
     indexes: SpawnedAgentTreeIndexes<T>,
@@ -142,7 +156,7 @@ function buildChildren<T extends SpawnedAgentTreeSource>(
         item: candidate,
         children: buildChildren(candidate, indexes, rootIdentityLookup, nextAncestry),
         openable: Boolean(candidate.thread_id),
-        live: !isTaskTerminal(candidate),
+        live: !isSpawnedAgentTreeTerminal(candidate.status),
     }));
 }
 
@@ -155,7 +169,7 @@ function buildNode<T extends SpawnedAgentTreeSource>(
         item,
         children: buildChildren(item, indexes, rootIdentityLookup, new Set([getTaskIdentity(item)])),
         openable: Boolean(item.thread_id),
-        live: !isTaskTerminal(item),
+        live: !isSpawnedAgentTreeTerminal(item.status),
     };
 }
 
@@ -170,17 +184,19 @@ export function deriveSpawnedAgentTree<T extends SpawnedAgentTreeSource>(
     const canonicalItems = canonicalizeByIdentity(items);
     const indexes = buildIndexes(canonicalItems);
     const identityLookup = new Set(canonicalItems.map((item) => getTaskIdentity(item)));
+    const activeThreadItems = indexes.byThreadId.get(activeThreadId) ?? [];
+    const anchorCandidate = pickAnchorCandidate(activeThreadItems, identityLookup);
 
     const visibleRootCandidates = sortByPreferredOrder([
-        ...(indexes.byThreadId.get(activeThreadId) ?? []),
-        ...(indexes.byParentThreadId.get(activeThreadId) ?? []),
-    ].filter((item) => !hasResolvedParent(item, identityLookup)));
+        ...(anchorCandidate ? [anchorCandidate] : []),
+        ...(indexes.byParentThreadId.get(activeThreadId) ?? []).filter(
+            (item) => !hasResolvedParent(item, identityLookup),
+        ),
+    ]);
 
     if (visibleRootCandidates.length === 0) {
         return null;
     }
-
-    const anchorCandidate = visibleRootCandidates.find((item) => item.thread_id === activeThreadId) ?? null;
     const rootIdentityLookup = new Set(visibleRootCandidates.map((item) => getTaskIdentity(item)));
 
     return {

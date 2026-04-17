@@ -97,6 +97,40 @@ describe("deriveSpawnedAgentTree", () => {
     expect(tree.roots.map((node) => node.item.id)).toEqual(["child-b", "child-a"]);
   });
 
+  it("anchors spawned child threads even when their parent task record exists", () => {
+    const tree = deriveSpawnedAgentTree(
+      [
+        {
+          id: "root-task",
+          status: "in_progress",
+          created_at: 10,
+          thread_id: "thread-root",
+        },
+        {
+          id: "child-task",
+          status: "in_progress",
+          created_at: 20,
+          thread_id: "thread-child",
+          parent_task_id: "root-task",
+          parent_thread_id: "thread-root",
+        },
+        {
+          id: "grandchild-task",
+          status: "completed",
+          created_at: 30,
+          thread_id: "thread-grandchild",
+          parent_task_id: "child-task",
+          parent_thread_id: "thread-child",
+        },
+      ],
+      "thread-child",
+    );
+
+    expect(tree?.anchor?.item.id).toBe("child-task");
+    expect(tree?.roots).toHaveLength(0);
+    expect(tree?.anchor?.children[0]?.item.id).toBe("grandchild-task");
+  });
+
   it("resolves the visible root container from parent_thread_id when the active thread is the parent thread", () => {
     const tree = deriveSpawnedAgentTree(
       [
