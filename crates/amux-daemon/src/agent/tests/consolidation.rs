@@ -1,4 +1,6 @@
 use super::*;
+use tempfile::tempdir;
+use tokio::time::Duration;
 
 #[test]
 fn idle_returns_true_when_all_conditions_met() {
@@ -70,6 +72,69 @@ fn idle_returns_true_when_no_presence_recorded() {
         1000,
         DEFAULT_IDLE_THRESHOLD_MS,
     ));
+}
+
+#[tokio::test]
+async fn maybe_run_consolidation_if_idle_blocks_when_goal_run_is_awaiting_approval() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.consolidation.enabled = true;
+    config.consolidation.idle_threshold_secs = 0;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let goal = GoalRun {
+        id: "goal-awaiting-approval".to_string(),
+        title: "goal awaiting approval".to_string(),
+        goal: "wait for operator approval".to_string(),
+        client_request_id: None,
+        status: GoalRunStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        created_at: 0,
+        updated_at: 0,
+        started_at: None,
+        completed_at: None,
+        thread_id: None,
+        session_id: None,
+        current_step_index: 0,
+        current_step_title: None,
+        current_step_kind: None,
+        replan_count: 0,
+        max_replans: 3,
+        plan_summary: None,
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: None,
+        last_error: None,
+        failure_cause: None,
+        child_task_ids: Vec::new(),
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: Some("approval-1".to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        active_task_id: None,
+        duration_ms: None,
+        steps: Vec::new(),
+        events: Vec::new(),
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        autonomy_level: Default::default(),
+        authorship_tag: None,
+    };
+    engine.goal_runs.lock().await.push_back(goal);
+
+    let result = engine
+        .maybe_run_consolidation_if_idle(Duration::from_millis(5))
+        .await;
+    assert!(
+        result.is_none(),
+        "dream/consolidation should stay paused while a goal run is awaiting approval"
+    );
 }
 
 #[test]
