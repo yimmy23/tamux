@@ -274,6 +274,29 @@ impl AgentEngine {
                                 reason: action.as_ref().and_then(|value| value.reason),
                                 intervention: action.as_ref().map(|value| value.action),
                             });
+                            let _ = self
+                                .maybe_fire_event_trigger(
+                                    "health",
+                                    "subagent_health",
+                                    Some(match new_state {
+                                        SubagentHealthState::Healthy => "healthy",
+                                        SubagentHealthState::Degraded => "degraded",
+                                        SubagentHealthState::Stuck => "stuck",
+                                        SubagentHealthState::Crashed => "crashed",
+                                    }),
+                                    task.thread_id.as_deref(),
+                                    serde_json::json!({
+                                        "task_id": task.id,
+                                        "previous_state": format!("{:?}", previous_state).to_ascii_lowercase(),
+                                        "new_state": format!("{:?}", new_state).to_ascii_lowercase(),
+                                        "reason": action
+                                            .as_ref()
+                                            .and_then(|value| value.reason)
+                                            .map(|reason| format!("{:?}", reason).to_ascii_lowercase())
+                                            .unwrap_or_else(|| "unknown".to_string()),
+                                    }),
+                                )
+                                .await;
                         }
                         self.persist_subagent_runtime_metrics(&task.id).await;
                     }

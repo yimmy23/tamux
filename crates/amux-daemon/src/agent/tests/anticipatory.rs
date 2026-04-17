@@ -1461,3 +1461,103 @@ async fn anticipatory_tick_surfaces_stale_context_foresight_when_hydration_lags_
         .iter()
         .any(|bullet| bullet.contains("semantic alignment degraded")));
 }
+
+#[tokio::test]
+async fn event_trigger_defaults_can_be_seeded_and_listed() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let seeded = engine
+        .ensure_default_event_triggers()
+        .await
+        .expect("default event triggers should seed");
+    assert!(seeded >= 2);
+
+    let payload = engine
+        .list_event_triggers_json()
+        .await
+        .expect("list_event_triggers should succeed");
+    let rows = payload.as_array().expect("payload should be an array");
+    assert!(rows.iter().any(|row| row["event_kind"] == "weles_health"));
+    assert!(rows.iter().any(|row| row["event_kind"] == "subagent_health"));
+}
+
+#[tokio::test]
+async fn event_trigger_fire_respects_cooldown_and_emits_notice() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let mut events = engine.event_tx.subscribe();
+
+    let payload = engine
+        .add_event_trigger_from_args(&serde_json::json!({
+            "id": "trigger-health-test",
+            "event_family": "health",
+            "event_kind": "subagent_health",
+            "target_state": "stuck",
+            "notification_kind": "subagent_health_stuck",
+            "title_template": "Subagent {task_id} stuck",
+            "body_template": "Task {task_id} entered {state} because {reason}",
+            "cooldown_secs": 3600,
+            "risk_label": "medium"
+        }))
+        .await
+        .expect("add trigger should succeed");
+    assert_eq!(payload["status"], "created");
+
+    let fired = engine
+        .maybe_fire_event_trigger(
+            "health",
+            "subagent_health",
+            Some("stuck"),
+            Some("thread-health-trigger"),
+            serde_json::json!({
+                "task_id": "task-77",
+                "reason": "timeout"
+            }),
+        )
+        .await
+        .expect("trigger firing should succeed");
+    assert_eq!(fired, 1);
+
+    let notice = timeout(Duration::from_millis(250), async {
+        loop {
+            match events.recv().await {
+                Ok(AgentEvent::WorkflowNotice {
+                    kind,
+                    thread_id,
+                    message,
+                    details,
+                }) => break (kind, thread_id, message, details),
+                Ok(_) => continue,
+                Err(error) => panic!("expected workflow notice, got event error: {error}"),
+            }
+        }
+    })
+    .await
+    .expect("trigger notice should be emitted");
+
+    assert_eq!(notice.0, "subagent_health_stuck");
+    assert_eq!(notice.1, "thread-health-trigger");
+    assert!(notice.2.contains("task-77"));
+    assert!(notice
+        .3
+        .as_deref()
+        .is_some_and(|details| details.contains("timeout")));
+
+    let second = engine
+        .maybe_fire_event_trigger(
+            "health",
+            "subagent_health",
+            Some("stuck"),
+            Some("thread-health-trigger"),
+            serde_json::json!({
+                "task_id": "task-77",
+                "reason": "timeout"
+            }),
+        )
+        .await
+        .expect("cooldown evaluation should succeed");
+    assert_eq!(second, 0, "cooldown should suppress immediate refire");
+}

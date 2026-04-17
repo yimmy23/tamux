@@ -35,6 +35,7 @@ mod dispatcher;
 mod emergent_protocol;
 mod engine;
 mod engine_runtime;
+mod events;
 mod explainability;
 mod explanation;
 mod external_messaging;
