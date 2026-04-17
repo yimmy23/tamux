@@ -362,7 +362,23 @@ if matches!(
                             (done, t)
                         };
 
-                        if !onboarding_done {
+                        let recent_history_thread_ids = agent
+                            .concierge
+                            .recent_persisted_history_thread_ids(&agent.session_manager, 5)
+                            .await;
+                        for thread_id in &recent_history_thread_ids {
+                            agent.ensure_thread_messages_loaded(thread_id).await;
+                        }
+
+                        let should_deliver_onboarding =
+                            !onboarding_done && recent_history_thread_ids.is_empty();
+
+                        if !onboarding_done && !should_deliver_onboarding {
+                            let mut cfg = agent.config.write().await;
+                            cfg.tier.onboarding_completed = true;
+                        }
+
+                        if should_deliver_onboarding {
                             if let Err(e) = agent
                                 .concierge
                                 .deliver_onboarding(tier, &agent.threads)

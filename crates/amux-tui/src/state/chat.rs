@@ -1106,11 +1106,18 @@ impl ChatState {
                     existing.history_window_expanded = false;
                     existing.older_page_request_cooldown_until_tick = None;
                     existing.collapse_deadline_tick = None;
+                    if thread_id == "concierge" {
+                        existing.agent_name = Some(AGENT_NAME_RAROG.to_string());
+                    }
                 } else {
                     let local_message_count = local_messages.len();
                     let thread = AgentThread {
                         id: thread_id.clone(),
-                        agent_name: None,
+                        agent_name: if thread_id == "concierge" {
+                            Some(AGENT_NAME_RAROG.to_string())
+                        } else {
+                            None
+                        },
                         title,
                         messages: local_messages,
                         total_message_count: local_message_count,
@@ -1160,7 +1167,11 @@ impl ChatState {
                     };
                     self.threads.push(AgentThread {
                         id: thread_id.clone(),
-                        agent_name: None,
+                        agent_name: if thread_id == "concierge" {
+                            Some(AGENT_NAME_RAROG.to_string())
+                        } else {
+                            None
+                        },
                         title,
                         messages: vec![message],
                         total_message_count: 1,

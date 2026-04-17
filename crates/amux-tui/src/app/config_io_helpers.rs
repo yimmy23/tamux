@@ -160,7 +160,11 @@ impl TuiModel {
             .config
             .agent_config_raw
             .as_ref()
-            .and_then(|raw| raw.get(provider_id))
+            .and_then(|raw| {
+                raw.get("providers")
+                    .and_then(|providers| providers.get(provider_id))
+                    .or_else(|| raw.get(provider_id))
+            })
             .cloned()
         {
             return existing;
@@ -310,7 +314,8 @@ impl TuiModel {
             .filter(|value| !value.is_empty())
             .or_else(|| {
                 previous_main_provider.as_deref().and_then(|provider_id| {
-                    patch.get("providers")
+                    patch
+                        .get("providers")
                         .and_then(|providers| providers.get(provider_id))
                         .or_else(|| patch.get(provider_id))
                         .and_then(|provider| provider.get("model"))
@@ -322,7 +327,8 @@ impl TuiModel {
             .map(str::to_string);
         let main_provider_or_model_changed_after_setup =
             previous_main_provider.as_deref().is_some_and(|provider| {
-                provider != self.config.provider || previous_main_model.as_deref() != Some(&self.config.model)
+                provider != self.config.provider
+                    || previous_main_model.as_deref() != Some(&self.config.model)
             }) && previous_main_model.is_some();
 
         patch["provider"] = serde_json::Value::String(self.config.provider.clone());
@@ -455,8 +461,7 @@ impl TuiModel {
                 if concierge_provider_missing && concierge_model_missing {
                     patch["concierge"]["provider"] =
                         serde_json::Value::String(provider_id.to_string());
-                    patch["concierge"]["model"] =
-                        serde_json::Value::String(model_id.to_string());
+                    patch["concierge"]["model"] = serde_json::Value::String(model_id.to_string());
                 }
 
                 let weles_provider_missing = patch["builtin_sub_agents"]["weles"]

@@ -8,8 +8,7 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 
 use super::profiles::{
-    compute_learned_routing_weights, match_specialist, select_learned_specialist,
-    select_specialist,
+    compute_learned_routing_weights, match_specialist, select_learned_specialist, select_specialist,
 };
 use super::{
     AcceptanceCriteria, ContextBundle, EpisodeRef, HandoffResult, RoutingMethod, ValidationResult,
