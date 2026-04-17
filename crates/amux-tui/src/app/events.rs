@@ -145,6 +145,9 @@ impl TuiModel {
                     self.chat.reduce(chat::ChatAction::ThreadDeleted {
                         thread_id: thread_id.clone(),
                     });
+                    if self.modal.top() == Some(modal::ModalKind::ThreadPicker) {
+                        self.sync_thread_picker_item_count();
+                    }
                     self.status_line = "Thread deleted".to_string();
                 } else {
                     self.status_line = "Thread delete failed".to_string();
@@ -225,6 +228,9 @@ impl TuiModel {
                     };
                     self.tasks
                         .reduce(task::TaskAction::GoalRunDeleted { goal_run_id });
+                    if self.modal.top() == Some(modal::ModalKind::GoalPicker) {
+                        self.sync_goal_picker_item_count();
+                    }
                     if viewing_deleted_goal {
                         self.main_pane_view = MainPaneView::Conversation;
                     }

@@ -868,10 +868,14 @@ impl AgentEngine {
     }
 
     pub async fn list_goal_runs(&self) -> Vec<GoalRun> {
-        self.list_goal_runs_capped_for_ipc().await.0
+        self.list_goal_runs_paginated_capped_for_ipc(None, None).await.0
     }
 
-    pub(crate) async fn list_goal_runs_capped_for_ipc(&self) -> (Vec<GoalRun>, bool) {
+    pub(crate) async fn list_goal_runs_paginated_capped_for_ipc(
+        &self,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> (Vec<GoalRun>, bool) {
         let goal_runs = self.goal_runs.lock().await;
         let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
         drop(goal_runs);
@@ -880,6 +884,9 @@ impl AgentEngine {
             projected.push(self.project_goal_run(goal_run).await);
         }
         projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let offset = offset.unwrap_or(0);
+        let limit = limit.unwrap_or(usize::MAX);
+        let projected: Vec<GoalRun> = projected.into_iter().skip(offset).take(limit).collect();
 
         if goal_run_list_frame_fits_ipc(&projected) {
             return (projected, false);

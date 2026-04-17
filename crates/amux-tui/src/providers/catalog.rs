@@ -244,7 +244,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         id: PROVIDER_ID_OPENCODE_ZEN,
         name: "OpenCode Zen",
         default_base_url: "https://opencode.ai/zen/v1",
-        default_model: "claude-sonnet-4-5",
+        default_model: "claude-sonnet-4-6",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,

@@ -1,5 +1,28 @@
 use clap::{Parser, Subcommand};
 
+fn parse_page(value: &str) -> Result<usize, String> {
+    let page = value
+        .parse::<usize>()
+        .map_err(|_| "page must be a positive integer".to_string())?;
+    if page == 0 {
+        return Err("page must be at least 1".to_string());
+    }
+    Ok(page)
+}
+
+fn parse_list_limit(value: &str) -> Result<usize, String> {
+    let limit = value
+        .parse::<usize>()
+        .map_err(|_| "limit must be a positive integer".to_string())?;
+    if limit == 0 {
+        return Err("limit must be at least 1".to_string());
+    }
+    if limit > 20 {
+        return Err("limit must be 20 or less".to_string());
+    }
+    Ok(limit)
+}
+
 #[derive(Parser)]
 #[command(
     name = "tamux",
@@ -422,6 +445,12 @@ pub(crate) enum ThreadAction {
     /// List recent agent threads.
     #[command(alias = "ls")]
     List {
+        /// 1-based page number.
+        #[arg(long, default_value_t = 1, value_parser = parse_page)]
+        page: usize,
+        /// Maximum items per page (capped at 20).
+        #[arg(long, default_value_t = 20, value_parser = parse_list_limit)]
+        limit: usize,
         /// Emit raw JSON instead of human-readable output.
         #[arg(long)]
         json: bool,
@@ -459,6 +488,12 @@ pub(crate) enum GoalAction {
     /// List recent goal runs.
     #[command(alias = "ls")]
     List {
+        /// 1-based page number.
+        #[arg(long, default_value_t = 1, value_parser = parse_page)]
+        page: usize,
+        /// Maximum items per page (capped at 20).
+        #[arg(long, default_value_t = 20, value_parser = parse_list_limit)]
+        limit: usize,
         /// Emit raw JSON instead of human-readable output.
         #[arg(long)]
         json: bool,
@@ -520,12 +555,15 @@ mod tests {
 
     #[test]
     fn thread_list_subcommand_parses() {
-        let cli = Cli::try_parse_from(["tamux", "thread", "list", "--json"])
+        let cli =
+            Cli::try_parse_from(["tamux", "thread", "list", "--page", "2", "--limit", "15", "--json"])
             .expect("thread list subcommand should parse");
         match cli.command {
             Some(Commands::Thread {
-                action: ThreadAction::List { json },
+                action: ThreadAction::List { page, limit, json },
             }) => {
+                assert_eq!(page, 2);
+                assert_eq!(limit, 15);
                 assert!(json);
             }
             other => panic!("expected thread list command, got {other:?}"),
@@ -636,13 +674,45 @@ mod tests {
 
     #[test]
     fn goal_list_subcommand_parses() {
-        let cli = Cli::try_parse_from(["tamux", "goal", "list", "--json"])
+        let cli =
+            Cli::try_parse_from(["tamux", "goal", "list", "--page", "3", "--limit", "10", "--json"])
             .expect("goal list subcommand should parse");
         match cli.command {
             Some(Commands::Goal {
-                action: GoalAction::List { json },
+                action: GoalAction::List { page, limit, json },
             }) => {
+                assert_eq!(page, 3);
+                assert_eq!(limit, 10);
                 assert!(json);
+            }
+            other => panic!("expected goal list command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn list_subcommands_default_to_first_page_with_limit_20() {
+        let thread_cli =
+            Cli::try_parse_from(["tamux", "thread", "list"]).expect("thread list should parse");
+        match thread_cli.command {
+            Some(Commands::Thread {
+                action: ThreadAction::List { page, limit, json },
+            }) => {
+                assert_eq!(page, 1);
+                assert_eq!(limit, 20);
+                assert!(!json);
+            }
+            other => panic!("expected thread list command, got {other:?}"),
+        }
+
+        let goal_cli =
+            Cli::try_parse_from(["tamux", "goal", "list"]).expect("goal list should parse");
+        match goal_cli.command {
+            Some(Commands::Goal {
+                action: GoalAction::List { page, limit, json },
+            }) => {
+                assert_eq!(page, 1);
+                assert_eq!(limit, 20);
+                assert!(!json);
             }
             other => panic!("expected goal list command, got {other:?}"),
         }

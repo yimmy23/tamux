@@ -792,6 +792,37 @@ async fn list_goal_runs_payload_stays_below_ipc_frame_cap() {
 }
 
 #[tokio::test]
+async fn list_goal_runs_pagination_obeys_newest_first_limit_and_offset() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut goals = engine.goal_runs.lock().await;
+    for (id, updated_at) in [("goal-one", 30), ("goal-two", 20), ("goal-three", 10)] {
+        let mut goal = sample_supervised_goal_run(id, &format!("task-{id}"), &format!("approval-{id}"));
+        goal.updated_at = updated_at;
+        goals.push_back(goal);
+    }
+    drop(goals);
+
+    let (first_page, _) = engine
+        .list_goal_runs_paginated_capped_for_ipc(Some(2), Some(0))
+        .await;
+    let (second_page, _) = engine
+        .list_goal_runs_paginated_capped_for_ipc(Some(2), Some(2))
+        .await;
+
+    assert_eq!(
+        first_page.iter().map(|goal| goal.id.as_str()).collect::<Vec<_>>(),
+        vec!["goal-one", "goal-two"]
+    );
+    assert_eq!(
+        second_page.iter().map(|goal| goal.id.as_str()).collect::<Vec<_>>(),
+        vec!["goal-three"]
+    );
+}
+
+#[tokio::test]
 async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

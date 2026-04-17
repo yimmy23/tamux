@@ -15,12 +15,16 @@ import { hydrateSnippetStore } from "./lib/snippetStore";
 import { hydrateStatusStore } from "./lib/statusStore";
 import { hydrateTierStore } from "./lib/tierStore";
 import { useWorkspaceStore } from "./lib/workspaceStore";
+import { RuntimeModeBanner } from "./components/RuntimeModeBanner";
 import "./styles/global.css";
 
 const renderRoot = (useCDUI: boolean): void => {
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-      {useCDUI ? <CDUIApp /> : <App />}
+      <>
+        <RuntimeModeBanner />
+        {useCDUI ? <CDUIApp /> : <App />}
+      </>
     </React.StrictMode>
   );
 };

@@ -1,7 +1,7 @@
 if matches!(
         &msg,
         ClientMessage::AgentRecordAttention{ .. } |
-        ClientMessage::AgentListThreads |
+        ClientMessage::AgentListThreads{ .. } |
         ClientMessage::AgentGetThread{ .. } |
         ClientMessage::AgentDeleteThread{ .. } |
         ClientMessage::AgentPinThreadMessageForCompaction{ .. } |
@@ -12,7 +12,7 @@ if matches!(
         ClientMessage::AgentListRuns |
         ClientMessage::AgentGetRun{ .. } |
         ClientMessage::AgentStartGoalRun{ .. } |
-        ClientMessage::AgentListGoalRuns |
+        ClientMessage::AgentListGoalRuns{ .. } |
         ClientMessage::AgentGetGoalRun{ .. } |
         ClientMessage::AgentGetGoalRunPage{ .. } |
         ClientMessage::AgentControlGoalRun{ .. } |
@@ -67,8 +67,9 @@ if matches!(
                     }
                 }
 
-                ClientMessage::AgentListThreads => {
-                    let (threads, truncated) = cap_agent_thread_list_for_ipc(agent.list_threads().await);
+                ClientMessage::AgentListThreads { limit, offset } => {
+                    let threads = agent.list_threads_paginated(limit, offset.unwrap_or(0)).await;
+                    let (threads, truncated) = cap_agent_thread_list_for_ipc(threads);
                     client_agent_threads.extend(threads.iter().map(|thread| thread.id.clone()));
                     if truncated {
                         tracing::warn!("truncated agent thread list to fit IPC frame limit");
@@ -240,8 +241,10 @@ if matches!(
                         .await?;
                 }
 
-                ClientMessage::AgentListGoalRuns => {
-                    let (goal_runs, truncated) = agent.list_goal_runs_capped_for_ipc().await;
+                ClientMessage::AgentListGoalRuns { limit, offset } => {
+                    let (goal_runs, truncated) = agent
+                        .list_goal_runs_paginated_capped_for_ipc(limit, offset)
+                        .await;
                     if truncated {
                         tracing::warn!(
                             "truncated goal run list to fit IPC frame limit"

@@ -290,8 +290,13 @@ pub async fn send_status_query() -> Result<AgentStatusSnapshot> {
     }
 }
 
-pub async fn send_thread_list_query() -> Result<Vec<AgentThreadRecord>> {
-    match roundtrip(ClientMessage::AgentListThreads).await? {
+pub async fn send_thread_list_query(limit: usize, offset: usize) -> Result<Vec<AgentThreadRecord>> {
+    match roundtrip(ClientMessage::AgentListThreads {
+        limit: Some(limit),
+        offset: Some(offset),
+    })
+    .await?
+    {
         DaemonMessage::AgentThreadList { threads_json } => Ok(serde_json::from_str(&threads_json)?),
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected response: {other:?}"),
@@ -391,8 +396,13 @@ pub async fn send_thread_control(thread_id: String, action: &str) -> Result<Thre
     }
 }
 
-pub async fn send_goal_list_query() -> Result<Vec<AgentGoalRunRecord>> {
-    match roundtrip(ClientMessage::AgentListGoalRuns).await? {
+pub async fn send_goal_list_query(limit: usize, offset: usize) -> Result<Vec<AgentGoalRunRecord>> {
+    match roundtrip(ClientMessage::AgentListGoalRuns {
+        limit: Some(limit),
+        offset: Some(offset),
+    })
+    .await?
+    {
         DaemonMessage::AgentGoalRunList { goal_runs_json } => {
             Ok(serde_json::from_str(&goal_runs_json)?)
         }

@@ -303,6 +303,10 @@ fn format_goal_delete_output(goal_run_id: &str, deleted: bool) -> String {
     }
 }
 
+fn pagination_offset(page: usize, limit: usize) -> usize {
+    page.saturating_sub(1).saturating_mul(limit)
+}
+
 fn format_status_output(
     status: &client::AgentStatusSnapshot,
     current_version: &str,
@@ -1087,8 +1091,8 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
             }
         },
         Commands::Thread { action } => match action {
-            ThreadAction::List { json } => {
-                let threads = client::send_thread_list_query().await?;
+            ThreadAction::List { page, limit, json } => {
+                let threads = client::send_thread_list_query(limit, pagination_offset(page, limit)).await?;
                 println!("{}", format_thread_list_output(&threads, json)?);
             }
             ThreadAction::Get { thread_id, json } => {
@@ -1130,8 +1134,8 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
             }
         },
         Commands::Goal { action } => match action {
-            GoalAction::List { json } => {
-                let goals = client::send_goal_list_query().await?;
+            GoalAction::List { page, limit, json } => {
+                let goals = client::send_goal_list_query(limit, pagination_offset(page, limit)).await?;
                 println!("{}", format_goal_list_output(&goals, json)?);
             }
             GoalAction::Get { goal_run_id, json } => {

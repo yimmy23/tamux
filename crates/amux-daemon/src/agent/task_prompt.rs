@@ -18,7 +18,7 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
         "\nUse execute_managed_command when work should run inside a daemon-managed terminal lane, needs a real PTY, or may require operator approval.",
     );
     prompt.push_str(
-        "\nFor remote content discovery or HTTP reads, prefer web_search and fetch_url. Do not fall back to curl or wget unless shell networking is the subject of the task.",
+        "\nFor browser-readable pages, search/discovery work, or HTTP reads where you need text or JSON content, prefer web_search and fetch_url. For direct reachability checks, HEAD or range requests, large or binary downloads, or streaming transfers, prefer curl or wget in a managed command instead of fetch_url.",
     );
     prompt.push_str(
         "\nIf the task is more than a one-shot action, call update_todo immediately with a concise plan and keep it current as steps advance.",
@@ -426,12 +426,14 @@ mod tests {
     }
 
     #[test]
-    fn build_task_prompt_prefers_web_tools_over_curl_and_wget() {
+    fn build_task_prompt_distinguishes_web_reads_from_binary_downloads() {
         let prompt = build_task_prompt(&sample_task());
 
-        assert!(prompt.contains("web_search") || prompt.contains("fetch_url"));
+        assert!(prompt.contains("web_search"));
+        assert!(prompt.contains("fetch_url"));
         assert!(prompt.contains("curl"));
         assert!(prompt.contains("wget"));
+        assert!(prompt.contains("large or binary"));
     }
 
     #[test]

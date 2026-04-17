@@ -245,7 +245,10 @@ async fn startup_readiness_blocks_history_requests_until_hydrate_finishes() {
     let mut ping_conn = Framed::new(ping_client_stream, AmuxCodec);
 
     list_conn
-        .send(ClientMessage::AgentListThreads)
+        .send(ClientMessage::AgentListThreads {
+            limit: None,
+            offset: None,
+        })
         .await
         .expect("request thread list before startup is ready");
 

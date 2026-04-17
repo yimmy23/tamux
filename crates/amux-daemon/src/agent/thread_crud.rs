@@ -301,6 +301,19 @@ impl AgentEngine {
             .await
     }
 
+    pub async fn list_threads_paginated(
+        &self,
+        limit: Option<usize>,
+        offset: usize,
+    ) -> Vec<AgentThread> {
+        self.list_threads_filtered(&ThreadListFilter {
+            limit,
+            offset,
+            ..ThreadListFilter::default()
+        })
+        .await
+    }
+
     pub(crate) async fn list_threads_filtered(
         &self,
         filter: &ThreadListFilter,
@@ -446,6 +459,9 @@ impl AgentEngine {
             self.remove_repo_watcher(thread_id).await;
             self.thread_todos.write().await.remove(thread_id);
             self.thread_work_contexts.write().await.remove(thread_id);
+            if let Err(error) = self.history.delete_thread(thread_id).await {
+                tracing::warn!(thread_id = %thread_id, %error, "failed to delete thread history");
+            }
             self.persist_threads().await;
             self.persist_todos().await;
             self.persist_work_context().await;

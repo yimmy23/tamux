@@ -80,7 +80,12 @@ where
                 .await?;
         }
         AgentBridgeCommand::ListThreads => {
-            framed.send(ClientMessage::AgentListThreads).await?;
+            framed
+                .send(ClientMessage::AgentListThreads {
+                    limit: None,
+                    offset: None,
+                })
+                .await?;
         }
         AgentBridgeCommand::GetThread { thread_id } => {
             framed
@@ -176,7 +181,12 @@ where
                 .await?;
         }
         AgentBridgeCommand::ListGoalRuns => {
-            framed.send(ClientMessage::AgentListGoalRuns).await?;
+            framed
+                .send(ClientMessage::AgentListGoalRuns {
+                    limit: None,
+                    offset: None,
+                })
+                .await?;
         }
         AgentBridgeCommand::GetGoalRun { goal_run_id } => {
             framed

@@ -359,6 +359,49 @@ fn thread_deleted_event_removes_thread_from_chat_state() {
 }
 
 #[test]
+fn thread_deleted_event_reclamps_open_thread_picker_cursor() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
+        chat::AgentThread {
+            id: "thread-1".into(),
+            title: "Thread One".into(),
+            ..Default::default()
+        },
+        chat::AgentThread {
+            id: "thread-2".into(),
+            title: "Thread Two".into(),
+            ..Default::default()
+        },
+    ]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model.sync_thread_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(2));
+
+    assert_eq!(model.modal.picker_cursor(), 2);
+    assert_eq!(
+        model
+            .selected_thread_picker_thread()
+            .map(|thread| thread.id.as_str()),
+        Some("thread-2")
+    );
+
+    model.handle_client_event(ClientEvent::ThreadDeleted {
+        thread_id: "thread-2".into(),
+        deleted: true,
+    });
+
+    assert_eq!(model.modal.picker_cursor(), 1);
+    assert_eq!(
+        model
+            .selected_thread_picker_thread()
+            .map(|thread| thread.id.as_str()),
+        Some("thread-1")
+    );
+}
+
+#[test]
 fn goal_run_deleted_event_removes_goal_from_task_state() {
     let mut model = make_model();
     model
@@ -385,6 +428,49 @@ fn goal_run_deleted_event_removes_goal_from_task_state() {
 
     assert!(model.tasks.goal_run_by_id("goal-1").is_none());
     assert!(model.tasks.goal_run_by_id("goal-2").is_some());
+}
+
+#[test]
+fn goal_run_deleted_event_reclamps_open_goal_picker_cursor() {
+    let mut model = make_model();
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunListReceived(vec![
+            task::GoalRun {
+                id: "goal-1".into(),
+                title: "Goal One".into(),
+                status: Some(task::GoalRunStatus::Completed),
+                ..Default::default()
+            },
+            task::GoalRun {
+                id: "goal-2".into(),
+                title: "Goal Two".into(),
+                status: Some(task::GoalRunStatus::Cancelled),
+                ..Default::default()
+            },
+        ]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(2));
+
+    assert_eq!(model.modal.picker_cursor(), 2);
+    assert_eq!(
+        model.selected_goal_picker_run().map(|run| run.id.as_str()),
+        Some("goal-2")
+    );
+
+    model.handle_client_event(ClientEvent::GoalRunDeleted {
+        goal_run_id: "goal-2".into(),
+        deleted: true,
+    });
+
+    assert_eq!(model.modal.picker_cursor(), 1);
+    assert_eq!(
+        model.selected_goal_picker_run().map(|run| run.id.as_str()),
+        Some("goal-1")
+    );
 }
 
 #[test]

@@ -107,6 +107,12 @@ pub const GITHUB_COPILOT_MODELS: &[ModelDefinition] = &[
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
+        id: "claude-opus-4.7",
+        name: "Claude Opus 4.7",
+        context_window: 192_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
         id: "claude-sonnet-4",
         name: "Claude Sonnet 4",
         context_window: 144_000,

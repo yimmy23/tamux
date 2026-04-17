@@ -472,13 +472,19 @@ impl DaemonClient {
     }
 
     pub fn refresh(&self) -> Result<()> {
-        self.send(ClientMessage::AgentListThreads)
+        self.send(ClientMessage::AgentListThreads {
+            limit: None,
+            offset: None,
+        })
     }
 
     pub fn refresh_services(&self) -> Result<()> {
         for request in [
             ClientMessage::AgentListTasks,
-            ClientMessage::AgentListGoalRuns,
+            ClientMessage::AgentListGoalRuns {
+                limit: None,
+                offset: None,
+            },
             ClientMessage::AgentGetConfig,
             ClientMessage::AgentHeartbeatGetItems,
         ] {

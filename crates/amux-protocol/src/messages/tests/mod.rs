@@ -882,6 +882,42 @@ fn agent_get_thread_round_trip_preserves_message_page_arguments() {
 }
 
 #[test]
+fn agent_list_threads_round_trip_preserves_pagination_arguments() {
+    let msg = ClientMessage::AgentListThreads {
+        limit: Some(20),
+        offset: Some(40),
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentListThreads { limit, offset } => {
+            assert_eq!(limit, Some(20));
+            assert_eq!(offset, Some(40));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn agent_list_goal_runs_round_trip_preserves_pagination_arguments() {
+    let msg = ClientMessage::AgentListGoalRuns {
+        limit: Some(10),
+        offset: Some(20),
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentListGoalRuns { limit, offset } => {
+            assert_eq!(limit, Some(10));
+            assert_eq!(offset, Some(20));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn agent_delete_goal_run_round_trip_preserves_goal_run_id() {
     let msg = ClientMessage::AgentDeleteGoalRun {
         goal_run_id: "goal-1".to_string(),

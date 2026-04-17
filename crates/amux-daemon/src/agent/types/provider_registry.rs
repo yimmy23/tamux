@@ -411,7 +411,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         id: PROVIDER_ID_OPENCODE_ZEN,
         name: "OpenCode Zen",
         default_base_url: "https://opencode.ai/zen/v1",
-        default_model: "claude-sonnet-4-5",
+        default_model: "claude-sonnet-4-6",
         api_type: ApiType::Anthropic,
         auth_method: AuthMethod::Bearer,
         models: OPENCODE_ZEN_MODELS,

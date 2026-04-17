@@ -14,6 +14,14 @@ impl PathEnvGuard {
         }
         Self { original_path }
     }
+
+    fn replace(path: &std::path::Path) -> Self {
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        unsafe {
+            std::env::set_var("PATH", path.display().to_string());
+        }
+        Self { original_path }
+    }
 }
 
 #[cfg(unix)]
@@ -60,6 +68,57 @@ async fn setup_web_browsing_install_returns_error_when_npm_install_fails() {
     let rendered = error.to_string();
     assert!(rendered.contains("npm install failed"), "{rendered}");
     assert!(rendered.contains("fake stderr"), "{rendered}");
+}
+
+#[tokio::test]
+async fn setup_web_browsing_install_rejects_chrome_auto_install() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let error = execute_setup_web_browsing(
+        &serde_json::json!({ "action": "install", "provider": "chrome" }),
+        &engine,
+    )
+    .await
+    .expect_err("chrome install path should be explicit when unsupported");
+
+    let rendered = error.to_string();
+    assert!(rendered.contains("Chrome"), "{rendered}");
+    assert!(rendered.contains("manual"), "{rendered}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn setup_web_browsing_configure_chrome_errors_when_browser_missing() {
+    let _env_lock = crate::agent::provider_auth_test_env_lock();
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let empty_bin = root.path().join("empty-bin");
+    std::fs::create_dir_all(&empty_bin).expect("empty bin dir should be created");
+    let _path_guard = PathEnvGuard::replace(&empty_bin);
+
+    let error = execute_setup_web_browsing(
+        &serde_json::json!({ "action": "configure", "provider": "chrome" }),
+        &engine,
+    )
+    .await
+    .expect_err("missing chrome should surface as a tool error");
+
+    let rendered = error.to_string();
+    assert!(rendered.contains("chrome"), "{rendered}");
+    assert!(rendered.contains("not found"), "{rendered}");
+
+    let config = engine.config.read().await;
+    assert_eq!(
+        config
+            .extra
+            .get("browse_provider")
+            .and_then(|value| value.as_str()),
+        None
+    );
 }
 
 #[tokio::test]
