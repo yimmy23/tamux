@@ -463,18 +463,18 @@ impl AgentEngine {
             Some(&satisfaction_label),
         );
         if matches!(resolution.decision, Decision::ProceedWithModifications) {
-            for modification in learned_modifications {
+            for modification in &learned_modifications {
                 if !resolution
                     .modifications
                     .iter()
-                    .any(|existing| existing.eq_ignore_ascii_case(&modification))
+                    .any(|existing| existing.eq_ignore_ascii_case(modification))
                 {
-                    resolution.modifications.push(modification);
+                    resolution.modifications.push(modification.clone());
                 }
             }
-            for directive in learned_directives {
-                if !resolution.directives.contains(&directive) {
-                    resolution.directives.push(directive);
+            for directive in &learned_directives {
+                if !resolution.directives.contains(directive) {
+                    resolution.directives.push(*directive);
                 }
             }
         }
@@ -557,6 +557,23 @@ impl AgentEngine {
                 .collect::<Vec<_>>();
             if !forced_directives.is_empty() {
                 resolution.directives = forced_directives;
+            }
+        }
+
+        if matches!(resolution.decision, Decision::ProceedWithModifications) {
+            for modification in &learned_modifications {
+                if !resolution
+                    .modifications
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(modification))
+                {
+                    resolution.modifications.push(modification.clone());
+                }
+            }
+            for directive in &learned_directives {
+                if !resolution.directives.contains(directive) {
+                    resolution.directives.push(*directive);
+                }
             }
         }
         let created_at_ms = now_millis();
