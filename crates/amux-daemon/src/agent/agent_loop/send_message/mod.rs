@@ -29,10 +29,24 @@ pub(super) fn current_epoch_secs() -> u64 {
 }
 
 impl AgentEngine {
+    fn parse_content_blocks_json(
+        content_blocks_json: Option<&str>,
+    ) -> Result<Vec<AgentContentBlock>> {
+        match content_blocks_json
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(json) => serde_json::from_str::<Vec<AgentContentBlock>>(json)
+                .map_err(|error| anyhow::anyhow!("invalid content_blocks_json: {error}")),
+            None => Ok(Vec::new()),
+        }
+    }
+
     async fn send_message_inner_with_options(
         &self,
         thread_id: Option<&str>,
         content: &str,
+        content_blocks_json: Option<&str>,
         task_id: Option<&str>,
         preferred_session_hint: Option<&str>,
         backend_override: Option<&str>,
@@ -45,6 +59,7 @@ impl AgentEngine {
         run_participant_observers_after_turn: bool,
     ) -> Result<SendMessageOutcome> {
         let stored_user_content = content;
+        let stored_user_content_blocks = Self::parse_content_blocks_json(content_blocks_json)?;
         let mut current_thread_id = thread_id.map(str::to_string);
         let mut current_llm_user_content = llm_user_content_override.unwrap_or(content).to_string();
         let mut current_record_operator = record_operator;
@@ -56,6 +71,7 @@ impl AgentEngine {
                 .await;
             let thread_for_turn = current_thread_id.clone();
             let llm_user_content_for_turn = current_llm_user_content.clone();
+            let stored_user_content_blocks_for_turn = stored_user_content_blocks.clone();
             let record_operator_for_turn = current_record_operator;
             let reuse_existing_for_turn = reuse_existing_user_message;
 
@@ -115,6 +131,7 @@ impl AgentEngine {
                 Box::pin(self.run_internal_send_loop(
                     thread_for_turn.as_deref(),
                     stored_user_content,
+                    &stored_user_content_blocks_for_turn,
                     &llm_user_content_for_turn,
                     task_id,
                     preferred_session_hint,
@@ -187,6 +204,7 @@ impl AgentEngine {
         &self,
         initial_thread_id: Option<&str>,
         stored_user_content: &str,
+        stored_user_content_blocks: &[AgentContentBlock],
         llm_user_content: &str,
         task_id: Option<&str>,
         preferred_session_hint: Option<&str>,
@@ -205,6 +223,7 @@ impl AgentEngine {
                 self,
                 thread_id.as_deref(),
                 stored_user_content,
+                stored_user_content_blocks,
                 llm_user_content,
                 task_id,
                 preferred_session_hint,
@@ -231,6 +250,7 @@ impl AgentEngine {
         &self,
         thread_id: Option<&str>,
         content: &str,
+        content_blocks_json: Option<&str>,
         task_id: Option<&str>,
         preferred_session_hint: Option<&str>,
         backend_override: Option<&str>,
@@ -242,6 +262,7 @@ impl AgentEngine {
         self.send_message_inner_with_options(
             thread_id,
             content,
+            content_blocks_json,
             task_id,
             preferred_session_hint,
             backend_override,
@@ -270,6 +291,7 @@ impl AgentEngine {
             None,
             None,
             None,
+            None,
             false,
             true,
             true,
@@ -286,6 +308,7 @@ impl AgentEngine {
         self.send_message_inner_with_options(
             Some(thread_id),
             content,
+            None,
             None,
             None,
             None,

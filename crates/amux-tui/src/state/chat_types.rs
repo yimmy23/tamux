@@ -9,6 +9,7 @@ pub struct AgentThread {
     pub total_message_count: usize,
     pub loaded_message_start: usize,
     pub loaded_message_end: usize,
+    pub active_compaction_window_start: Option<usize>,
     pub pinned_messages: Vec<PinnedThreadMessage>,
     pub older_page_pending: bool,
     pub older_page_request_cooldown_until_tick: Option<u64>,

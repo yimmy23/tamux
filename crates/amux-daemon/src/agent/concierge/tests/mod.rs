@@ -40,6 +40,7 @@ fn assistant_message(content: &str, timestamp: u64) -> AgentMessage {
         id: format!("assistant-{timestamp}"),
         role: MessageRole::Assistant,
         content: content.to_string(),
+        content_blocks: Vec::new(),
         tool_calls: None,
         tool_call_id: None,
         tool_name: None,

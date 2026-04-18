@@ -1228,6 +1228,12 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
             client::ping().await?;
             println!("Daemon is alive (pong).");
         }
+        Commands::Stop => {
+            update::run_stop()?;
+        }
+        Commands::Restart => {
+            update::run_restart()?;
+        }
         Commands::Upgrade => {
             update::run_upgrade()?;
         }

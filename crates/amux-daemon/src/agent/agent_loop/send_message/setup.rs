@@ -1,5 +1,6 @@
 use super::*;
 use crate::agent::llm_client::CopilotInitiator;
+use crate::agent::provider_resolution::apply_provider_model_override;
 use amux_protocol::SecurityLevel;
 
 const COMMUNITY_SCOUT_RESULT_LIMIT: usize = 5;
@@ -230,6 +231,7 @@ impl<'a> SendMessageRunner<'a> {
         engine: &'a AgentEngine,
         thread_id: Option<&'a str>,
         stored_user_content: &'a str,
+        stored_user_content_blocks: &[AgentContentBlock],
         llm_user_content: &'a str,
         task_id: Option<&'a str>,
         preferred_session_hint: Option<&'a str>,
@@ -251,9 +253,11 @@ impl<'a> SendMessageRunner<'a> {
             {
                 let mut threads = engine.threads.write().await;
                 if let Some(thread) = threads.get_mut(&tid) {
-                    thread
-                        .messages
-                        .push(AgentMessage::user(stored_user_content, now_millis()));
+                    thread.messages.push(AgentMessage::user_with_blocks(
+                        stored_user_content,
+                        stored_user_content_blocks.to_vec(),
+                        now_millis(),
+                    ));
                     thread.updated_at = now_millis();
                 }
             }
@@ -320,14 +324,14 @@ impl<'a> SendMessageRunner<'a> {
             match if let Some((ref sub_provider, ref sub_model, _, _)) = task_provider_override {
                 let mut pc = engine.resolve_sub_agent_provider_config(&config, sub_provider)?;
                 if let Some(model) = sub_model {
-                    pc.model = model.clone();
+                    apply_provider_model_override(sub_provider, &mut pc, model);
                 }
                 Ok(pc)
             } else if let Some(responder) = direct_thread_responder.as_ref() {
                 let mut pc =
                     engine.resolve_sub_agent_provider_config(&config, &responder.provider_id)?;
                 if let Some(model) = responder.model.as_ref() {
-                    pc.model = model.clone();
+                    apply_provider_model_override(&responder.provider_id, &mut pc, model);
                 }
                 if let Some(reasoning_effort) = responder.reasoning_effort.as_ref() {
                     pc.reasoning_effort = reasoning_effort.clone();
@@ -762,6 +766,7 @@ impl<'a> SendMessageRunner<'a> {
             engine,
             task_id,
             stored_user_content,
+            stored_user_content_blocks: stored_user_content_blocks.to_vec(),
             llm_user_content,
             stream_chunk_timeout_override,
             tid,
@@ -902,6 +907,7 @@ mod tests {
             &engine,
             Some(thread_id),
             "check this thread",
+            &[],
             "check this thread",
             None,
             None,
@@ -967,6 +973,7 @@ mod tests {
             &engine,
             Some(thread_id),
             "check this thread",
+            &[],
             "check this thread",
             None,
             None,
@@ -1053,6 +1060,7 @@ mod tests {
             &engine,
             Some(thread_id),
             "check this thread",
+            &[],
             "check this thread",
             None,
             None,
@@ -1079,5 +1087,90 @@ mod tests {
             tool_names.contains(&"message_agent"),
             "non-participant responder should still see message_agent"
         );
+    }
+
+    #[tokio::test]
+    async fn direct_responder_model_override_updates_context_window_to_model_catalog() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4".to_string();
+        config.context_window_tokens = 400_000;
+        config.providers.insert(
+            "alibaba-coding-plan".to_string(),
+            ProviderConfig {
+                base_url: String::new(),
+                model: "qwen3.6-plus".to_string(),
+                api_key: "dashscope-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::Responses,
+                reasoning_effort: "low".to_string(),
+                context_window_tokens: 983_616,
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+            },
+        );
+        config.builtin_sub_agents.mokosh.provider = Some("alibaba-coding-plan".to_string());
+        config.builtin_sub_agents.mokosh.model = Some("glm-5".to_string());
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let thread_id = "thread_direct_responder_model_override_window";
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some("Mokosh".to_string()),
+                title: "Direct responder model override".to_string(),
+                messages: vec![AgentMessage::user("check window", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let runner =
+            crate::agent::agent_identity::run_with_agent_scope("mokosh".to_string(), async {
+                SendMessageRunner::initialize(
+                    &engine,
+                    Some(thread_id),
+                    "check window",
+                    &[],
+                    "check window",
+                    None,
+                    None,
+                    None,
+                    None,
+                    true,
+                    true,
+                    0,
+                )
+                .await
+            })
+            .await
+            .expect("runner should initialize");
+
+        assert_eq!(runner.provider_config.model, "glm-5");
+        assert_eq!(runner.provider_config.context_window_tokens, 202_752);
+        assert_eq!(runner.config.context_window_tokens, 202_752);
     }
 }

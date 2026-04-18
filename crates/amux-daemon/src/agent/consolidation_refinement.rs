@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::provider_resolution::apply_provider_model_override;
 
 impl AgentEngine {
     /// Minimal LLM call for memory refinement. Uses the operator's configured provider/model.
@@ -17,7 +18,49 @@ impl AgentEngine {
     ) -> anyhow::Result<String> {
         use futures::StreamExt;
 
-        let provider_config = resolve_active_provider_config(config)?;
+        let active_scope_id = crate::agent::agent_identity::current_agent_scope_id();
+        let (provider_id, provider_config) =
+            if active_scope_id == crate::agent::agent_identity::WELES_AGENT_ID {
+                let provider_id = config
+                    .builtin_sub_agents
+                    .weles
+                    .provider
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(config.provider.as_str())
+                    .to_string();
+                let model = config
+                    .builtin_sub_agents
+                    .weles
+                    .model
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(config.model.as_str())
+                    .to_string();
+                let mut provider_config =
+                    self.resolve_sub_agent_provider_config(config, &provider_id)?;
+                if !model.is_empty() {
+                    apply_provider_model_override(&provider_id, &mut provider_config, &model);
+                }
+                if let Some(reasoning_effort) = config
+                    .builtin_sub_agents
+                    .weles
+                    .reasoning_effort
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    provider_config.reasoning_effort = reasoning_effort.to_string();
+                }
+                (provider_id, provider_config)
+            } else {
+                (
+                    config.provider.clone(),
+                    resolve_active_provider_config(config)?,
+                )
+            };
 
         let system = "You are a concise memory consolidation agent. Respond with ONLY the merged fact, nothing else.";
 
@@ -31,7 +74,7 @@ impl AgentEngine {
 
         let mut stream = send_completion_request(
             &self.http_client,
-            &config.provider,
+            &provider_id,
             &provider_config,
             system,
             &messages,

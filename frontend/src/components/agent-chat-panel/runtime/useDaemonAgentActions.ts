@@ -1,7 +1,7 @@
 import { useCallback, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { useAgentStore } from "@/lib/agentStore";
 import { getProviderDefinition } from "@/lib/agentStore/providers";
-import type { AgentProviderId } from "@/lib/agentStore/types";
+import type { AgentContentBlock, AgentProviderId } from "@/lib/agentStore/types";
 import { getAgentBridge, shouldUseDaemonRuntime } from "@/lib/agentDaemonConfig";
 import { provisionAgentWorkspaceTerminals, provisionTerminalPaneInWorkspace, resolvePaneSessionId } from "@/lib/agentWorkspace";
 import { startGoalRun, goalRunSupportAvailable, type GoalRun } from "@/lib/goalRuns";
@@ -195,7 +195,7 @@ export function useDaemonAgentActions({
     setPendingBuiltinAgentSetup(null);
   }, []);
 
-  const sendDaemonMessage = useCallback((text: string) => {
+  const sendDaemonMessage = useCallback((payload: { text: string; contentBlocksJson?: string | null; localContentBlocks?: AgentContentBlock[] }) => {
     const amux = getAgentBridge();
     if (!amux?.agentSendMessage) {
       return false;
@@ -203,7 +203,14 @@ export function useDaemonAgentActions({
     const sendAgentMessage = amux.agentSendMessage;
 
     void (async () => {
+      const text = payload.text;
       const trimmed = text.trim();
+      const contentBlocksJson = typeof payload.contentBlocksJson === "string" && payload.contentBlocksJson.trim()
+        ? payload.contentBlocksJson
+        : null;
+      const localContentBlocks = Array.isArray(payload.localContentBlocks) && payload.localContentBlocks.length > 0
+        ? payload.localContentBlocks
+        : undefined;
       const currentThreadId = daemonLocalThreadRef.current ?? activeThreadId;
 
       if (trimmed === "!explain") {
@@ -340,6 +347,7 @@ export function useDaemonAgentActions({
       addMessage(threadId, {
         role: "user",
         content: text,
+        contentBlocks: localContentBlocks,
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
@@ -381,19 +389,20 @@ export function useDaemonAgentActions({
             total_tokens: message.totalTokens ?? 0,
             reasoning: message.reasoning ?? null,
             tool_calls_json: message.toolCalls ? JSON.stringify(message.toolCalls) : null,
-            metadata_json: message.toolName ? JSON.stringify({
+            metadata_json: (message.toolName || (message.contentBlocks && message.contentBlocks.length > 0)) ? JSON.stringify({
               toolCallId: message.toolCallId,
               toolName: message.toolName,
               toolArguments: message.toolArguments,
               toolStatus: message.toolStatus,
               weles_review: message.welesReview,
+              content_blocks: message.contentBlocks,
             }) : null,
           }));
         }
       }
 
       const daemonThreadId = daemonThreadIdRef.current;
-      await sendAgentMessage(daemonThreadId || threadId, text, preferredSessionId, contextMessages);
+      await sendAgentMessage(daemonThreadId || threadId, text, preferredSessionId, contextMessages, contentBlocksJson);
     })();
 
     return true;

@@ -11,3 +11,4 @@ include!("tests_part2_agent_work_skills.rs");
 include!("tests_part2_synthesize_divergent.rs");
 include!("tests_part2_subagent_gateway_waiters.rs");
 include!("tests_part2_thread_participants.rs");
+include!("tests_part2_compaction_routing.rs");

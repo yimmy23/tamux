@@ -48,10 +48,16 @@ impl TuiModel {
 
     fn active_compaction_window_start(thread: &chat::AgentThread) -> usize {
         thread
-            .messages
-            .iter()
-            .rposition(|message| message.message_kind == "compaction_artifact")
-            .unwrap_or(0)
+            .active_compaction_window_start
+            .map(|absolute_start| absolute_start.saturating_sub(thread.loaded_message_start))
+            .unwrap_or_else(|| {
+                thread
+                    .messages
+                    .iter()
+                    .rposition(|message| message.message_kind == "compaction_artifact")
+                    .unwrap_or(0)
+            })
+            .min(thread.messages.len())
     }
 
     fn effective_primary_context_window_tokens(&self) -> u32 {

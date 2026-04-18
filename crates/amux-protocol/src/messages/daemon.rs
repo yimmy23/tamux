@@ -159,4 +159,6 @@ pub enum DaemonMessage {
     AgentMemoryToolResult { content: String },
     AgentThreadMessagePinResult { result_json: String },
     AgentThreadControlled { thread_id: String, action: String, ok: bool },
+    AgentSpeechToTextResult { content: String },
+    AgentTextToSpeechResult { content: String },
 }

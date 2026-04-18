@@ -70,6 +70,7 @@ async fn request_thread_auto_response_suggestion_queues_for_requested_participan
                     id: generate_message_id(),
                     role: MessageRole::Assistant,
                     content: "I finished the current slice and the next likely step is validating the migration.".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,
@@ -1050,6 +1051,7 @@ async fn due_auto_response_is_not_sent_implicitly_after_restart() {
                     role: MessageRole::Assistant,
                     content: "I finished the patch and the next step is verifying the diff."
                         .to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,
@@ -1171,6 +1173,7 @@ async fn due_auto_response_does_not_background_send_when_thread_becomes_idle() {
                     role: MessageRole::Assistant,
                     content: "I finished the patch and the next step is verifying the diff."
                         .to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,
@@ -1292,6 +1295,7 @@ async fn hydrate_trims_persisted_participant_playground_threads_to_recent_tail()
             id: generate_message_id(),
             role: MessageRole::Assistant,
             content: format!("scratch reply {index}"),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,
@@ -1707,7 +1711,7 @@ async fn participant_observer_failure_keeps_outer_send_successful() {
 
     let mut events = engine.subscribe();
     let send_result = engine
-        .send_message_with_session_and_surface(Some(thread_id), None, "Please respond", None)
+        .send_message_with_session_and_surface(Some(thread_id), None, "Please respond", None, None)
         .await;
     assert!(
         send_result.is_ok(),
@@ -2038,6 +2042,7 @@ async fn hydrate_runs_participant_observers_for_restored_main_agent_tail() {
                     id: generate_message_id(),
                     role: MessageRole::Assistant,
                     content: "Main agent reply before restart.".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,
@@ -2221,6 +2226,7 @@ async fn hydrate_returns_before_background_participant_observer_restore_finishes
                     id: generate_message_id(),
                     role: MessageRole::Assistant,
                     content: "Main agent reply before restart.".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,
@@ -2360,6 +2366,7 @@ async fn hydrate_does_not_rerun_participant_observers_for_already_reviewed_messa
                     id: generate_message_id(),
                     role: MessageRole::Assistant,
                     content: "Main agent reply before restart.".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,

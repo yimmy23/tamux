@@ -496,12 +496,12 @@ export function useAgentChatPanelProviderValue(): {
     workspaces,
   ]);
 
-  const sendMessage = useCallback((text: string) => {
-    if (!text) return;
-    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && sendDaemonMessage(text)) {
+  const sendMessage = useCallback((payload: { text: string; contentBlocksJson?: string | null; localContentBlocks?: import("@/lib/agentStore/types").AgentContentBlock[] }) => {
+    if (!payload.text) return;
+    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && sendDaemonMessage(payload)) {
       return;
     }
-    sendMessageLegacy(text);
+    sendMessageLegacy(payload.text);
   }, [agentSettings.agent_backend, sendDaemonMessage, sendMessageLegacy]);
 
   const sendParticipantSuggestion = useCallback(async (threadId: string, suggestionId: string, forceSend = false) => {
@@ -592,7 +592,7 @@ export function useAgentChatPanelProviderValue(): {
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
-    sendMessage(text);
+    sendMessage({ text });
     setInput("");
   }, [input, sendMessage]);
 

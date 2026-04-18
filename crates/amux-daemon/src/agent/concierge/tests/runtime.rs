@@ -39,6 +39,17 @@ async fn concierge_recovery_deduplicates_inflight_investigations_per_thread_sign
         tasks[0].parent_thread_id.as_deref(),
         Some("thread-recovery")
     );
+    assert_eq!(
+        tasks[0].sub_agent_def_id.as_deref(),
+        Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    );
+    assert!(
+        tasks[0]
+            .override_system_prompt
+            .as_deref()
+            .is_some_and(|prompt| prompt.contains(crate::agent::agent_identity::WELES_AGENT_ID)),
+        "recovery investigation should be owned by daemon WELES"
+    );
 }
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { buildWelesHealthPresentation } from "./welesHealthPresentation";
 import { inputStyle } from "./shared";
 import { ChatComposer } from "./chat-view/Composer";
@@ -8,10 +8,45 @@ import {
   filterDisplayItems,
   summarizeSessionUsage,
 } from "./chat-view/helpers";
-import { MessageBubble } from "./chat-view/MessageBubble";
+import { compactionArtifactDisplayText, MessageBubble } from "./chat-view/MessageBubble";
 import { TodoPanel } from "./chat-view/TodoPanel";
 import { ToolEventRow } from "./chat-view/ToolEventRow";
-import type { ChatViewProps } from "./chat-view/types";
+import type { AgentMessage } from "@/lib/agentStore";
+import type { ChatViewProps, ComposerAttachment, SendMessagePayload } from "./chat-view/types";
+
+function buildAttachmentSendPayload(text: string, attachments: ComposerAttachment[]): SendMessagePayload {
+  const trimmedText = text.trim();
+  const textAttachmentWrappers = attachments
+    .filter((attachment) => attachment.kind === "text" && attachment.textContent)
+    .map((attachment) => `<attached_file name="${attachment.name}">\n${attachment.textContent}\n</attached_file>`);
+  const mediaAttachments = attachments.filter((attachment) => attachment.kind !== "text");
+  const finalText = [...textAttachmentWrappers, trimmedText].filter(Boolean).join("\n\n").trim();
+
+  if (mediaAttachments.length === 0) {
+    return { text: finalText };
+  }
+  const localContentBlocks = [
+    ...(finalText ? [{ type: "text", text: finalText } as const] : []),
+    ...mediaAttachments.map((attachment) =>
+      attachment.kind === "image"
+        ? ({
+            type: "image",
+            data_url: attachment.dataUrl,
+            mime_type: attachment.mimeType,
+          } as const)
+        : ({
+            type: "audio",
+            data_url: attachment.dataUrl,
+            mime_type: attachment.mimeType,
+          } as const),
+    ),
+  ];
+  return {
+    text: finalText,
+    contentBlocksJson: JSON.stringify(localContentBlocks),
+    localContentBlocks,
+  };
+}
 
 export function ChatView({
   messages,
@@ -40,12 +75,18 @@ export function ChatView({
   const [todoExpanded, setTodoExpanded] = useState(true);
   const [participantsModalOpen, setParticipantsModalOpen] = useState(false);
   const [pinLimitResult, setPinLimitResult] = useState<AmuxThreadMessagePinResult | null>(null);
+  const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
+  const [autoSpeakReplies, setAutoSpeakReplies] = useState(agentSettings.audio_tts_auto_speak);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastAutoSpokenMessageIdRef = useRef<string | null>(null);
 
   const handleSendClick = () => {
     const text = input.trim();
-    if (!text) return;
-    onSendMessage(text);
+    if (!text && composerAttachments.length === 0) return;
+    onSendMessage(buildAttachmentSendPayload(text, composerAttachments));
     setInput("");
+    setComposerAttachments([]);
   };
 
   const handleStartGoalRun = async () => {
@@ -56,6 +97,104 @@ export function ChatView({
       setInput("");
     }
   };
+
+  const stopAudioPlayback = () => {
+    if (activeAudioRef.current) {
+      activeAudioRef.current.pause();
+      activeAudioRef.current.currentTime = 0;
+      activeAudioRef.current = null;
+    }
+    setSpeakingMessageId(null);
+  };
+
+  const speakMessage = async (message: AgentMessage) => {
+    const bridge = window.amux ?? window.tamux;
+    if (!bridge?.agentTextToSpeech || !agentSettings.audio_tts_enabled) {
+      return;
+    }
+
+    const messageId = "id" in message ? message.id : null;
+    if (messageId && speakingMessageId === messageId) {
+      stopAudioPlayback();
+      return;
+    }
+
+    const text = "content" in message ? compactionArtifactDisplayText(message).trim() : "";
+    if (!text) {
+      return;
+    }
+
+    stopAudioPlayback();
+    if (messageId) {
+      setSpeakingMessageId(messageId);
+    }
+    try {
+      const result = await bridge.agentTextToSpeech(text, agentSettings.audio_tts_voice || null, {
+        provider: agentSettings.audio_tts_provider,
+        model: agentSettings.audio_tts_model,
+      });
+      const source = typeof result === "string"
+        ? result
+        : result && typeof result === "object"
+          ? (typeof (result as { file_url?: unknown }).file_url === "string"
+              ? (result as { file_url: string }).file_url
+              : typeof (result as { url?: unknown }).url === "string"
+                ? (result as { url: string }).url
+                : typeof (result as { path?: unknown }).path === "string"
+                  ? (result as { path: string }).path
+                  : "")
+          : "";
+      if (!source) {
+        stopAudioPlayback();
+        return;
+      }
+      const audio = new Audio(source);
+      activeAudioRef.current = audio;
+      audio.onended = () => {
+        if (activeAudioRef.current === audio) {
+          activeAudioRef.current = null;
+          setSpeakingMessageId(null);
+        }
+      };
+      audio.onerror = () => {
+        if (activeAudioRef.current === audio) {
+          activeAudioRef.current = null;
+          setSpeakingMessageId(null);
+        }
+      };
+      await audio.play();
+    } catch (error) {
+      console.error("text-to-speech failed", error);
+      stopAudioPlayback();
+    }
+  };
+
+  useEffect(() => {
+    setAutoSpeakReplies(agentSettings.audio_tts_auto_speak);
+  }, [agentSettings.audio_tts_auto_speak]);
+
+  useEffect(() => {
+    return () => {
+      stopAudioPlayback();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!autoSpeakReplies || messages.length === 0) {
+      return;
+    }
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant" && !message.isStreaming && compactionArtifactDisplayText(message).trim());
+    if (!latestAssistantMessage) {
+      return;
+    }
+    if (lastAutoSpokenMessageIdRef.current === latestAssistantMessage.id) {
+      return;
+    }
+    lastAutoSpokenMessageIdRef.current = latestAssistantMessage.id;
+    void speakMessage(latestAssistantMessage);
+  }, [autoSpeakReplies, messages]);
 
   const displayItems = useMemo(() => buildDisplayItems(messages), [messages]);
   const filteredDisplayItems = useMemo(
@@ -183,12 +322,12 @@ export function ChatView({
               message={message}
               onCopy={() => {
                 try {
-                  navigator.clipboard.writeText(message.content);
+                  navigator.clipboard.writeText(compactionArtifactDisplayText(message));
                 } catch {
                   // Ignore clipboard failures.
                 }
               }}
-              onRerun={message.role === "user" ? () => onSendMessage(message.content) : undefined}
+              onRerun={message.role === "user" ? () => onSendMessage({ text: message.content }) : undefined}
               onRegenerate={message.role === "assistant" ? () => {
                 const idx = messages.findIndex((entry) => entry.id === message.id);
                 if (idx <= 0) {
@@ -196,7 +335,7 @@ export function ChatView({
                 }
                 const prevUserMsg = messages.slice(0, idx).reverse().find((entry) => entry.role === "user");
                 if (prevUserMsg) {
-                  onSendMessage(prevUserMsg.content);
+                  onSendMessage({ text: prevUserMsg.content });
                 }
               } : undefined}
               onDelete={onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
@@ -209,6 +348,10 @@ export function ChatView({
               onUnpin={onUnpinMessage ? async () => {
                 await onUnpinMessage(message.id);
               } : undefined}
+              onSpeak={message.role === "assistant" ? async () => {
+                await speakMessage(message);
+              } : undefined}
+              isSpeaking={speakingMessageId === message.id}
             />
           );
         })}
@@ -251,6 +394,8 @@ export function ChatView({
       <ChatComposer
         input={input}
         setInput={setInput}
+        attachments={composerAttachments}
+        setAttachments={setComposerAttachments}
         inputRef={inputRef}
         onKeyDown={onKeyDown}
         agentSettings={agentSettings}
@@ -263,6 +408,22 @@ export function ChatView({
         }}
         onUpdateReasoningEffort={onUpdateReasoningEffort}
       />
+
+      <div style={{ padding: "0 var(--space-3) var(--space-2)", display: "flex", justifyContent: "flex-end" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text-muted)", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={autoSpeakReplies}
+            onChange={(event) => {
+              setAutoSpeakReplies(event.target.checked);
+              if (!event.target.checked) {
+                stopAudioPlayback();
+              }
+            }}
+          />
+          Auto-speak replies
+        </label>
+      </div>
 
       {pinLimitResult && (
         <div

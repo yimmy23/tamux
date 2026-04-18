@@ -75,6 +75,7 @@ async fn openai_done_event_exposes_provider_final_result() {
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -192,6 +193,7 @@ async fn anthropic_done_event_exposes_provider_final_result() {
         .send_message_inner(
             Some(thread_id),
             "hello",
+            None,
             None,
             None,
             None,

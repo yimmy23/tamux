@@ -399,6 +399,29 @@ fn generated_tool_bridge_commands_deserialize() {
 }
 
 #[test]
+fn speech_bridge_commands_deserialize() {
+    let json = r#"{"type":"speech-to-text","args_json":"{}"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("speech-to-text must deserialize");
+    match cmd {
+        AgentBridgeCommand::SpeechToText { args_json } => {
+            assert_eq!(args_json, "{}");
+        }
+        _ => panic!("unexpected variant for speech-to-text"),
+    }
+
+    let json = r#"{"type":"text-to-speech","args_json":"{}"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("text-to-speech must deserialize");
+    match cmd {
+        AgentBridgeCommand::TextToSpeech { args_json } => {
+            assert_eq!(args_json, "{}");
+        }
+        _ => panic!("unexpected variant for text-to-speech"),
+    }
+}
+
+#[test]
 fn agent_protocol_codex_auth_bridge_commands_deserialize() {
     fn parse(json: &str) -> AgentBridgeCommand {
         serde_json::from_str(json).expect("codex auth command must deserialize")

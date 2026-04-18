@@ -184,6 +184,7 @@ async fn collect_stalled_turn_observations_skips_active_tool_turns() {
                     id: "assistant-tool".to_string(),
                     role: MessageRole::Assistant,
                     content: String::new(),
+                    content_blocks: Vec::new(),
                     tool_calls: Some(vec![ToolCall::with_default_weles_review(
                         "call-1".to_string(),
                         ToolFunction {
@@ -254,6 +255,7 @@ async fn collect_stalled_turn_observations_detects_promise_without_action() {
                         id: "assistant-stall".to_string(),
                         role: MessageRole::Assistant,
                         content: "Working. Let me draft the redesigned content now.".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,
@@ -326,6 +328,7 @@ async fn supervise_stalled_turns_retries_with_internal_ping_and_continue() {
                         role: MessageRole::Assistant,
                         content: "Excellent. Let me start drafting the redesigned landing page."
                             .to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,
@@ -626,6 +629,7 @@ async fn supervise_stalled_turns_escalates_after_third_retry_window() {
                         id: "assistant-escalate".to_string(),
                         role: MessageRole::Assistant,
                         content: "Working. Let me draft the redesigned content now.".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,

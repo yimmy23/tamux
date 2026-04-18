@@ -134,6 +134,15 @@ export interface AgentSettings {
   gateway_command_prefix: string;
   chatFontFamily: string;
   chatFontSize: number;
+  audio_stt_enabled: boolean;
+  audio_stt_provider: AgentProviderId;
+  audio_stt_model: string;
+  audio_stt_language: string;
+  audio_tts_enabled: boolean;
+  audio_tts_provider: AgentProviderId;
+  audio_tts_model: string;
+  audio_tts_voice: string;
+  audio_tts_auto_speak: boolean;
   reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
   auto_compact_context: boolean;
   max_context_messages: number;
@@ -237,6 +246,15 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   gateway_command_prefix: "!tamux",
   chatFontFamily: "Cascadia Code",
   chatFontSize: 13,
+  audio_stt_enabled: true,
+  audio_stt_provider: "openai",
+  audio_stt_model: "whisper-1",
+  audio_stt_language: "",
+  audio_tts_enabled: true,
+  audio_tts_provider: "openai",
+  audio_tts_model: "gpt-4o-mini-tts",
+  audio_tts_voice: "alloy",
+  audio_tts_auto_speak: false,
   reasoning_effort: "high",
   auto_compact_context: true,
   max_context_messages: 100,
@@ -303,6 +321,21 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
   auth_source?: string;
   api_transport?: string;
   reasoning_effort?: AgentSettings["reasoning_effort"] | string;
+  audio?: {
+    stt?: {
+      enabled?: boolean;
+      provider?: AgentProviderId | string;
+      model?: string;
+      language?: string;
+    };
+    tts?: {
+      enabled?: boolean;
+      provider?: AgentProviderId | string;
+      model?: string;
+      voice?: string;
+      auto_speak?: boolean;
+    };
+  };
   system_prompt?: string;
   auto_compact_context?: boolean;
   max_context_messages?: number;
@@ -455,6 +488,15 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     "opencode-zen": providerConfigFromRaw("opencode-zen", source),
     custom: providerConfigFromRaw("custom", source),
     system_prompt: source.system_prompt ?? DEFAULT_AGENT_SETTINGS.system_prompt,
+    audio_stt_enabled: source.audio?.stt?.enabled ?? source.audio_stt_enabled ?? DEFAULT_AGENT_SETTINGS.audio_stt_enabled,
+    audio_stt_provider: normalizeAgentProviderId(source.audio?.stt?.provider ?? source.audio_stt_provider ?? DEFAULT_AGENT_SETTINGS.audio_stt_provider),
+    audio_stt_model: source.audio?.stt?.model ?? source.audio_stt_model ?? DEFAULT_AGENT_SETTINGS.audio_stt_model,
+    audio_stt_language: source.audio?.stt?.language ?? source.audio_stt_language ?? DEFAULT_AGENT_SETTINGS.audio_stt_language,
+    audio_tts_enabled: source.audio?.tts?.enabled ?? source.audio_tts_enabled ?? DEFAULT_AGENT_SETTINGS.audio_tts_enabled,
+    audio_tts_provider: normalizeAgentProviderId(source.audio?.tts?.provider ?? source.audio_tts_provider ?? DEFAULT_AGENT_SETTINGS.audio_tts_provider),
+    audio_tts_model: source.audio?.tts?.model ?? source.audio_tts_model ?? DEFAULT_AGENT_SETTINGS.audio_tts_model,
+    audio_tts_voice: source.audio?.tts?.voice ?? source.audio_tts_voice ?? DEFAULT_AGENT_SETTINGS.audio_tts_voice,
+    audio_tts_auto_speak: source.audio?.tts?.auto_speak ?? source.audio_tts_auto_speak ?? DEFAULT_AGENT_SETTINGS.audio_tts_auto_speak,
     reasoning_effort: (source.reasoning_effort ?? DEFAULT_AGENT_SETTINGS.reasoning_effort) as AgentSettings["reasoning_effort"],
     auto_compact_context: source.auto_compact_context ?? DEFAULT_AGENT_SETTINGS.auto_compact_context,
     max_context_messages: source.max_context_messages ?? DEFAULT_AGENT_SETTINGS.max_context_messages,

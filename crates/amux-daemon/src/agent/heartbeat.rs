@@ -378,49 +378,55 @@ impl AgentEngine {
 
         // --- Phase 4: Single LLM synthesis call (per D-09, D-10, BEAT-08) ---
         let checks_json = serde_json::to_string(&check_results).unwrap_or_default();
-        let (synthesis_json, actionable, digest_text, digest_items, llm_tokens) =
-            match self.send_internal_message(None, &synthesis_prompt).await {
-                Ok(thread_id) => {
-                    let threads = self.threads.read().await;
-                    let response = threads
-                        .get(&thread_id)
-                        .and_then(|t| {
-                            t.messages
-                                .iter()
-                                .rev()
-                                .find(|m| m.role == MessageRole::Assistant)
-                                .map(|m| m.content.clone())
-                        })
-                        .unwrap_or_default();
+        let (synthesis_json, actionable, digest_text, digest_items, llm_tokens) = match self
+            .send_internal_message_as(
+                None,
+                crate::agent::agent_identity::WELES_AGENT_ID,
+                &synthesis_prompt,
+            )
+            .await
+        {
+            Ok(thread_id) => {
+                let threads = self.threads.read().await;
+                let response = threads
+                    .get(&thread_id)
+                    .and_then(|t| {
+                        t.messages
+                            .iter()
+                            .rev()
+                            .find(|m| m.role == MessageRole::Assistant)
+                            .map(|m| m.content.clone())
+                    })
+                    .unwrap_or_default();
 
-                    let actionable = response.contains("ACTIONABLE: true");
-                    let digest = response
-                        .lines()
-                        .find(|l| l.starts_with("DIGEST:"))
-                        .map(|l| l.trim_start_matches("DIGEST:").trim().to_string())
-                        .unwrap_or_else(|| {
-                            if actionable {
-                                "Items need attention.".into()
-                            } else {
-                                "All systems normal.".into()
-                            }
-                        });
+                let actionable = response.contains("ACTIONABLE: true");
+                let digest = response
+                    .lines()
+                    .find(|l| l.starts_with("DIGEST:"))
+                    .map(|l| l.trim_start_matches("DIGEST:").trim().to_string())
+                    .unwrap_or_else(|| {
+                        if actionable {
+                            "Items need attention.".into()
+                        } else {
+                            "All systems normal.".into()
+                        }
+                    });
 
-                    let items = parse_digest_items(&response);
+                let items = parse_digest_items(&response);
 
-                    (
-                        Some(response),
-                        actionable,
-                        digest,
-                        items,
-                        0u64, // token count from Done event not easily accessible here
-                    )
-                }
-                Err(e) => {
-                    tracing::error!("heartbeat LLM synthesis failed: {e}");
-                    (None, false, format!("Synthesis failed: {e}"), vec![], 0u64)
-                }
-            };
+                (
+                    Some(response),
+                    actionable,
+                    digest,
+                    items,
+                    0u64, // token count from Done event not easily accessible here
+                )
+            }
+            Err(e) => {
+                tracing::error!("heartbeat LLM synthesis failed: {e}");
+                (None, false, format!("Synthesis failed: {e}"), vec![], 0u64)
+            }
+        };
 
         // --- Phase 5: Persist to SQLite (per D-12, Pitfall 4) ---
         // CRITICAL: Persist REGARDLESS of LLM success/failure (Pitfall 4)

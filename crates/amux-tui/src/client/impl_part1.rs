@@ -403,6 +403,8 @@ impl DaemonClient {
             | DaemonMessage::AgentCollaborationSessions { .. }
             | DaemonMessage::AgentCollaborationVoteResult { .. }
             | DaemonMessage::AgentGeneratedTools { .. }
+            | DaemonMessage::AgentSpeechToTextResult { .. }
+            | DaemonMessage::AgentTextToSpeechResult { .. }
             | DaemonMessage::AgentOperatorProfileSessionCompleted { .. }
             | DaemonMessage::AgentError { .. }
             | DaemonMessage::GatewayBootstrap { .. }

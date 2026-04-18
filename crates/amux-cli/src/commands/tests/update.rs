@@ -36,6 +36,8 @@ fn checks_updates_for_user_facing_commands() {
 #[test]
 fn skips_update_checks_for_internal_and_upgrade_commands() {
     assert!(!should_check_for_updates(&Commands::Upgrade));
+    assert!(!should_check_for_updates(&Commands::Stop));
+    assert!(!should_check_for_updates(&Commands::Restart));
     assert!(!should_check_for_updates(&Commands::AgentBridge));
     assert!(!should_check_for_updates(&Commands::DbBridge));
 }

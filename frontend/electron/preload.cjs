@@ -233,7 +233,7 @@ const bridgeApi = {
     },
 
     // Agent engine (daemon-side)
-    agentSendMessage: (threadId, content, sessionId, contextMessages) => ipcRenderer.invoke('agent-send-message', threadId, content, sessionId, contextMessages),
+    agentSendMessage: (threadId, content, sessionId, contextMessages, contentBlocksJson) => ipcRenderer.invoke('agent-send-message', threadId, content, sessionId, contextMessages, contentBlocksJson),
     agentInternalDelegate: (threadId, targetAgentId, content, sessionId) => ipcRenderer.invoke('agent-internal-delegate', threadId, targetAgentId, content, sessionId),
     agentThreadParticipantCommand: (payload) => ipcRenderer.invoke('agent-thread-participant-command', payload),
     agentSendParticipantSuggestion: (payload) => ipcRenderer.invoke('agent-send-participant-suggestion', payload),
@@ -274,6 +274,8 @@ const bridgeApi = {
     agentVoteOnCollaborationDisagreement: (parentTaskId, disagreementId, taskId, position, confidence) => ipcRenderer.invoke('agent-vote-on-collaboration-disagreement', parentTaskId, disagreementId, taskId, position, confidence),
     agentListGeneratedTools: () => ipcRenderer.invoke('agent-list-generated-tools'),
     agentRunGeneratedTool: (toolName, argsJson) => ipcRenderer.invoke('agent-run-generated-tool', toolName, argsJson),
+    agentSpeechToText: (base64Audio, mimeType, options) => ipcRenderer.invoke('agent-speech-to-text', base64Audio, mimeType, options),
+    agentTextToSpeech: (text, voice, options) => ipcRenderer.invoke('agent-text-to-speech', text, voice, options),
     agentActivateGeneratedTool: (toolName) => ipcRenderer.invoke('agent-activate-generated-tool', toolName),
     agentPromoteGeneratedTool: (toolName) => ipcRenderer.invoke('agent-promote-generated-tool', toolName),
     agentRetireGeneratedTool: (toolName) => ipcRenderer.invoke('agent-retire-generated-tool', toolName),

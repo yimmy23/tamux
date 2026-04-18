@@ -28,6 +28,7 @@ fn agent_message_from_db(msg: amux_protocol::AgentDbMessage) -> Option<AgentMess
         id: msg.id.clone(),
         role,
         content: msg.content,
+        content_blocks: metadata.content_blocks,
         tool_calls,
         tool_call_id: metadata.tool_call_id,
         tool_name: metadata.tool_name,
@@ -269,6 +270,7 @@ impl AgentEngine {
                     id: msg.id.clone(),
                     role,
                     content: msg.content.clone(),
+                    content_blocks: metadata.content_blocks,
                     tool_calls,
                     tool_call_id: metadata.tool_call_id,
                     tool_name: metadata.tool_name,
@@ -486,9 +488,9 @@ impl AgentEngine {
 
     /// Run a complete agent turn in a thread.
     pub async fn send_message(&self, thread_id: Option<&str>, content: &str) -> Result<String> {
-        Ok(Box::pin(
-            self.send_message_inner(thread_id, content, None, None, None, None, None, None, true),
-        )
+        Ok(Box::pin(self.send_message_inner(
+            thread_id, content, None, None, None, None, None, None, None, true,
+        ))
         .await?
         .thread_id)
     }
@@ -499,7 +501,41 @@ impl AgentEngine {
         content: &str,
     ) -> Result<String> {
         Ok(Box::pin(self.send_message_inner(
-            thread_id, content, None, None, None, None, None, None, false,
+            thread_id, content, None, None, None, None, None, None, None, false,
+        ))
+        .await?
+        .thread_id)
+    }
+
+    pub(super) async fn send_internal_message_as(
+        &self,
+        thread_id: Option<&str>,
+        target_agent_id: &str,
+        content: &str,
+    ) -> Result<String> {
+        let effective_thread_id =
+            if crate::agent::agent_identity::canonical_agent_id(target_agent_id)
+                != crate::agent::agent_identity::MAIN_AGENT_ID
+            {
+                let (thread_id, _) = self
+                    .get_or_create_thread_with_target(thread_id, content, Some(target_agent_id))
+                    .await;
+                Some(thread_id)
+            } else {
+                thread_id.map(str::to_string)
+            };
+
+        Ok(Box::pin(self.send_message_inner(
+            effective_thread_id.as_deref(),
+            content,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
         ))
         .await?
         .thread_id)
@@ -518,6 +554,7 @@ impl AgentEngine {
             None,
             None,
             None,
+            None,
             Some(llm_user_override),
             Some(stream_chunk_timeout),
             None,
@@ -533,8 +570,14 @@ impl AgentEngine {
         preferred_session_hint: Option<&str>,
         content: &str,
     ) -> Result<String> {
-        self.send_message_with_session_and_surface(thread_id, preferred_session_hint, content, None)
-            .await
+        self.send_message_with_session_and_surface(
+            thread_id,
+            preferred_session_hint,
+            content,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn send_message_with_session_and_surface(
@@ -542,11 +585,13 @@ impl AgentEngine {
         thread_id: Option<&str>,
         preferred_session_hint: Option<&str>,
         content: &str,
+        content_blocks_json: Option<&str>,
         client_surface: Option<amux_protocol::ClientSurface>,
     ) -> Result<String> {
         let outcome = Box::pin(self.send_message_inner(
             thread_id,
             content,
+            content_blocks_json,
             None,
             preferred_session_hint,
             None,
@@ -564,6 +609,7 @@ impl AgentEngine {
         thread_id: Option<&str>,
         preferred_session_hint: Option<&str>,
         content: &str,
+        content_blocks_json: Option<&str>,
         client_surface: Option<amux_protocol::ClientSurface>,
         target_agent_id: Option<&str>,
     ) -> Result<String> {
@@ -580,6 +626,7 @@ impl AgentEngine {
             effective_thread_id.as_deref(),
             preferred_session_hint,
             content,
+            content_blocks_json,
             client_surface,
         )
         .await
@@ -611,6 +658,7 @@ impl AgentEngine {
         Box::pin(self.send_message_inner(
             thread_id,
             content,
+            None,
             Some(task_id),
             preferred_session_hint,
             backend_override,
@@ -638,6 +686,7 @@ impl AgentEngine {
         let outcome = Box::pin(self.send_message_inner(
             Some(&dm_thread_id),
             &wrapped,
+            None,
             Some(task_id),
             preferred_session_hint,
             backend_override,

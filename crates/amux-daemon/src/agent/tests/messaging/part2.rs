@@ -34,6 +34,7 @@ async fn delete_thread_messages_drops_incomplete_assistant_tool_turn_after_tool_
                         id: "assistant-tool-turn".to_string(),
                         role: MessageRole::Assistant,
                         content: "checking".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: Some(vec![
                             ToolCall {
                                 id: "call-a".to_string(),
@@ -81,6 +82,7 @@ async fn delete_thread_messages_drops_incomplete_assistant_tool_turn_after_tool_
                         id: tool_result_a_id.clone(),
                         role: MessageRole::Tool,
                         content: "result a".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: Some("call-a".to_string()),
                         tool_name: Some("tool_a".to_string()),
@@ -111,6 +113,7 @@ async fn delete_thread_messages_drops_incomplete_assistant_tool_turn_after_tool_
                         id: tool_result_b_id.clone(),
                         role: MessageRole::Tool,
                         content: "result b".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: Some("call-b".to_string()),
                         tool_name: Some("tool_b".to_string()),
@@ -197,6 +200,7 @@ async fn delete_thread_messages_emits_thread_reload_event_after_reconciliation()
                         id: assistant_id.clone(),
                         role: MessageRole::Assistant,
                         content: "answer".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,

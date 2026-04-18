@@ -327,6 +327,12 @@ pub enum ClientEvent {
     GeneratedTools {
         tools_json: String,
     },
+    SpeechToTextResult {
+        content: String,
+    },
+    TextToSpeechResult {
+        content: String,
+    },
     OperatorProfileSessionCompleted {
         session_id: String,
         updated_fields: Vec<String>,

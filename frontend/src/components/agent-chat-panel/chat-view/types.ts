@@ -3,18 +3,49 @@ import type { AgentMessage, AgentThread, AgentTodoItem } from "../../../lib/agen
 import type { WelesReviewMeta } from "../../../lib/agentTools";
 import type { WelesHealthState } from "../welesHealthPresentation";
 
+import type { AgentContentBlock } from "../../../lib/agentStore/types";
+
+export type ComposerAttachment = {
+  id: string;
+  name: string;
+  size: number;
+  kind: "image" | "audio" | "text";
+  mimeType: string;
+  dataUrl?: string;
+  textContent?: string;
+};
+
+export type SendMessagePayload = {
+  text: string;
+  contentBlocksJson?: string | null;
+  localContentBlocks?: AgentContentBlock[];
+};
+
 export type ChatViewProps = {
   messages: AgentMessage[];
   todos: AgentTodoItem[];
   input: string;
-  setInput: (value: string) => void;
+  setInput: React.Dispatch<React.SetStateAction<string>>;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   onKeyDown: (event: React.KeyboardEvent) => void;
-  agentSettings: { enabled: boolean; chatFontFamily: string; reasoning_effort: string };
+  agentSettings: {
+    enabled: boolean;
+    chatFontFamily: string;
+    reasoning_effort: string;
+    audio_stt_enabled: boolean;
+    audio_stt_provider: string;
+    audio_stt_model: string;
+    audio_stt_language: string;
+    audio_tts_enabled: boolean;
+    audio_tts_provider: string;
+    audio_tts_model: string;
+    audio_tts_voice: string;
+    audio_tts_auto_speak: boolean;
+  };
   isStreamingResponse: boolean;
   activeThread: AgentThread | undefined;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
-  onSendMessage: (text: string) => void;
+  onSendMessage: (payload: SendMessagePayload) => void;
   onSendParticipantSuggestion: (threadId: string, suggestionId: string, forceSend?: boolean) => void | Promise<void>;
   onDismissParticipantSuggestion: (threadId: string, suggestionId: string) => void | Promise<void>;
   onStopStreaming: () => void;

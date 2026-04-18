@@ -9,6 +9,7 @@ use amux_shared::providers::{
                 id: String::new(),
                 role: MessageRole::Assistant,
                 content: String::new(),
+                content_blocks: Vec::new(),
                 tool_calls: Some(vec![ToolCall {
                     id: String::new(),
                     function: ToolFunction {
@@ -46,6 +47,7 @@ use amux_shared::providers::{
                 id: String::new(),
                 role: MessageRole::Tool,
                 content: "ok".to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: Some(String::new()),
                 tool_name: Some("list_sessions".to_string()),

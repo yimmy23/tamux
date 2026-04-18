@@ -73,6 +73,47 @@ fn compaction_artifact_renders_trigger_summary_above_payload_preview() {
 }
 
 #[test]
+fn compaction_artifact_uses_hidden_payload_when_visible_content_is_header_only() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Assistant,
+        content:
+            "Pre-compaction context: ~542,139 / 400,000 tokens (threshold 320,000)\nTrigger: token-threshold\nStrategy: custom model generated"
+                .into(),
+        compaction_payload: Some(
+            "# 🤖 Agent Context: State Checkpoint\n\n## 🎯 Primary Objective\n> Preserve the coding task and next step."
+                .into(),
+        ),
+        message_kind: "compaction_artifact".into(),
+        ..Default::default()
+    }]);
+
+    let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+    let plain_lines = lines
+        .iter()
+        .map(rendered_line_plain_text)
+        .collect::<Vec<_>>();
+
+    assert!(
+        plain_lines
+            .iter()
+            .any(|line| line.contains("Strategy: custom model generated")),
+        "expected compaction strategy line in rendered lines: {plain_lines:?}"
+    );
+    assert!(
+        plain_lines
+            .iter()
+            .any(|line| line.contains("Agent Context: State Checkpoint")),
+        "expected hidden compaction payload heading in rendered lines: {plain_lines:?}"
+    );
+    assert!(
+        plain_lines
+            .iter()
+            .any(|line| line.contains("Preserve the coding task and next step.")),
+        "expected hidden compaction payload body in rendered lines: {plain_lines:?}"
+    );
+}
+
+#[test]
 fn long_retry_status_message_wraps_across_multiple_lines() {
     let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Assistant,

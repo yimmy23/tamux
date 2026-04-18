@@ -45,6 +45,7 @@ impl AgentEngine {
             thread_id,
             content,
             None,
+            None,
             preferred_session_hint,
             None,
             None,
@@ -99,6 +100,7 @@ impl AgentEngine {
                 Box::pin(self.send_message_inner(
                     Some(&dm_thread_id),
                     &wrapped,
+                    None,
                     None,
                     preferred_session_hint,
                     None,

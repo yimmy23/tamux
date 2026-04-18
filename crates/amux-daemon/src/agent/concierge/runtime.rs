@@ -68,6 +68,7 @@ impl ConciergeEngine {
                 Some("daemon".to_string()),
             )
             .await;
+        let task = agent.retarget_task_to_weles(&task.id).await.unwrap_or(task);
 
         self.recovery_investigations
             .lock()
@@ -221,6 +222,7 @@ impl ConciergeEngine {
                 id: generate_message_id(),
                 role: MessageRole::Assistant,
                 content: content.to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: None,
                 tool_name: None,

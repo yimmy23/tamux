@@ -356,10 +356,17 @@ fn api_message_to_text(message: &ApiMessage) -> Option<String> {
             let combined = blocks
                 .iter()
                 .filter_map(|block| {
-                    block
-                        .get("text")
-                        .and_then(|value| value.as_str())
-                        .map(ToOwned::to_owned)
+                    block.get("text").and_then(|value| value.as_str()).or_else(|| {
+                        block
+                            .get("type")
+                            .and_then(|value| value.as_str())
+                            .and_then(|block_type| match block_type {
+                                "input_image" => Some("[image attachment]"),
+                                "input_audio" => Some("[audio attachment]"),
+                                _ => None,
+                            })
+                    })
+                    .map(ToOwned::to_owned)
                 })
                 .collect::<Vec<_>>()
                 .join("\n");

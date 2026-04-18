@@ -75,6 +75,7 @@ async fn persisted_assistant_messages_reload_upstream_message_metadata() {
                         id: "assistant-upstream-message".to_string(),
                         role: MessageRole::Assistant,
                         content: "Hello from Claude.".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,

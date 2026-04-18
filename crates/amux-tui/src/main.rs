@@ -601,12 +601,14 @@ fn start_daemon_bridge(
                             DaemonCommand::SendMessage {
                                 thread_id,
                                 content,
+                                content_blocks_json,
                                 session_id,
                                 target_agent_id,
                             } => {
                                 let _ = client.send_message(
                                     thread_id,
                                     content,
+                                    content_blocks_json,
                                     session_id,
                                     target_agent_id,
                                 );
@@ -818,6 +820,12 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::GetGeneratedTools => {
                                 let _ = client.get_generated_tools();
+                            }
+                            DaemonCommand::SpeechToText { args_json } => {
+                                let _ = client.speech_to_text(args_json);
+                            }
+                            DaemonCommand::TextToSpeech { args_json } => {
+                                let _ = client.text_to_speech(args_json);
                             }
                             DaemonCommand::SetOperatorProfileConsent {
                                 consent_key,

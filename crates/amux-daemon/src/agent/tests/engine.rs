@@ -278,6 +278,7 @@ async fn hydrate_restores_thread_token_totals_from_persisted_history() {
         id: crate::agent::types::generate_message_id(),
         role: MessageRole::Assistant,
         content: "done".to_string(),
+        content_blocks: Vec::new(),
         tool_calls: None,
         tool_call_id: None,
         tool_name: None,
@@ -730,6 +731,7 @@ async fn send_message_times_out_hung_provider_request() {
         engine.send_message_inner(
             None,
             "What model are you?",
+            None,
             None,
             None,
             None,

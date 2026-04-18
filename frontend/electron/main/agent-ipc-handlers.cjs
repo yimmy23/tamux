@@ -1,14 +1,17 @@
+const { pathToFileURL } = require('node:url');
+
 function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
     const { sendAgentCommand, sendAgentQuery } = runtime;
-    const { logToFile, openAICodexAuthHandlers } = options;
+    const { logToFile, openAICodexAuthHandlers, saveTempAudioCapture } = options;
 
-    ipcMain.handle('agent-send-message', async (_event, threadId, content, sessionId, contextMessages) => {
+    ipcMain.handle('agent-send-message', async (_event, threadId, content, sessionId, contextMessages, contentBlocksJson) => {
         try {
             logToFile('info', 'agent-send-message', {
                 threadId,
                 contentLen: content?.length,
                 sessionId,
                 contextCount: Array.isArray(contextMessages) ? contextMessages.length : 0,
+                contentBlocksLen: typeof contentBlocksJson === 'string' ? contentBlocksJson.length : 0,
             });
             const cmd = {
                 type: 'send-message',
@@ -19,6 +22,9 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
             if (Array.isArray(contextMessages) && contextMessages.length > 0) {
                 cmd.context_messages = contextMessages;
                 logToFile('info', 'agent-send-message context roles', { roles: contextMessages.map((message) => message.role) });
+            }
+            if (typeof contentBlocksJson === 'string' && contentBlocksJson.trim()) {
+                cmd.content_blocks_json = contentBlocksJson;
             }
             sendAgentCommand(cmd);
             return { ok: true };
@@ -271,6 +277,55 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
                 tool_name: toolName,
                 args_json: typeof argsJson === 'string' && argsJson.trim() ? argsJson : '{}',
             }, 'generated-tool-result');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-speech-to-text', async (_event, base64Audio, mimeType, options) => {
+        try {
+            if (typeof saveTempAudioCapture !== 'function') {
+                return { error: 'Audio capture persistence is not available' };
+            }
+            const saved = saveTempAudioCapture({
+                base64: typeof base64Audio === 'string' ? base64Audio : '',
+                mimeType: typeof mimeType === 'string' && mimeType.trim() ? mimeType.trim() : 'audio/webm',
+            });
+            if (!saved?.ok || !saved?.path) {
+                return { error: saved?.error || 'Failed to persist audio capture' };
+            }
+            const payload = {
+                ...(options && typeof options === 'object' && !Array.isArray(options) ? options : {}),
+                path: saved.path,
+                mime_type: saved.mimeType || mimeType || 'audio/webm',
+            };
+            return await sendAgentQuery({
+                type: 'speech-to-text',
+                args_json: JSON.stringify(payload),
+            }, 'speech-to-text-result', 30000);
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-text-to-speech', async (_event, text, voice, options) => {
+        try {
+            const payload = {
+                ...(options && typeof options === 'object' && !Array.isArray(options) ? options : {}),
+                input: typeof text === 'string' ? text : '',
+            };
+            if (typeof voice === 'string' && voice.trim()) {
+                payload.voice = voice.trim();
+            }
+            const result = await sendAgentQuery({
+                type: 'text-to-speech',
+                args_json: JSON.stringify(payload),
+            }, 'text-to-speech-result', 30000);
+            if (result && typeof result === 'object' && typeof result.path === 'string' && result.path.trim()) {
+                return {
+                    ...result,
+                    file_url: pathToFileURL(result.path).href,
+                };
+            }
+            return result;
         } catch (err) {
             return { error: err?.message || String(err) };
         }

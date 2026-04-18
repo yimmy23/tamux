@@ -246,12 +246,29 @@ include!("workflow_fetch.rs");
 include!("setup_web.rs");
 include!("terminal_runtime.rs");
 include!("python_execute.rs");
+include!("media_tools.rs");
 include!("managed_commands.rs");
 include!("terminal_alloc.rs");
 include!("subagents.rs");
 include!("tasks.rs");
 include!("terminal_input.rs");
 include!("gateway_workspace.rs");
+
+pub(crate) async fn execute_media_tool_for_ipc(
+    tool_name: &str,
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    if !args.is_object() {
+        anyhow::bail!("media tool arguments must be a JSON object");
+    }
+
+    match tool_name {
+        "speech_to_text" => execute_speech_to_text(args, agent, &agent.http_client).await,
+        "text_to_speech" => execute_text_to_speech(args, agent, &agent.http_client).await,
+        _ => anyhow::bail!("unsupported media tool for IPC: {tool_name}"),
+    }
+}
 
 #[cfg(test)]
 mod tests;

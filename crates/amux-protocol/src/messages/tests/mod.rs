@@ -375,6 +375,48 @@ fn client_message_roundtrips_agent_execute_memory_tool() {
 }
 
 #[test]
+fn client_message_roundtrips_agent_speech_to_text() {
+    let msg = ClientMessage::AgentSpeechToText {
+        args_json: serde_json::json!({
+            "path": "/tmp/audio.wav",
+            "mime_type": "audio/wav",
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentSpeechToText { args_json } => {
+            let payload: serde_json::Value = serde_json::from_str(&args_json).unwrap();
+            assert_eq!(payload["path"], "/tmp/audio.wav");
+            assert_eq!(payload["mime_type"], "audio/wav");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn client_message_roundtrips_agent_text_to_speech() {
+    let msg = ClientMessage::AgentTextToSpeech {
+        args_json: serde_json::json!({
+            "input": "hello",
+            "voice": "alloy",
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentTextToSpeech { args_json } => {
+            let payload: serde_json::Value = serde_json::from_str(&args_json).unwrap();
+            assert_eq!(payload["input"], "hello");
+            assert_eq!(payload["voice"], "alloy");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn daemon_message_roundtrips_agent_memory_tool_result() {
     let msg = DaemonMessage::AgentMemoryToolResult {
         content: serde_json::json!({
@@ -391,6 +433,46 @@ fn daemon_message_roundtrips_agent_memory_tool_result() {
             let payload: serde_json::Value = serde_json::from_str(&content).unwrap();
             assert_eq!(payload["scope"], "memory");
             assert_eq!(payload["truncated"], false);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_speech_to_text_result() {
+    let msg = DaemonMessage::AgentSpeechToTextResult {
+        content: serde_json::json!({
+            "text": "hello world"
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentSpeechToTextResult { content } => {
+            let payload: serde_json::Value = serde_json::from_str(&content).unwrap();
+            assert_eq!(payload["text"], "hello world");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_text_to_speech_result() {
+    let msg = DaemonMessage::AgentTextToSpeechResult {
+        content: serde_json::json!({
+            "path": "/tmp/speech.mp3",
+            "mime_type": "audio/mpeg"
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentTextToSpeechResult { content } => {
+            let payload: serde_json::Value = serde_json::from_str(&content).unwrap();
+            assert_eq!(payload["path"], "/tmp/speech.mp3");
+            assert_eq!(payload["mime_type"], "audio/mpeg");
         }
         other => panic!("unexpected variant: {:?}", other),
     }
@@ -1257,7 +1339,7 @@ fn skill_search_result_round_trip() {
 #[test]
 fn client_message_agent_logout_openai_codex_preserves_pre_change_wire_discriminant() {
     let msg = ClientMessage::AgentLogoutOpenAICodex;
-    assert_bincode_variant_index(&msg, 166);
+    assert_bincode_variant_index(&msg, 169);
 }
 
 #[test]
@@ -1266,7 +1348,7 @@ fn daemon_message_agent_openai_codex_auth_logout_result_preserves_pre_change_wir
         ok: true,
         error: None,
     };
-    assert_bincode_variant_index(&msg, 136);
+    assert_bincode_variant_index(&msg, 137);
 }
 
 #[test]

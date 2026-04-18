@@ -54,4 +54,31 @@ describe("MessageBubble participant authorship", () => {
     expect(html).toContain("Content:");
     expect(html).toContain("Compact summary");
   });
+
+  it("renders compaction payload when the artifact stores it separately from the header", () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble
+        message={{
+          id: "msg-compaction-2",
+          threadId: "thread-1",
+          createdAt: 1,
+          role: "assistant",
+          content:
+            "Pre-compaction context: ~542,139 / 400,000 tokens (threshold 320,000)\nTrigger: token-threshold\nStrategy: custom model generated",
+          compactionPayload:
+            "# 🤖 Agent Context: State Checkpoint\n\n## 🎯 Primary Objective\n> Preserve the coding task and next step.",
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          isCompactionSummary: true,
+          messageKind: "compaction_artifact",
+          isStreaming: false,
+        }}
+      />,
+    );
+
+    expect(html).toContain("Strategy: custom model generated");
+    expect(html).toContain("Agent Context: State Checkpoint");
+    expect(html).toContain("Preserve the coding task and next step.");
+  });
 });

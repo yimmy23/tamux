@@ -220,6 +220,12 @@ pub(crate) enum Commands {
     /// Ping the daemon (health check).
     Ping,
 
+    /// Stop tamux background processes.
+    Stop,
+
+    /// Restart tamux by stopping background processes and starting the daemon again.
+    Restart,
+
     /// Upgrade tamux to the npm registry's current @latest release.
     Upgrade,
 
@@ -775,6 +781,25 @@ mod tests {
                 assert!(yes);
             }
             other => panic!("expected goal delete command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stop_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "stop"]).expect("stop subcommand should parse");
+        match cli.command {
+            Some(Commands::Stop) => {}
+            other => panic!("expected stop command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn restart_subcommand_parses() {
+        let cli =
+            Cli::try_parse_from(["tamux", "restart"]).expect("restart subcommand should parse");
+        match cli.command {
+            Some(Commands::Restart) => {}
+            other => panic!("expected restart command, got {other:?}"),
         }
     }
 

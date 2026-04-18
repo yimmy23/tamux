@@ -551,6 +551,7 @@ pub(super) fn compact_messages_for_request(
                 id: generate_message_id(),
                 role: MessageRole::Assistant,
                 content: summary,
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: None,
                 tool_name: None,
@@ -740,10 +741,13 @@ pub(super) fn effective_context_target_tokens(
 }
 
 fn primary_context_window_tokens(config: &AgentConfig, provider_config: &ProviderConfig) -> usize {
-    provider_config
-        .context_window_tokens
-        .max(config.context_window_tokens)
-        .max(1) as usize
+    model_context_window(
+        &config.provider,
+        &provider_config.model,
+        provider_config
+            .context_window_tokens
+            .max(config.context_window_tokens),
+    ) as usize
 }
 
 fn effective_compaction_window_tokens(
@@ -2238,6 +2242,7 @@ impl AgentEngine {
                 id: generate_message_id(),
                 role: MessageRole::Assistant,
                 content: visible_content,
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: None,
                 tool_name: None,

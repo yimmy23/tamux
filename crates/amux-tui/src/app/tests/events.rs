@@ -1777,6 +1777,54 @@ fn header_usage_summary_resets_active_window_after_compaction_artifact() {
 }
 
 #[test]
+fn header_usage_summary_ignores_loaded_messages_before_known_compaction_boundary() {
+    let mut model = make_model();
+
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-boundary".to_string(),
+            title: "Boundary".to_string(),
+            total_message_count: 4,
+            loaded_message_start: 0,
+            loaded_message_end: 4,
+            active_compaction_window_start: Some(2),
+            messages: vec![
+                crate::state::chat::AgentMessage {
+                    role: crate::state::chat::MessageRole::User,
+                    content: "A".repeat(400),
+                    ..Default::default()
+                },
+                crate::state::chat::AgentMessage {
+                    role: crate::state::chat::MessageRole::Assistant,
+                    content: "B".repeat(400),
+                    ..Default::default()
+                },
+                crate::state::chat::AgentMessage {
+                    role: crate::state::chat::MessageRole::Assistant,
+                    content: "C".repeat(400),
+                    ..Default::default()
+                },
+                crate::state::chat::AgentMessage {
+                    role: crate::state::chat::MessageRole::User,
+                    content: "D".repeat(400),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        },
+    ));
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-boundary".to_string(),
+    ));
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(
+        usage.current_tokens, 224,
+        "header should only count messages at or after the known compaction boundary"
+    );
+}
+
+#[test]
 fn internal_dm_thread_created_does_not_hijack_active_thread() {
     let mut model = make_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {

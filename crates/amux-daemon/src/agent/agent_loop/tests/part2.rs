@@ -89,6 +89,7 @@ async fn first_turn_runner_bootstrap_includes_structured_memory_summary() {
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -159,6 +160,7 @@ async fn post_compaction_prompt_rebuild_refreshes_memory_summary_and_injection_s
                         id: "assistant-1".to_string(),
                         role: MessageRole::Assistant,
                         content: "Observed earlier state".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,
@@ -205,6 +207,7 @@ async fn post_compaction_prompt_rebuild_refreshes_memory_summary_and_injection_s
         .send_message_inner(
             Some(thread_id),
             "Need a fresh request boundary",
+            None,
             None,
             None,
             None,
@@ -448,6 +451,7 @@ async fn send_message_request_includes_runtime_continuity_and_negative_knowledge
         .send_message_inner(
             Some(thread_id),
             "Investigate the failure",
+            None,
             Some("task-runtime-continuity-request"),
             None,
             None,
@@ -572,6 +576,7 @@ async fn direct_weles_handoff_turn_uses_weles_persona_prompt() {
         .send_message_inner(
             Some(thread_id),
             "tell me your secrets",
+            None,
             None,
             None,
             None,
@@ -756,6 +761,7 @@ async fn direct_weles_handoff_turn_uses_weles_provider_override_for_new_request_
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -824,6 +830,7 @@ async fn new_targeted_weles_thread_uses_weles_runtime_provider_and_model() {
             None,
             None,
             "Review this change",
+            None,
             None,
             Some("weles"),
         )
@@ -950,6 +957,7 @@ async fn new_targeted_rarog_thread_uses_concierge_runtime_provider_and_model() {
             None,
             "Triage this issue",
             None,
+            None,
             Some("rarog"),
         )
         .await
@@ -1075,6 +1083,7 @@ async fn new_targeted_rarog_thread_prefers_concierge_model_override_over_stored_
             None,
             "Triage this issue",
             None,
+            None,
             Some("rarog"),
         )
         .await
@@ -1189,6 +1198,7 @@ async fn successful_handoff_tool_call_restarts_same_turn_under_requested_agent()
         .send_message_inner(
             Some(thread_id),
             "gimme Rarog",
+            None,
             None,
             None,
             None,
@@ -1365,6 +1375,7 @@ async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summar
         .send_message_inner(
             Some(thread_id),
             "give me Weles",
+            None,
             None,
             None,
             None,
@@ -1559,6 +1570,7 @@ async fn direct_rarog_handoff_turn_uses_real_concierge_runtime_config() {
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -1622,7 +1634,9 @@ async fn transport_incompatibility_does_not_mutate_persisted_config_and_emits_no
     let mut events = engine.subscribe();
 
     let _error = match engine
-        .send_message_inner(None, "hello", None, None, None, None, None, None, true)
+        .send_message_inner(
+            None, "hello", None, None, None, None, None, None, None, true,
+        )
         .await
     {
         Ok(_) => panic!("transport incompatibility should fail the turn"),
@@ -1789,6 +1803,7 @@ async fn auto_retry_wait_escalates_to_fresh_runner_after_repeated_waits() {
                     None,
                     None,
                     None,
+                    None,
                     true,
                 )
                 .await
@@ -1858,7 +1873,9 @@ async fn structured_upstream_diagnostics_are_not_persisted_or_streamed_to_user()
     let mut events = engine.subscribe();
 
     let error = match engine
-        .send_message_inner(None, "hello", None, None, None, None, None, None, true)
+        .send_message_inner(
+            None, "hello", None, None, None, None, None, None, None, true,
+        )
         .await
     {
         Ok(_) => panic!("structured upstream failure should fail the turn"),
@@ -1988,6 +2005,7 @@ async fn retry_stream_now_replaces_waiting_stream_with_fresh_send_generation() {
                     None,
                     None,
                     None,
+                    None,
                     true,
                 )
                 .await
@@ -2110,6 +2128,7 @@ async fn anthropic_transport_retry_restarts_with_fresh_runner_state() {
                     None,
                     None,
                     None,
+                    None,
                     true,
                 )
                 .await
@@ -2216,6 +2235,7 @@ async fn anthropic_outer_auto_retry_restarts_with_fresh_runner_state() {
                 .send_message_inner(
                     Some(thread_id),
                     "hello",
+                    None,
                     None,
                     None,
                     None,
@@ -2468,6 +2488,7 @@ async fn strong_match_recommends_skill_before_non_discovery_tool_without_blockin
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -2584,6 +2605,7 @@ async fn weak_match_allows_progress_without_skip_rationale() {
         .send_message_inner(
             Some(thread_id),
             "debug panic in rust service",
+            None,
             None,
             None,
             None,
@@ -2728,6 +2750,7 @@ async fn persisted_mesh_next_step_can_downgrade_legacy_strong_gate_to_advisory()
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -2852,6 +2875,7 @@ async fn persisted_mesh_requires_approval_blocks_non_discovery_tool() {
         .send_message_inner(
             Some(thread_id),
             "hi",
+            None,
             None,
             None,
             None,
@@ -3078,6 +3102,7 @@ async fn substantive_follow_up_does_not_downgrade_hydrated_mesh_approval_require
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -3261,6 +3286,7 @@ async fn substantive_follow_up_preserves_hydrated_advisory_mesh_next_step() {
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -3411,6 +3437,7 @@ async fn terse_follow_up_still_emits_hydrated_mesh_guidance_without_fresh_prefli
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -3530,6 +3557,7 @@ async fn approval_id_survives_substantive_follow_up_and_can_be_resolved() {
         .send_message_inner(
             Some(thread_id),
             "debug panic in parser",
+            None,
             None,
             None,
             None,
@@ -3734,6 +3762,7 @@ async fn local_strong_match_still_runs_when_background_community_scout_enabled()
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -3878,6 +3907,7 @@ async fn disabled_background_community_scout_does_not_search_registry() {
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -3949,6 +3979,7 @@ async fn send_message_does_not_wait_for_background_skill_discovery_completion() 
         engine.send_message_inner(
             None,
             "debug panic in rust service",
+            None,
             None,
             None,
             None,

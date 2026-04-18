@@ -113,6 +113,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
                 "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024),
                 None,
                 None,
+                None,
             )
             .expect_err("oversized message should be rejected locally");
 

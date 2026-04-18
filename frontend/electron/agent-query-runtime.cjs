@@ -48,6 +48,8 @@ const AGENT_QUERY_RESPONSE_TYPES = [
   'collaboration-vote-result',
   'generated-tools',
   'generated-tool-result',
+  'speech-to-text-result',
+  'text-to-speech-result',
   'operator-model',
   'operator-model-reset',
   'operator-profile-session-started',

@@ -749,6 +749,47 @@ fn spawned_thread_navigation_enter_opens_unloaded_child_thread() {
 }
 
 #[test]
+fn spawned_thread_navigation_preserves_pending_child_open_across_thread_list_refresh() {
+    let mut model = seed_spawned_thread_navigation_model_with_loaded_child(false);
+    model.focus = FocusArea::Sidebar;
+    model.activate_sidebar_tab(SidebarTab::Spawned);
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert_eq!(model.chat.active_thread_id(), Some("thread-child"));
+    assert_eq!(model.thread_loading_id.as_deref(), Some("thread-child"));
+
+    model.handle_thread_list_event(vec![
+        crate::wire::AgentThread {
+            id: "thread-root".to_string(),
+            title: "Root".to_string(),
+            ..Default::default()
+        },
+        crate::wire::AgentThread {
+            id: "thread-other".to_string(),
+            title: "Other".to_string(),
+            ..Default::default()
+        },
+    ]);
+
+    assert_eq!(
+        model.chat.active_thread_id(),
+        Some("thread-child"),
+        "thread-list refresh should not clear a child thread that is still loading"
+    );
+    assert_eq!(
+        model.thread_loading_id.as_deref(),
+        Some("thread-child"),
+        "loading state should survive until the requested child thread arrives"
+    );
+    assert_eq!(
+        model.chat.thread_history_stack(),
+        &["thread-root".to_string()]
+    );
+}
+
+#[test]
 fn spawned_thread_navigation_mouse_click_opens_unloaded_child_thread() {
     let mut model = seed_spawned_thread_navigation_model_with_loaded_child(false);
     let sidebar_area = model

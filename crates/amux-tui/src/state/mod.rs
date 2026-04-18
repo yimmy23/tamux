@@ -94,6 +94,7 @@ pub enum DaemonCommand {
     SendMessage {
         thread_id: Option<String>,
         content: String,
+        content_blocks_json: Option<String>,
         session_id: Option<String>,
         target_agent_id: Option<String>,
     },
@@ -223,6 +224,12 @@ pub enum DaemonCommand {
         confidence: Option<f64>,
     },
     GetGeneratedTools,
+    SpeechToText {
+        args_json: String,
+    },
+    TextToSpeech {
+        args_json: String,
+    },
     SetOperatorProfileConsent {
         consent_key: String,
         granted: bool,

@@ -352,7 +352,7 @@ declare global {
         }) => Promise<{ sessionId: string; activeCommand?: string }>;
         stopTerminalSession?: (paneId: string, killSession?: boolean) => Promise<boolean>;
         executeManagedCommand?: (paneId: string | null, payload: unknown) => Promise<boolean | { output?: string }>;
-        agentSendMessage?: (threadId: string | null, content: string, sessionId?: string | null, contextMessages?: unknown[]) => Promise<{ ok?: boolean; error?: string } | unknown>;
+        agentSendMessage?: (threadId: string | null, content: string, sessionId?: string | null, contextMessages?: unknown[], contentBlocksJson?: string | null) => Promise<{ ok?: boolean; error?: string } | unknown>;
         agentInternalDelegate?: (threadId: string | null, targetAgentId: string, content: string, sessionId?: string | null) => Promise<{ ok?: boolean; error?: string } | unknown>;
         agentThreadParticipantCommand?: (payload: {
             threadId: string;
@@ -424,6 +424,8 @@ declare global {
         agentVoteOnCollaborationDisagreement?: (parentTaskId: string, disagreementId: string, taskId: string, position: string, confidence?: number | null) => Promise<unknown>;
         agentListGeneratedTools?: () => Promise<unknown>;
         agentRunGeneratedTool?: (toolName: string, argsJson: string) => Promise<unknown>;
+        agentSpeechToText?: (base64Audio: string, mimeType?: string | null, options?: Record<string, unknown> | null) => Promise<unknown>;
+        agentTextToSpeech?: (text: string, voice?: string | null, options?: Record<string, unknown> | null) => Promise<unknown>;
         agentActivateGeneratedTool?: (toolName: string) => Promise<unknown>;
         agentPromoteGeneratedTool?: (toolName: string) => Promise<unknown>;
         agentRetireGeneratedTool?: (toolName: string) => Promise<unknown>;

@@ -80,12 +80,16 @@ fn daemon_generated_message_paths_use_internal_initiator() {
     .expect("read gateway_loop/message_helpers.rs");
 
     assert!(
-        heartbeat.contains("send_internal_message(None, &synthesis_prompt)"),
-        "heartbeat synthesis should use agent initiator"
+        heartbeat.contains("send_internal_message_as(")
+            && heartbeat.contains("WELES_AGENT_ID")
+            && heartbeat.contains("&synthesis_prompt"),
+        "heartbeat synthesis should route daemon-owned work through Weles"
     );
     assert!(
-        heartbeat_legacy.contains("send_internal_message(None, &prompt)"),
-        "legacy heartbeat checks should use agent initiator"
+        heartbeat_legacy.contains("send_internal_message_as(")
+            && heartbeat_legacy.contains("WELES_AGENT_ID")
+            && heartbeat_legacy.contains("&prompt"),
+        "legacy heartbeat checks should route daemon-owned work through Weles"
     );
     assert!(
         gateway_message_helpers.contains("send_internal_message(None, &prompt)"),
@@ -598,6 +602,7 @@ async fn handoff_activation_clears_thread_continuation_state_for_new_responder_s
                         id: "assistant-anchor".to_string(),
                         role: MessageRole::Assistant,
                         content: "answer".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,
@@ -757,6 +762,7 @@ async fn delete_thread_messages_rehydrates_and_clears_invalid_continuation() {
                         id: assistant_id.clone(),
                         role: MessageRole::Assistant,
                         content: "answer".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,
@@ -861,6 +867,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         id: assistant_id.clone(),
                         role: MessageRole::Assistant,
                         content: "checking".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: Some(vec![
                             ToolCall {
                                 id: "call-a".to_string(),
@@ -910,6 +917,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         id: tool_a_id.clone(),
                         role: MessageRole::Tool,
                         content: "partial".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: Some("call-a".to_string()),
                         tool_name: Some("tool_a".to_string()),
@@ -940,6 +948,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         id: tool_b_id.clone(),
                         role: MessageRole::Tool,
                         content: "done".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: Some("call-b".to_string()),
                         tool_name: Some("tool_b".to_string()),
@@ -970,6 +979,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         id: "assistant-final".to_string(),
                         role: MessageRole::Assistant,
                         content: "final answer".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,

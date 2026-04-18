@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use super::provider_resolution::apply_provider_model_override;
 use super::*;
 
 const PARTICIPANT_PROMPT_MAX_MESSAGES: usize = 48;
@@ -254,8 +255,26 @@ fn trim_participant_playground_thread_messages(
         return false;
     }
 
-    let drop_count = thread.messages.len().saturating_sub(max_messages);
-    thread.messages.drain(0..drop_count);
+    let latest_artifact_index = thread
+        .messages
+        .iter()
+        .rposition(super::compaction::message_is_compaction_summary);
+    thread.messages = if let Some(artifact_index) = latest_artifact_index {
+        let tail_start = thread.messages.len().saturating_sub(max_messages);
+        if artifact_index < tail_start {
+            let trailing_count = max_messages.saturating_sub(1);
+            let recent_start = thread.messages.len().saturating_sub(trailing_count);
+            let mut retained = Vec::with_capacity(max_messages);
+            retained.push(thread.messages[artifact_index].clone());
+            retained.extend(thread.messages[recent_start..].iter().cloned());
+            retained
+        } else {
+            thread.messages[tail_start..].to_vec()
+        }
+    } else {
+        let drop_count = thread.messages.len().saturating_sub(max_messages);
+        thread.messages[drop_count..].to_vec()
+    };
     thread.total_input_tokens = thread
         .messages
         .iter()
@@ -566,7 +585,7 @@ impl AgentEngine {
                     .filter(|value| !value.trim().is_empty())
             })
         {
-            provider_config.model = model;
+            apply_provider_model_override(&provider_id, &mut provider_config, &model);
         }
         if let Some(reasoning_effort) = matched_def
             .as_ref()
@@ -618,6 +637,7 @@ impl AgentEngine {
                 .run_internal_send_loop(
                     Some(&playground_thread_id_for_run),
                     &prompt,
+                    &[],
                     &prompt,
                     None,
                     None,
@@ -742,6 +762,7 @@ impl AgentEngine {
             id: generate_message_id(),
             role: MessageRole::System,
             content: content.to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: Some("internal_delegate".to_string()),

@@ -392,6 +392,7 @@ if matches!(
                     content,
                     session_id,
                     context_messages_json,
+                    content_blocks_json,
                     client_surface,
                     target_agent_id,
                 } => {
@@ -450,6 +451,7 @@ if matches!(
                             effective_thread_id.as_deref(),
                             session_id.as_deref(),
                             &content,
+                            content_blocks_json.as_deref(),
                             client_surface,
                             target_agent_id.as_deref(),
                         ))

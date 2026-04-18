@@ -301,7 +301,7 @@ fn visible_thread_continuation_chain_does_not_overflow_small_worker_stack() {
 }
 
 #[tokio::test]
-async fn compaction_trims_participant_playground_threads_for_visible_thread() {
+async fn compaction_trims_participant_playground_threads_without_dropping_latest_artifact() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
@@ -311,6 +311,7 @@ async fn compaction_trims_participant_playground_threads_for_visible_thread() {
         id: crate::agent::types::generate_message_id(),
         role: crate::agent::MessageRole::Assistant,
         content: content.to_string(),
+        content_blocks: Vec::new(),
         tool_calls: None,
         tool_call_id: None,
         tool_name: None,
@@ -337,6 +338,38 @@ async fn compaction_trims_participant_playground_threads_for_visible_thread() {
         pinned_for_compaction: false,
         timestamp,
     };
+    let compaction_artifact_message =
+        |content: &str, timestamp: u64| crate::agent::types::AgentMessage {
+            id: crate::agent::types::generate_message_id(),
+            role: crate::agent::MessageRole::Assistant,
+            content: content.to_string(),
+            content_blocks: Vec::new(),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: crate::agent::types::AgentMessageKind::CompactionArtifact,
+            compaction_strategy: Some(crate::agent::types::CompactionStrategy::Heuristic),
+            compaction_payload: Some(content.to_string()),
+            offloaded_payload_id: None,
+            structural_refs: Vec::new(),
+            pinned_for_compaction: false,
+            timestamp,
+        };
     let provider_config = {
         let engine = AgentEngine::new_test(manager.clone(), config.clone(), root.path()).await;
         engine
@@ -382,12 +415,12 @@ async fn compaction_trims_participant_playground_threads_for_visible_thread() {
                 agent_name: Some("Weles".to_string()),
                 title: "Participant Playground".to_string(),
                 messages: vec![
-                    crate::agent::types::AgentMessage::user("draft prompt 1", 1),
-                    assistant_message("draft reply 1", 2),
-                    crate::agent::types::AgentMessage::user("draft prompt 2", 3),
-                    assistant_message("draft reply 2", 4),
-                    crate::agent::types::AgentMessage::user("draft prompt 3", 5),
-                    assistant_message("draft reply 3", 6),
+                    compaction_artifact_message("[Compacted earlier context] playground", 1),
+                    crate::agent::types::AgentMessage::user("draft prompt 2", 2),
+                    assistant_message("draft reply 2", 3),
+                    crate::agent::types::AgentMessage::user("draft prompt 3", 4),
+                    assistant_message("draft reply 3", 5),
+                    crate::agent::types::AgentMessage::user("draft prompt 4", 6),
                 ],
                 pinned: false,
                 upstream_thread_id: None,
@@ -414,15 +447,17 @@ async fn compaction_trims_participant_playground_threads_for_visible_thread() {
         .get(&playground_thread_id)
         .expect("playground thread should still exist after compaction");
     assert_eq!(
-	        playground.messages.len(),
-	        4,
-	        "compaction should retain a bounded recent playground tail instead of clearing hidden context"
-	    );
-    assert_eq!(
-        playground.messages[0].content, "draft prompt 2",
-        "compaction should drop the oldest playground turns first"
+        playground.messages.len(),
+        4,
+        "compaction should retain a bounded recent playground tail instead of clearing hidden context"
     );
-    assert_eq!(playground.messages[3].content, "draft reply 3");
+    assert_eq!(
+        playground.messages[0].message_kind,
+        crate::agent::types::AgentMessageKind::CompactionArtifact,
+        "compaction should preserve the latest playground artifact boundary"
+    );
+    assert_eq!(playground.messages[1].content, "draft prompt 3");
+    assert_eq!(playground.messages[3].content, "draft prompt 4");
 }
 
 #[tokio::test]

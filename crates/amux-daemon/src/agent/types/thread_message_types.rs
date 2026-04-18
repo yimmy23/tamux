@@ -106,6 +106,8 @@ pub struct AgentMessage {
     pub id: String,
     pub role: MessageRole,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_blocks: Vec<AgentContentBlock>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -161,12 +163,74 @@ pub fn generate_message_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgentContentBlock {
+    Text {
+        text: String,
+    },
+    Image {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+    },
+    Audio {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+    },
+}
+
+impl AgentContentBlock {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text { text: text.into() }
+    }
+
+    pub fn is_text(&self) -> bool {
+        matches!(self, Self::Text { .. })
+    }
+}
+
+pub fn content_blocks_text_projection(blocks: &[AgentContentBlock]) -> String {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            AgentContentBlock::Text { text } => Some(text.trim().to_string()),
+            AgentContentBlock::Image { mime_type, .. } => Some(format!(
+                "[Image attachment{}]",
+                mime_type
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| format!(": {value}"))
+                    .unwrap_or_default()
+            )),
+            AgentContentBlock::Audio { mime_type, .. } => Some(format!(
+                "[Audio attachment{}]",
+                mime_type
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| format!(": {value}"))
+                    .unwrap_or_default()
+            )),
+        })
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 impl AgentMessage {
     pub fn user(content: impl Into<String>, now: u64) -> Self {
         Self {
             id: generate_message_id(),
             role: MessageRole::User,
             content: content.into(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,
@@ -193,6 +257,19 @@ impl AgentMessage {
             pinned_for_compaction: false,
             timestamp: now,
         }
+    }
+
+    pub fn user_with_blocks(
+        content: impl Into<String>,
+        content_blocks: Vec<AgentContentBlock>,
+        now: u64,
+    ) -> Self {
+        let mut message = Self::user(content, now);
+        message.content_blocks = content_blocks;
+        if message.content.trim().is_empty() && !message.content_blocks.is_empty() {
+            message.content = content_blocks_text_projection(&message.content_blocks);
+        }
+        message
     }
 }
 

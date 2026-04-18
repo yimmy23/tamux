@@ -20,6 +20,7 @@ const {
     readJsonFile,
     readTextFile,
     revealDataPath,
+    saveTempAudioCapture,
     saveVisionScreenshot,
     writeJsonFile,
     writeTextFile,
@@ -543,7 +544,11 @@ function registerIpcHandlers() {
         assertValidWhatsAppConnectConfig(config);
     });
 
-    registerAgentIpcHandlers(ipcMain, { sendAgentCommand, sendAgentQuery }, { logToFile, openAICodexAuthHandlers });
+    registerAgentIpcHandlers(ipcMain, { sendAgentCommand, sendAgentQuery }, {
+        logToFile,
+        openAICodexAuthHandlers,
+        saveTempAudioCapture: (payload) => saveTempAudioCapture(payload, { ttlMs: VISION_SCREENSHOT_TTL_MS }),
+    });
     sendAgentCommandFn = sendAgentCommand;
 }
 

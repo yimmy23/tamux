@@ -106,6 +106,16 @@ fn bridge_event_from_daemon_message(message: &DaemonMessage) -> Option<serde_jso
                 "result": serde_json::from_str::<serde_json::Value>(result_json).unwrap_or_default(),
             }
         })),
+        DaemonMessage::AgentSpeechToTextResult { content } => Some(serde_json::json!({
+            "type": "speech-to-text-result",
+            "data": serde_json::from_str::<serde_json::Value>(content)
+                .unwrap_or_else(|_| serde_json::Value::String(content.clone())),
+        })),
+        DaemonMessage::AgentTextToSpeechResult { content } => Some(serde_json::json!({
+            "type": "text-to-speech-result",
+            "data": serde_json::from_str::<serde_json::Value>(content)
+                .unwrap_or_else(|_| serde_json::Value::String(content.clone())),
+        })),
         DaemonMessage::AgentOpenAICodexAuthStatus { status_json } => Some(serde_json::json!({
             "type": "openai-codex-auth-status",
             "data": serde_json::from_str::<serde_json::Value>(status_json).unwrap_or_default(),
@@ -920,6 +930,48 @@ mod tests {
                     "result": {
                         "status": "active"
                     }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translates_speech_to_text_result_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AgentSpeechToTextResult {
+            content: serde_json::json!({
+                "text": "hello"
+            })
+            .to_string(),
+        })
+        .expect("speech-to-text result should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "speech-to-text-result",
+                "data": {
+                    "text": "hello"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translates_text_to_speech_result_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AgentTextToSpeechResult {
+            content: serde_json::json!({
+                "path": "/tmp/speech.mp3"
+            })
+            .to_string(),
+        })
+        .expect("text-to-speech result should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "text-to-speech-result",
+                "data": {
+                    "path": "/tmp/speech.mp3"
                 }
             })
         );

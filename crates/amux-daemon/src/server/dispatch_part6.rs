@@ -9,6 +9,8 @@ if matches!(
         ClientMessage::AgentGetProvenanceReport{ .. } |
         ClientMessage::AgentGenerateSoc2Artifact{ .. } |
         ClientMessage::AgentExecuteMemoryTool{ .. } |
+        ClientMessage::AgentSpeechToText{ .. } |
+        ClientMessage::AgentTextToSpeech{ .. } |
         ClientMessage::AgentGetCollaborationSessions{ .. } |
         ClientMessage::AgentGetDivergentSession{ .. } |
         ClientMessage::AgentListGeneratedTools |
@@ -322,6 +324,88 @@ if matches!(
                                 .send(DaemonMessage::AgentError {
                                     message: format!(
                                         "invalid memory tool arguments for `{tool_name}`: {error}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentSpeechToText { args_json } => {
+                    match serde_json::from_str::<serde_json::Value>(&args_json) {
+                        Ok(args) => {
+                            match crate::agent::tool_executor::execute_media_tool_for_ipc(
+                                "speech_to_text",
+                                &args,
+                                &agent,
+                            )
+                            .await
+                            {
+                                Ok(content) => {
+                                    framed
+                                        .send(DaemonMessage::AgentSpeechToTextResult { content })
+                                        .await
+                                        .ok();
+                                }
+                                Err(error) => {
+                                    framed
+                                        .send(DaemonMessage::AgentError {
+                                            message: format!(
+                                                "failed to execute speech_to_text: {error}"
+                                            ),
+                                        })
+                                        .await
+                                        .ok();
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "invalid speech_to_text arguments: {error}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentTextToSpeech { args_json } => {
+                    match serde_json::from_str::<serde_json::Value>(&args_json) {
+                        Ok(args) => {
+                            match crate::agent::tool_executor::execute_media_tool_for_ipc(
+                                "text_to_speech",
+                                &args,
+                                &agent,
+                            )
+                            .await
+                            {
+                                Ok(content) => {
+                                    framed
+                                        .send(DaemonMessage::AgentTextToSpeechResult { content })
+                                        .await
+                                        .ok();
+                                }
+                                Err(error) => {
+                                    framed
+                                        .send(DaemonMessage::AgentError {
+                                            message: format!(
+                                                "failed to execute text_to_speech: {error}"
+                                            ),
+                                        })
+                                        .await
+                                        .ok();
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "invalid text_to_speech arguments: {error}"
                                     ),
                                 })
                                 .await

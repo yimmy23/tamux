@@ -37,6 +37,12 @@ function getVisionTempDir() {
     return dir;
 }
 
+function getAudioTempDir() {
+    const dir = path.join(ensureTamuxDataDir(), 'tmp', 'audio');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+}
+
 function cleanupVisionScreenshots(ttlMs) {
     try {
         const dir = getVisionTempDir();
@@ -89,6 +95,57 @@ function saveVisionScreenshot(payload = {}, options = {}) {
         return {
             ok: true,
             path: fullPath,
+            expiresAt: now + ttlMs,
+        };
+    } catch (error) {
+        return { ok: false, error: error?.message ?? String(error) };
+    }
+}
+
+function saveTempAudioCapture(payload = {}, options = {}) {
+    const ttlMs = Number.isFinite(options.ttlMs) ? Number(options.ttlMs) : 10 * 60 * 1000;
+    try {
+        const base64 = typeof payload.base64 === 'string' ? payload.base64.trim() : '';
+        if (!base64) {
+            return { ok: false, error: 'Missing audio base64 payload' };
+        }
+
+        const mimeType = typeof payload.mimeType === 'string' && payload.mimeType.trim()
+            ? payload.mimeType.trim()
+            : 'audio/webm';
+        const extension = mimeType === 'audio/wav'
+            ? 'wav'
+            : mimeType === 'audio/ogg'
+                ? 'ogg'
+                : mimeType === 'audio/flac'
+                    ? 'flac'
+                    : mimeType === 'audio/mp4'
+                        ? 'm4a'
+                        : mimeType === 'audio/mpeg'
+                            ? 'mp3'
+                            : mimeType === 'audio/webm'
+                                ? 'webm'
+                                : 'bin';
+        const buffer = Buffer.from(base64, 'base64');
+        const now = Date.now();
+        const filename = `audio_${now}_${Math.random().toString(36).slice(2, 8)}.${extension}`;
+        const fullPath = path.join(getAudioTempDir(), filename);
+        fs.writeFileSync(fullPath, buffer);
+
+        setTimeout(() => {
+            try {
+                if (fs.existsSync(fullPath)) {
+                    fs.unlinkSync(fullPath);
+                }
+            } catch {
+                // Ignore deferred cleanup errors.
+            }
+        }, ttlMs);
+
+        return {
+            ok: true,
+            path: fullPath,
+            mimeType,
             expiresAt: now + ttlMs,
         };
     } catch (error) {
@@ -260,6 +317,7 @@ module.exports = {
     getLegacyAmuxDataDir,
     getTamuxDataDir,
     getVisionTempDir,
+    getAudioTempDir,
     listDataDir,
     logToFile,
     openDataPath,
@@ -267,6 +325,7 @@ module.exports = {
     readTextFile,
     resolveDataPath,
     revealDataPath,
+    saveTempAudioCapture,
     saveVisionScreenshot,
     writeJsonFile,
     writeTextFile,

@@ -25,6 +25,7 @@ async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
                         id: "assistant-provider-final-result".to_string(),
                         role: MessageRole::Assistant,
                         content: "Hello from Responses.".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,

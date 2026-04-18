@@ -9,6 +9,7 @@ import type { useSnippetStore } from "@/lib/snippetStore";
 import type { useTranscriptStore } from "@/lib/transcriptStore";
 import type { useWorkspaceStore } from "@/lib/workspaceStore";
 import type { AgentProviderId, WelesHealthState } from "@/lib/agentStore/types";
+import type { AgentContentBlock } from "@/lib/agentStore/types";
 
 export type AgentChatPanelView =
   | "threads"
@@ -82,7 +83,7 @@ export type AgentChatPanelRuntimeValue = {
   isStreamingResponse: boolean;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
-  sendMessage: (text: string) => void;
+  sendMessage: (payload: { text: string; contentBlocksJson?: string | null; localContentBlocks?: AgentContentBlock[] }) => void;
   sendParticipantSuggestion: (threadId: string, suggestionId: string, forceSend?: boolean) => Promise<void>;
   dismissParticipantSuggestion: (threadId: string, suggestionId: string) => Promise<void>;
   deleteMessage: (threadId: string, messageId: string) => void;

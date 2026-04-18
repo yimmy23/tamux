@@ -320,6 +320,12 @@ pub(super) enum AgentBridgeCommand {
         tool_name: String,
         args_json: String,
     },
+    SpeechToText {
+        args_json: String,
+    },
+    TextToSpeech {
+        args_json: String,
+    },
     PromoteGeneratedTool {
         tool_name: String,
     },

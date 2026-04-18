@@ -198,6 +198,7 @@ export interface AgentMessage {
   createdAt: number;
   role: AgentRole;
   content: string;
+  contentBlocks?: AgentContentBlock[];
   authorAgentId?: string;
   authorAgentName?: string;
   provider?: string;
@@ -227,6 +228,24 @@ export interface AgentMessage {
   pinnedForCompaction?: boolean;
   isStreaming?: boolean;
 }
+
+export type AgentContentBlock =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "image";
+      url?: string;
+      data_url?: string;
+      mime_type?: string;
+    }
+  | {
+      type: "audio";
+      url?: string;
+      data_url?: string;
+      mime_type?: string;
+    };
 
 export interface WelesHealthState {
   state: string;

@@ -206,6 +206,7 @@ mod tests {
             content: "x".repeat(MAX_IPC_FRAME_SIZE_BYTES + 1024),
             session_id: None,
             context_messages_json: None,
+            content_blocks_json: None,
             client_surface: None,
             target_agent_id: None,
         };

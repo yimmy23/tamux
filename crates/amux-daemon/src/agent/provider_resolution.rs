@@ -35,6 +35,45 @@ fn finalize_resolved_provider(
     resolved
 }
 
+pub(super) fn apply_provider_model_override(
+    provider_id: &str,
+    provider_config: &mut ProviderConfig,
+    model: &str,
+) {
+    let model = model.trim();
+    if model.is_empty() {
+        return;
+    }
+
+    provider_config.model = model.to_string();
+    if let Some(def) = get_provider_definition(provider_id) {
+        if !provider_uses_configurable_base_url(provider_id) {
+            let configured_base_url = if provider_config.base_url.trim().is_empty() {
+                def.default_base_url
+            } else {
+                provider_config.base_url.as_str()
+            };
+            provider_config.base_url =
+                get_provider_base_url(provider_id, model, configured_base_url);
+        } else if provider_config.base_url.trim().is_empty() {
+            provider_config.base_url = get_provider_base_url(provider_id, model, "");
+        }
+
+        if let Some(model_def) = def.models.iter().find(|entry| entry.id == model) {
+            provider_config.context_window_tokens = model_def.context_window;
+        }
+    }
+
+    if !provider_supports_transport(provider_id, provider_config.api_transport) {
+        provider_config.api_transport = default_api_transport_for_provider(provider_id);
+    }
+    if provider_id == PROVIDER_ID_OPENAI
+        && provider_config.auth_source == AuthSource::ChatgptSubscription
+    {
+        provider_config.api_transport = ApiTransport::Responses;
+    }
+}
+
 pub(super) fn resolve_provider_config_for(
     config: &AgentConfig,
     provider_id: &str,

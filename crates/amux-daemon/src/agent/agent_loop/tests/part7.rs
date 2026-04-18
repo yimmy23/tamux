@@ -45,6 +45,7 @@ async fn metacognitive_sunk_cost_block_injects_reflection_and_skips_tool_executi
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -145,6 +146,7 @@ async fn metacognitive_confirmation_warning_restarts_with_reflection_before_tool
         .send_message_inner(
             Some(thread_id),
             "verify that the file still matches what we expect",
+            None,
             None,
             None,
             None,
@@ -340,6 +342,7 @@ async fn metacognitive_workflow_profiles_learn_from_live_outcomes_and_persist() 
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -421,6 +424,7 @@ async fn neutral_investigative_sequence_does_not_false_positive_confirmation_bia
         .send_message_inner(
             Some(thread_id),
             "inspect the file and then search for the string",
+            None,
             None,
             None,
             None,

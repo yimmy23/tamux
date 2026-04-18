@@ -238,6 +238,7 @@ async fn gateway_auto_send_thread_response_emits_gateway_request_for_latest_assi
             id: "assistant-latest".to_string(),
             role: MessageRole::Assistant,
             content: "Intermittent update from the agent".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,

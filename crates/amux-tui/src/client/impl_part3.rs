@@ -213,6 +213,16 @@ impl DaemonClient {
                     .send(ClientEvent::GeneratedTools { tools_json })
                     .await;
             }
+            DaemonMessage::AgentSpeechToTextResult { content } => {
+                let _ = event_tx
+                    .send(ClientEvent::SpeechToTextResult { content })
+                    .await;
+            }
+            DaemonMessage::AgentTextToSpeechResult { content } => {
+                let _ = event_tx
+                    .send(ClientEvent::TextToSpeechResult { content })
+                    .await;
+            }
             DaemonMessage::AgentOperatorProfileSessionCompleted {
                 session_id,
                 updated_fields,

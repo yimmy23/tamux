@@ -505,6 +505,7 @@ impl TuiModel {
                 self.send_daemon_command(DaemonCommand::SendMessage {
                     thread_id: Some(thread_id),
                     content: "continue".to_string(),
+                    content_blocks_json: None,
                     session_id: self.default_session_id.clone(),
                     target_agent_id: None,
                 });

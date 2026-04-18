@@ -88,6 +88,8 @@ export function AgentTab({
     );
 
     const providerConfig = settings[settings.active_provider] as AgentProviderConfig;
+    const audioSttProviderConfig = settings[settings.audio_stt_provider] as AgentProviderConfig;
+    const audioTtsProviderConfig = settings[settings.audio_tts_provider] as AgentProviderConfig;
     const authCapability = getDaemonOwnedAuthCapability(settings.agent_backend);
     const authSupportOptions = getProviderAuthSupportOptions(settings.agent_backend);
     const providerDef = getProviderDefinition(settings.active_provider);
@@ -311,6 +313,75 @@ export function AgentTab({
                         style={{ ...inputStyle, width: "100%", resize: "vertical", fontFamily: "inherit" }} />
                 </SettingRow>
             </Section>
+
+            {settings.agent_backend !== "openclaw" && settings.agent_backend !== "hermes" ? (
+                <Section title="Audio">
+                    <SettingRow label="Enable Speech-to-Text">
+                        <Toggle value={settings.audio_stt_enabled} onChange={(value) => updateSetting("audio_stt_enabled", value)} />
+                    </SettingRow>
+                    <SettingRow label="STT Provider">
+                        <SelectInput
+                            value={settings.audio_stt_provider}
+                            options={allProviderOptions.map((provider) => provider.id)}
+                            onChange={(value) => updateSetting("audio_stt_provider", value as AgentProviderId)}
+                        />
+                    </SettingRow>
+                    <SettingRow label="STT Model">
+                        <ModelSelector
+                            providerId={settings.audio_stt_provider}
+                            value={settings.audio_stt_model}
+                            customName={audioSttProviderConfig.custom_model_name}
+                            onChange={(value) => updateSetting("audio_stt_model", value)}
+                            base_url={audioSttProviderConfig.base_url}
+                            api_key={audioSttProviderConfig.api_key}
+                            auth_source={audioSttProviderConfig.auth_source}
+                            disabled={!settings.audio_stt_enabled}
+                        />
+                    </SettingRow>
+                    <SettingRow label="STT Language">
+                        <TextInput
+                            value={settings.audio_stt_language}
+                            onChange={(value) => updateSetting("audio_stt_language", value)}
+                            placeholder="auto"
+                            disabled={!settings.audio_stt_enabled}
+                        />
+                    </SettingRow>
+
+                    <SettingRow label="Enable Text-to-Speech">
+                        <Toggle value={settings.audio_tts_enabled} onChange={(value) => updateSetting("audio_tts_enabled", value)} />
+                    </SettingRow>
+                    <SettingRow label="TTS Provider">
+                        <SelectInput
+                            value={settings.audio_tts_provider}
+                            options={allProviderOptions.map((provider) => provider.id)}
+                            onChange={(value) => updateSetting("audio_tts_provider", value as AgentProviderId)}
+                        />
+                    </SettingRow>
+                    <SettingRow label="TTS Model">
+                        <ModelSelector
+                            providerId={settings.audio_tts_provider}
+                            value={settings.audio_tts_model}
+                            customName={audioTtsProviderConfig.custom_model_name}
+                            onChange={(value) => updateSetting("audio_tts_model", value)}
+                            base_url={audioTtsProviderConfig.base_url}
+                            api_key={audioTtsProviderConfig.api_key}
+                            auth_source={audioTtsProviderConfig.auth_source}
+                            disabled={!settings.audio_tts_enabled}
+                        />
+                    </SettingRow>
+                    <SettingRow label="TTS Voice">
+                        <TextInput
+                            value={settings.audio_tts_voice}
+                            onChange={(value) => updateSetting("audio_tts_voice", value)}
+                            placeholder="alloy"
+                            disabled={!settings.audio_tts_enabled}
+                        />
+                    </SettingRow>
+                    <SettingRow label="Auto-speak Replies">
+                        <Toggle value={settings.audio_tts_auto_speak} onChange={(value) => updateSetting("audio_tts_auto_speak", value)} />
+                    </SettingRow>
+                </Section>
+            ) : null}
 
             <PromptPreviewSection
                 backend={settings.agent_backend}

@@ -293,6 +293,34 @@ impl AgentEngine {
         task
     }
 
+    pub(in crate::agent) async fn retarget_task_to_weles(
+        &self,
+        task_id: &str,
+    ) -> Option<AgentTask> {
+        let persona_prompt = crate::agent::agent_identity::build_weles_persona_prompt(
+            crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
+        );
+        let updated = {
+            let mut tasks = self.tasks.lock().await;
+            let task = tasks.iter_mut().find(|task| task.id == task_id)?;
+            task.sub_agent_def_id =
+                Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string());
+            task.override_system_prompt = Some(match task.override_system_prompt.take() {
+                Some(existing) if !existing.trim().is_empty() => {
+                    format!("{persona_prompt}\n\n{existing}")
+                }
+                _ => persona_prompt.clone(),
+            });
+            task.clone()
+        };
+        self.trusted_weles_tasks
+            .write()
+            .await
+            .insert(task_id.to_string());
+        self.persist_tasks().await;
+        Some(updated)
+    }
+
     pub async fn cancel_task(&self, task_id: &str) -> bool {
         let mut tasks = self.tasks.lock().await;
         if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {

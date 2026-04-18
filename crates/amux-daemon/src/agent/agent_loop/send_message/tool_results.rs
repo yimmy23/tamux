@@ -295,6 +295,7 @@ impl<'a> SendMessageRunner<'a> {
                     id: generate_message_id(),
                     role: MessageRole::Tool,
                     content: tool_result_content,
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some(tool_result_id),
                     tool_name: Some(tool_result_name),

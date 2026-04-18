@@ -1,6 +1,92 @@
 use super::*;
+use amux_shared::providers::PROVIDER_ID_OPENAI;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex as StdMutex};
 use tempfile::tempdir;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio::time::Duration;
+
+async fn spawn_recording_openai_server(recorded_bodies: Arc<StdMutex<VecDeque<String>>>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind recording openai server");
+    let addr = listener.local_addr().expect("recording server local addr");
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let recorded_bodies = recorded_bodies.clone();
+            tokio::spawn(async move {
+                let body = read_http_request_body(&mut socket)
+                    .await
+                    .expect("read request from test client");
+                recorded_bodies
+                    .lock()
+                    .expect("lock request log")
+                    .push_back(body);
+
+                let response = concat!(
+                    "HTTP/1.1 200 OK\r\n",
+                    "content-type: text/event-stream\r\n",
+                    "cache-control: no-cache\r\n",
+                    "connection: close\r\n",
+                    "\r\n",
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"merged fact\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3},\"content\":\"\"}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write response");
+            });
+        }
+    });
+
+    format!("http://{addr}/v1")
+}
+
+async fn read_http_request_body(socket: &mut tokio::net::TcpStream) -> std::io::Result<String> {
+    let mut buffer = Vec::with_capacity(65536);
+    let mut temp = [0u8; 4096];
+    let headers_end = loop {
+        let read = socket.read(&mut temp).await?;
+        if read == 0 {
+            return Ok(String::new());
+        }
+        buffer.extend_from_slice(&temp[..read]);
+        if let Some(index) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+            break index + 4;
+        }
+    };
+
+    let headers = String::from_utf8_lossy(&buffer[..headers_end]);
+    let content_length = headers
+        .lines()
+        .find_map(|line| {
+            let mut parts = line.splitn(2, ':');
+            let name = parts.next()?.trim();
+            let value = parts.next()?.trim();
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.parse::<usize>().ok())
+                .flatten()
+        })
+        .unwrap_or(0);
+
+    while buffer.len().saturating_sub(headers_end) < content_length {
+        let read = socket.read(&mut temp).await?;
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&temp[..read]);
+    }
+
+    let available = buffer.len().saturating_sub(headers_end).min(content_length);
+    Ok(String::from_utf8_lossy(&buffer[headers_end..headers_end + available]).to_string())
+}
 
 #[test]
 fn idle_returns_true_when_all_conditions_met() {
@@ -146,16 +232,30 @@ async fn maybe_run_consolidation_if_idle_persists_dream_note_when_strategy_learn
     config.consolidation.idle_threshold_secs = 0;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
-    let agent_id = crate::agent::agent_identity::current_agent_scope_id();
-    crate::agent::ensure_memory_files_for_scope(engine.data_dir.as_path(), &agent_id)
+    let weles_scope = crate::agent::agent_identity::WELES_AGENT_ID;
+    crate::agent::ensure_memory_files_for_scope(engine.data_dir.as_path(), weles_scope)
         .await
-        .expect("seed memory files for current scope");
-    let initial_memory_path =
-        crate::agent::task_prompt::memory_paths_for_scope(engine.data_dir.as_path(), &agent_id)
+        .expect("seed memory files for weles scope");
+    crate::agent::ensure_memory_files_for_scope(
+        engine.data_dir.as_path(),
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+    )
+    .await
+    .expect("seed memory files for main scope");
+    let weles_memory_path =
+        crate::agent::task_prompt::memory_paths_for_scope(engine.data_dir.as_path(), weles_scope)
             .memory_path;
-    tokio::fs::write(&initial_memory_path, "# Memory\n")
+    let main_memory_path = crate::agent::task_prompt::memory_paths_for_scope(
+        engine.data_dir.as_path(),
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+    )
+    .memory_path;
+    tokio::fs::write(&weles_memory_path, "# Memory\n")
         .await
-        .expect("shrink memory file for deterministic idle-learning test");
+        .expect("shrink weles memory file for deterministic idle-learning test");
+    tokio::fs::write(&main_memory_path, "# Memory\n")
+        .await
+        .expect("shrink main memory file for deterministic idle-learning test");
     let now = now_millis();
     let metrics_json = serde_json::json!({
         "total_duration_ms": 45_000,
@@ -183,7 +283,7 @@ async fn maybe_run_consolidation_if_idle_persists_dream_note_when_strategy_learn
                 &metrics_json,
                 45_000,
                 120,
-                &agent_id,
+                weles_scope,
                 started_at,
                 completed_at,
                 completed_at,
@@ -205,19 +305,94 @@ async fn maybe_run_consolidation_if_idle_persists_dream_note_when_strategy_learn
         "expected idle consolidation to auto-apply at least one forge hint so dream persistence has source material"
     );
 
-    let scope_id = crate::agent::agent_identity::current_agent_scope_id();
-    crate::agent::ensure_memory_files_for_scope(engine.data_dir.as_path(), &scope_id)
+    let weles_content = tokio::fs::read_to_string(&weles_memory_path)
         .await
-        .expect("ensure memory files for current scope");
-    let memory_path =
-        crate::agent::task_prompt::memory_paths_for_scope(engine.data_dir.as_path(), &scope_id)
-            .memory_path;
-    let content = tokio::fs::read_to_string(&memory_path)
-        .await
-        .expect("read memory file after idle consolidation");
+        .expect("read weles memory file after idle consolidation");
     assert!(
-        content.contains("[dream]"),
-        "dream state should persist an auditable [dream] note when idle strategy learning occurs; content was: {content}"
+        weles_content.contains("[dream]"),
+        "dream state should persist an auditable [dream] note in Weles scope when idle strategy learning occurs; content was: {weles_content}"
+    );
+    let main_content = tokio::fs::read_to_string(&main_memory_path)
+        .await
+        .expect("read main memory file after idle consolidation");
+    assert!(
+        !main_content.contains("[dream]"),
+        "dream state should not persist daemon learning into main-agent memory; content was: {main_content}"
+    );
+}
+
+#[tokio::test]
+async fn send_refinement_llm_call_uses_weles_provider_when_running_under_weles_scope() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = "http://127.0.0.1:1/v1".to_string();
+    config.model = "svarog-model".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.providers.insert(
+        "custom-weles".to_string(),
+        ProviderConfig {
+            base_url: spawn_recording_openai_server(recorded_bodies.clone()).await,
+            model: "weles-model".to_string(),
+            api_key: "test-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: "medium".to_string(),
+            context_window_tokens: 0,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        },
+    );
+    config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
+    config.builtin_sub_agents.weles.model = Some("weles-model".to_string());
+    config.builtin_sub_agents.weles.reasoning_effort = Some("medium".to_string());
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let config_snapshot = engine.get_config().await;
+
+    let response = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+        async {
+            engine
+                .send_refinement_llm_call(&config_snapshot, "Merge these facts.")
+                .await
+        },
+    )
+    .await
+    .expect("weles-scoped refinement call should succeed");
+
+    assert!(
+        response.trim().contains("merged fact"),
+        "expected refinement response to include the recorded mock content, got: {response}"
+    );
+
+    let recorded = recorded_bodies
+        .lock()
+        .expect("lock recorded refinement requests");
+    let body = recorded
+        .front()
+        .expect("expected refinement request to hit Weles provider");
+    assert!(
+        body.contains("\"model\":\"weles-model\""),
+        "expected refinement request to use Weles model, body was: {body}"
+    );
+    assert!(
+        !body.contains("svarog-model"),
+        "refinement request should not fall back to main-agent model, body was: {body}"
     );
 }
 

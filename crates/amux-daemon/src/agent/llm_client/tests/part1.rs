@@ -424,6 +424,7 @@
                 id: String::new(),
                 role: MessageRole::Assistant,
                 content: "first".to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: Some(vec![ToolCall {
                     id: "2013".to_string(),
                     function: ToolFunction {
@@ -461,6 +462,7 @@
                 id: String::new(),
                 role: MessageRole::Tool,
                 content: "ok 1".to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: Some("2013".to_string()),
                 tool_name: Some("tool_a".to_string()),
@@ -492,6 +494,7 @@
                 id: String::new(),
                 role: MessageRole::Assistant,
                 content: "second".to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: Some(vec![ToolCall {
                     id: "2013".to_string(),
                     function: ToolFunction {
@@ -529,6 +532,7 @@
                 id: String::new(),
                 role: MessageRole::Tool,
                 content: "ok 2".to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: Some("2013".to_string()),
                 tool_name: Some("tool_b".to_string()),

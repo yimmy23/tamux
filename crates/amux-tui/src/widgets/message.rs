@@ -354,11 +354,26 @@ fn render_compact(
     let content_width = width.max(1);
 
     if msg.message_kind == "compaction_artifact" {
+        let compaction_content = {
+            let visible_header = msg.content.trim();
+            let payload = msg
+                .compaction_payload
+                .as_deref()
+                .map(str::trim)
+                .filter(|payload| !payload.is_empty());
+
+            match payload {
+                Some(payload) if visible_header.is_empty() => payload.to_string(),
+                Some(payload) if visible_header.contains(payload) => visible_header.to_string(),
+                Some(payload) => format!("{visible_header}\n\nContent:\n{payload}"),
+                None => msg.content.clone(),
+            }
+        };
         lines.push(Line::from(Span::styled(
             "---- auto compaction ----",
             theme.fg_dim,
         )));
-        for line in wrap_text(&msg.content, content_width) {
+        for line in wrap_text(&compaction_content, content_width) {
             lines.push(Line::from(Span::styled(line, theme.fg_active)));
         }
         lines.push(Line::from(Span::styled(

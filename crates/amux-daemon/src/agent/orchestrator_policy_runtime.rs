@@ -100,6 +100,7 @@ impl AgentEngine {
                     id: generate_message_id(),
                     role: MessageRole::System,
                     content,
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,

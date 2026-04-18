@@ -272,6 +272,32 @@ impl TuiModel {
             ClientEvent::AgentConfigRaw(raw) => {
                 self.handle_agent_config_raw_event(raw);
             }
+            ClientEvent::SpeechToTextResult { content } => {
+                let transcript = serde_json::from_str::<serde_json::Value>(&content)
+                    .ok()
+                    .and_then(|value| value.get("text").and_then(|value| value.as_str()).map(str::to_string))
+                    .unwrap_or_else(|| content.trim().to_string());
+                if !transcript.is_empty() {
+                    if !self.input.buffer().trim().is_empty() {
+                        self.input.reduce(input::InputAction::InsertChar(' '));
+                    }
+                    for ch in transcript.chars() {
+                        self.input.reduce(input::InputAction::InsertChar(ch));
+                    }
+                    self.focus = FocusArea::Input;
+                    self.status_line = "Voice transcription ready".to_string();
+                }
+            }
+            ClientEvent::TextToSpeechResult { content } => {
+                let path = serde_json::from_str::<serde_json::Value>(&content)
+                    .ok()
+                    .and_then(|value| value.get("path").and_then(|value| value.as_str()).map(str::to_string));
+                if let Some(path) = path {
+                    self.play_audio_path(&path);
+                } else {
+                    self.status_line = "TTS result missing audio path".to_string();
+                }
+            }
             ClientEvent::ModelsFetched(models) => {
                 self.handle_models_fetched_event(models);
             }

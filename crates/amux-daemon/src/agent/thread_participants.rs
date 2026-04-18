@@ -538,6 +538,7 @@ impl AgentEngine {
                     Box::pin(self.run_internal_send_loop(
                         Some(thread_for_turn.as_str()),
                         &stored_user_content_for_turn,
+                        &[],
                         &llm_user_content_for_turn,
                         None,
                         preferred_session_hint,
@@ -1521,6 +1522,7 @@ impl AgentEngine {
                 id: generate_message_id(),
                 role: MessageRole::Assistant,
                 content: trimmed_content.to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: None,
                 tool_name: None,

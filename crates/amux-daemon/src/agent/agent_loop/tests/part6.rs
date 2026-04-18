@@ -178,6 +178,7 @@ async fn successful_retry_resets_scheduled_retry_cycle_before_later_failures() {
                     None,
                     None,
                     None,
+                    None,
                     true,
                 )
                 .await
@@ -275,6 +276,7 @@ async fn successful_timeout_recovery_resets_stream_timeout_counter_before_later_
                 .send_message_inner(
                     Some(thread_id),
                     "hello",
+                    None,
                     None,
                     None,
                     None,
@@ -385,6 +387,7 @@ async fn repeated_waiting_timeouts_escalate_to_fresh_runner() {
                 .send_message_inner(
                     Some(thread_id),
                     "hello",
+                    None,
                     None,
                     None,
                     None,

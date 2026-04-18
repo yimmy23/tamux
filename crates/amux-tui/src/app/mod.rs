@@ -16,6 +16,7 @@ mod render_helpers;
 mod rendering;
 mod settings_handlers;
 
+use std::process::Child;
 use std::sync::mpsc::Receiver;
 
 use crossterm::event::{
@@ -37,8 +38,14 @@ pub(crate) const TUI_TICK_RATE_MS: u64 = 50;
 #[derive(Debug, Clone)]
 pub struct Attachment {
     pub filename: String,
-    pub content: String,
     pub size_bytes: usize,
+    pub payload: AttachmentPayload,
+}
+
+#[derive(Debug, Clone)]
+pub enum AttachmentPayload {
+    Text(String),
+    ContentBlock(serde_json::Value),
 }
 
 /// A recent autonomous action displayed in the sidebar.
@@ -414,6 +421,12 @@ pub struct TuiModel {
     // Pending file attachments (prepended to next submitted message)
     attachments: Vec<Attachment>,
 
+    // Voice capture / playback state
+    voice_recording: bool,
+    voice_capture_path: Option<String>,
+    voice_recorder: Option<Child>,
+    voice_player: Option<Child>,
+
     // Queue of prompts submitted while tool execution is still in flight.
     queued_prompts: Vec<QueuedPrompt>,
     queued_prompt_action: QueuedPromptAction,
@@ -582,4 +595,5 @@ mod tests {
     include!("tests/tests_part4.rs");
     include!("tests/tests_part5.rs");
     include!("tests/tests_part6.rs");
+    include!("tests/tests_part7_multithread_events.rs");
 }

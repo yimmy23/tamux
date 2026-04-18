@@ -3,6 +3,7 @@
 use super::*;
 
 pub(super) struct ParsedMessageMetadata {
+    pub content_blocks: Vec<AgentContentBlock>,
     pub tool_call_id: Option<String>,
     pub tool_name: Option<String>,
     pub tool_arguments: Option<String>,
@@ -90,8 +91,19 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         .and_then(|value| value.get("structural_refs"))
         .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok())
         .unwrap_or_default();
+    let content_blocks = metadata
+        .as_ref()
+        .and_then(|value| value.get("content_blocks"))
+        .or_else(|| {
+            metadata
+                .as_ref()
+                .and_then(|value| value.get("contentBlocks"))
+        })
+        .and_then(|value| serde_json::from_value::<Vec<AgentContentBlock>>(value.clone()).ok())
+        .unwrap_or_default();
 
     ParsedMessageMetadata {
+        content_blocks,
         tool_call_id: get_str("tool_call_id"),
         tool_name: get_str("tool_name"),
         tool_arguments: get_str("tool_arguments"),
@@ -217,6 +229,8 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
         "tool_call_id": message.tool_call_id,
         "tool_name": message.tool_name,
         "toolName": message.tool_name,
+        "content_blocks": message.content_blocks,
+        "contentBlocks": message.content_blocks,
         "toolCallId": message.tool_call_id,
         "toolArguments": message.tool_arguments,
         "toolStatus": message.tool_status,

@@ -187,6 +187,7 @@ async fn execute_tool_weles_scope_blocks_shell_python_without_recursive_spawn_fr
         .send_message_inner(
             Some(thread_id),
             "Run the governance review",
+            None,
             Some(&task.id),
             None,
             None,

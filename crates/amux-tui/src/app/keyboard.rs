@@ -719,6 +719,12 @@ impl TuiModel {
             KeyCode::Char('j') if ctrl && self.focus == FocusArea::Input => {
                 self.input.reduce(input::InputAction::InsertNewline);
             }
+            KeyCode::Char('l') if ctrl && self.focus == FocusArea::Input => {
+                self.toggle_voice_capture();
+            }
+            KeyCode::Char('p') if ctrl && self.focus == FocusArea::Chat => {
+                self.speak_latest_assistant_message();
+            }
             KeyCode::Enter => return self.handle_enter_key(modifiers),
             KeyCode::Backspace if ctrl => {
                 if self.focus == FocusArea::Input {

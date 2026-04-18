@@ -291,8 +291,84 @@ fn build_anthropic_message_content(message: &ApiMessage) -> serde_json::Value {
     } else {
         match &message.content {
             ApiContent::Text(text) => serde_json::json!(text),
-            ApiContent::Blocks(blocks) => serde_json::json!(blocks),
+            ApiContent::Blocks(blocks) => serde_json::json!(map_api_blocks_to_anthropic_blocks(blocks)),
         }
+    }
+}
+
+fn map_api_blocks_to_anthropic_blocks(blocks: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    blocks
+        .iter()
+        .filter_map(|block| {
+            let block_type = block.get("type").and_then(|value| value.as_str()).unwrap_or_default();
+            match block_type {
+                "input_text" | "text" => block.get("text").and_then(|value| value.as_str()).map(|text| {
+                    serde_json::json!({
+                        "type": "text",
+                        "text": text,
+                    })
+                }),
+                "input_image" => {
+                    let image_url = block.get("image_url")?;
+                    let image_url = image_url
+                        .get("url")
+                        .and_then(|value| value.as_str())
+                        .or_else(|| image_url.as_str())?;
+                    let (media_type, data) = image_url.strip_prefix("data:").and_then(parse_data_url_payload)?;
+                    Some(serde_json::json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data,
+                        }
+                    }))
+                }
+                "input_audio" => {
+                    let input_audio = block.get("input_audio")?;
+                    let data = input_audio.get("data").and_then(|value| value.as_str())?;
+                    let format = input_audio
+                        .get("format")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("wav");
+                    let media_type = anthropic_audio_media_type(format);
+                    Some(serde_json::json!({
+                        "type": "audio",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data,
+                        }
+                    }))
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn parse_data_url_payload(data_url_body: &str) -> Option<(String, String)> {
+    let (header, payload) = data_url_body.split_once(',')?;
+    if !header.contains(";base64") {
+        return None;
+    }
+    let media_type = header
+        .split(';')
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    Some((media_type, payload.trim().to_string()))
+}
+
+fn anthropic_audio_media_type(format: &str) -> &'static str {
+    match format.trim().to_ascii_lowercase().as_str() {
+        "mp3" => "audio/mpeg",
+        "ogg" => "audio/ogg",
+        "flac" => "audio/flac",
+        "mp4" | "m4a" => "audio/mp4",
+        "webm" => "audio/webm",
+        _ => "audio/wav",
     }
 }
 

@@ -11,6 +11,27 @@ import {
 } from "./toolValuePresentation";
 import { buildProviderFinalResultPresentation } from "../providerFinalResultPresentation";
 
+export function compactionArtifactDisplayText(message: AgentMessage): string {
+  if (message.messageKind !== "compaction_artifact") {
+    return message.content;
+  }
+
+  const visibleHeader = typeof message.content === "string" ? message.content.trim() : "";
+  const payload = typeof message.compactionPayload === "string" ? message.compactionPayload.trim() : "";
+
+  if (!payload) {
+    return visibleHeader;
+  }
+  if (!visibleHeader) {
+    return payload;
+  }
+  if (visibleHeader.includes(payload)) {
+    return visibleHeader;
+  }
+
+  return `${visibleHeader}\n\nContent:\n${payload}`;
+}
+
 function ActionBtn({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
@@ -52,6 +73,8 @@ export function MessageBubble({
   onDelete,
   onPin,
   onUnpin,
+  onSpeak,
+  isSpeaking = false,
 }: {
   message: AgentMessage;
   onCopy?: () => void;
@@ -60,6 +83,8 @@ export function MessageBubble({
   onDelete?: () => void;
   onPin?: () => void | Promise<void>;
   onUnpin?: () => void | Promise<void>;
+  onSpeak?: () => void | Promise<void>;
+  isSpeaking?: boolean;
 }) {
   const isCompactionArtifact = message.messageKind === "compaction_artifact";
   const isUser = message.role === "user";
@@ -103,6 +128,9 @@ export function MessageBubble({
 
     return message.content.slice(markerIndex + marker.length).trim();
   })();
+  const mediaBlocks = Array.isArray(message.contentBlocks)
+    ? message.contentBlocks.filter((block) => block.type === "image" || block.type === "audio")
+    : [];
 
   const handleCopy = () => {
     onCopy?.();
@@ -111,9 +139,10 @@ export function MessageBubble({
   };
 
   if (isCompactionArtifact) {
-    const visibleContent = expandedCompaction || message.content.length <= 280
-      ? message.content
-      : `${message.content.slice(0, 280).trimEnd()}...`;
+    const compactionContent = compactionArtifactDisplayText(message);
+    const visibleContent = expandedCompaction || compactionContent.length <= 280
+      ? compactionContent
+      : `${compactionContent.slice(0, 280).trimEnd()}...`;
 
     return (
       <div
@@ -135,7 +164,7 @@ export function MessageBubble({
         <div style={{ fontSize: "var(--text-sm)", lineHeight: 1.6, whiteSpace: "pre-wrap", color: "var(--text-secondary)" }}>
           {visibleContent || "rule based"}
         </div>
-        {message.content.length > 280 && (
+        {compactionContent.length > 280 && (
           <button
             onClick={() => setExpandedCompaction((current) => !current)}
             style={{
@@ -339,7 +368,46 @@ export function MessageBubble({
             ) : null}
           </div>
         ) : (
-          <MarkdownContent content={displayContent} />
+          <>
+            <MarkdownContent content={displayContent} />
+            {mediaBlocks.length > 0 && (
+              <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                {mediaBlocks.map((block, index) => {
+                  const source = block.data_url || block.url;
+                  if (!source) return null;
+                  return block.type === "image" ? (
+                    <figure
+                      key={`${message.id}:media:${index}`}
+                      style={{ margin: 0, display: "grid", gap: 6 }}
+                    >
+                      <img
+                        src={source}
+                        alt={block.mime_type || "attached image"}
+                        style={{ maxWidth: "100%", borderRadius: "var(--radius-md)", border: "1px solid var(--glass-border)" }}
+                      />
+                      <figcaption style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                        Image attachment{block.mime_type ? ` · ${block.mime_type}` : ""}
+                      </figcaption>
+                    </figure>
+                  ) : (
+                    <div
+                      key={`${message.id}:media:${index}`}
+                      style={{ display: "grid", gap: 6, padding: 8, border: "1px solid var(--glass-border)", borderRadius: "var(--radius-md)" }}
+                    >
+                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                        Audio attachment{block.mime_type ? ` · ${block.mime_type}` : ""}
+                      </div>
+                      <audio
+                        controls
+                        src={source}
+                        style={{ width: "100%" }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
 
         {message.isStreaming && <span style={{ opacity: 0.5, marginLeft: 4 }}>▌</span>}
@@ -398,6 +466,7 @@ export function MessageBubble({
               : onPin && <ActionBtn label="Pin" onClick={() => { void onPin(); }} />}
             {isUser && onRerun && <ActionBtn label="Rerun" onClick={onRerun} />}
             {isAssistant && onRegenerate && <ActionBtn label="Regen" onClick={onRegenerate} />}
+            {isAssistant && onSpeak && <ActionBtn label={isSpeaking ? "Stop" : "Speak"} onClick={() => { void onSpeak(); }} />}
             {onDelete && <ActionBtn label="Delete" onClick={onDelete} />}
           </div>
         )}

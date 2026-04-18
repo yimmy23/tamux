@@ -29,6 +29,7 @@ impl DaemonClient {
         &self,
         thread_id: Option<String>,
         content: String,
+        content_blocks_json: Option<String>,
         session_id: Option<String>,
         target_agent_id: Option<String>,
     ) -> Result<()> {
@@ -37,6 +38,7 @@ impl DaemonClient {
             content,
             session_id,
             context_messages_json: None,
+            content_blocks_json,
             client_surface: Some(amux_protocol::ClientSurface::Tui),
             target_agent_id,
         })
@@ -380,6 +382,14 @@ impl DaemonClient {
 
     pub fn get_generated_tools(&self) -> Result<()> {
         self.send(ClientMessage::AgentListGeneratedTools)
+    }
+
+    pub fn speech_to_text(&self, args_json: String) -> Result<()> {
+        self.send(ClientMessage::AgentSpeechToText { args_json })
+    }
+
+    pub fn text_to_speech(&self, args_json: String) -> Result<()> {
+        self.send(ClientMessage::AgentTextToSpeech { args_json })
     }
 
     pub fn set_operator_profile_consent(&self, consent_key: String, granted: bool) -> Result<()> {

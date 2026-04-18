@@ -148,6 +148,35 @@ fn compaction_request_input_budget_uses_model_catalog_window() {
 }
 
 #[test]
+fn compaction_candidate_uses_known_model_window_over_larger_inherited_config_window() {
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_ALIBABA_CODING_PLAN.to_string();
+    config.context_window_tokens = 400_000;
+    config.compact_threshold_pct = 80;
+    config.max_context_messages = 500;
+    config.keep_recent_on_compact = 1;
+
+    let mut provider = sample_provider_config();
+    provider.model = "glm-5".to_string();
+    provider.context_window_tokens = 983_616;
+
+    let payload = "x".repeat(30_000);
+    let messages = (0..30)
+        .map(|idx| AgentMessage::user(payload.clone(), idx as u64 + 1))
+        .collect::<Vec<_>>();
+
+    let candidate =
+        compaction_candidate(&messages, &config, &provider).expect("candidate should exist");
+
+    assert_eq!(candidate.trigger, CompactionTrigger::TokenThreshold);
+    assert!(
+        candidate.target_tokens <= 162_201,
+        "expected glm-5 catalog window to cap compaction target, got {}",
+        candidate.target_tokens
+    );
+}
+
+#[test]
 fn build_llm_compaction_messages_trims_to_fit_model_budget() {
     let messages = (0..40)
         .map(|idx| AgentMessage::user(format!("message-{idx} {}", "x".repeat(1_200)), idx + 1))
@@ -314,6 +343,7 @@ fn heuristic_compaction_summary_uses_checkpoint_schema() {
                 role: MessageRole::Assistant,
                 content: "Verified HTML and CSS. Status: checking responsive layout next."
                     .to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: None,
                 tool_name: None,
@@ -344,6 +374,7 @@ fn heuristic_compaction_summary_uses_checkpoint_schema() {
                 id: "tool-1".to_string(),
                 role: MessageRole::Tool,
                 content: "styles.css read complete".to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: Some("call_1".to_string()),
                 tool_name: Some("read_file".to_string()),
@@ -400,6 +431,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         role: MessageRole::Assistant,
         content: "Pick the implementation approach: 1. Preserve recent dialogue context 2. Keep current summary format"
             .to_string(),
+        content_blocks: Vec::new(),
         tool_calls: None,
         tool_call_id: None,
         tool_name: None,
@@ -431,6 +463,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         id: "assistant-tool-call".to_string(),
         role: MessageRole::Assistant,
         content: String::new(),
+        content_blocks: Vec::new(),
         tool_calls: Some(vec![ToolCall {
             id: "call_read".to_string(),
             function: ToolFunction {
@@ -469,6 +502,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         role: MessageRole::Tool,
         content: "Full file contents that should not be passed verbatim to the compactor"
             .to_string(),
+        content_blocks: Vec::new(),
         tool_calls: None,
         tool_call_id: Some("call_read".to_string()),
         tool_name: Some("read_file".to_string()),
@@ -559,6 +593,7 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
             id: "assistant-1".to_string(),
             role: MessageRole::Assistant,
             content: "I'll inspect that".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: Some(vec![ToolCall {
                 id: "call_1".to_string(),
                 function: ToolFunction {
@@ -596,6 +631,7 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
             id: "tool-1".to_string(),
             role: MessageRole::Tool,
             content: "file list".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: Some("call_1".to_string()),
             tool_name: Some("list_files".to_string()),
@@ -660,6 +696,7 @@ fn native_assistant_transport_falls_back_to_compacted_message_stack_when_compact
                 id: "assistant-1".to_string(),
                 role: MessageRole::Assistant,
                 content: "Earlier assistant state that should be compacted".to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: None,
                 tool_name: None,
@@ -733,6 +770,7 @@ fn github_copilot_responses_request_does_not_use_previous_response_id_for_plain_
             id: "assistant-1".to_string(),
             role: MessageRole::Assistant,
             content: "Initial answer".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,
@@ -807,6 +845,7 @@ fn chatgpt_subscription_responses_request_uses_local_thread_id_instead_of_previo
             id: "assistant-1".to_string(),
             role: MessageRole::Assistant,
             content: "Initial answer".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,
@@ -882,6 +921,7 @@ fn openai_responses_request_keeps_previous_response_id_when_compaction_artifact_
             id: "compaction-1".to_string(),
             role: MessageRole::Assistant,
             content: "rule based".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,
@@ -913,6 +953,7 @@ fn openai_responses_request_keeps_previous_response_id_when_compaction_artifact_
             id: "assistant-1".to_string(),
             role: MessageRole::Assistant,
             content: "Latest answer".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,
@@ -991,6 +1032,7 @@ fn reused_user_turn_is_injected_when_responses_continuation_only_has_weles_notic
             id: "assistant-1".to_string(),
             role: MessageRole::Assistant,
             content: "I started the refactor but stopped early.".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,
@@ -1162,6 +1204,7 @@ fn compaction_artifact_message_roundtrip_preserves_runtime_metadata() {
         content:
             "Pre-compaction context: ~182,400 / 200,000 tokens (threshold 160,000)\nTrigger: message-count\nStrategy: rule based\n\nContent:\nOlder context compacted for continuity"
                 .to_string(),
+        content_blocks: Vec::new(),
         tool_calls: None,
         tool_call_id: None,
         tool_name: None,
@@ -1224,6 +1267,7 @@ fn compaction_candidate_ignores_messages_before_latest_artifact() {
             id: "compaction-1".to_string(),
             role: MessageRole::Assistant,
             content: "rule based".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,
@@ -1393,8 +1437,8 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
         artifact.content
     );
     assert!(
-        artifact.content.contains("\n\nContent:\n"),
-        "expected the visible content to include the compacted payload section: {}",
+        !artifact.content.contains("\n\nContent:\n"),
+        "visible content should stay as the short provenance header: {}",
         artifact.content
     );
     assert!(artifact
@@ -1406,9 +1450,9 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
         .as_deref()
         .expect("artifact should carry hidden payload");
     assert!(
-        artifact.content.contains(visible_payload),
-        "expected visible content to render the compacted payload: {}",
-        artifact.content
+        !artifact.content.contains(visible_payload),
+        "hidden payload should remain separate from the visible artifact header: {}",
+        artifact.content,
     );
 
     let compacted = compact_messages_for_request(&thread.messages, &config, &provider);
@@ -1425,13 +1469,10 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
     let manager = SessionManager::new_test(root.path()).await;
     let rehydrated = AgentEngine::new_test(manager, config, root.path()).await;
     rehydrated.hydrate().await.expect("hydrate should succeed");
-    let rehydrated_thread = {
-        let threads = rehydrated.threads.read().await;
-        threads
-            .get(thread_id)
-            .cloned()
-            .expect("rehydrated thread should exist")
-    };
+    let rehydrated_thread = rehydrated
+        .get_thread(thread_id)
+        .await
+        .expect("rehydrated thread should exist");
     assert_eq!(rehydrated_thread.messages.len(), 4);
     let restored_artifact = compaction_artifact_message(&rehydrated_thread);
     assert_eq!(
@@ -1628,6 +1669,7 @@ async fn coding_compaction_payload_prefers_structural_digest_and_offload_refs() 
                     id: "tool-older".to_string(),
                     role: MessageRole::Tool,
                     content: "Tool result offloaded".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
                     tool_name: Some("read_file".to_string()),
@@ -1770,6 +1812,7 @@ async fn coding_compaction_payload_renders_offload_refs_from_metadata_fields() {
                     id: "tool-older".to_string(),
                     role: MessageRole::Tool,
                     content: "Tool result offloaded".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
                     tool_name: Some("read_file".to_string()),
@@ -1840,6 +1883,7 @@ fn coding_signals_without_structural_state_still_use_conversational_compaction()
             id: "tool-result".to_string(),
             role: MessageRole::Tool,
             content: "cargo test failed in crates/amux-daemon/src/agent/compaction.rs".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: Some("call-1".to_string()),
             tool_name: Some("read_file".to_string()),
@@ -1903,6 +1947,7 @@ fn stale_structural_state_without_recent_coding_signals_uses_conversational_comp
                 id: "assistant-summary".to_string(),
                 role: MessageRole::Assistant,
                 content: "We already covered the budget update and owner list.".to_string(),
+                content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: None,
                 tool_name: None,
@@ -1958,6 +2003,7 @@ async fn conversational_compaction_still_uses_checkpoint_summary_path() {
                     id: "assistant-older".to_string(),
                     role: MessageRole::Assistant,
                     content: "We already covered the budget and timeline updates.".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,
@@ -2065,6 +2111,7 @@ async fn internal_dm_thread_uses_checkpoint_compaction_even_with_structural_stat
                     id: "tool-older".to_string(),
                     role: MessageRole::Tool,
                     content: "Tool result offloaded".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
                     tool_name: Some("read_file".to_string()),
@@ -2162,6 +2209,7 @@ async fn coding_compaction_falls_back_to_checkpoint_summary_when_structured_asse
                     id: "tool-older".to_string(),
                     role: MessageRole::Tool,
                     content: "Tool result offloaded".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
                     tool_name: Some("read_file".to_string()),
@@ -2368,6 +2416,7 @@ fn compaction_candidate_keeps_unanswered_tool_turn_out_of_summary_boundary() {
             id: "assistant-tool-call".to_string(),
             role: MessageRole::Assistant,
             content: String::new(),
+            content_blocks: Vec::new(),
             tool_calls: Some(vec![ToolCall {
                 id: "call_read".to_string(),
                 function: ToolFunction {
@@ -2429,6 +2478,7 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
             id: "assistant-tool-call".to_string(),
             role: MessageRole::Assistant,
             content: String::new(),
+            content_blocks: Vec::new(),
             tool_calls: Some(vec![ToolCall {
                 id: "call_read".to_string(),
                 function: ToolFunction {
@@ -2466,6 +2516,7 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
             id: "compaction-1".to_string(),
             role: MessageRole::Assistant,
             content: "rule based".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: None,
             tool_name: None,
@@ -2496,6 +2547,7 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
             id: "tool-read".to_string(),
             role: MessageRole::Tool,
             content: "file contents".to_string(),
+            content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: Some("call_read".to_string()),
             tool_name: Some("read_file".to_string()),
@@ -2622,6 +2674,7 @@ async fn coding_compaction_payload_includes_memory_graph_neighbors() {
                     id: "tool-older".to_string(),
                     role: MessageRole::Tool,
                     content: "Tool result offloaded".to_string(),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
                     tool_name: Some("read_file".to_string()),

@@ -6,6 +6,7 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) engine: &'a AgentEngine,
     pub(super) task_id: Option<&'a str>,
     pub(super) stored_user_content: &'a str,
+    pub(super) stored_user_content_blocks: Vec<AgentContentBlock>,
     pub(super) llm_user_content: &'a str,
     pub(super) stream_chunk_timeout_override: Option<std::time::Duration>,
     pub(super) tid: String,

@@ -1,5 +1,8 @@
 use super::*;
 
+use base64::Engine;
+use std::process::{Command, Stdio};
+
 impl TuiModel {
     pub(super) fn input_wrap_width(&self) -> usize {
         self.width.saturating_sub(4).max(1) as usize
@@ -119,26 +122,220 @@ impl TuiModel {
             path.to_string()
         };
 
-        match std::fs::read_to_string(&expanded) {
-            Ok(content) => {
-                let size = content.len();
-                let filename = std::path::Path::new(&expanded)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| expanded.clone());
-                self.attachments.push(Attachment {
-                    filename: filename.clone(),
-                    content,
-                    size_bytes: size,
-                });
-                self.status_line = format!("Attached: {} ({} bytes)", filename, size);
+        let path = std::path::Path::new(&expanded);
+        let filename = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| expanded.clone());
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_default();
+        let inferred_kind = match extension.as_str() {
+            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff" | "svg" => {
+                Some(("image", infer_attachment_mime(path)))
             }
-            Err(e) => {
-                self.status_line = "Attach failed".to_string();
-                self.last_error = Some(format!("Attach failed: {}", e));
+            "mp3" | "wav" | "ogg" | "m4a" | "mp4" | "flac" | "webm" => {
+                Some(("audio", infer_attachment_mime(path)))
+            }
+            _ => None,
+        };
+
+        let attachment = match inferred_kind {
+            Some((kind, mime_type)) => match std::fs::read(&expanded) {
+                Ok(bytes) => {
+                    let data_url = format!(
+                        "data:{};base64,{}",
+                        mime_type,
+                        base64::engine::general_purpose::STANDARD.encode(&bytes)
+                    );
+                    let block = serde_json::json!({
+                        "type": kind,
+                        "data_url": data_url,
+                        "mime_type": mime_type,
+                    });
+                    Some(Attachment {
+                        filename: filename.clone(),
+                        size_bytes: bytes.len(),
+                        payload: AttachmentPayload::ContentBlock(block),
+                    })
+                }
+                Err(error) => {
+                    self.status_line = "Attach failed".to_string();
+                    self.last_error = Some(format!("Attach failed: {}", error));
+                    self.error_active = true;
+                    self.error_tick = self.tick_counter;
+                    None
+                }
+            },
+            None => match std::fs::read_to_string(&expanded) {
+                Ok(content) => Some(Attachment {
+                    filename: filename.clone(),
+                    size_bytes: content.len(),
+                    payload: AttachmentPayload::Text(content),
+                }),
+                Err(error) => {
+                    self.status_line = "Attach failed".to_string();
+                    self.last_error = Some(format!(
+                        "Attach failed: text attachments must be UTF-8 or use a supported image/audio format ({})",
+                        error
+                    ));
+                    self.error_active = true;
+                    self.error_tick = self.tick_counter;
+                    None
+                }
+            },
+        };
+
+        if let Some(attachment) = attachment {
+            let size = attachment.size_bytes;
+            self.attachments.push(attachment);
+            self.status_line = format!("Attached: {} ({} bytes)", filename, size);
+        }
+    }
+
+    pub(super) fn start_voice_capture(&mut self) {
+        if self.voice_recording {
+            self.status_line = "Voice capture already active".to_string();
+            return;
+        }
+
+        let capture_path =
+            std::env::temp_dir().join(format!("tamux-voice-{}.wav", uuid::Uuid::new_v4()));
+        let capture_path_string = capture_path.to_string_lossy().to_string();
+
+        let ffmpeg = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f",
+                "alsa",
+                "-i",
+                "default",
+                "-t",
+                "10",
+                "-ac",
+                "1",
+                &capture_path_string,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+
+        let child = match ffmpeg {
+            Ok(child) => Ok(child),
+            Err(_) => Command::new("arecord")
+                .args(["-f", "cd", "-t", "wav", "-d", "10", &capture_path_string])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn(),
+        };
+
+        match child {
+            Ok(child) => {
+                self.voice_recorder = Some(child);
+                self.voice_recording = true;
+                self.voice_capture_path = Some(capture_path_string);
+                self.status_line = "Voice capture started".to_string();
+                self.show_input_notice(
+                    "Recording voice capture... toggle again to stop",
+                    InputNoticeKind::Success,
+                    120,
+                    false,
+                );
+            }
+            Err(error) => {
+                self.status_line = "Voice capture unavailable".to_string();
+                self.last_error = Some(format!(
+                    "Voice capture failed: ffmpeg/arecord unavailable ({error})"
+                ));
                 self.error_active = true;
                 self.error_tick = self.tick_counter;
             }
         }
+    }
+
+    pub(super) fn stop_voice_capture(&mut self) -> Option<String> {
+        if let Some(mut child) = self.voice_recorder.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        self.voice_recording = false;
+        let capture_path = self.voice_capture_path.take();
+        if let Some(path) = capture_path.as_ref() {
+            if std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0) == 0 {
+                self.status_line = "Voice capture empty".to_string();
+                return None;
+            }
+            self.status_line = "Voice capture stopped".to_string();
+        }
+        capture_path
+    }
+
+    pub(super) fn play_audio_path(&mut self, path: &str) {
+        if let Some(mut child) = self.voice_player.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        let mpv = Command::new("mpv")
+            .args(["--no-video", path])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+
+        let child = match mpv {
+            Ok(child) => Ok(child),
+            Err(_) => Command::new("paplay")
+                .arg(path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn(),
+        };
+
+        match child {
+            Ok(child) => {
+                self.voice_player = Some(child);
+                self.status_line = "Playing synthesized speech...".to_string();
+            }
+            Err(error) => {
+                self.status_line = "Audio playback unavailable".to_string();
+                self.last_error = Some(format!(
+                    "Audio playback failed: mpv/paplay unavailable ({error})"
+                ));
+                self.error_active = true;
+                self.error_tick = self.tick_counter;
+            }
+        }
+    }
+}
+
+fn infer_attachment_mime(path: &std::path::Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "tif" | "tiff" => "image/tiff",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "m4a" | "mp4" => "audio/mp4",
+        "flac" => "audio/flac",
+        "webm" => "audio/webm",
+        _ => "application/octet-stream",
     }
 }

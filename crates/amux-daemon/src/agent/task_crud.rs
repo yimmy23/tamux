@@ -635,6 +635,7 @@ impl AgentEngine {
                         "Restored goal run {} from checkpoint {} at step {}.",
                         goal_run_id, checkpoint.id, restored_step_index
                     ),
+                    content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,

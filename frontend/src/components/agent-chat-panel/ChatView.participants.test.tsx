@@ -64,7 +64,20 @@ describe("ChatView participants", () => {
         setInput={() => { }}
         inputRef={createRef<HTMLTextAreaElement>()}
         onKeyDown={() => { }}
-        agentSettings={{ enabled: true, chatFontFamily: "monospace", reasoning_effort: "high" }}
+        agentSettings={{
+          enabled: true,
+          chatFontFamily: "monospace",
+          reasoning_effort: "high",
+          audio_stt_enabled: true,
+          audio_stt_provider: "openai",
+          audio_stt_model: "whisper-1",
+          audio_stt_language: "",
+          audio_tts_enabled: true,
+          audio_tts_provider: "openai",
+          audio_tts_model: "gpt-4o-mini-tts",
+          audio_tts_voice: "alloy",
+          audio_tts_auto_speak: false,
+        }}
         isStreamingResponse={false}
         activeThread={activeThread}
         messagesEndRef={createRef<HTMLDivElement>()}

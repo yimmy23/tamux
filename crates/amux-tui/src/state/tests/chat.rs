@@ -1357,6 +1357,74 @@ fn thread_detail_refresh_replaces_window_when_overlapping_message_ids_shift() {
 }
 
 #[test]
+fn thread_detail_derives_compaction_boundary_and_preserves_it_after_collapse() {
+    let mut state = ChatState::new();
+    state.set_history_page_size(2);
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 5,
+        loaded_message_start: 0,
+        loaded_message_end: 5,
+        messages: vec![
+            AgentMessage {
+                id: Some("msg-0".into()),
+                role: MessageRole::User,
+                content: "before".into(),
+                ..Default::default()
+            },
+            AgentMessage {
+                id: Some("msg-1".into()),
+                role: MessageRole::Assistant,
+                content: "compacted".into(),
+                message_kind: "compaction_artifact".into(),
+                compaction_payload: Some("Older context compacted".into()),
+                ..Default::default()
+            },
+            AgentMessage {
+                id: Some("msg-2".into()),
+                role: MessageRole::Assistant,
+                content: "after 1".into(),
+                ..Default::default()
+            },
+            AgentMessage {
+                id: Some("msg-3".into()),
+                role: MessageRole::User,
+                content: "after 2".into(),
+                ..Default::default()
+            },
+            AgentMessage {
+                id: Some("msg-4".into()),
+                role: MessageRole::Assistant,
+                content: "after 3".into(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    let before = state.active_thread().expect("thread should exist");
+    assert_eq!(
+        before.active_compaction_window_start,
+        Some(1),
+        "thread detail should derive the latest compaction boundary from loaded messages"
+    );
+
+    state.schedule_history_collapse(0, 0);
+    state.maybe_collapse_history(0);
+
+    let after = state.active_thread().expect("thread should exist");
+    assert_eq!(after.loaded_message_start, 3);
+    assert_eq!(after.messages.len(), 2);
+    assert_eq!(
+        after.active_compaction_window_start,
+        Some(1),
+        "history collapse should preserve the absolute compaction boundary even after trimming the artifact"
+    );
+}
+
+#[test]
 fn collapse_history_keeps_latest_page_only() {
     let mut state = ChatState::new();
     state.set_history_page_size(50);

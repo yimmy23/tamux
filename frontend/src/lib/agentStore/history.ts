@@ -58,6 +58,7 @@ export type RemoteAgentMessageRecord = {
   id?: string;
   role?: AgentRole;
   content?: string;
+  content_blocks?: AgentMessage["contentBlocks"] | null;
   author_agent_id?: string | null;
   author_agent_name?: string | null;
   provider?: string | null;
@@ -202,6 +203,7 @@ export function buildHydratedRemoteMessage(
     createdAt: Number(message.timestamp ?? Date.now()),
     role: message.role ?? "assistant",
     content: typeof message.content === "string" ? message.content : "",
+    contentBlocks: Array.isArray(message.content_blocks) ? message.content_blocks : undefined,
     authorAgentId: typeof message.author_agent_id === "string" ? message.author_agent_id : undefined,
     authorAgentName: typeof message.author_agent_name === "string" ? message.author_agent_name : undefined,
     provider,
@@ -506,10 +508,20 @@ export function deserializeMessage(message: AgentDbMessageRecord): AgentMessage 
     metadata = {};
   }
   let toolCalls: AgentMessage["toolCalls"];
+  let contentBlocks: AgentMessage["contentBlocks"];
   try {
     toolCalls = typeof message.tool_calls_json === "string" ? JSON.parse(message.tool_calls_json) : undefined;
   } catch {
     toolCalls = undefined;
+  }
+  try {
+    contentBlocks = Array.isArray((metadata as any).content_blocks)
+      ? (metadata as any).content_blocks
+      : Array.isArray((metadata as any).contentBlocks)
+      ? (metadata as any).contentBlocks
+      : undefined;
+  } catch {
+    contentBlocks = undefined;
   }
   return {
     id: message.id,
@@ -517,6 +529,7 @@ export function deserializeMessage(message: AgentDbMessageRecord): AgentMessage 
     createdAt: message.created_at,
     role: message.role as AgentRole,
     content: message.content,
+    contentBlocks,
     authorAgentId: typeof metadata.authorAgentId === "string" ? metadata.authorAgentId : undefined,
     authorAgentName: typeof metadata.authorAgentName === "string" ? metadata.authorAgentName : undefined,
     provider: message.provider ?? undefined,

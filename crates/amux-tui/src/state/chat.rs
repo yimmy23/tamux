@@ -107,6 +107,17 @@ fn normalize_thread_window(thread: &mut AgentThread) {
     }
     let max_start = thread.loaded_message_end.saturating_sub(loaded_count);
     thread.loaded_message_start = thread.loaded_message_start.min(max_start);
+    thread.active_compaction_window_start = latest_loaded_compaction_window_start(thread)
+        .or(thread.active_compaction_window_start)
+        .filter(|start| *start < thread.total_message_count);
+}
+
+fn latest_loaded_compaction_window_start(thread: &AgentThread) -> Option<usize> {
+    thread
+        .messages
+        .iter()
+        .rposition(|message| message.message_kind == "compaction_artifact")
+        .map(|index| thread.loaded_message_start.saturating_add(index))
 }
 
 fn merge_thread_window(
@@ -162,6 +173,7 @@ fn trim_thread_to_latest_page(thread: &mut AgentThread, page_size: usize) -> usi
     if thread.messages.len() <= page_size {
         thread.history_window_expanded = false;
         thread.collapse_deadline_tick = None;
+        normalize_thread_window(thread);
         return 0;
     }
 
@@ -171,6 +183,7 @@ fn trim_thread_to_latest_page(thread: &mut AgentThread, page_size: usize) -> usi
     thread.loaded_message_end = thread.loaded_message_start + thread.messages.len();
     thread.history_window_expanded = false;
     thread.collapse_deadline_tick = None;
+    normalize_thread_window(thread);
     drop_count
 }
 
@@ -567,6 +580,12 @@ impl ChatState {
                     .collect();
                 thread.total_message_count = thread.total_message_count.saturating_sub(1);
                 thread.loaded_message_end = thread.loaded_message_start + thread.messages.len();
+                thread.active_compaction_window_start = match thread.active_compaction_window_start
+                {
+                    Some(start) if absolute_index < start => Some(start - 1),
+                    Some(start) if absolute_index == start => None,
+                    other => other,
+                };
                 normalize_thread_window(thread);
                 removed = true;
             }
@@ -1051,6 +1070,8 @@ impl ChatState {
                                 incoming.total_message_count = existing.total_message_count;
                                 incoming.loaded_message_start = existing.loaded_message_start;
                                 incoming.loaded_message_end = existing.loaded_message_end;
+                                incoming.active_compaction_window_start =
+                                    existing.active_compaction_window_start;
                                 incoming.older_page_pending = existing.older_page_pending;
                                 incoming.older_page_request_cooldown_until_tick =
                                     existing.older_page_request_cooldown_until_tick;
@@ -1175,9 +1196,10 @@ impl ChatState {
                     if thread_id == "concierge" {
                         existing.agent_name = Some(AGENT_NAME_RAROG.to_string());
                     }
+                    normalize_thread_window(existing);
                 } else {
                     let local_message_count = local_messages.len();
-                    let thread = AgentThread {
+                    let mut thread = AgentThread {
                         id: thread_id.clone(),
                         agent_name: if thread_id == "concierge" {
                             Some(AGENT_NAME_RAROG.to_string())
@@ -1191,6 +1213,7 @@ impl ChatState {
                         loaded_message_end: local_message_count,
                         ..Default::default()
                     };
+                    normalize_thread_window(&mut thread);
                     self.threads.push(thread);
                 }
                 self.move_thread_to_front(&thread_id);
@@ -1219,6 +1242,7 @@ impl ChatState {
                     thread.total_message_count = 0;
                     thread.loaded_message_start = 0;
                     thread.loaded_message_end = 0;
+                    thread.active_compaction_window_start = None;
                     thread.older_page_pending = false;
                     thread.older_page_request_cooldown_until_tick = None;
                     thread.history_window_expanded = false;
@@ -1247,7 +1271,7 @@ impl ChatState {
                     } else {
                         thread_id.clone()
                     };
-                    self.threads.push(AgentThread {
+                    let mut thread = AgentThread {
                         id: thread_id.clone(),
                         agent_name: if thread_id == "concierge" {
                             Some(AGENT_NAME_RAROG.to_string())
@@ -1260,7 +1284,9 @@ impl ChatState {
                         loaded_message_start: 0,
                         loaded_message_end: 1,
                         ..Default::default()
-                    });
+                    };
+                    normalize_thread_window(&mut thread);
+                    self.threads.push(thread);
                 }
             }
 

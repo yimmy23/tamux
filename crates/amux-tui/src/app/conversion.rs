@@ -29,6 +29,7 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         total_message_count: derived_total_message_count,
         loaded_message_start: derived_loaded_message_start,
         loaded_message_end: derived_loaded_message_end,
+        active_compaction_window_start: None,
         pinned_messages: t
             .pinned_messages
             .into_iter()

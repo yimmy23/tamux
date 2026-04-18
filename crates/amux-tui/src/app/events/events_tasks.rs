@@ -128,6 +128,7 @@ impl TuiModel {
         threads: Vec<crate::wire::AgentThread>,
     ) {
         let active_thread_id = self.chat.active_thread_id().map(str::to_string);
+        let pending_loading_thread_id = self.thread_loading_id.clone();
         let should_refresh_active_thread = active_thread_id.as_ref().is_some_and(|thread_id| {
             threads.iter().any(|thread| {
                 thread.id == *thread_id
@@ -157,11 +158,26 @@ impl TuiModel {
         self.chat
             .reduce(chat::ChatAction::ThreadListReceived(threads));
         self.sync_pending_approvals_from_tasks();
-        if let Some(thread_id) = active_thread_id.filter(|_| should_refresh_active_thread) {
+        if let Some(thread_id) = active_thread_id
+            .as_ref()
+            .filter(|_| should_refresh_active_thread)
+            .cloned()
+        {
             self.request_latest_thread_page(thread_id, true);
         }
         if self.chat.active_thread().is_none() {
-            self.thread_loading_id = None;
+            if active_thread_id.is_some()
+                && active_thread_id == pending_loading_thread_id
+                && self.chat.active_thread_id().is_none()
+            {
+                if let Some(thread_id) = pending_loading_thread_id {
+                    self.chat
+                        .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
+                    self.thread_loading_id = Some(thread_id);
+                }
+            } else {
+                self.thread_loading_id = None;
+            }
         }
     }
 
@@ -338,6 +354,11 @@ impl TuiModel {
         if self.chat.active_thread_id() != Some(thread_id.as_str()) {
             return;
         }
+        // Reload is the authoritative replacement for any live stream state that was
+        // truncated or otherwise downgraded before reaching the TUI.
+        self.chat.reduce(chat::ChatAction::ResetStreaming);
+        self.clear_agent_activity_for(Some(thread_id.as_str()));
+        self.clear_pending_stop();
         self.request_authoritative_thread_refresh(thread_id.clone(), true);
         self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));

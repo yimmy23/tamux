@@ -404,6 +404,86 @@
     }
 
     #[test]
+    fn vision_tools_are_gated_by_vision_toggle_and_audio_tools_are_available() {
+        let temp_dir = std::env::temp_dir();
+
+        let default_tools = get_available_tools(&AgentConfig::default(), &temp_dir, false);
+        assert!(default_tools
+            .iter()
+            .all(|tool| tool.function.name != "analyze_image"));
+        assert!(default_tools
+            .iter()
+            .all(|tool| tool.function.name != "generate_image"));
+        assert!(default_tools
+            .iter()
+            .any(|tool| tool.function.name == "speech_to_text"));
+        assert!(default_tools
+            .iter()
+            .any(|tool| tool.function.name == "text_to_speech"));
+
+        let mut config = AgentConfig::default();
+        config.tools.vision = true;
+        let vision_tools = get_available_tools(&config, &temp_dir, false);
+        assert!(vision_tools
+            .iter()
+            .any(|tool| tool.function.name == "analyze_image"));
+        assert!(vision_tools
+            .iter()
+            .any(|tool| tool.function.name == "generate_image"));
+    }
+
+    #[test]
+    fn media_tools_expose_expected_core_parameters() {
+        let mut config = AgentConfig::default();
+        config.tools.vision = true;
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+
+        let analyze_image = tools
+            .iter()
+            .find(|tool| tool.function.name == "analyze_image")
+            .expect("analyze_image tool should be available when vision is enabled");
+        let analyze_properties = analyze_image
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("analyze_image schema should expose properties");
+        for property in ["path", "url", "base64", "data_url", "mime_type", "prompt"] {
+            assert!(
+                analyze_properties.contains_key(property),
+                "analyze_image should expose {property}"
+            );
+        }
+
+        let speech_to_text = tools
+            .iter()
+            .find(|tool| tool.function.name == "speech_to_text")
+            .expect("speech_to_text tool should be available");
+        let stt_required = speech_to_text
+            .function
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .expect("speech_to_text should define required fields");
+        assert_eq!(stt_required, vec!["path"]);
+
+        let text_to_speech = tools
+            .iter()
+            .find(|tool| tool.function.name == "text_to_speech")
+            .expect("text_to_speech tool should be available");
+        let tts_required = text_to_speech
+            .function
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .expect("text_to_speech should define required fields");
+        assert_eq!(tts_required, vec!["input"]);
+    }
+
+    #[test]
     fn ask_questions_tool_is_exposed_with_compact_option_schema() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();

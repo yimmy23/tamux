@@ -24,6 +24,23 @@ impl AgentEngine {
         &self,
         budget: std::time::Duration,
     ) -> Option<ConsolidationResult> {
+        if crate::agent::agent_identity::current_agent_scope_id()
+            != crate::agent::agent_identity::WELES_AGENT_ID
+        {
+            return crate::agent::agent_identity::run_with_agent_scope(
+                crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                self.maybe_run_consolidation_if_idle_inner(budget),
+            )
+            .await;
+        }
+
+        self.maybe_run_consolidation_if_idle_inner(budget).await
+    }
+
+    async fn maybe_run_consolidation_if_idle_inner(
+        &self,
+        budget: std::time::Duration,
+    ) -> Option<ConsolidationResult> {
         let config = self.config.read().await.clone();
         if !config.consolidation.enabled {
             return None;

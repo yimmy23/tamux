@@ -116,6 +116,82 @@ fn add_available_tools_part_c(
             "required": ["code"]
         }),
     ));
+
+    if config.tools.vision {
+        tools.push(tool_def(
+            "analyze_image",
+            "Analyze an image with the active or specified multimodal model. Accepts exactly one of `path`, `url`, `base64`, or `data_url`, then returns a textual analysis.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Local image path to analyze" },
+                    "url": { "type": "string", "description": "Remote image URL to analyze" },
+                    "base64": { "type": "string", "description": "Base64-encoded image bytes. Requires `mime_type`." },
+                    "data_url": { "type": "string", "description": "Base64 data URL for the image" },
+                    "mime_type": { "type": "string", "description": "Override MIME type when using `path` or `base64`" },
+                    "prompt": { "type": "string", "description": "Optional analysis instruction. Defaults to a general detailed analysis." },
+                    "provider": { "type": "string", "description": "Optional provider override" },
+                    "model": { "type": "string", "description": "Optional model override" },
+                    "include_reasoning": { "type": "boolean", "description": "Include model reasoning summary when available" },
+                    "include_provider_result": { "type": "boolean", "description": "Append the raw structured provider final result when available" }
+                }
+            }),
+        ));
+
+        tools.push(tool_def(
+            "generate_image",
+            "Generate an image through an OpenAI-compatible image generation endpoint and return JSON with the saved artifact path or upstream URL.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string", "description": "Image generation prompt" },
+                    "provider": { "type": "string", "description": "Optional provider override" },
+                    "model": { "type": "string", "description": "Optional model override" },
+                    "size": { "type": "string", "description": "Optional output size such as 1024x1024" },
+                    "quality": { "type": "string", "description": "Optional quality hint supported by the provider" },
+                    "style": { "type": "string", "description": "Optional style hint supported by the provider" },
+                    "background": { "type": "string", "description": "Optional background hint supported by the provider" },
+                    "output_format": { "type": "string", "description": "Desired image format for saved bytes, e.g. png, jpg, webp" }
+                },
+                "required": ["prompt"]
+            }),
+        ));
+    }
+
+    tools.push(tool_def(
+        "speech_to_text",
+        "Transcribe an audio file through an OpenAI-compatible transcription endpoint and return the recognized text or provider JSON.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Local audio file path to transcribe" },
+                "mime_type": { "type": "string", "description": "Optional MIME type override for the uploaded audio file" },
+                "provider": { "type": "string", "description": "Optional provider override" },
+                "model": { "type": "string", "description": "Optional model override" },
+                "language": { "type": "string", "description": "Optional language hint for the transcription model" },
+                "prompt": { "type": "string", "description": "Optional transcription prompt or vocabulary hint" },
+                "response_format": { "type": "string", "description": "Optional transcription response format such as json, verbose_json, srt, or text" }
+            },
+            "required": ["path"]
+        }),
+    ));
+
+    tools.push(tool_def(
+        "text_to_speech",
+        "Synthesize speech through an OpenAI-compatible speech endpoint and return JSON with the saved audio artifact path.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "input": { "type": "string", "description": "Text to synthesize into speech" },
+                "provider": { "type": "string", "description": "Optional provider override" },
+                "model": { "type": "string", "description": "Optional model override" },
+                "voice": { "type": "string", "description": "Voice identifier supported by the provider" },
+                "response_format": { "type": "string", "description": "Desired output format such as mp3, wav, ogg, flac, or m4a" }
+            },
+            "required": ["input"]
+        }),
+    ));
+
     tools.push(tool_def(
         "list_terminals",
         "List all open terminal panes with their IDs and names.",

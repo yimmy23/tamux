@@ -35,6 +35,7 @@ where
                     content,
                     session_id,
                     context_messages_json,
+                    content_blocks_json: None,
                     client_surface: Some(amux_protocol::ClientSurface::Electron),
                     target_agent_id: None,
                 })
@@ -436,6 +437,16 @@ where
                 })
                 .await?;
         }
+        AgentBridgeCommand::SpeechToText { args_json } => {
+            framed
+                .send(ClientMessage::AgentSpeechToText { args_json })
+                .await?;
+        }
+        AgentBridgeCommand::TextToSpeech { args_json } => {
+            framed
+                .send(ClientMessage::AgentTextToSpeech { args_json })
+                .await?;
+        }
         AgentBridgeCommand::PromoteGeneratedTool { tool_name } => {
             framed
                 .send(ClientMessage::AgentPromoteGeneratedTool { tool_name })
@@ -807,6 +818,7 @@ mod tests {
                 content,
                 session_id,
                 context_messages_json,
+                content_blocks_json,
                 client_surface,
                 target_agent_id,
             } => {
@@ -814,6 +826,7 @@ mod tests {
                 assert_eq!(content, "hello");
                 assert!(session_id.is_none());
                 assert!(context_messages_json.is_none());
+                assert!(content_blocks_json.is_none());
                 assert_eq!(client_surface, Some(amux_protocol::ClientSurface::Electron));
                 assert!(target_agent_id.is_none());
             }
@@ -880,6 +893,7 @@ mod tests {
             content: "hello".to_string(),
             session_id: None,
             context_messages_json: None,
+            content_blocks_json: None,
             client_surface: Some(amux_protocol::ClientSurface::Electron),
             target_agent_id: None,
         };

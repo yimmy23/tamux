@@ -53,7 +53,7 @@ pub enum ClientMessage {
     VerifyTelemetryIntegrity,
     CheckpointSession { id: SessionId },
     Ping,
-    AgentSendMessage { thread_id: Option<String>, content: String, session_id: Option<String>, context_messages_json: Option<String>, #[serde(default)] client_surface: Option<ClientSurface>, #[serde(default)] target_agent_id: Option<String> },
+    AgentSendMessage { thread_id: Option<String>, content: String, session_id: Option<String>, context_messages_json: Option<String>, #[serde(default)] content_blocks_json: Option<String>, #[serde(default)] client_surface: Option<ClientSurface>, #[serde(default)] target_agent_id: Option<String> },
     AgentDirectMessage { target: String, thread_id: Option<String>, content: String, session_id: Option<String> },
     AgentStopStream { thread_id: String },
     AgentForceCompact { thread_id: String },
@@ -204,4 +204,6 @@ pub enum ClientMessage {
     AgentExecuteMemoryTool { tool_name: String, args_json: String },
     AgentPinThreadMessageForCompaction { thread_id: String, message_id: String },
     AgentUnpinThreadMessageForCompaction { thread_id: String, message_id: String },
+    AgentSpeechToText { args_json: String },
+    AgentTextToSpeech { args_json: String },
 }

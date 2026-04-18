@@ -68,6 +68,7 @@ async fn repair_tool_call_sequence_updates_persisted_history() {
                         id: "assistant-tool-turn".to_string(),
                         role: MessageRole::Assistant,
                         content: "checking".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: Some(vec![
                             ToolCall {
                                 id: "2013".to_string(),
@@ -115,6 +116,7 @@ async fn repair_tool_call_sequence_updates_persisted_history() {
                         id: "tool-result-2013".to_string(),
                         role: MessageRole::Tool,
                         content: "partial".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: Some("2013".to_string()),
                         tool_name: Some("tool_a".to_string()),
@@ -353,6 +355,7 @@ async fn policy_halt_aborts_before_guarded_tool_execution_and_persists_failure_t
         .send_message_inner(
             Some(thread_id),
             "Investigate the failure",
+            None,
             Some("task-policy-loop-proof"),
             None,
             None,

@@ -1,7 +1,95 @@
 #[cfg(test)]
 use super::*;
+use amux_shared::providers::PROVIDER_ID_OPENAI;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex as StdMutex};
 use tempfile::tempdir;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio::time::{timeout, Duration};
+
+async fn spawn_recording_heartbeat_server(
+    recorded_bodies: Arc<StdMutex<VecDeque<String>>>,
+) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind recording heartbeat server");
+    let addr = listener.local_addr().expect("heartbeat server local addr");
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let recorded_bodies = recorded_bodies.clone();
+            tokio::spawn(async move {
+                let body = read_http_request_body(&mut socket)
+                    .await
+                    .expect("read heartbeat request");
+                recorded_bodies
+                    .lock()
+                    .expect("lock recorded heartbeat requests")
+                    .push_back(body);
+
+                let response = concat!(
+                    "HTTP/1.1 200 OK\r\n",
+                    "content-type: text/event-stream\r\n",
+                    "cache-control: no-cache\r\n",
+                    "connection: close\r\n",
+                    "\r\n",
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"ACTIONABLE: false\\nDIGEST: All systems normal.\\nITEMS:\\n\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3},\"content\":\"\"}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write heartbeat response");
+            });
+        }
+    });
+
+    format!("http://{addr}/v1")
+}
+
+async fn read_http_request_body(socket: &mut tokio::net::TcpStream) -> std::io::Result<String> {
+    let mut buffer = Vec::with_capacity(65536);
+    let mut temp = [0u8; 4096];
+    let headers_end = loop {
+        let read = socket.read(&mut temp).await?;
+        if read == 0 {
+            return Ok(String::new());
+        }
+        buffer.extend_from_slice(&temp[..read]);
+        if let Some(index) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+            break index + 4;
+        }
+    };
+
+    let headers = String::from_utf8_lossy(&buffer[..headers_end]);
+    let content_length = headers
+        .lines()
+        .find_map(|line| {
+            let mut parts = line.splitn(2, ':');
+            let name = parts.next()?.trim();
+            let value = parts.next()?.trim();
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.parse::<usize>().ok())
+                .flatten()
+        })
+        .unwrap_or(0);
+
+    while buffer.len().saturating_sub(headers_end) < content_length {
+        let read = socket.read(&mut temp).await?;
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&temp[..read]);
+    }
+
+    let available = buffer.len().saturating_sub(headers_end).min(content_length);
+    Ok(String::from_utf8_lossy(&buffer[headers_end..headers_end + available]).to_string())
+}
 
 // ── check_quiet_window pure function tests ─────────────────────────
 
@@ -682,4 +770,78 @@ async fn heartbeat_weles_health_marks_review_unavailable_as_degraded() {
         }
         other => panic!("expected weles health update, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn structured_heartbeat_routes_synthesis_through_weles_runtime() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = "http://127.0.0.1:1/v1".to_string();
+    config.model = "svarog-model".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.consolidation.enabled = false;
+    config.heartbeat_checks.stale_todos_enabled = false;
+    config.heartbeat_checks.stuck_goals_enabled = false;
+    config.heartbeat_checks.unreplied_messages_enabled = false;
+    config.heartbeat_checks.repo_changes_enabled = false;
+    config.heartbeat_checks.plugin_auth_enabled = false;
+    config.providers.insert(
+        "custom-weles".to_string(),
+        ProviderConfig {
+            base_url: spawn_recording_heartbeat_server(recorded_bodies.clone()).await,
+            model: "weles-model".to_string(),
+            api_key: "test-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: "medium".to_string(),
+            context_window_tokens: 0,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        },
+    );
+    config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
+    config.builtin_sub_agents.weles.model = Some("weles-model".to_string());
+    config.builtin_sub_agents.weles.reasoning_effort = Some("medium".to_string());
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .run_structured_heartbeat_adaptive(0)
+        .await
+        .expect("structured heartbeat should succeed through Weles runtime");
+
+    let recorded = recorded_bodies
+        .lock()
+        .expect("lock recorded heartbeat requests");
+    let body = recorded
+        .front()
+        .expect("expected heartbeat synthesis request to hit Weles provider");
+    assert!(
+        body.contains("\"model\":\"weles-model\""),
+        "expected heartbeat synthesis to use Weles model, body was: {body}"
+    );
+    assert!(
+        !body.contains("svarog-model"),
+        "heartbeat synthesis should not fall back to main-agent model, body was: {body}"
+    );
+    assert!(
+        body.contains("You are Weles in tamux."),
+        "heartbeat synthesis should execute with the Weles runtime persona, body was: {body}"
+    );
 }

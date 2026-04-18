@@ -100,19 +100,34 @@ impl<'a> SendMessageRunner<'a> {
                     .record_llm_outcome(&self.config.provider, false)
                     .await;
                 let fallback_message = unexpected_stream_end_message(&accumulated_content);
+                let final_reasoning = (!accumulated_reasoning.trim().is_empty())
+                    .then_some(accumulated_reasoning.clone());
                 self.engine
                     .add_assistant_message(
                         &self.tid,
                         &fallback_message,
                         0,
                         0,
-                        None,
+                        final_reasoning.clone(),
                         Some(self.config.provider.clone()),
                         Some(self.provider_config.model.clone()),
                         Some(self.provider_config.api_transport),
                         None,
                     )
                     .await;
+                let _ = self.engine.event_tx.send(AgentEvent::Done {
+                    thread_id: self.tid.clone(),
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost: None,
+                    provider: Some(self.config.provider.clone()),
+                    model: Some(self.provider_config.model.clone()),
+                    tps: None,
+                    generation_ms: None,
+                    reasoning: final_reasoning,
+                    upstream_message: None,
+                    provider_final_result: None,
+                });
                 Ok(LoopDisposition::Break)
             }
         }

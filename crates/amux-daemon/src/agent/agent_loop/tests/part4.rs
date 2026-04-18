@@ -123,6 +123,7 @@ async fn send_message_request_uses_spawned_persona_identity_in_continuity_summar
         .send_message_inner(
             Some(thread_id),
             "Investigate the failure",
+            None,
             Some("task-spawned-runtime-continuity"),
             None,
             None,
@@ -200,6 +201,7 @@ async fn auto_compaction_forces_connection_close_on_next_llm_request() {
                         id: "assistant-1".to_string(),
                         role: MessageRole::Assistant,
                         content: "Observed earlier state".to_string(),
+                        content_blocks: Vec::new(),
                         tool_calls: None,
                         tool_call_id: None,
                         tool_name: None,
@@ -246,6 +248,7 @@ async fn auto_compaction_forces_connection_close_on_next_llm_request() {
         .send_message_inner(
             Some(thread_id),
             "Continue after compaction",
+            None,
             None,
             None,
             None,
@@ -343,6 +346,7 @@ async fn anthropic_send_message_persists_upstream_message_on_assistant_turn() {
         .send_message_inner(
             Some(thread_id),
             "hello",
+            None,
             None,
             None,
             None,
@@ -461,6 +465,7 @@ async fn anthropic_send_message_outcome_exposes_upstream_message() {
             None,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -552,6 +557,7 @@ async fn anthropic_done_event_exposes_upstream_message() {
         .send_message_inner(
             Some(thread_id),
             "hello",
+            None,
             None,
             None,
             None,
