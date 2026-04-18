@@ -273,6 +273,22 @@ impl TuiModel {
                 self.handle_agent_config_raw_event(raw);
             }
             ClientEvent::SpeechToTextResult { content } => {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(error) = value.get("error").and_then(|v| v.as_str()) {
+                        self.status_line = format!("STT failed: {error}");
+                        self.show_input_notice(
+                            "Speech-to-text failed (see status/error)",
+                            InputNoticeKind::Warning,
+                            80,
+                            true,
+                        );
+                        self.last_error = Some(format!("STT failed: {error}"));
+                        self.error_active = true;
+                        self.error_tick = self.tick_counter;
+                        return;
+                    }
+                }
+
                 let transcript = serde_json::from_str::<serde_json::Value>(&content)
                     .ok()
                     .and_then(|value| {
@@ -294,6 +310,22 @@ impl TuiModel {
                 }
             }
             ClientEvent::TextToSpeechResult { content } => {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(error) = value.get("error").and_then(|v| v.as_str()) {
+                        self.status_line = format!("TTS failed: {error}");
+                        self.show_input_notice(
+                            "Text-to-speech failed (see status/error)",
+                            InputNoticeKind::Warning,
+                            80,
+                            true,
+                        );
+                        self.last_error = Some(format!("TTS failed: {error}"));
+                        self.error_active = true;
+                        self.error_tick = self.tick_counter;
+                        return;
+                    }
+                }
+
                 let path = serde_json::from_str::<serde_json::Value>(&content)
                     .ok()
                     .and_then(|value| {
@@ -306,6 +338,12 @@ impl TuiModel {
                     self.play_audio_path(&path);
                 } else {
                     self.status_line = "TTS result missing audio path".to_string();
+                    self.show_input_notice(
+                        "TTS returned no playable path",
+                        InputNoticeKind::Warning,
+                        70,
+                        true,
+                    );
                 }
             }
             ClientEvent::ModelsFetched(models) => {

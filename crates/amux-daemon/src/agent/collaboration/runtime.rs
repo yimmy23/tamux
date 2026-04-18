@@ -1,5 +1,8 @@
 use super::participants::{apply_vote_to_disagreement, normalize_position, normalize_topic};
+use crate::agent::consensus::bid_engine::{build_persisted_bid, consensus_round_id};
 use crate::agent::consensus::bid_priors::effective_bid_confidence;
+use crate::agent::consensus::outcome_feedback::build_quality_metric;
+use crate::agent::consensus::role_assigner::build_role_assignment;
 
 const MIN_CONSENSUS_BID_CONFIDENCE: f64 = 0.3;
 use super::*;
@@ -660,12 +663,14 @@ impl AgentEngine {
         }
         session.updated_at = now_millis();
         let snapshot = session.clone();
+        let persisted_bid = build_persisted_bid(&snapshot, task_id, bid.confidence, &bid.availability, bid.created_at);
         let report = serde_json::json!({
             "session_id": session.id,
             "bid": bid,
         });
         drop(collaboration);
         self.persist_collaboration_session(&snapshot).await?;
+        self.persist_consensus_bid(persisted_bid).await?;
         Ok(report)
     }
 
@@ -765,6 +770,12 @@ impl AgentEngine {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("a distinct reviewer bid is required"))?;
 
+        let persisted_assignment = build_role_assignment(
+            parent_task_id,
+            consensus_round_id(session),
+            &ranked,
+            now_millis(),
+        );
         let assignment = ConsensusRoleAssignment {
             primary_task_id: primary.task_id.clone(),
             primary_role: "primary".to_string(),
@@ -803,6 +814,7 @@ impl AgentEngine {
         });
         drop(collaboration);
         self.persist_collaboration_session(&snapshot).await?;
+        self.persist_role_assignment(persisted_assignment).await?;
 
         if let Some(launch) = debate_launch {
             if let Err(error) = self
@@ -1300,6 +1312,52 @@ impl AgentEngine {
                 role = %inferred_role,
                 "failed to record consensus prior outcome: {error}"
             );
+        }
+        let session_snapshot = {
+            let collaboration = self.collaboration.read().await;
+            collaboration.get(parent_task_id).cloned()
+        };
+        if let Some(session) = session_snapshot.as_ref() {
+            if let Some(role_assignment) = session.role_assignment.as_ref() {
+                let persisted_assignment = crate::agent::consensus::types::PersistedRoleAssignment {
+                    task_id: parent_task_id.to_string(),
+                    round_id: consensus_round_id(session),
+                    primary_agent_id: role_assignment.primary_task_id.clone(),
+                    reviewer_agent_id: Some(role_assignment.reviewer_task_id.clone()),
+                    observers: session
+                        .agents
+                        .iter()
+                        .filter(|agent| {
+                            agent.task_id != role_assignment.primary_task_id
+                                && agent.task_id != role_assignment.reviewer_task_id
+                        })
+                        .map(|agent| agent.task_id.clone())
+                        .collect(),
+                    assigned_at_ms: role_assignment.assigned_at,
+                    outcome: Some(outcome.to_string()),
+                };
+                let metric = build_quality_metric(
+                    session,
+                    &persisted_assignment,
+                    outcome,
+                    now_millis(),
+                );
+                if let Err(error) = self.mark_role_assignment_outcome(parent_task_id, outcome).await
+                {
+                    tracing::warn!(
+                        task_id = %task.id,
+                        parent_task_id = %parent_task_id,
+                        "failed to mark role assignment outcome: {error}"
+                    );
+                }
+                if let Err(error) = self.persist_consensus_quality_metric(metric).await {
+                    tracing::warn!(
+                        task_id = %task.id,
+                        parent_task_id = %parent_task_id,
+                        "failed to persist consensus quality metric: {error}"
+                    );
+                }
+            }
         }
         let summary = match outcome {
             "success" => task

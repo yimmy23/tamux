@@ -23,7 +23,16 @@ pub(crate) struct MemoryPalaceGraphContext {
     pub center_node_id: String,
     pub subgraph_nodes: Vec<MemoryPalaceNode>,
     pub subgraph_edges: Vec<MemoryPalaceEdge>,
+    pub cluster_summaries: Vec<String>,
     pub summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MemoryPalaceCluster {
+    pub name: String,
+    pub summary_text: String,
+    pub center_node_id: Option<String>,
+    pub member_node_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,5 +41,6 @@ pub(crate) struct MemoryPalaceSnapshot {
     pub task_id: Option<String>,
     pub update_batch: MemoryGraphUpdateBatch,
     pub pruned_edges: Vec<MemoryPalaceEdge>,
+    pub clusters: Vec<MemoryPalaceCluster>,
     pub summary: String,
 }

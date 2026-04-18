@@ -101,6 +101,50 @@ mod tests {
             .lifecycle_actions
             .iter()
             .any(|action| action.action == "retire" && action.variant_id.as_deref() == Some("variant-active-weak")));
+        assert!(!snapshot.fitness_history.is_empty());
+    }
+
+    #[test]
+    fn learning_worker_proposes_cross_breed_for_strong_skill_variants() {
+        let traces = vec![trace(
+            "trace-2",
+            "build-pipeline",
+            &["read_file", "apply_patch", "cargo_test"],
+            0.96,
+        )];
+        let variants = vec![
+            variant(
+                "variant-a",
+                "build-pipeline",
+                "frontend",
+                "active",
+                &["frontend", "react"],
+                6,
+                0,
+                6.0,
+            ),
+            variant(
+                "variant-b",
+                "build-pipeline",
+                "backend",
+                "active",
+                &["backend", "rust"],
+                5,
+                0,
+                5.5,
+            ),
+        ];
+
+        let snapshot = build_gene_pool_runtime_snapshot(&traces, &variants, 3_000);
+
+        assert!(snapshot.cross_breed_proposals.iter().any(|proposal| {
+            proposal.left_parent_variant_id == "variant-a"
+                || proposal.right_parent_variant_id == "variant-a"
+        }));
+        assert!(snapshot
+            .lifecycle_actions
+            .iter()
+            .any(|action| action.action == "cross_breed"));
     }
 
     #[tokio::test]
@@ -188,6 +232,7 @@ mod tests {
             .lifecycle_actions
             .iter()
             .any(|action| action.action == "retire"));
+        assert!(!snapshot.fitness_history.is_empty());
 
         let persisted = engine
             .history
@@ -212,5 +257,19 @@ mod tests {
             .expect("load active")
             .expect("active variant should exist");
         assert_eq!(refreshed_active.status, "archived");
+
+        let fitness_rows = engine
+            .history
+            .read_conn
+            .call(move |conn| {
+                Ok(conn.query_row(
+                    "SELECT COUNT(*) FROM gene_fitness_history",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?)
+            })
+            .await
+            .expect("fitness row count");
+        assert!(fitness_rows >= 2);
     }
 }

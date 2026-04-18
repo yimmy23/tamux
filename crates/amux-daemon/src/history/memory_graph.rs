@@ -31,6 +31,16 @@ pub struct MemoryGraphNeighborRow {
     pub via_edge: MemoryEdgeRow,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryGraphClusterRow {
+    pub id: i64,
+    pub name: String,
+    pub summary_text: Option<String>,
+    pub center_node_id: Option<String>,
+    pub created_at_ms: u64,
+    pub member_node_ids: Vec<String>,
+}
+
 impl HistoryStore {
     pub async fn upsert_memory_node(
         &self,
@@ -232,6 +242,100 @@ impl HistoryStore {
                 })?;
                 rows.collect::<std::result::Result<Vec<_>, _>>()
                     .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn upsert_memory_cluster(
+        &self,
+        name: &str,
+        summary_text: &str,
+        center_node_id: Option<&str>,
+        member_node_ids: &[String],
+        created_at_ms: u64,
+    ) -> Result<()> {
+        let name = name.to_string();
+        let summary_text = summary_text.to_string();
+        let center_node_id = center_node_id.map(str::to_string);
+        let member_node_ids = member_node_ids.to_vec();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO memory_graph_clusters (name, summary_text, center_node_id, created_at_ms)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(name) DO UPDATE SET
+                        summary_text = excluded.summary_text,
+                        center_node_id = excluded.center_node_id",
+                    params![name, summary_text, center_node_id, created_at_ms as i64],
+                )?;
+                let cluster_id = conn.query_row(
+                    "SELECT id FROM memory_graph_clusters WHERE name = ?1",
+                    params![name],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                conn.execute(
+                    "DELETE FROM memory_cluster_members WHERE cluster_id = ?1",
+                    params![cluster_id],
+                )?;
+                for node_id in member_node_ids {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO memory_cluster_members (cluster_id, node_id) VALUES (?1, ?2)",
+                        params![cluster_id, node_id],
+                    )?;
+                }
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_memory_clusters_for_node(
+        &self,
+        node_id: &str,
+        limit: usize,
+    ) -> Result<Vec<MemoryGraphClusterRow>> {
+        let node_id = node_id.to_string();
+        let limit = limit.max(1) as i64;
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT c.id, c.name, c.summary_text, c.center_node_id, c.created_at_ms
+                     FROM memory_cluster_members m
+                     JOIN memory_graph_clusters c ON c.id = m.cluster_id
+                     WHERE m.node_id = ?1
+                     ORDER BY c.created_at_ms DESC, c.id DESC
+                     LIMIT ?2",
+                )?;
+                let rows = stmt
+                    .query_map(params![node_id, limit], |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, i64>(4)?.max(0) as u64,
+                        ))
+                    })?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                let mut clusters = Vec::new();
+                for (id, name, summary_text, center_node_id, created_at_ms) in rows {
+                    let mut member_stmt = conn.prepare(
+                        "SELECT node_id FROM memory_cluster_members WHERE cluster_id = ?1 ORDER BY node_id ASC",
+                    )?;
+                    let member_node_ids = member_stmt
+                        .query_map(params![id], |row| row.get::<_, String>(0))?
+                        .collect::<std::result::Result<Vec<_>, _>>()?;
+                    clusters.push(MemoryGraphClusterRow {
+                        id,
+                        name,
+                        summary_text,
+                        center_node_id,
+                        created_at_ms,
+                        member_node_ids,
+                    });
+                }
+                Ok(clusters)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

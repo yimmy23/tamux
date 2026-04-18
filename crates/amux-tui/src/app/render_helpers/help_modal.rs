@@ -10,7 +10,7 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
         ]),
         Line::from(vec![
             Span::styled("  Ctrl+P           ", theme.fg_active),
-            Span::styled("Open command palette", theme.fg_dim),
+            Span::styled("Open command palette (except chat focus)", theme.fg_dim),
         ]),
         Line::from(vec![
             Span::styled("  Ctrl+T           ", theme.fg_active),
@@ -71,6 +71,14 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Copy selected message to clipboard", theme.fg_dim),
         ]),
         Line::from(vec![
+            Span::styled("  Ctrl+P           ", theme.fg_active),
+            Span::styled("Speak selected assistant message (or latest)", theme.fg_dim),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+S           ", theme.fg_active),
+            Span::styled("Stop active speech playback", theme.fg_dim),
+        ]),
+        Line::from(vec![
             Span::styled("  Esc              ", theme.fg_active),
             Span::styled("Clear selection", theme.fg_dim),
         ]),
@@ -121,6 +129,10 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
         Line::from(vec![
             Span::styled("  Ctrl+Y           ", theme.fg_active),
             Span::styled("Redo", theme.fg_dim),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+L           ", theme.fg_active),
+            Span::styled("Start/stop voice recording", theme.fg_dim),
         ]),
         Line::raw(""),
         Line::from(Span::styled("  Streaming", theme.accent_primary)),

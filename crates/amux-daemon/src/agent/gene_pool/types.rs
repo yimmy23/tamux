@@ -22,10 +22,30 @@ pub(crate) struct GenePoolArenaScore {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct GenePoolFitnessSnapshot {
+    pub variant_id: String,
+    pub recorded_at_ms: u64,
+    pub fitness_score: f64,
+    pub use_count: u32,
+    pub success_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct GenePoolCrossBreedProposal {
+    pub left_parent_variant_id: String,
+    pub right_parent_variant_id: String,
+    pub skill_name: String,
+    pub co_usage_rate: f64,
+    pub proposed_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct GenePoolLifecycleAction {
     pub action: String,
     pub variant_id: Option<String>,
     pub reason: String,
+    pub left_parent_variant_id: Option<String>,
+    pub right_parent_variant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -33,6 +53,8 @@ pub(crate) struct GenePoolRuntimeSnapshot {
     pub generated_at_ms: u64,
     pub candidates: Vec<GenePoolCandidate>,
     pub arena_scores: Vec<GenePoolArenaScore>,
+    pub fitness_history: Vec<GenePoolFitnessSnapshot>,
+    pub cross_breed_proposals: Vec<GenePoolCrossBreedProposal>,
     pub lifecycle_actions: Vec<GenePoolLifecycleAction>,
     pub summary: String,
 }

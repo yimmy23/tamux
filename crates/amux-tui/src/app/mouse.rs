@@ -60,6 +60,7 @@ impl TuiModel {
                 status_area,
                 self.connected,
                 self.last_error.is_some(),
+                self.voice_recording,
                 self.queued_prompts.len(),
                 Position::new(mouse.column, mouse.row),
             ) == Some(widgets::footer::StatusBarHitTarget::QueuedPrompts)

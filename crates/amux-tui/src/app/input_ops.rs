@@ -247,7 +247,13 @@ impl TuiModel {
                 );
             }
             Err(error) => {
-                self.status_line = "Voice capture unavailable".to_string();
+                self.status_line = "Voice capture failed (ffmpeg/arecord unavailable)".to_string();
+                self.show_input_notice(
+                    "Voice capture failed: install ffmpeg or arecord",
+                    InputNoticeKind::Warning,
+                    90,
+                    true,
+                );
                 self.last_error = Some(format!(
                     "Voice capture failed: ffmpeg/arecord unavailable ({error})"
                 ));
@@ -268,11 +274,28 @@ impl TuiModel {
         if let Some(path) = capture_path.as_ref() {
             if std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0) == 0 {
                 self.status_line = "Voice capture empty".to_string();
+                self.show_input_notice(
+                    "Voice capture was empty — try speaking louder/longer",
+                    InputNoticeKind::Warning,
+                    80,
+                    true,
+                );
                 return None;
             }
             self.status_line = "Voice capture stopped".to_string();
         }
         capture_path
+    }
+
+    pub(super) fn stop_voice_playback(&mut self) {
+        if let Some(mut child) = self.voice_player.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+            self.status_line = "Audio playback stopped".to_string();
+            self.show_input_notice("Stopped playback", InputNoticeKind::Success, 50, true);
+        } else {
+            self.status_line = "No active audio playback".to_string();
+        }
     }
 
     pub(super) fn play_audio_path(&mut self, path: &str) {
@@ -304,7 +327,13 @@ impl TuiModel {
                 self.status_line = "Playing synthesized speech...".to_string();
             }
             Err(error) => {
-                self.status_line = "Audio playback unavailable".to_string();
+                self.status_line = "Audio playback failed (mpv/paplay unavailable)".to_string();
+                self.show_input_notice(
+                    "Audio playback failed: install mpv or paplay",
+                    InputNoticeKind::Warning,
+                    90,
+                    true,
+                );
                 self.last_error = Some(format!(
                     "Audio playback failed: mpv/paplay unavailable ({error})"
                 ));

@@ -736,6 +736,20 @@ fn feature_toggle_fields_emit_expected_config_updates() {
                 false,
             )),
         ),
+        (
+            "feat_audio_stt_enabled",
+            "/extra/audio_stt_enabled",
+            "true",
+            None,
+            Some((vec!["extra", "audio_stt_enabled"], true)),
+        ),
+        (
+            "feat_audio_tts_enabled",
+            "/extra/audio_tts_enabled",
+            "true",
+            None,
+            Some((vec!["extra", "audio_tts_enabled"], true)),
+        ),
     ];
 
     for (field, expected_key_path, expected_value_json, expected_string, expected_bool) in cases {
@@ -953,6 +967,41 @@ fn feat_skill_recommendation_numeric_fields_write_new_daemon_paths() {
             "6",
             "/skill_recommendation/suggest_global_enable_after_approvals",
             "6",
+        ),
+        (
+            "feat_audio_stt_provider",
+            serde_json::json!({"extra": {"audio_stt_provider": "openai"}}),
+            "openai",
+            "/extra/audio_stt_provider",
+            "\"openai\"",
+        ),
+        (
+            "feat_audio_stt_model",
+            serde_json::json!({"extra": {"audio_stt_model": "whisper-1"}}),
+            "whisper-1",
+            "/extra/audio_stt_model",
+            "\"whisper-1\"",
+        ),
+        (
+            "feat_audio_tts_provider",
+            serde_json::json!({"extra": {"audio_tts_provider": "openai"}}),
+            "openai",
+            "/extra/audio_tts_provider",
+            "\"openai\"",
+        ),
+        (
+            "feat_audio_tts_model",
+            serde_json::json!({"extra": {"audio_tts_model": "tts-1"}}),
+            "tts-1",
+            "/extra/audio_tts_model",
+            "\"tts-1\"",
+        ),
+        (
+            "feat_audio_tts_voice",
+            serde_json::json!({"extra": {"audio_tts_voice": "alloy"}}),
+            "alloy",
+            "/extra/audio_tts_voice",
+            "\"alloy\"",
         ),
     ];
 

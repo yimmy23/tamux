@@ -98,6 +98,26 @@ pub(super) fn extended_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_gene_pool_offspring ON gene_pool(offspring_id, created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS gene_fitness_history (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                variant_id      TEXT NOT NULL,
+                recorded_at_ms  INTEGER NOT NULL,
+                fitness_score   REAL NOT NULL,
+                use_count       INTEGER NOT NULL,
+                success_rate    REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_gene_fitness_variant_ts ON gene_fitness_history(variant_id, recorded_at_ms DESC);
+
+            CREATE TABLE IF NOT EXISTS gene_crossbreeds (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                left_parent_variant_id   TEXT NOT NULL,
+                right_parent_variant_id  TEXT NOT NULL,
+                skill_name               TEXT NOT NULL,
+                co_usage_rate            REAL NOT NULL,
+                proposed_at_ms           INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_gene_crossbreeds_skill_ts ON gene_crossbreeds(skill_name, proposed_at_ms DESC);
+
             CREATE TABLE IF NOT EXISTS morphogenesis_affinities (
                 agent_id         TEXT NOT NULL,
                 domain           TEXT NOT NULL,
@@ -110,6 +130,30 @@ pub(super) fn extended_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_morphogenesis_domain_updated ON morphogenesis_affinities(domain, last_updated_ms DESC);
 
+            CREATE TABLE IF NOT EXISTS affinity_updates_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id        TEXT NOT NULL,
+                domain          TEXT NOT NULL,
+                old_affinity    REAL NOT NULL,
+                new_affinity    REAL NOT NULL,
+                trigger_type    TEXT NOT NULL,
+                task_id         TEXT,
+                updated_at_ms   INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_affinity_updates_agent_domain_ts ON affinity_updates_log(agent_id, domain, updated_at_ms DESC);
+
+            CREATE TABLE IF NOT EXISTS soul_adaptations_log (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id         TEXT NOT NULL,
+                domain           TEXT NOT NULL,
+                adaptation_type  TEXT NOT NULL,
+                soul_snippet     TEXT NOT NULL,
+                old_soul_hash    TEXT,
+                new_soul_hash    TEXT,
+                created_at_ms    INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_soul_adaptations_agent_ts ON soul_adaptations_log(agent_id, created_at_ms DESC);
+
             CREATE TABLE IF NOT EXISTS consensus_bid_priors (
                 role             TEXT PRIMARY KEY,
                 success_count    INTEGER NOT NULL DEFAULT 0,
@@ -118,6 +162,57 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 last_updated_ms  INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_consensus_bid_priors_updated ON consensus_bid_priors(last_updated_ms DESC);
+
+            CREATE TABLE IF NOT EXISTS consensus_bids (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id          TEXT NOT NULL,
+                round_id         INTEGER NOT NULL,
+                agent_id         TEXT NOT NULL,
+                confidence       REAL NOT NULL,
+                reasoning        TEXT,
+                availability     TEXT NOT NULL,
+                domain_affinity  REAL NOT NULL DEFAULT 0.0,
+                submitted_at_ms  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_consensus_bids_task_round ON consensus_bids(task_id, round_id, submitted_at_ms DESC);
+
+            CREATE TABLE IF NOT EXISTS role_assignments (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id            TEXT NOT NULL,
+                round_id           INTEGER NOT NULL,
+                primary_agent_id   TEXT NOT NULL,
+                reviewer_agent_id  TEXT,
+                observers          TEXT NOT NULL DEFAULT '[]',
+                assigned_at_ms     INTEGER NOT NULL,
+                outcome            TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_role_assignments_task_round ON role_assignments(task_id, round_id, assigned_at_ms DESC);
+
+            CREATE TABLE IF NOT EXISTS consensus_quality_metrics (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id               TEXT NOT NULL,
+                predicted_confidence  REAL NOT NULL,
+                actual_outcome_score  REAL NOT NULL,
+                prediction_error      REAL NOT NULL,
+                updated_at_ms         INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_consensus_quality_task_ts ON consensus_quality_metrics(task_id, updated_at_ms DESC);
+
+            CREATE TABLE IF NOT EXISTS memory_graph_clusters (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                name           TEXT NOT NULL UNIQUE,
+                summary_text   TEXT,
+                center_node_id TEXT,
+                created_at_ms  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_graph_clusters_center ON memory_graph_clusters(center_node_id, created_at_ms DESC);
+
+            CREATE TABLE IF NOT EXISTS memory_cluster_members (
+                cluster_id INTEGER NOT NULL,
+                node_id    TEXT NOT NULL,
+                PRIMARY KEY (cluster_id, node_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_cluster_members_node ON memory_cluster_members(node_id, cluster_id);
 
             CREATE TABLE IF NOT EXISTS collaboration_sessions (
                 parent_task_id TEXT PRIMARY KEY,

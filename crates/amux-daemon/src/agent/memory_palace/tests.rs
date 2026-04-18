@@ -60,6 +60,7 @@ mod tests {
                 && edge.target_node_id == "node:package:cargo:amux-daemon"
                 && edge.relation_type == "manifest_declares_package"
         }));
+        assert!(snapshot.clusters.is_empty());
     }
 
     #[tokio::test]
@@ -137,5 +138,48 @@ mod tests {
             .subgraph_edges
             .iter()
             .any(|edge| edge.relation == "caused_by"));
+    }
+
+    #[tokio::test]
+    async fn memory_palace_query_surfaces_cluster_summaries_for_pruned_low_signal_edges() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine
+            .history
+            .upsert_memory_node("node:file:src/lib.rs", "src/lib.rs", "file", None, 1_000)
+            .await
+            .expect("center node");
+        engine
+            .history
+            .upsert_memory_node("node:file:src/legacy.rs", "src/legacy.rs", "file", None, 1_000)
+            .await
+            .expect("member node");
+        engine
+            .history
+            .upsert_memory_cluster(
+                "cluster:node:file:src/lib.rs",
+                "summarized low-signal relations fanout from node:file:src/lib.rs",
+                Some("node:file:src/lib.rs"),
+                &[
+                    "node:file:src/lib.rs".to_string(),
+                    "node:file:src/legacy.rs".to_string(),
+                ],
+                1_000,
+            )
+            .await
+            .expect("cluster");
+
+        let context = engine
+            .memory_palace_query("node:file:src/lib.rs", 1, 4)
+            .await
+            .expect("query should succeed");
+
+        assert!(context
+            .cluster_summaries
+            .iter()
+            .any(|summary| summary.contains("low-signal relations")));
+        assert!(context.summary.contains("low-signal relations"));
     }
 }

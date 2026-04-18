@@ -19,6 +19,7 @@ pub(crate) async fn query_memory_graph(
 
     let mut nodes = BTreeMap::new();
     let mut edges = Vec::new();
+    let mut cluster_summaries = Vec::new();
     let mut visited = BTreeSet::new();
     let mut queue = VecDeque::from([(center_node_id.to_string(), 0usize)]);
 
@@ -59,6 +60,16 @@ pub(crate) async fn query_memory_graph(
         }
     }
 
+    for node_id in visited.iter() {
+        for cluster in history.list_memory_clusters_for_node(node_id, 4).await? {
+            if let Some(summary) = cluster.summary_text {
+                if !cluster_summaries.contains(&summary) {
+                    cluster_summaries.push(summary);
+                }
+            }
+        }
+    }
+
     let summary = edges
         .iter()
         .take(6)
@@ -75,11 +86,19 @@ pub(crate) async fn query_memory_graph(
         })
         .collect::<Vec<_>>()
         .join("; ");
+    let summary = if cluster_summaries.is_empty() {
+        summary
+    } else if summary.is_empty() {
+        cluster_summaries.join("; ")
+    } else {
+        format!("{summary}; {}", cluster_summaries.join("; "))
+    };
 
     Ok(MemoryPalaceGraphContext {
         center_node_id: center_node_id.to_string(),
         subgraph_nodes: nodes.into_values().collect(),
         subgraph_edges: edges,
+        cluster_summaries,
         summary,
     })
 }

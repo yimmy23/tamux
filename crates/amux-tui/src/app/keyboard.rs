@@ -157,6 +157,10 @@ impl TuiModel {
             self.open_queued_prompts_modal();
             return false;
         }
+        if code == KeyCode::Char('s') && ctrl {
+            self.stop_voice_playback();
+            return false;
+        }
         if code == KeyCode::Char('a') && ctrl {
             match self.modal.top() {
                 Some(modal::ModalKind::ApprovalOverlay) => {}
@@ -364,7 +368,7 @@ impl TuiModel {
         }
 
         match code {
-            KeyCode::Char('p') if ctrl => self
+            KeyCode::Char('p') if ctrl && self.focus != FocusArea::Chat => self
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette)),
             KeyCode::Char('t') if ctrl => {

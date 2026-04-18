@@ -30,16 +30,49 @@ impl TuiModel {
         .unwrap_or(fallback)
     }
 
+    fn voice_extra_string(
+        raw: Option<&serde_json::Value>,
+        extra_key: &str,
+        legacy_path: &[&str],
+        fallback: &str,
+    ) -> String {
+        raw.and_then(|value| value.get("extra"))
+            .and_then(|extra| extra.get(extra_key))
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| Self::voice_config_string(raw, legacy_path, fallback))
+    }
+
+    fn voice_extra_bool(
+        raw: Option<&serde_json::Value>,
+        extra_key: &str,
+        legacy_path: &[&str],
+        fallback: bool,
+    ) -> bool {
+        raw.and_then(|value| value.get("extra"))
+            .and_then(|extra| extra.get(extra_key))
+            .and_then(|value| value.as_bool())
+            .unwrap_or_else(|| Self::voice_config_bool(raw, legacy_path, fallback))
+    }
+
     pub(super) fn toggle_voice_capture(&mut self) {
         if self.voice_recording {
             if let Some(path) = self.stop_voice_capture() {
                 let raw = self.config.agent_config_raw.as_ref();
-                let provider = Self::voice_config_string(
+                let provider = Self::voice_extra_string(
                     raw,
+                    "audio_stt_provider",
                     &["audio", "stt", "provider"],
                     amux_shared::providers::PROVIDER_ID_OPENAI,
                 );
-                let model = Self::voice_config_string(raw, &["audio", "stt", "model"], "whisper-1");
+                let model = Self::voice_extra_string(
+                    raw,
+                    "audio_stt_model",
+                    &["audio", "stt", "model"],
+                    "whisper-1",
+                );
                 let language = raw
                     .and_then(|value| {
                         ["audio", "stt", "language"]
@@ -64,8 +97,9 @@ impl TuiModel {
             return;
         }
 
-        let enabled = Self::voice_config_bool(
+        let enabled = Self::voice_extra_bool(
             self.config.agent_config_raw.as_ref(),
+            "audio_stt_enabled",
             &["audio", "stt", "enabled"],
             true,
         );
@@ -81,15 +115,39 @@ impl TuiModel {
             self.status_line = "Open a thread first".to_string();
             return;
         };
-        let Some(message) = thread.messages.iter().rev().find(|message| {
-            message.role == chat::MessageRole::Assistant && !message.content.trim().is_empty()
-        }) else {
-            self.status_line = "No assistant message available to speak".to_string();
+
+        let selected_index = self.chat.selected_message();
+        let selected_content = selected_index
+            .and_then(|idx| thread.messages.get(idx))
+            .filter(|message| {
+                message.role == chat::MessageRole::Assistant && !message.content.trim().is_empty()
+            })
+            .map(|message| message.content.clone());
+
+        let content_to_speak = if let Some(content) = selected_content {
+            content
+        } else if selected_index.is_some() {
+            self.status_line = "Selected message is not speakable assistant text".to_string();
+            self.show_input_notice(
+                "Select an assistant message to speak",
+                InputNoticeKind::Warning,
+                60,
+                true,
+            );
             return;
+        } else {
+            let Some(message) = thread.messages.iter().rev().find(|message| {
+                message.role == chat::MessageRole::Assistant && !message.content.trim().is_empty()
+            }) else {
+                self.status_line = "No assistant message available to speak".to_string();
+                return;
+            };
+            message.content.clone()
         };
 
-        let enabled = Self::voice_config_bool(
+        let enabled = Self::voice_extra_bool(
             self.config.agent_config_raw.as_ref(),
+            "audio_tts_enabled",
             &["audio", "tts", "enabled"],
             true,
         );
@@ -104,15 +162,26 @@ impl TuiModel {
         }
 
         let raw = self.config.agent_config_raw.as_ref();
-        let provider = Self::voice_config_string(
+        let provider = Self::voice_extra_string(
             raw,
+            "audio_tts_provider",
             &["audio", "tts", "provider"],
             amux_shared::providers::PROVIDER_ID_OPENAI,
         );
-        let model = Self::voice_config_string(raw, &["audio", "tts", "model"], "gpt-4o-mini-tts");
-        let voice = Self::voice_config_string(raw, &["audio", "tts", "voice"], "alloy");
+        let model = Self::voice_extra_string(
+            raw,
+            "audio_tts_model",
+            &["audio", "tts", "model"],
+            "gpt-4o-mini-tts",
+        );
+        let voice = Self::voice_extra_string(
+            raw,
+            "audio_tts_voice",
+            &["audio", "tts", "voice"],
+            "alloy",
+        );
         let args_json = serde_json::json!({
-            "input": message.content,
+            "input": content_to_speak,
             "provider": provider,
             "model": model,
             "voice": voice,

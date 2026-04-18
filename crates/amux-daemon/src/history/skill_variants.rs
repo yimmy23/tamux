@@ -205,6 +205,60 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub(crate) async fn record_gene_fitness_history(
+        &self,
+        rows: &[crate::agent::gene_pool::types::GenePoolFitnessSnapshot],
+    ) -> Result<()> {
+        let rows = rows.to_vec();
+        self.conn
+            .call(move |conn| {
+                for row in rows {
+                    conn.execute(
+                        "INSERT INTO gene_fitness_history (
+                            variant_id, recorded_at_ms, fitness_score, use_count, success_rate
+                         ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![
+                            row.variant_id,
+                            row.recorded_at_ms as i64,
+                            row.fitness_score,
+                            row.use_count as i64,
+                            row.success_rate,
+                        ],
+                    )?;
+                }
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn record_gene_crossbreed_proposals(
+        &self,
+        proposals: &[crate::agent::gene_pool::types::GenePoolCrossBreedProposal],
+    ) -> Result<()> {
+        let proposals = proposals.to_vec();
+        self.conn
+            .call(move |conn| {
+                for proposal in proposals {
+                    conn.execute(
+                        "INSERT INTO gene_crossbreeds (
+                            left_parent_variant_id, right_parent_variant_id, skill_name, co_usage_rate, proposed_at_ms
+                         ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![
+                            proposal.left_parent_variant_id,
+                            proposal.right_parent_variant_id,
+                            proposal.skill_name,
+                            proposal.co_usage_rate,
+                            proposal.proposed_at_ms as i64,
+                        ],
+                    )?;
+                }
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn get_gene_pool_entry(
         &self,
         left_parent_variant_id: &str,

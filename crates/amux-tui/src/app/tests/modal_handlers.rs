@@ -2718,6 +2718,7 @@ fn clicking_footer_queue_indicator_opens_queued_prompts_modal() {
                 status_area,
                 model.connected,
                 model.last_error.is_some(),
+                model.voice_recording,
                 model.queued_prompts.len(),
                 pos,
             ) == Some(widgets::footer::StatusBarHitTarget::QueuedPrompts)

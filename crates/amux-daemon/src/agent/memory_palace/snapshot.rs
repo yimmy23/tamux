@@ -8,7 +8,7 @@ use crate::agent::engine::AgentEngine;
 use crate::agent::semantic_env::scan_workspace_package_summaries_for_memory_graph;
 
 use super::query::query_memory_graph;
-use super::types::{MemoryPalaceGraphContext, MemoryPalaceSnapshot};
+use super::types::{MemoryPalaceCluster, MemoryPalaceGraphContext, MemoryPalaceSnapshot};
 
 impl AgentEngine {
     pub(crate) async fn refresh_memory_palace_from_thread(
@@ -48,11 +48,13 @@ impl AgentEngine {
             BackgroundWorkerResult::MemoryTick { snapshot } => {
                 self.apply_memory_graph_updates(snapshot.update_batch.clone())
                     .await;
+                self.apply_memory_palace_clusters(snapshot.clusters.clone()).await;
                 Ok(MemoryPalaceSnapshot {
                     thread_id: snapshot.thread_id,
                     task_id: snapshot.task_id,
                     update_batch: snapshot.update_batch,
                     pruned_edges: snapshot.pruned_edges,
+                    clusters: snapshot.clusters,
                     summary: snapshot.summary,
                 })
             }
@@ -70,5 +72,27 @@ impl AgentEngine {
         per_hop_limit: usize,
     ) -> Result<MemoryPalaceGraphContext> {
         query_memory_graph(&self.history, center_node_id, depth, per_hop_limit).await
+    }
+
+    async fn apply_memory_palace_clusters(&self, clusters: Vec<MemoryPalaceCluster>) {
+        if clusters.is_empty() {
+            return;
+        }
+        let now = crate::agent::now_millis();
+        for cluster in clusters {
+            if let Err(error) = self
+                .history
+                .upsert_memory_cluster(
+                    &cluster.name,
+                    &cluster.summary_text,
+                    cluster.center_node_id.as_deref(),
+                    &cluster.member_node_ids,
+                    now,
+                )
+                .await
+            {
+                tracing::warn!(cluster = %cluster.name, %error, "failed to persist memory palace cluster");
+            }
+        }
     }
 }

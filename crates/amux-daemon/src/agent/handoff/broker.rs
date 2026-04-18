@@ -181,6 +181,14 @@ impl AgentEngine {
         drop(broker);
         validate_match_threshold(threshold)?;
         let routing_cfg = self.config.read().await.routing.clone();
+        let required_tags = if capability_tags.is_empty() {
+            crate::agent::morphogenesis::task_router::classify_domains(
+                task_description,
+                capability_tags,
+            )
+        } else {
+            capability_tags.to_vec()
+        };
 
         let occupied_specialists = {
             let tasks = self.tasks.lock().await;
@@ -217,18 +225,18 @@ impl AgentEngine {
         let routing_snapshot =
             if routing_cfg.enabled && matches!(routing_cfg.method, RoutingMode::Probabilistic) {
                 let score_rows = self
-                    .load_capability_score_rows(capability_tags)
+                    .load_capability_score_rows(&required_tags)
                     .await
                     .context("loading capability score rows for handoff routing")?;
                 let morphogenesis = self
-                    .load_morphogenesis_affinities(capability_tags)
+                    .load_morphogenesis_affinities(&required_tags)
                     .await
                     .context("loading morphogenesis affinities for handoff routing")?;
                 let result = run_background_worker_command(
                     BackgroundWorkerKind::Routing,
                     BackgroundWorkerCommand::TickRouting {
                         profiles: routing_profiles.clone(),
-                        required_tags: capability_tags.to_vec(),
+                        required_tags: required_tags.clone(),
                         score_rows,
                         morphogenesis,
                         routing: routing_cfg.clone(),
@@ -269,7 +277,7 @@ impl AgentEngine {
                 )
             } else if matches!(routing_cfg.method, RoutingMode::Probabilistic) {
                 if let Some((idx, score)) =
-                    match_specialist(&routing_profiles, capability_tags, threshold)
+                    match_specialist(&routing_profiles, &required_tags, threshold)
                 {
                     (
                         super::profiles::RoutingSelection {

@@ -10,6 +10,9 @@ use crate::agent::engine::AgentEngine;
 use crate::agent::skill_discovery::{infer_draft_context_tags, sanitize_agentskills_name};
 use crate::history::{ExecutionTraceRow, SkillVariantRecord};
 
+use super::arena::build_cross_breed_proposals;
+use super::fitness_scorer::build_fitness_history;
+use super::gene_extractor::build_candidate;
 use super::types::{
     GenePoolArenaScore, GenePoolCandidate, GenePoolLifecycleAction, GenePoolRuntimeSnapshot,
 };
@@ -22,17 +25,6 @@ const RETIREMENT_SCORE_THRESHOLD: f64 = 0.32;
 const MIN_PROMOTION_SUCCESSES: u32 = 3;
 const MIN_RETIREMENT_USES: u32 = 4;
 
-fn parse_tool_sequence(trace: &ExecutionTraceRow) -> Vec<String> {
-    trace
-        .tool_sequence_json
-        .as_deref()
-        .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|tool| !tool.trim().is_empty())
-        .collect()
-}
-
 fn normalize_fitness_score(fitness_score: f64) -> f64 {
     ((fitness_score + 6.0) / 12.0).clamp(0.0, 1.0)
 }
@@ -44,41 +36,6 @@ fn compute_arena_score(record: &SkillVariantRecord) -> f64 {
     (0.55 * success_rate + 0.30 * fitness_component + 0.15 * usage_component).clamp(0.0, 1.0)
 }
 
-fn build_candidate(trace: &ExecutionTraceRow) -> Option<GenePoolCandidate> {
-    let task_type = trace
-        .task_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("unknown");
-    let tool_sequence = parse_tool_sequence(trace);
-    if tool_sequence.is_empty() {
-        return None;
-    }
-
-    let prefix = tool_sequence
-        .iter()
-        .take(2)
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join("-");
-    let proposed_skill_name = sanitize_agentskills_name(&format!("{task_type}-{prefix}"));
-    let proposed_skill_name = if proposed_skill_name.is_empty() {
-        sanitize_agentskills_name(task_type)
-    } else {
-        proposed_skill_name
-    };
-
-    Some(GenePoolCandidate {
-        trace_id: trace.id.clone(),
-        proposed_skill_name,
-        task_type: task_type.to_string(),
-        context_tags: infer_draft_context_tags(&tool_sequence, task_type, None),
-        quality_score: trace.quality_score.unwrap_or(0.0),
-        tool_sequence,
-    })
-}
-
 pub(crate) fn build_gene_pool_runtime_snapshot(
     successful_traces: &[ExecutionTraceRow],
     variants: &[SkillVariantRecord],
@@ -86,7 +43,11 @@ pub(crate) fn build_gene_pool_runtime_snapshot(
 ) -> GenePoolRuntimeSnapshot {
     let mut candidates_by_skill = BTreeMap::<String, GenePoolCandidate>::new();
     for trace in successful_traces {
-        let Some(candidate) = build_candidate(trace) else {
+        let Some(candidate) = build_candidate(
+            trace,
+            |tool_sequence, task_type| infer_draft_context_tags(tool_sequence, task_type, None),
+            sanitize_agentskills_name,
+        ) else {
             continue;
         };
         match candidates_by_skill.get(&candidate.proposed_skill_name) {
@@ -122,6 +83,13 @@ pub(crate) fn build_gene_pool_runtime_snapshot(
         .iter()
         .map(|score| (score.variant_id.clone(), score))
         .collect::<BTreeMap<_, _>>();
+    let arena_score_by_variant = arena_scores
+        .iter()
+        .map(|score| (score.variant_id.clone(), score.arena_score))
+        .collect::<BTreeMap<_, _>>();
+    let fitness_history = build_fitness_history(variants, now_ms);
+    let cross_breed_proposals =
+        build_cross_breed_proposals(variants, &arena_score_by_variant, now_ms);
     let mut lifecycle_actions = Vec::new();
     for record in variants {
         let Some(score) = by_variant.get(&record.variant_id) else {
@@ -139,6 +107,8 @@ pub(crate) fn build_gene_pool_runtime_snapshot(
                     score.arena_score,
                     score.success_rate * 100.0
                 ),
+                left_parent_variant_id: None,
+                right_parent_variant_id: None,
             });
         }
         if matches!(record.status.as_str(), "active" | "proven" | "canonical")
@@ -153,18 +123,36 @@ pub(crate) fn build_gene_pool_runtime_snapshot(
                     "arena score {:.2} with {} failures exceeds retirement threshold",
                     score.arena_score, record.failure_count
                 ),
+                left_parent_variant_id: None,
+                right_parent_variant_id: None,
             });
         }
     }
+    for proposal in &cross_breed_proposals {
+        lifecycle_actions.push(GenePoolLifecycleAction {
+            action: "cross_breed".to_string(),
+            variant_id: None,
+            reason: format!(
+                "high-performing pair in {} reached co-usage rate {:.2}",
+                proposal.skill_name, proposal.co_usage_rate
+            ),
+            left_parent_variant_id: Some(proposal.left_parent_variant_id.clone()),
+            right_parent_variant_id: Some(proposal.right_parent_variant_id.clone()),
+        });
+    }
+    let cross_breed_count = cross_breed_proposals.len();
 
     GenePoolRuntimeSnapshot {
         generated_at_ms: now_ms,
         candidates,
         arena_scores,
+        fitness_history,
+        cross_breed_proposals,
         summary: format!(
-            "gene pool snapshot with {} candidates, {} arena scores, {} lifecycle actions",
+            "gene pool snapshot with {} candidates, {} arena scores, {} cross-breeds, {} lifecycle actions",
             successful_traces.len().min(GENE_POOL_TRACE_LIMIT),
             variants.len().min(GENE_POOL_VARIANT_LIMIT),
+            cross_breed_count,
             lifecycle_actions.len()
         ),
         lifecycle_actions,
@@ -202,19 +190,46 @@ impl AgentEngine {
         };
 
         for action in &snapshot.lifecycle_actions {
-            let Some(variant_id) = action.variant_id.as_deref() else {
-                continue;
-            };
             match action.action.as_str() {
                 "promote" => {
+                    let Some(variant_id) = action.variant_id.as_deref() else {
+                        continue;
+                    };
                     self.history.promote_skill_variant(variant_id).await?;
                 }
                 "retire" => {
+                    let Some(variant_id) = action.variant_id.as_deref() else {
+                        continue;
+                    };
                     self.history.retire_skill_variant(variant_id).await?;
+                }
+                "cross_breed" => {
+                    let Some(left_parent_variant_id) = action.left_parent_variant_id.as_deref() else {
+                        continue;
+                    };
+                    let Some(right_parent_variant_id) = action.right_parent_variant_id.as_deref() else {
+                        continue;
+                    };
+                    let Some(left) = self.history.get_skill_variant(left_parent_variant_id).await? else {
+                        continue;
+                    };
+                    let Some(right) = self.history.get_skill_variant(right_parent_variant_id).await? else {
+                        continue;
+                    };
+                    let _ = self
+                        .history
+                        .cross_breed_skill_variants(&left, &right)
+                        .await?;
                 }
                 _ => {}
             }
         }
+        self.history
+            .record_gene_fitness_history(&snapshot.fitness_history)
+            .await?;
+        self.history
+            .record_gene_crossbreed_proposals(&snapshot.cross_breed_proposals)
+            .await?;
 
         self.history
             .set_consolidation_state(
