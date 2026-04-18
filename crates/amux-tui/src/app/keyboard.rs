@@ -24,8 +24,7 @@ impl TuiModel {
             .position(|tab| *tab == self.sidebar.active_tab())
             .unwrap_or(0);
         let next_index = (current_index as i32 + delta).clamp(0, last_index as i32) as usize;
-        self.sidebar
-            .reduce(sidebar::SidebarAction::SwitchTab(tabs[next_index]));
+        self.activate_sidebar_tab(tabs[next_index]);
     }
 
     fn arm_pinned_shortcut_leader(&mut self) {

@@ -258,6 +258,18 @@ fn whatsapp_setup_invalid_submission_requests_retry() {
 }
 
 #[test]
+fn raw_mode_line_output_uses_carriage_return_line_feed() {
+    assert_eq!(
+        format_raw_mode_line_output("██\n██"),
+        "██\r\n██\r\n".to_string()
+    );
+    assert_eq!(
+        format_raw_mode_line_output("status line"),
+        "status line\r\n".to_string()
+    );
+}
+
+#[test]
 fn whatsapp_setup_persists_allowlist_as_string_before_gateway_enable() {
     let writes =
         whatsapp_gateway_config_writes("+48 123 456 789, 15551230000").expect("valid writes");

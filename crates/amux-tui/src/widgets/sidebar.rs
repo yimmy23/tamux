@@ -29,6 +29,7 @@ pub enum SidebarHitTarget {
     Tab(SidebarTab),
     File(String),
     Todo(usize),
+    Spawned(usize),
     Pinned(usize),
 }
 
@@ -141,6 +142,15 @@ fn pinned_footer_line(theme: &ThemeTokens) -> Line<'static> {
         Span::styled(" unpin  ", theme.fg_dim),
         Span::styled("Ctrl+C", theme.fg_active),
         Span::styled(" copy", theme.fg_dim),
+    ])
+}
+
+fn spawned_footer_line(theme: &ThemeTokens) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(" Enter", theme.fg_active),
+        Span::styled(" open child  ", theme.fg_dim),
+        Span::styled("↑↓", theme.fg_active),
+        Span::styled(" move", theme.fg_dim),
     ])
 }
 
@@ -350,6 +360,10 @@ pub fn selected_spawned_thread_id(
     thread_id: Option<&str>,
 ) -> Option<String> {
     spawned_agents::selected_thread_id(tasks, sidebar.selected_item(), thread_id)
+}
+
+pub fn first_openable_spawned_index(tasks: &TaskState, thread_id: Option<&str>) -> Option<usize> {
+    spawned_agents::first_openable_index(tasks, thread_id)
 }
 
 fn resolved_scroll(rows: &[SidebarRow], sidebar: &SidebarState, body_height: usize) -> usize {
@@ -567,6 +581,9 @@ pub fn render(
             theme,
             chat.thread_navigation_depth(),
         ));
+    }
+    if sidebar.active_tab() == SidebarTab::Spawned {
+        footer_lines.push(spawned_footer_line(theme));
     }
     if sidebar.active_tab() == SidebarTab::Pinned {
         footer_lines.push(pinned_footer_line(theme));

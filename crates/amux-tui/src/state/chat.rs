@@ -369,7 +369,11 @@ impl ChatState {
     }
 
     fn append_thread_history(&mut self, from_thread_id: &str) {
-        if self.thread_history_stack.last().is_some_and(|last| last == from_thread_id) {
+        if self
+            .thread_history_stack
+            .last()
+            .is_some_and(|last| last == from_thread_id)
+        {
             return;
         }
         self.thread_history_stack.push(from_thread_id.to_string());
@@ -388,7 +392,6 @@ impl ChatState {
         if from_thread_id.is_empty()
             || to_thread_id.is_empty()
             || from_thread_id == to_thread_id
-            || !self.thread_exists(to_thread_id)
         {
             return false;
         }

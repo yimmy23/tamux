@@ -51,13 +51,7 @@ fn task_list_received_replaces_tasks() {
 fn task_update_upserts_by_id() {
     let mut state = TaskState::new();
     state.reduce(TaskAction::TaskListReceived(vec![make_task(
-        "t1",
-        "Original",
-        1,
-        None,
-        None,
-        None,
-        None,
+        "t1", "Original", 1, None, None, None, None,
     )]));
 
     // Update existing task
@@ -259,12 +253,11 @@ fn spawned_tree_nests_descendants_by_parent_task_id() {
             .map(|node| node.item.id.as_str()),
         Some("grandchild-task")
     );
-    assert!(
-        tree.anchor
-            .as_ref()
-            .and_then(|node| node.children.first())
-            .is_some_and(|node| node.openable)
-    );
+    assert!(tree
+        .anchor
+        .as_ref()
+        .and_then(|node| node.children.first())
+        .is_some_and(|node| node.openable));
 }
 
 #[test]

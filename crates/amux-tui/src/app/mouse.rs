@@ -463,7 +463,7 @@ impl TuiModel {
                         Position::new(mouse.column, mouse.row),
                     ) {
                         Some(widgets::sidebar::SidebarHitTarget::Tab(tab)) => {
-                            self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(tab));
+                            self.activate_sidebar_tab(tab);
                         }
                         Some(widgets::sidebar::SidebarHitTarget::File(path)) => {
                             if let Some(thread_id) =
@@ -481,6 +481,10 @@ impl TuiModel {
                             }
                         }
                         Some(widgets::sidebar::SidebarHitTarget::Todo(index)) => {
+                            self.sidebar.select(index, self.sidebar_item_count());
+                            self.handle_sidebar_enter();
+                        }
+                        Some(widgets::sidebar::SidebarHitTarget::Spawned(index)) => {
                             self.sidebar.select(index, self.sidebar_item_count());
                             self.handle_sidebar_enter();
                         }

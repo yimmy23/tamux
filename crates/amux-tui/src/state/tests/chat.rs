@@ -203,6 +203,17 @@ fn thread_history_stack_suppresses_duplicate_top_entries() {
 }
 
 #[test]
+fn thread_history_stack_allows_opening_unloaded_spawned_thread() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![make_thread("thread-a", "A")]));
+    state.reduce(ChatAction::SelectThread("thread-a".into()));
+
+    assert!(state.open_spawned_thread("thread-a", "thread-b"));
+    assert_eq!(state.active_thread_id(), Some("thread-b"));
+    assert_eq!(state.thread_history_stack(), &["thread-a".to_string()]);
+}
+
+#[test]
 fn thread_history_stack_survives_ordinary_selection_and_prunes_deleted_threads() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadListReceived(vec![
@@ -248,7 +259,9 @@ fn thread_history_stack_prunes_missing_threads_on_list_replacement() {
     assert!(state.open_spawned_thread("thread-a", "thread-b"));
     assert_eq!(state.thread_history_stack(), &["thread-a".to_string()]);
 
-    state.reduce(ChatAction::ThreadListReceived(vec![make_thread("thread-c", "C")]));
+    state.reduce(ChatAction::ThreadListReceived(vec![make_thread(
+        "thread-c", "C",
+    )]));
     assert!(state.thread_history_stack().is_empty());
     assert_eq!(state.go_back_thread(), None);
 }

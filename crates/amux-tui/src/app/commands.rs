@@ -350,6 +350,18 @@ impl TuiModel {
         )
     }
 
+    pub(super) fn activate_sidebar_tab(&mut self, tab: sidebar::SidebarTab) {
+        self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(tab));
+        if tab == sidebar::SidebarTab::Spawned {
+            if let Some(index) = widgets::sidebar::first_openable_spawned_index(
+                &self.tasks,
+                self.chat.active_thread_id(),
+            ) {
+                self.sidebar.select(index, self.sidebar_item_count());
+            }
+        }
+    }
+
     pub(super) fn open_selected_spawned_thread(&mut self) {
         let Some(from_thread_id) = self.chat.active_thread_id().map(str::to_string) else {
             return;

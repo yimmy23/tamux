@@ -593,3 +593,54 @@ fn spawned_sidebar_renders_nested_rows_under_active_thread() {
         "expected grandchild row in spawned sidebar, got: {plain}"
     );
 }
+
+#[test]
+fn spawned_sidebar_hit_test_returns_spawned_target_for_child_row() {
+    let mut sidebar = SidebarState::new();
+    sidebar.reduce(crate::state::sidebar::SidebarAction::SwitchTab(
+        crate::state::sidebar::SidebarTab::Spawned,
+    ));
+    let mut tasks = TaskState::new();
+    tasks.reduce(TaskAction::TaskListReceived(vec![
+        spawned_sidebar_task(
+            "root-task",
+            "Root worker",
+            10,
+            Some("thread-root"),
+            None,
+            None,
+            Some(crate::state::task::TaskStatus::InProgress),
+        ),
+        spawned_sidebar_task(
+            "child-task",
+            "Child worker",
+            20,
+            Some("thread-child"),
+            Some("root-task"),
+            Some("thread-root"),
+            Some(crate::state::task::TaskStatus::InProgress),
+        ),
+    ]));
+    let mut chat = ChatState::new();
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "thread-root".to_string(),
+        title: "Root".to_string(),
+    });
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "thread-child".to_string(),
+        title: "Child".to_string(),
+    });
+    chat.reduce(ChatAction::SelectThread("thread-root".to_string()));
+
+    let area = Rect::new(0, 0, 44, 10);
+    let target = hit_test(
+        area,
+        &chat,
+        &sidebar,
+        &tasks,
+        Some("thread-root"),
+        Position::new(2, 2),
+    );
+
+    assert_eq!(target, Some(SidebarHitTarget::Spawned(1)));
+}

@@ -85,6 +85,12 @@ pub(super) fn selected_thread_id(
         .and_then(|item| item.thread_id.clone())
 }
 
+pub(super) fn first_openable_index(tasks: &TaskState, thread_id: Option<&str>) -> Option<usize> {
+    flattened_items(tasks, thread_id)
+        .iter()
+        .position(|item| item.openable)
+}
+
 pub(super) fn item_count(tasks: &TaskState, thread_id: Option<&str>) -> usize {
     flattened_items(tasks, thread_id).len().max(1)
 }
@@ -140,7 +146,7 @@ pub(super) fn rows(
                 } else {
                     line
                 },
-                target: Some(SidebarHitTarget::Todo(idx)),
+                target: Some(SidebarHitTarget::Spawned(idx)),
             }
         })
         .collect()

@@ -83,7 +83,11 @@ fn build_indexes<T: SpawnedAgentTreeSource + Clone>(
         }
     }
 
-    for map in [&mut by_thread_id, &mut by_parent_task_id, &mut by_parent_thread_id] {
+    for map in [
+        &mut by_thread_id,
+        &mut by_parent_task_id,
+        &mut by_parent_thread_id,
+    ] {
         for bucket in map.values_mut() {
             bucket.sort_by(compare_spawned_tree_items);
         }
@@ -99,7 +103,10 @@ fn is_terminal(status: Option<TaskStatus>) -> bool {
     )
 }
 
-fn has_resolved_parent<T: SpawnedAgentTreeSource>(item: &T, identity_lookup: &HashSet<String>) -> bool {
+fn has_resolved_parent<T: SpawnedAgentTreeSource>(
+    item: &T,
+    identity_lookup: &HashSet<String>,
+) -> bool {
     item.spawned_tree_parent_task_id()
         .is_some_and(|parent| identity_lookup.contains(parent))
 }
@@ -190,7 +197,10 @@ pub fn derive_spawned_agent_tree<T: SpawnedAgentTreeSource + Clone>(
         .map(|item| item.spawned_tree_identity().to_string())
         .collect();
 
-    let active_thread_items = by_thread_id.get(active_thread_id).cloned().unwrap_or_default();
+    let active_thread_items = by_thread_id
+        .get(active_thread_id)
+        .cloned()
+        .unwrap_or_default();
     let anchor_candidate = active_thread_items
         .iter()
         .find(|item| !has_resolved_parent(*item, &identity_lookup))
@@ -240,15 +250,14 @@ pub fn derive_spawned_agent_tree<T: SpawnedAgentTreeSource + Clone>(
 
     Some(SpawnedAgentTree {
         active_thread_id: active_thread_id.to_string(),
-        anchor: anchor_candidate
-            .map(|item| {
-                build_node(
-                    item,
-                    &by_parent_task_id,
-                    &by_parent_thread_id,
-                    &root_identity_lookup,
-                )
-            }),
+        anchor: anchor_candidate.map(|item| {
+            build_node(
+                item,
+                &by_parent_task_id,
+                &by_parent_thread_id,
+                &root_identity_lookup,
+            )
+        }),
         roots,
     })
 }
