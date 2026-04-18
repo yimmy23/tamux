@@ -21,16 +21,6 @@ impl ConciergeEngine {
         }
     }
 
-    pub(crate) async fn has_prior_user_history(
-        &self,
-        session_manager: &Arc<SessionManager>,
-    ) -> bool {
-        !self
-            .recent_persisted_history_thread_ids(session_manager, 1)
-            .await
-            .is_empty()
-    }
-
     pub(super) async fn gather_context(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,

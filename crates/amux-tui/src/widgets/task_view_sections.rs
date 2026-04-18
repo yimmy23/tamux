@@ -105,8 +105,12 @@ pub(super) fn render_steps(
 
     for step in &steps {
         let chip = match step.status {
-            None | Some(GoalRunStatus::Pending) => "[ ]",
+            None
+            | Some(GoalRunStatus::Queued)
+            | Some(GoalRunStatus::Planning)
+            | Some(GoalRunStatus::AwaitingApproval) => "[ ]",
             Some(GoalRunStatus::Running) => "[~]",
+            Some(GoalRunStatus::Paused) => "[P]",
             Some(GoalRunStatus::Completed) => "[x]",
             Some(GoalRunStatus::Failed) => "[!]",
             Some(GoalRunStatus::Cancelled) => "[-]",

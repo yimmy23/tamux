@@ -150,15 +150,15 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
         ]),
         Line::from(vec![
             Span::styled("  /provider        ", theme.fg_active),
-            Span::styled("Switch LLM provider", theme.fg_dim),
+            Span::styled("Switch Svarog's provider", theme.fg_dim),
         ]),
         Line::from(vec![
             Span::styled("  /model           ", theme.fg_active),
-            Span::styled("Switch model", theme.fg_dim),
+            Span::styled("Switch Svarog's model", theme.fg_dim),
         ]),
         Line::from(vec![
             Span::styled("  /effort          ", theme.fg_active),
-            Span::styled("Set reasoning effort", theme.fg_dim),
+            Span::styled("Set Svarog's reasoning effort", theme.fg_dim),
         ]),
         Line::from(vec![
             Span::styled("  /thread          ", theme.fg_active),

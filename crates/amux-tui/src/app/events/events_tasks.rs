@@ -219,6 +219,11 @@ impl TuiModel {
         } else {
             0
         };
+        let viewport_anchor = if should_preserve_prepend_anchor {
+            None
+        } else {
+            self.capture_locked_chat_viewport(Some(thread_id.as_str()))
+        };
         self.finish_thread_loading(&thread_id);
         let should_select_thread = self.chat.active_thread_id().is_none();
         if self.chat.active_thread_id() == Some(thread_id.as_str()) {
@@ -233,6 +238,8 @@ impl TuiModel {
         self.sync_participant_queued_prompts_for_thread(&thread_id, &live_suggestion_ids);
         if should_preserve_prepend_anchor {
             self.chat.preserve_prepend_scroll_anchor(preserved_scroll);
+        } else {
+            self.restore_locked_chat_viewport(viewport_anchor);
         }
         if self.sidebar.active_tab() == crate::state::sidebar::SidebarTab::Pinned
             && !self.chat.active_thread_has_pinned_messages()
@@ -342,6 +349,7 @@ impl TuiModel {
         let tasks: Vec<_> = tasks.into_iter().map(conversion::convert_task).collect();
         self.tasks
             .reduce(task::TaskAction::TaskListReceived(tasks.clone()));
+        self.clamp_detail_view_scroll();
         self.clear_replaced_task_approvals(&previous_tasks, &tasks);
         self.sync_pending_approvals_from_tasks();
     }
@@ -354,6 +362,7 @@ impl TuiModel {
             .and_then(|task| task.awaiting_approval_id.clone());
         self.tasks
             .reduce(task::TaskAction::TaskUpdate(converted.clone()));
+        self.clamp_detail_view_scroll();
         if let Some(previous_approval_id) = previous_approval_id.filter(|approval_id| {
             Some(approval_id.as_str()) != converted.awaiting_approval_id.as_deref()
         }) {
@@ -369,6 +378,7 @@ impl TuiModel {
         let runs = runs.into_iter().map(conversion::convert_goal_run).collect();
         self.tasks
             .reduce(task::TaskAction::GoalRunListReceived(runs));
+        self.clamp_detail_view_scroll();
     }
 
     pub(in crate::app) fn handle_goal_run_started_event(&mut self, run: crate::wire::GoalRun) {
@@ -383,15 +393,39 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_goal_run_detail_event(&mut self, run: crate::wire::GoalRun) {
+        let should_preserve_prepend_anchor = matches!(
+            &self.main_pane_view,
+            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. })
+                if goal_run_id == &run.id
+        ) && self.task_view_scroll <= 3
+            && self.tasks.goal_run_by_id(&run.id).is_some_and(|existing| {
+                (run.loaded_step_end == existing.loaded_step_start
+                    && run.loaded_step_start < run.loaded_step_end)
+                    || (run.loaded_event_end == existing.loaded_event_start
+                        && run.loaded_event_start < run.loaded_event_end)
+            });
+        let before_max_scroll = if should_preserve_prepend_anchor {
+            self.current_detail_view_max_scroll()
+        } else {
+            0
+        };
         self.tasks.reduce(task::TaskAction::GoalRunDetailReceived(
             conversion::convert_goal_run(run),
         ));
+        if should_preserve_prepend_anchor {
+            let after_max_scroll = self.current_detail_view_max_scroll();
+            self.task_view_scroll = self
+                .task_view_scroll
+                .saturating_add(after_max_scroll.saturating_sub(before_max_scroll));
+        }
+        self.clamp_detail_view_scroll();
     }
 
     pub(in crate::app) fn handle_goal_run_update_event(&mut self, run: crate::wire::GoalRun) {
         self.tasks.reduce(task::TaskAction::GoalRunUpdate(
             conversion::convert_goal_run(run),
         ));
+        self.clamp_detail_view_scroll();
     }
 
     pub(in crate::app) fn handle_goal_run_checkpoints_event(
@@ -407,6 +441,7 @@ impl TuiModel {
                     .map(conversion::convert_checkpoint_summary)
                     .collect(),
             });
+        self.clamp_detail_view_scroll();
     }
 
     pub(in crate::app) fn handle_thread_todos_event(
@@ -418,6 +453,7 @@ impl TuiModel {
             thread_id,
             items: items.into_iter().map(conversion::convert_todo).collect(),
         });
+        self.clamp_detail_view_scroll();
     }
 
     pub(in crate::app) fn handle_work_context_event(
@@ -428,6 +464,7 @@ impl TuiModel {
             conversion::convert_work_context(context),
         ));
         self.ensure_task_view_preview();
+        self.clamp_detail_view_scroll();
     }
 
     pub(in crate::app) fn handle_git_diff_event(
@@ -441,6 +478,7 @@ impl TuiModel {
             file_path,
             diff,
         });
+        self.clamp_detail_view_scroll();
     }
 
     pub(in crate::app) fn handle_file_preview_event(
@@ -457,5 +495,6 @@ impl TuiModel {
                 truncated,
                 is_text,
             }));
+        self.clamp_detail_view_scroll();
     }
 }

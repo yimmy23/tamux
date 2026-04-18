@@ -58,7 +58,7 @@ pub enum ClientMessage {
     AgentStopStream { thread_id: String },
     AgentForceCompact { thread_id: String },
     AgentRetryStreamNow { thread_id: String },
-    AgentListThreads,
+    AgentListThreads { #[serde(default)] limit: Option<usize>, #[serde(default)] offset: Option<usize> },
     AgentGetThread { thread_id: String, #[serde(default)] message_limit: Option<usize>, #[serde(default)] message_offset: Option<usize> },
     AgentDeleteThread { thread_id: String },
     AgentAddTask { title: String, description: String, priority: String, command: Option<String>, session_id: Option<String>, scheduled_at: Option<u64>, #[serde(default)] dependencies: Vec<String> },
@@ -67,9 +67,21 @@ pub enum ClientMessage {
     AgentListTasks,
     AgentListRuns,
     AgentGetRun { run_id: String },
-    AgentListGoalRuns,
+    AgentListGoalRuns { #[serde(default)] limit: Option<usize>, #[serde(default)] offset: Option<usize> },
     AgentGetGoalRun { goal_run_id: String },
+    AgentGetGoalRunPage {
+        goal_run_id: String,
+        #[serde(default)]
+        step_offset: Option<usize>,
+        #[serde(default)]
+        step_limit: Option<usize>,
+        #[serde(default)]
+        event_offset: Option<usize>,
+        #[serde(default)]
+        event_limit: Option<usize>,
+    },
     AgentControlGoalRun { goal_run_id: String, action: String, step_index: Option<usize> },
+    AgentDeleteGoalRun { goal_run_id: String },
     AgentListTodos,
     AgentGetTodos { thread_id: String },
     AgentGetWorkContext { thread_id: String },

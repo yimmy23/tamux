@@ -13,7 +13,7 @@ fn render_chat_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Fields 0–2: toggles
+    // Fields 0–2: top-level toggles
     let toggles: [(usize, bool, &str); 3] = [
         (0, config.enable_streaming, "Streaming"),
         (1, config.enable_conversation_memory, "Conversation Memory"),
@@ -45,72 +45,46 @@ fn render_chat_tab<'a>(
             Span::styled(*name, label_style),
         ];
         if is_selected {
-            spans.push(Span::styled("  [Space: toggle]", theme.fg_dim));
+            if *idx == 2 {
+                spans.push(Span::styled("  [Space: toggle, Enter: edit]", theme.fg_dim));
+            } else {
+                spans.push(Span::styled("  [Space: toggle]", theme.fg_dim));
+            }
         }
         lines.push(Line::from(spans));
     }
 
-    // Fields 3–5: text / password fields
-    let text_fields: [(usize, &str, &str, &str, bool); 3] = [
-        (
-            3,
-            "Honcho API Key:  ",
-            config.honcho_api_key.as_str(),
-            "honcho_api_key",
-            true,
-        ),
-        (
-            4,
-            "Honcho Base URL: ",
-            config.honcho_base_url.as_str(),
-            "honcho_base_url",
-            false,
-        ),
+    let capability_toggles: [(usize, bool, &str); 10] = [
+        (3, config.anticipatory_enabled, "Anticipatory Support"),
+        (4, config.anticipatory_morning_brief, "Morning Brief"),
         (
             5,
-            "Honcho Workspace:",
-            config.honcho_workspace_id.as_str(),
-            "honcho_workspace_id",
-            false,
-        ),
-    ];
-    for (idx, label, value, field_name, password) in &text_fields {
-        render_gateway_text_field(
-            settings, theme, &mut lines, *idx, label, value, field_name, *password,
-        );
-    }
-
-    let capability_toggles: [(usize, bool, &str); 10] = [
-        (6, config.anticipatory_enabled, "Anticipatory Support"),
-        (7, config.anticipatory_morning_brief, "Morning Brief"),
-        (
-            8,
             config.anticipatory_predictive_hydration,
             "Predictive Hydration",
         ),
-        (9, config.anticipatory_stuck_detection, "Stuck Detection"),
-        (10, config.operator_model_enabled, "Operator Model"),
+        (6, config.anticipatory_stuck_detection, "Stuck Detection"),
+        (7, config.operator_model_enabled, "Operator Model"),
         (
-            11,
+            8,
             config.operator_model_allow_message_statistics,
             "Message Statistics",
         ),
         (
-            12,
+            9,
             config.operator_model_allow_approval_learning,
             "Approval Learning",
         ),
         (
-            13,
+            10,
             config.operator_model_allow_attention_tracking,
             "Attention Tracking",
         ),
         (
-            14,
+            11,
             config.operator_model_allow_implicit_feedback,
             "Implicit Feedback",
         ),
-        (15, config.collaboration_enabled, "Collaboration"),
+        (12, config.collaboration_enabled, "Collaboration"),
     ];
     for (idx, enabled, name) in &capability_toggles {
         let is_selected = settings.field_cursor() == *idx;
@@ -143,11 +117,11 @@ fn render_chat_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    let field_16_selected = settings.field_cursor() == 16;
+    let field_13_selected = settings.field_cursor() == 13;
     lines.push(Line::from(vec![
         Span::styled(
-            if field_16_selected { "> " } else { "  " },
-            if field_16_selected {
+            if field_13_selected { "> " } else { "  " },
+            if field_13_selected {
                 theme.accent_primary
             } else {
                 theme.fg_dim
@@ -156,13 +130,13 @@ fn render_chat_tab<'a>(
         Span::styled(format!("{:<16} ", "Compliance:"), theme.fg_dim),
         Span::styled(
             config.compliance_mode.as_str(),
-            if field_16_selected {
+            if field_13_selected {
                 theme.accent_primary
             } else {
                 theme.fg_active
             },
         ),
-        if field_16_selected {
+        if field_13_selected {
             Span::styled("  [Enter: cycle]", theme.fg_dim)
         } else {
             Span::raw("")
@@ -170,7 +144,7 @@ fn render_chat_tab<'a>(
     ]));
 
     for (idx, label, value, field_name) in [(
-        17usize,
+        14usize,
         "Retention Days: ",
         config.compliance_retention_days.to_string(),
         "compliance_retention_days",
@@ -182,13 +156,13 @@ fn render_chat_tab<'a>(
 
     for (idx, enabled, name) in [
         (
-            18usize,
+            15usize,
             config.compliance_sign_all_events,
             "Sign All Events",
         ),
-        (19usize, config.tool_synthesis_enabled, "Tool Synthesis"),
+        (16usize, config.tool_synthesis_enabled, "Tool Synthesis"),
         (
-            20usize,
+            17usize,
             config.tool_synthesis_require_activation,
             "Require Activation",
         ),
@@ -223,8 +197,55 @@ fn render_chat_tab<'a>(
         lines.push(Line::from(spans));
     }
 
+    if let Some(editor) = config.honcho_editor.as_ref() {
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(
+            "  Honcho Memory Settings",
+            theme.fg_dim,
+        )));
+        lines.push(render_honcho_editor_toggle(
+            editor,
+            crate::state::config::HonchoEditorField::Enabled,
+            "Enabled",
+            editor.enabled,
+            theme,
+        ));
+        lines.push(render_honcho_editor_text_field(
+            settings,
+            editor,
+            crate::state::config::HonchoEditorField::ApiKey,
+            "API Key",
+            &editor.api_key,
+            "honcho_editor_api_key",
+            true,
+            theme,
+        ));
+        lines.push(render_honcho_editor_text_field(
+            settings,
+            editor,
+            crate::state::config::HonchoEditorField::BaseUrl,
+            "Base URL",
+            &editor.base_url,
+            "honcho_editor_base_url",
+            false,
+            theme,
+        ));
+        lines.push(render_honcho_editor_text_field(
+            settings,
+            editor,
+            crate::state::config::HonchoEditorField::WorkspaceId,
+            "Workspace",
+            &editor.workspace_id,
+            "honcho_editor_workspace_id",
+            false,
+            theme,
+        ));
+        lines.push(render_honcho_editor_actions(editor, theme));
+        lines.push(Line::raw(""));
+    }
+
     for (idx, label, value, field_name) in [(
-        21usize,
+        18usize,
         "Tool Limit:     ",
         config.tool_synthesis_max_generated_tools.to_string(),
         "tool_synthesis_max_generated_tools",
@@ -235,10 +256,10 @@ fn render_chat_tab<'a>(
     }
 
     for (idx, label) in [
-        (22usize, "Inspect Operator Model"),
-        (23usize, "Reset Operator Model"),
-        (24usize, "Inspect Collaboration"),
-        (25usize, "Inspect Generated Tools"),
+        (19usize, "Inspect Operator Model"),
+        (20usize, "Reset Operator Model"),
+        (21usize, "Inspect Collaboration"),
+        (22usize, "Inspect Generated Tools"),
     ] {
         let is_selected = settings.field_cursor() == idx;
         lines.push(Line::from(vec![
@@ -269,3 +290,132 @@ fn render_chat_tab<'a>(
     lines
 }
 
+fn render_honcho_editor_toggle<'a>(
+    editor: &crate::state::config::HonchoEditorState,
+    field: crate::state::config::HonchoEditorField,
+    label: &'a str,
+    enabled: bool,
+    theme: &ThemeTokens,
+) -> Line<'a> {
+    let is_selected = editor.field == field;
+    let marker = if is_selected { "  > " } else { "    " };
+    let check = if enabled { "[x]" } else { "[ ]" };
+    let mut spans = vec![
+        Span::styled(
+            marker,
+            if is_selected {
+                theme.accent_primary
+            } else {
+                theme.fg_dim
+            },
+        ),
+        Span::styled(
+            check,
+            if enabled {
+                theme.accent_success
+            } else {
+                theme.fg_dim
+            },
+        ),
+        Span::raw(" "),
+        Span::styled(
+            label,
+            if is_selected {
+                theme.accent_primary
+            } else {
+                theme.fg_active
+            },
+        ),
+    ];
+    if is_selected {
+        spans.push(Span::styled("  [Space: toggle]", theme.fg_dim));
+    }
+    Line::from(spans)
+}
+
+fn render_honcho_editor_text_field<'a>(
+    settings: &SettingsState,
+    editor: &crate::state::config::HonchoEditorState,
+    field: crate::state::config::HonchoEditorField,
+    label: &'a str,
+    value: &str,
+    field_name: &'a str,
+    password: bool,
+    theme: &ThemeTokens,
+) -> Line<'a> {
+    let is_selected = editor.field == field;
+    let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
+    let display_value = if is_editing {
+        format!("{}\u{2588}", settings.edit_buffer())
+    } else if value.is_empty() {
+        "(not set)".to_string()
+    } else if password {
+        mask_api_key(value)
+    } else {
+        value.to_string()
+    };
+    let mut spans = vec![
+        Span::styled(
+            if is_selected { "  > " } else { "    " },
+            if is_selected {
+                theme.accent_primary
+            } else {
+                theme.fg_dim
+            },
+        ),
+        Span::styled(format!("{label:<12} "), theme.fg_dim),
+        Span::styled(
+            display_value,
+            if is_editing {
+                theme.fg_active
+            } else if is_selected {
+                theme.accent_primary
+            } else {
+                theme.fg_active
+            },
+        ),
+    ];
+    if is_selected && !is_editing {
+        spans.push(Span::styled("  [Enter: edit]", theme.fg_dim));
+    }
+    Line::from(spans)
+}
+
+fn render_honcho_editor_actions<'a>(
+    editor: &crate::state::config::HonchoEditorState,
+    theme: &ThemeTokens,
+) -> Line<'a> {
+    let save_selected = editor.field == crate::state::config::HonchoEditorField::Save;
+    let cancel_selected = editor.field == crate::state::config::HonchoEditorField::Cancel;
+    Line::from(vec![
+        Span::styled(
+            if save_selected || cancel_selected {
+                "  > "
+            } else {
+                "    "
+            },
+            if save_selected || cancel_selected {
+                theme.accent_primary
+            } else {
+                theme.fg_dim
+            },
+        ),
+        Span::styled(
+            "[Save]",
+            if save_selected {
+                theme.accent_primary
+            } else {
+                theme.fg_dim
+            },
+        ),
+        Span::raw("  "),
+        Span::styled(
+            "[Cancel]",
+            if cancel_selected {
+                theme.accent_primary
+            } else {
+                theme.fg_dim
+            },
+        ),
+    ])
+}

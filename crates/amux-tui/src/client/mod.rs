@@ -84,6 +84,10 @@ pub enum ClientEvent {
         title: String,
         agent_name: Option<String>,
     },
+    ThreadDeleted {
+        thread_id: String,
+        deleted: bool,
+    },
     ThreadMessagePinResult(ThreadMessagePinResultVm),
     ThreadReloadRequired {
         thread_id: String,
@@ -98,6 +102,10 @@ pub enum ClientEvent {
     GoalRunStarted(GoalRun),
     GoalRunDetail(Option<GoalRun>),
     GoalRunUpdate(GoalRun),
+    GoalRunDeleted {
+        goal_run_id: String,
+        deleted: bool,
+    },
     GoalRunCheckpoints {
         goal_run_id: String,
         checkpoints: Vec<CheckpointSummary>,

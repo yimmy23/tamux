@@ -33,6 +33,7 @@ impl TuiModel {
             default_session_id: None,
             tick_counter: 0,
             agent_activity: None,
+            thread_agent_activity: std::collections::HashMap::new(),
             participant_playground_activity: std::collections::HashMap::new(),
             last_error: None,
             error_active: false,
@@ -89,6 +90,7 @@ impl TuiModel {
             prompt_modal_scroll: 0,
             prompt_modal_title_override: None,
             prompt_modal_body_override: None,
+            settings_modal_scroll: 0,
             thread_participants_modal_scroll: 0,
             help_modal_scroll: 0,
             chat_drag_anchor: None,
@@ -111,9 +113,14 @@ impl TuiModel {
     pub(crate) fn active_always_auto_response_participant(
         &self,
     ) -> Option<&crate::state::chat::ThreadParticipantState> {
-        self.chat.active_thread()?.thread_participants.iter().find(|participant| {
-            participant.status.eq_ignore_ascii_case("active") && participant.always_auto_response
-        })
+        self.chat
+            .active_thread()?
+            .thread_participants
+            .iter()
+            .find(|participant| {
+                participant.status.eq_ignore_ascii_case("active")
+                    && participant.always_auto_response
+            })
     }
 
     pub(crate) fn queued_active_auto_response_suggestion(
@@ -124,9 +131,13 @@ impl TuiModel {
             .queued_participant_suggestions
             .iter()
             .find(|suggestion| {
-                suggestion.suggestion_kind.eq_ignore_ascii_case("auto_response")
+                suggestion
+                    .suggestion_kind
+                    .eq_ignore_ascii_case("auto_response")
                     && suggestion.status.eq_ignore_ascii_case("queued")
-                    && !self.hidden_auto_response_suggestion_ids.contains(&suggestion.id)
+                    && !self
+                        .hidden_auto_response_suggestion_ids
+                        .contains(&suggestion.id)
             })
     }
 
@@ -189,8 +200,10 @@ impl TuiModel {
                     thread_id,
                     suggestion_id: suggestion.id,
                 });
-                self.status_line =
-                    format!("Auto response always enabled for {}", suggestion.target_agent_name);
+                self.status_line = format!(
+                    "Auto response always enabled for {}",
+                    suggestion.target_agent_name
+                );
             }
         }
         true
@@ -208,11 +221,15 @@ impl TuiModel {
             return None;
         }
         let authored_by_participant =
-            latest_message.author_agent_id.as_ref().is_some_and(|author_id| {
-                thread.thread_participants.iter().any(|participant| {
-                    participant.agent_id.eq_ignore_ascii_case(author_id)
-                })
-            });
+            latest_message
+                .author_agent_id
+                .as_ref()
+                .is_some_and(|author_id| {
+                    thread
+                        .thread_participants
+                        .iter()
+                        .any(|participant| participant.agent_id.eq_ignore_ascii_case(author_id))
+                });
         (!authored_by_participant).then(|| {
             (
                 latest_message.timestamp,
@@ -257,14 +274,20 @@ impl TuiModel {
         let Some(thread) = self.chat.active_thread() else {
             return false;
         };
-        let has_matching_suggestion = thread.queued_participant_suggestions.iter().any(|suggestion| {
-            suggestion.suggestion_kind.eq_ignore_ascii_case("auto_response")
-                && suggestion.status.eq_ignore_ascii_case("queued")
-                && suggestion
-                    .target_agent_id
-                    .eq_ignore_ascii_case(&target_participant.agent_id)
-                && suggestion.source_message_timestamp == Some(source_message_timestamp)
-        });
+        let has_matching_suggestion =
+            thread
+                .queued_participant_suggestions
+                .iter()
+                .any(|suggestion| {
+                    suggestion
+                        .suggestion_kind
+                        .eq_ignore_ascii_case("auto_response")
+                        && suggestion.status.eq_ignore_ascii_case("queued")
+                        && suggestion
+                            .target_agent_id
+                            .eq_ignore_ascii_case(&target_participant.agent_id)
+                        && suggestion.source_message_timestamp == Some(source_message_timestamp)
+                });
         if has_matching_suggestion {
             return false;
         }
@@ -321,11 +344,15 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn open_pinned_budget_exceeded_modal(&mut self, payload: PendingPinnedBudgetExceeded) {
+    pub(super) fn open_pinned_budget_exceeded_modal(
+        &mut self,
+        payload: PendingPinnedBudgetExceeded,
+    ) {
         self.pending_pinned_budget_exceeded = Some(payload);
         if self.modal.top() != Some(modal::ModalKind::PinnedBudgetExceeded) {
-            self.modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::PinnedBudgetExceeded));
+            self.modal.reduce(modal::ModalAction::Push(
+                modal::ModalKind::PinnedBudgetExceeded,
+            ));
         }
     }
 
@@ -360,7 +387,10 @@ impl TuiModel {
             return format!("Statistics request failed\n=========================\n{error}");
         }
         if let Some(snapshot) = &self.statistics_modal_snapshot {
-            return widgets::statistics::format_statistics_body(snapshot, self.statistics_modal_tab);
+            return widgets::statistics::format_statistics_body(
+                snapshot,
+                self.statistics_modal_tab,
+            );
         }
         "No statistics available.".to_string()
     }
@@ -605,6 +635,46 @@ impl TuiModel {
         self.prompt_modal_scroll = scroll.min(self.prompt_modal_max_scroll());
     }
 
+    pub(crate) fn settings_modal_max_scroll(&self) -> usize {
+        self.current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::Settings)
+            .map(|(_, area)| {
+                widgets::settings::max_scroll(
+                    area,
+                    &self.settings,
+                    &self.config,
+                    &self.modal,
+                    &self.auth,
+                    &self.subagents,
+                    &self.concierge,
+                    &self.tier,
+                    &self.plugin_settings,
+                    &self.theme,
+                )
+            })
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn set_settings_modal_scroll(&mut self, scroll: usize) {
+        self.settings_modal_scroll = scroll.min(self.settings_modal_max_scroll());
+    }
+
+    pub(crate) fn step_settings_modal_scroll(&mut self, delta: i32) {
+        let current = self.settings_modal_scroll as i32;
+        let next = (current + delta).max(0) as usize;
+        self.set_settings_modal_scroll(next);
+    }
+
+    pub(crate) fn page_settings_modal_scroll(&mut self, direction: i32) {
+        let page = self
+            .current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::Settings)
+            .map(|(_, area)| area.height.saturating_sub(4) as i32)
+            .unwrap_or(10)
+            .max(1);
+        self.step_settings_modal_scroll(page * direction);
+    }
+
     pub(crate) fn set_thread_participants_modal_scroll(&mut self, scroll: usize) {
         self.thread_participants_modal_scroll =
             scroll.min(self.thread_participants_modal_max_scroll());
@@ -669,8 +739,9 @@ impl TuiModel {
         }
         self.thread_participants_modal_scroll = 0;
         if self.modal.top() != Some(modal::ModalKind::ThreadParticipants) {
-            self.modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadParticipants));
+            self.modal.reduce(modal::ModalAction::Push(
+                modal::ModalKind::ThreadParticipants,
+            ));
         }
     }
 
@@ -690,10 +761,7 @@ impl TuiModel {
         self.status_line = format!("Loading statistics for {}...", window.as_str());
     }
 
-    pub(crate) fn select_statistics_tab(
-        &mut self,
-        tab: crate::state::statistics::StatisticsTab,
-    ) {
+    pub(crate) fn select_statistics_tab(&mut self, tab: crate::state::statistics::StatisticsTab) {
         self.statistics_modal_tab = tab;
         self.statistics_modal_scroll = 0;
     }
@@ -785,8 +853,47 @@ impl TuiModel {
         self.pending_stop && self.tick_counter.saturating_sub(self.pending_stop_tick) < 100
     }
 
+    fn current_thread_agent_activity(&self) -> Option<&str> {
+        self.chat
+            .active_thread_id()
+            .and_then(|thread_id| self.thread_agent_activity.get(thread_id))
+            .map(String::as_str)
+            .or(self.agent_activity.as_deref())
+    }
+
+    fn set_agent_activity_for(&mut self, thread_id: Option<String>, activity: impl Into<String>) {
+        let activity = activity.into();
+        if let Some(thread_id) = thread_id {
+            self.thread_agent_activity.insert(thread_id, activity);
+        } else {
+            self.agent_activity = Some(activity);
+        }
+    }
+
+    fn set_active_thread_activity(&mut self, activity: impl Into<String>) {
+        self.set_agent_activity_for(self.chat.active_thread_id().map(str::to_string), activity);
+    }
+
+    fn clear_agent_activity_for(&mut self, thread_id: Option<&str>) {
+        if let Some(thread_id) = thread_id {
+            self.thread_agent_activity.remove(thread_id);
+        } else {
+            self.agent_activity = None;
+        }
+    }
+
+    fn clear_active_thread_activity(&mut self) {
+        let thread_id = self.chat.active_thread_id().map(str::to_string);
+        self.clear_agent_activity_for(thread_id.as_deref());
+    }
+
+    fn clear_all_agent_activity(&mut self) {
+        self.agent_activity = None;
+        self.thread_agent_activity.clear();
+    }
+
     fn assistant_busy(&self) -> bool {
-        self.chat.is_streaming() || self.agent_activity.is_some()
+        self.chat.is_streaming() || self.current_thread_agent_activity().is_some()
     }
 
     fn queue_barrier_active(&self) -> bool {
@@ -856,14 +963,7 @@ impl TuiModel {
     }
 
     fn anticipatory_banner_height(&self) -> u16 {
-        if self.anticipatory.has_items()
-            && !self.concierge.loading
-            && !self.concierge.has_active_welcome()
-        {
-            8
-        } else {
-            0
-        }
+        0
     }
 
     fn pane_layout_for_area(&self, area: Rect) -> PaneLayout {
@@ -1086,6 +1186,7 @@ impl TuiModel {
                 .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
         }
         self.settings.reduce(SettingsAction::SwitchTab(tab));
+        self.settings_modal_scroll = 0;
         self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
         self.send_daemon_command(DaemonCommand::GetOpenAICodexAuthStatus);
         self.send_daemon_command(DaemonCommand::ListSubAgents);
@@ -1130,6 +1231,9 @@ impl TuiModel {
         }
         if self.modal.top() == Some(modal::ModalKind::PinnedBudgetExceeded) {
             self.pending_pinned_budget_exceeded = None;
+        }
+        if self.modal.top() == Some(modal::ModalKind::Settings) {
+            self.settings_modal_scroll = 0;
         }
         self.modal.reduce(modal::ModalAction::Pop);
     }

@@ -94,7 +94,7 @@ impl AgentEngine {
             let should_clear = !self.anticipatory.read().await.items.is_empty();
             if should_clear {
                 self.anticipatory.write().await.items.clear();
-                self.emit_anticipatory_update(Vec::new());
+                self.emit_anticipatory_update(Vec::new()).await;
             }
             return;
         }
@@ -425,7 +425,7 @@ impl AgentEngine {
                 .await;
         }
 
-        self.emit_anticipatory_update(next_items);
+        self.emit_anticipatory_update(next_items).await;
     }
 
     async fn compute_proactive_suppression_transparency(

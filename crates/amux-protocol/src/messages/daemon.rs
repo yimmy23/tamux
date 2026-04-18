@@ -70,6 +70,7 @@ pub enum DaemonMessage {
     AgentGoalRunList { goal_runs_json: String },
     AgentGoalRunDetail { goal_run_json: String },
     AgentGoalRunControlled { goal_run_id: String, ok: bool },
+    AgentGoalRunDeleted { goal_run_id: String, deleted: bool },
     AgentTodoList { todos_json: String },
     AgentTodoDetail { thread_id: String, todos_json: String },
     AgentWorkContextDetail { thread_id: String, context_json: String },
@@ -157,4 +158,5 @@ pub enum DaemonMessage {
     AgentThreadDeleted { thread_id: String, deleted: bool },
     AgentMemoryToolResult { content: String },
     AgentThreadMessagePinResult { result_json: String },
+    AgentThreadControlled { thread_id: String, action: String, ok: bool },
 }

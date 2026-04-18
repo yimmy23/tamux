@@ -365,3 +365,51 @@ async fn status_snapshot_includes_aline_diagnostics() {
         Some("development")
     );
 }
+
+#[tokio::test]
+async fn status_snapshot_uses_cached_skill_gate_skip_rationale() {
+    let mut config = AgentConfig::default();
+    config.skill_recommendation.discovery_backend = "mesh".to_string();
+    let (engine, _temp_dir) = make_test_engine(config).await;
+    engine
+        .set_thread_skill_discovery_state(
+            "thread-1",
+            LatestSkillDiscoveryState {
+                query: "obscure request with no local skill".to_string(),
+                confidence_tier: "none".to_string(),
+                recommended_skill: None,
+                recommended_action: "justify_skill_skip".to_string(),
+                mesh_next_step: Some(
+                    crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip,
+                ),
+                mesh_requires_approval: false,
+                mesh_approval_id: None,
+                read_skill_identifier: None,
+                skip_rationale: Some("no local skill found".to_string()),
+                discovery_pending: false,
+                skill_read_completed: false,
+                compliant: false,
+                updated_at: now_millis_local(),
+            },
+        )
+        .await;
+
+    let snapshot = engine.get_status_snapshot().await;
+    let DaemonMessage::AgentStatusResponse {
+        diagnostics_json, ..
+    } = snapshot
+    else {
+        panic!("expected agent status response");
+    };
+
+    let diagnostics: serde_json::Value = serde_json::from_str(&diagnostics_json).unwrap();
+    let rationale = diagnostics
+        .get("skill_mesh")
+        .and_then(|value| value.get("active_gate"))
+        .and_then(|value| value.get("rationale"))
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.first())
+        .and_then(|value| value.as_str());
+
+    assert_eq!(rationale, Some("no local skill found"));
+}

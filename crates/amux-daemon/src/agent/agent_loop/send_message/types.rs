@@ -43,6 +43,7 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) loop_count: u32,
     pub(super) was_cancelled: bool,
     pub(super) interrupted_for_approval: bool,
+    pub(super) terminated_for_budget: bool,
     pub(super) policy_aborted_retry: bool,
     pub(super) previous_tool_signature: Option<String>,
     pub(super) previous_tool_outcome: Option<(String, bool)>,

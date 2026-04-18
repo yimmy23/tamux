@@ -80,19 +80,47 @@ impl HistoryStore {
         let row = row.clone();
         self.conn
             .call(move |conn| {
-                conn.execute(
-                    "INSERT INTO intent_predictions (id, session_id, context_state_hash, predicted_action, confidence, actual_action, was_correct, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![
-                        row.id,
-                        row.session_id,
-                        row.context_state_hash,
-                        row.predicted_action,
-                        row.confidence,
-                        row.actual_action,
-                        row.was_correct.map(|value| if value { 1i64 } else { 0i64 }),
-                        row.created_at_ms as i64,
-                    ],
-                )?;
+                let existing_id: Option<String> = conn
+                    .query_row(
+                        "SELECT id FROM intent_predictions
+                         WHERE session_id = ?1
+                           AND context_state_hash = ?2
+                           AND predicted_action = ?3
+                           AND was_correct IS NULL
+                           AND actual_action IS NULL
+                         ORDER BY created_at_ms DESC, id DESC
+                         LIMIT 1",
+                        params![
+                            row.session_id,
+                            row.context_state_hash,
+                            row.predicted_action,
+                        ],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+
+                if let Some(existing_id) = existing_id {
+                    conn.execute(
+                        "UPDATE intent_predictions
+                         SET confidence = ?2, created_at_ms = ?3
+                         WHERE id = ?1",
+                        params![existing_id, row.confidence, row.created_at_ms as i64],
+                    )?;
+                } else {
+                    conn.execute(
+                        "INSERT INTO intent_predictions (id, session_id, context_state_hash, predicted_action, confidence, actual_action, was_correct, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        params![
+                            row.id,
+                            row.session_id,
+                            row.context_state_hash,
+                            row.predicted_action,
+                            row.confidence,
+                            row.actual_action,
+                            row.was_correct.map(|value| if value { 1i64 } else { 0i64 }),
+                            row.created_at_ms as i64,
+                        ],
+                    )?;
+                }
                 Ok(())
             })
             .await

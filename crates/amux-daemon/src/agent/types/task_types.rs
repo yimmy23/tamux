@@ -127,6 +127,7 @@ pub enum TaskStatus {
     AwaitingApproval,
     Blocked,
     FailedAnalyzing,
+    BudgetExceeded,
     Completed,
     Failed,
     Cancelled,

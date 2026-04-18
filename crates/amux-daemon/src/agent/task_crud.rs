@@ -5,11 +5,53 @@ use super::*;
 #[path = "task_crud/tasks.rs"]
 mod tasks;
 
-fn goal_run_detail_frame_fits_ipc(goal_run: &Option<GoalRun>) -> bool {
-    let Ok(goal_run_json) = serde_json::to_string(goal_run) else {
+#[derive(Debug, Clone, Copy)]
+struct GoalRunDetailWindow {
+    loaded_step_start: usize,
+    loaded_step_end: usize,
+    total_step_count: usize,
+    loaded_event_start: usize,
+    loaded_event_end: usize,
+    total_event_count: usize,
+}
+
+fn goal_run_wire_json(goal_run: &GoalRun, window: GoalRunDetailWindow) -> Option<String> {
+    let mut value = serde_json::to_value(goal_run).ok()?;
+    let object = value.as_object_mut()?;
+    object.insert(
+        "loaded_step_start".to_string(),
+        serde_json::Value::from(window.loaded_step_start),
+    );
+    object.insert(
+        "loaded_step_end".to_string(),
+        serde_json::Value::from(window.loaded_step_end),
+    );
+    object.insert(
+        "total_step_count".to_string(),
+        serde_json::Value::from(window.total_step_count),
+    );
+    object.insert(
+        "loaded_event_start".to_string(),
+        serde_json::Value::from(window.loaded_event_start),
+    );
+    object.insert(
+        "loaded_event_end".to_string(),
+        serde_json::Value::from(window.loaded_event_end),
+    );
+    object.insert(
+        "total_event_count".to_string(),
+        serde_json::Value::from(window.total_event_count),
+    );
+    serde_json::to_string(&Some(value)).ok()
+}
+
+fn goal_run_detail_frame_fits_ipc_with_window(
+    goal_run: &GoalRun,
+    window: GoalRunDetailWindow,
+) -> bool {
+    let Some(goal_run_json) = goal_run_wire_json(goal_run, window) else {
         return false;
     };
-
     amux_protocol::daemon_message_fits_ipc(&amux_protocol::DaemonMessage::AgentGoalRunDetail {
         goal_run_json,
     })
@@ -284,6 +326,60 @@ fn goal_run_with_step_slice(goal_run: &GoalRun, start_idx: usize) -> GoalRun {
     candidate
 }
 
+fn goal_run_with_window(
+    goal_run: &GoalRun,
+    step_start: usize,
+    step_end: usize,
+    event_start: usize,
+    event_end: usize,
+) -> (GoalRun, GoalRunDetailWindow) {
+    let mut candidate = goal_run.clone();
+
+    let step_start = step_start.min(goal_run.steps.len());
+    let step_end = step_end.clamp(step_start, goal_run.steps.len());
+    candidate.steps = goal_run.steps[step_start..step_end].to_vec();
+    if candidate.steps.is_empty() {
+        candidate.current_step_index = 0;
+        candidate.current_step_title = None;
+        candidate.current_step_kind = None;
+        candidate.active_task_id = None;
+    } else {
+        let current_idx = goal_run
+            .current_step_index
+            .saturating_sub(step_start)
+            .min(candidate.steps.len().saturating_sub(1));
+        candidate.current_step_index = current_idx;
+        candidate.current_step_title = candidate
+            .steps
+            .get(current_idx)
+            .map(|step| step.title.clone());
+        candidate.current_step_kind = candidate
+            .steps
+            .get(current_idx)
+            .map(|step| step.kind.clone());
+        candidate.active_task_id = candidate
+            .steps
+            .get(current_idx)
+            .and_then(|step| step.task_id.clone());
+    }
+
+    let event_start = event_start.min(goal_run.events.len());
+    let event_end = event_end.clamp(event_start, goal_run.events.len());
+    candidate.events = goal_run.events[event_start..event_end].to_vec();
+
+    (
+        candidate,
+        GoalRunDetailWindow {
+            loaded_step_start: step_start,
+            loaded_step_end: step_end,
+            total_step_count: goal_run.steps.len(),
+            loaded_event_start: event_start,
+            loaded_event_end: event_end,
+            total_event_count: goal_run.events.len(),
+        },
+    )
+}
+
 fn goal_run_stripped_summary(goal_run: &GoalRun) -> GoalRun {
     let mut candidate = goal_run.clone();
     candidate.events.clear();
@@ -300,12 +396,21 @@ fn goal_run_stripped_summary(goal_run: &GoalRun) -> GoalRun {
     candidate
 }
 
-fn cap_goal_run_for_ipc(goal_run: GoalRun) -> Option<(GoalRun, bool)> {
-    if goal_run_detail_frame_fits_ipc(&Some(goal_run.clone())) {
-        return Some((goal_run, false));
+fn cap_goal_run_for_ipc(goal_run: GoalRun) -> Option<(GoalRun, GoalRunDetailWindow, bool)> {
+    let full_window = GoalRunDetailWindow {
+        loaded_step_start: 0,
+        loaded_step_end: goal_run.steps.len(),
+        total_step_count: goal_run.steps.len(),
+        loaded_event_start: 0,
+        loaded_event_end: goal_run.events.len(),
+        total_event_count: goal_run.events.len(),
+    };
+    if goal_run_detail_frame_fits_ipc_with_window(&goal_run, full_window) {
+        return Some((goal_run, full_window, false));
     }
 
     let mut candidate = goal_run.clone();
+    let mut window = full_window;
     if !candidate.events.is_empty() {
         let mut low = 0usize;
         let mut high = candidate.events.len();
@@ -313,16 +418,21 @@ fn cap_goal_run_for_ipc(goal_run: GoalRun) -> Option<(GoalRun, bool)> {
             let mid = low + (high - low) / 2;
             let mut trial = candidate.clone();
             trial.events = trial.events[mid..].to_vec();
-            if goal_run_detail_frame_fits_ipc(&Some(trial)) {
+            let trial_window = GoalRunDetailWindow {
+                loaded_event_start: mid,
+                ..window
+            };
+            if goal_run_detail_frame_fits_ipc_with_window(&trial, trial_window) {
                 high = mid;
             } else {
                 low = mid + 1;
             }
         }
         candidate.events = candidate.events[low..].to_vec();
+        window.loaded_event_start = low;
     }
-    if goal_run_detail_frame_fits_ipc(&Some(candidate.clone())) {
-        return Some((candidate, true));
+    if goal_run_detail_frame_fits_ipc_with_window(&candidate, window) {
+        return Some((candidate, window, true));
     }
 
     if !candidate.steps.is_empty() {
@@ -334,7 +444,11 @@ fn cap_goal_run_for_ipc(goal_run: GoalRun) -> Option<(GoalRun, bool)> {
         while low < high {
             let mid = low + (high - low) / 2;
             let trial = goal_run_with_step_slice(&candidate, mid);
-            if goal_run_detail_frame_fits_ipc(&Some(trial)) {
+            let trial_window = GoalRunDetailWindow {
+                loaded_step_start: mid,
+                ..window
+            };
+            if goal_run_detail_frame_fits_ipc_with_window(&trial, trial_window) {
                 high = mid;
             } else {
                 low = mid + 1;
@@ -342,8 +456,9 @@ fn cap_goal_run_for_ipc(goal_run: GoalRun) -> Option<(GoalRun, bool)> {
         }
 
         candidate = goal_run_with_step_slice(&candidate, low);
-        if goal_run_detail_frame_fits_ipc(&Some(candidate.clone())) {
-            return Some((candidate, true));
+        window.loaded_step_start = low;
+        if goal_run_detail_frame_fits_ipc_with_window(&candidate, window) {
+            return Some((candidate, window, true));
         }
 
         candidate = goal_run_with_step_slice(
@@ -352,14 +467,113 @@ fn cap_goal_run_for_ipc(goal_run: GoalRun) -> Option<(GoalRun, bool)> {
                 .current_step_index
                 .min(candidate.steps.len().saturating_sub(1)),
         );
-        if goal_run_detail_frame_fits_ipc(&Some(candidate.clone())) {
-            return Some((candidate, true));
+        window.loaded_step_start = goal_run
+            .current_step_index
+            .min(goal_run.steps.len().saturating_sub(1));
+        if goal_run_detail_frame_fits_ipc_with_window(&candidate, window) {
+            return Some((candidate, window, true));
         }
     }
 
     candidate = goal_run_stripped_summary(&candidate);
-    if goal_run_detail_frame_fits_ipc(&Some(candidate.clone())) {
-        return Some((candidate, true));
+    window.loaded_step_start = goal_run.steps.len();
+    window.loaded_step_end = goal_run.steps.len();
+    window.loaded_event_start = goal_run.events.len();
+    window.loaded_event_end = goal_run.events.len();
+    if goal_run_detail_frame_fits_ipc_with_window(&candidate, window) {
+        return Some((candidate, window, true));
+    }
+
+    None
+}
+
+fn cap_goal_run_window_for_ipc(
+    goal_run: &GoalRun,
+    step_offset: Option<usize>,
+    step_limit: Option<usize>,
+    event_offset: Option<usize>,
+    event_limit: Option<usize>,
+) -> Option<(GoalRun, GoalRunDetailWindow, bool)> {
+    let step_start = step_offset.unwrap_or(0).min(goal_run.steps.len());
+    let step_end = step_limit
+        .map(|limit| step_start.saturating_add(limit).min(goal_run.steps.len()))
+        .unwrap_or(goal_run.steps.len());
+    let event_start = event_offset.unwrap_or(0).min(goal_run.events.len());
+    let event_end = event_limit
+        .map(|limit| event_start.saturating_add(limit).min(goal_run.events.len()))
+        .unwrap_or(goal_run.events.len());
+
+    let (candidate, window) =
+        goal_run_with_window(goal_run, step_start, step_end, event_start, event_end);
+    if goal_run_detail_frame_fits_ipc_with_window(&candidate, window) {
+        return Some((candidate, window, false));
+    }
+
+    let mut best_window = window;
+    let mut truncated = false;
+
+    if best_window.loaded_event_start < best_window.loaded_event_end {
+        let mut low = best_window.loaded_event_start;
+        let mut high = best_window.loaded_event_end;
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let (trial, trial_window) = goal_run_with_window(
+                goal_run,
+                best_window.loaded_step_start,
+                best_window.loaded_step_end,
+                mid,
+                best_window.loaded_event_end,
+            );
+            if goal_run_detail_frame_fits_ipc_with_window(&trial, trial_window) {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+        let (trial, trial_window) = goal_run_with_window(
+            goal_run,
+            best_window.loaded_step_start,
+            best_window.loaded_step_end,
+            low,
+            best_window.loaded_event_end,
+        );
+        best_window = trial_window;
+        truncated = best_window.loaded_event_start > event_start;
+        if goal_run_detail_frame_fits_ipc_with_window(&trial, best_window) {
+            return Some((trial, best_window, truncated));
+        }
+    }
+
+    if best_window.loaded_step_start < best_window.loaded_step_end {
+        let mut low = best_window.loaded_step_start;
+        let mut high = best_window.loaded_step_end;
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let (trial, trial_window) = goal_run_with_window(
+                goal_run,
+                mid,
+                best_window.loaded_step_end,
+                best_window.loaded_event_start,
+                best_window.loaded_event_end,
+            );
+            if goal_run_detail_frame_fits_ipc_with_window(&trial, trial_window) {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+        let (trial, trial_window) = goal_run_with_window(
+            goal_run,
+            low,
+            best_window.loaded_step_end,
+            best_window.loaded_event_start,
+            best_window.loaded_event_end,
+        );
+        best_window = trial_window;
+        truncated |= best_window.loaded_step_start > step_start;
+        if goal_run_detail_frame_fits_ipc_with_window(&trial, best_window) {
+            return Some((trial, best_window, truncated));
+        }
     }
 
     None
@@ -654,10 +868,16 @@ impl AgentEngine {
     }
 
     pub async fn list_goal_runs(&self) -> Vec<GoalRun> {
-        self.list_goal_runs_capped_for_ipc().await.0
+        self.list_goal_runs_paginated_capped_for_ipc(None, None)
+            .await
+            .0
     }
 
-    pub(crate) async fn list_goal_runs_capped_for_ipc(&self) -> (Vec<GoalRun>, bool) {
+    pub(crate) async fn list_goal_runs_paginated_capped_for_ipc(
+        &self,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> (Vec<GoalRun>, bool) {
         let goal_runs = self.goal_runs.lock().await;
         let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
         drop(goal_runs);
@@ -666,6 +886,9 @@ impl AgentEngine {
             projected.push(self.project_goal_run(goal_run).await);
         }
         projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let offset = offset.unwrap_or(0);
+        let limit = limit.unwrap_or(usize::MAX);
+        let projected: Vec<GoalRun> = projected.into_iter().skip(offset).take(limit).collect();
 
         if goal_run_list_frame_fits_ipc(&projected) {
             return (projected, false);
@@ -673,7 +896,7 @@ impl AgentEngine {
 
         let mut capped = Vec::with_capacity(projected.len());
         for goal_run in projected {
-            if let Some((goal_run, _goal_truncated)) = cap_goal_run_for_ipc(goal_run) {
+            if let Some((goal_run, _window, _goal_truncated)) = cap_goal_run_for_ipc(goal_run) {
                 capped.push(goal_run);
             }
         }
@@ -710,9 +933,29 @@ impl AgentEngine {
     pub(crate) async fn get_goal_run_capped_for_ipc(
         &self,
         goal_run_id: &str,
-    ) -> Option<(GoalRun, bool)> {
+    ) -> Option<(String, bool)> {
         let goal_run = self.get_goal_run(goal_run_id).await?;
-        cap_goal_run_for_ipc(goal_run)
+        let (goal_run, window, truncated) = cap_goal_run_for_ipc(goal_run)?;
+        Some((goal_run_wire_json(&goal_run, window)?, truncated))
+    }
+
+    pub(crate) async fn get_goal_run_page_capped_for_ipc(
+        &self,
+        goal_run_id: &str,
+        step_offset: Option<usize>,
+        step_limit: Option<usize>,
+        event_offset: Option<usize>,
+        event_limit: Option<usize>,
+    ) -> Option<(String, bool)> {
+        let goal_run = self.get_goal_run(goal_run_id).await?;
+        let (goal_run, window, truncated) = cap_goal_run_window_for_ipc(
+            &goal_run,
+            step_offset,
+            step_limit,
+            event_offset,
+            event_limit,
+        )?;
+        Some((goal_run_wire_json(&goal_run, window)?, truncated))
     }
 
     pub async fn list_todos(&self) -> HashMap<String, Vec<TodoItem>> {
@@ -970,6 +1213,59 @@ impl AgentEngine {
         }
 
         false
+    }
+
+    pub async fn delete_goal_run(&self, goal_run_id: &str) -> bool {
+        let removed_goal = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(index) = goal_runs
+                .iter()
+                .position(|goal_run| goal_run.id == goal_run_id)
+            else {
+                return false;
+            };
+            goal_runs
+                .remove(index)
+                .expect("validated goal run index should remove item")
+        };
+
+        let related_task_ids = {
+            let mut tasks = self.tasks.lock().await;
+            let mut removed_ids = Vec::new();
+            tasks.retain(|task| {
+                let should_remove = task.goal_run_id.as_deref() == Some(goal_run_id)
+                    || removed_goal
+                        .child_task_ids
+                        .iter()
+                        .any(|child_task_id| child_task_id == &task.id);
+                if should_remove {
+                    removed_ids.push(task.id.clone());
+                }
+                !should_remove
+            });
+            removed_ids
+        };
+
+        self.inflight_goal_runs.lock().await.remove(goal_run_id);
+        self.cost_trackers.lock().await.remove(goal_run_id);
+
+        if let Err(error) = self.history.delete_goal_run(goal_run_id).await {
+            tracing::warn!(goal_run_id = %goal_run_id, %error, "failed to delete goal run history");
+        }
+        if let Err(error) = self
+            .history
+            .delete_checkpoints_for_goal_run(goal_run_id)
+            .await
+        {
+            tracing::warn!(goal_run_id = %goal_run_id, %error, "failed to delete goal checkpoints");
+        }
+        for task_id in related_task_ids {
+            if let Err(error) = self.history.delete_agent_task(&task_id).await {
+                tracing::warn!(task_id = %task_id, %error, "failed to delete goal task history");
+            }
+        }
+
+        true
     }
 }
 

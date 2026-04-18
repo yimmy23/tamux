@@ -18,6 +18,7 @@ const AGENT_QUERY_RESPONSE_TYPES = [
   'heartbeat-items',
   'provider-auth-states',
   'provider-validation',
+  'provider-models',
   'sub-agent-list',
   'sub-agent-updated',
   'sub-agent-removed',

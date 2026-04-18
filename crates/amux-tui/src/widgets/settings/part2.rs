@@ -84,9 +84,9 @@ fn single_line_edit_layout(
             _ => None,
         },
         SettingsTab::Chat => match field {
-            "honcho_api_key" => Some((7, 19)),
-            "honcho_base_url" => Some((8, 19)),
-            "honcho_workspace_id" => Some((9, 19)),
+            "honcho_editor_api_key" => Some((9, 19)),
+            "honcho_editor_base_url" => Some((10, 19)),
+            "honcho_editor_workspace_id" => Some((11, 19)),
             _ => None,
         },
         SettingsTab::Gateway => match field {
@@ -249,7 +249,7 @@ fn settings_row_hit(
             .map(|idx| (idx, None)),
         SettingsTab::Chat => row
             .checked_sub(4)
-            .filter(|idx| *idx < 6)
+            .filter(|idx| *idx < 23)
             .map(|idx| (idx, None)),
         SettingsTab::Advanced => advanced_settings_row_hit(config, row),
         SettingsTab::Gateway => match row {
@@ -398,9 +398,10 @@ fn auth_secondary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'stat
 fn auth_hit_test(
     content_area: Rect,
     auth: &crate::state::auth::AuthState,
+    scroll: usize,
     mouse: Position,
 ) -> Option<SettingsHitTarget> {
-    let row = mouse.y.saturating_sub(content_area.y) as usize;
+    let row = mouse.y.saturating_sub(content_area.y) as usize + scroll;
     let mut current_row = 4usize;
     for (entry_index, entry) in auth.entries.iter().enumerate() {
         if row == current_row {
@@ -472,9 +473,10 @@ fn subagent_row_action_offsets(
 fn subagents_hit_test(
     content_area: Rect,
     subagents: &SubAgentsState,
+    scroll: usize,
     mouse: Position,
 ) -> Option<SettingsHitTarget> {
-    let row = mouse.y.saturating_sub(content_area.y) as usize;
+    let row = mouse.y.saturating_sub(content_area.y) as usize + scroll;
     let list_len = subagents.entries.len();
     if list_len > 0 && (4..4 + list_len).contains(&row) {
         let index = row - 4;

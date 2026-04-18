@@ -108,10 +108,47 @@ struct InputNotice {
     dismiss_on_interaction: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PendingChatActionKind {
-    Regenerate,
-    Delete,
+#[derive(Clone, Debug)]
+enum PendingConfirmAction {
+    RegenerateMessage { message_index: usize },
+    DeleteMessage { message_index: usize },
+    DeleteThread { thread_id: String, title: String },
+    StopThread { thread_id: String, title: String },
+    ResumeThread { thread_id: String, title: String },
+    DeleteGoalRun { goal_run_id: String, title: String },
+    PauseGoalRun { goal_run_id: String, title: String },
+    ResumeGoalRun { goal_run_id: String, title: String },
+}
+
+impl PendingConfirmAction {
+    fn modal_body(&self) -> String {
+        match self {
+            PendingConfirmAction::RegenerateMessage { message_index } => {
+                format!("Proceed with regenerate for message {}?", message_index + 1)
+            }
+            PendingConfirmAction::DeleteMessage { message_index } => {
+                format!("Proceed with delete for message {}?", message_index + 1)
+            }
+            PendingConfirmAction::DeleteThread { title, .. } => {
+                format!("Delete thread \"{title}\"?")
+            }
+            PendingConfirmAction::StopThread { title, .. } => {
+                format!("Stop thread \"{title}\"?")
+            }
+            PendingConfirmAction::ResumeThread { title, .. } => {
+                format!("Resume thread \"{title}\"?")
+            }
+            PendingConfirmAction::DeleteGoalRun { title, .. } => {
+                format!("Delete goal run \"{title}\"?")
+            }
+            PendingConfirmAction::PauseGoalRun { title, .. } => {
+                format!("Pause goal run \"{title}\"?")
+            }
+            PendingConfirmAction::ResumeGoalRun { title, .. } => {
+                format!("Resume goal run \"{title}\"?")
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -142,12 +179,6 @@ struct ParticipantPlaygroundActivity {
     visible_thread_id: String,
     participant_agent_id: String,
     participant_agent_name: String,
-}
-
-#[derive(Clone, Debug)]
-struct PendingChatActionConfirm {
-    message_index: usize,
-    action: PendingChatActionKind,
 }
 
 #[derive(Clone, Debug)]
@@ -341,6 +372,7 @@ pub struct TuiModel {
 
     // Agent activity state (from daemon events, not local buffers)
     agent_activity: Option<String>,
+    thread_agent_activity: std::collections::HashMap<String, String>,
     participant_playground_activity:
         std::collections::HashMap<String, ParticipantPlaygroundActivity>,
 
@@ -370,7 +402,7 @@ pub struct TuiModel {
     pending_stop: bool,
     pending_stop_tick: u64,
     input_notice: Option<InputNotice>,
-    pending_chat_action_confirm: Option<PendingChatActionConfirm>,
+    pending_chat_action_confirm: Option<PendingConfirmAction>,
     pending_pinned_budget_exceeded: Option<PendingPinnedBudgetExceeded>,
     pending_pinned_jump: Option<PendingPinnedJump>,
     pending_pinned_shortcut_leader: Option<PendingPinnedShortcutLeader>,
@@ -428,6 +460,7 @@ pub struct TuiModel {
     prompt_modal_scroll: usize,
     prompt_modal_title_override: Option<String>,
     prompt_modal_body_override: Option<String>,
+    settings_modal_scroll: usize,
     thread_participants_modal_scroll: usize,
     help_modal_scroll: usize,
 
@@ -472,6 +505,7 @@ fn sidebar_tab_label(tab: SidebarTab) -> &'static str {
     match tab {
         SidebarTab::Files => "files",
         SidebarTab::Todos => "todos",
+        SidebarTab::Spawned => "spawned",
         SidebarTab::Pinned => "pinned",
     }
 }

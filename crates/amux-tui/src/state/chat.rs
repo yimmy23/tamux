@@ -31,6 +31,7 @@ pub struct ChatState {
     threads: Vec<AgentThread>,
     history_page_size: usize,
     active_thread_id: Option<String>,
+    thread_history_stack: Vec<String>,
     thread_activity: std::collections::HashMap<String, ThreadActivityState>,
     render_revision: u64,
     scroll_offset: usize,
@@ -295,6 +296,7 @@ impl ChatState {
             threads: Vec::new(),
             history_page_size: CHAT_HISTORY_PAGE_SIZE,
             active_thread_id: None,
+            thread_history_stack: Vec::new(),
             thread_activity: std::collections::HashMap::new(),
             render_revision: 0,
             scroll_offset: 0,
@@ -348,6 +350,63 @@ impl ChatState {
 
     pub fn active_thread_id(&self) -> Option<&str> {
         self.active_thread_id.as_deref()
+    }
+
+    pub fn thread_history_stack(&self) -> &[String] {
+        &self.thread_history_stack
+    }
+
+    pub fn thread_navigation_depth(&self) -> usize {
+        self.thread_history_stack.len()
+    }
+
+    pub fn can_go_back_thread(&self) -> bool {
+        !self.thread_history_stack.is_empty()
+    }
+
+    fn thread_exists(&self, thread_id: &str) -> bool {
+        self.threads.iter().any(|thread| thread.id == thread_id)
+    }
+
+    fn append_thread_history(&mut self, from_thread_id: &str) {
+        if self
+            .thread_history_stack
+            .last()
+            .is_some_and(|last| last == from_thread_id)
+        {
+            return;
+        }
+        self.thread_history_stack.push(from_thread_id.to_string());
+    }
+
+    fn clear_thread_history_stack(&mut self) {
+        self.thread_history_stack.clear();
+    }
+
+    fn retain_thread_history_stack(&mut self, thread_ids: &std::collections::HashSet<String>) {
+        self.thread_history_stack
+            .retain(|thread_id| thread_ids.contains(thread_id));
+    }
+
+    pub fn open_spawned_thread(&mut self, from_thread_id: &str, to_thread_id: &str) -> bool {
+        if from_thread_id.is_empty() || to_thread_id.is_empty() || from_thread_id == to_thread_id {
+            return false;
+        }
+
+        self.append_thread_history(from_thread_id);
+        self.active_thread_id = Some(to_thread_id.to_string());
+        true
+    }
+
+    pub fn go_back_thread(&mut self) -> Option<String> {
+        while let Some(next_thread_id) = self.thread_history_stack.pop() {
+            if self.thread_exists(&next_thread_id) {
+                self.active_thread_id = Some(next_thread_id.clone());
+                return Some(next_thread_id);
+            }
+        }
+
+        None
     }
 
     pub fn active_thread(&self) -> Option<&AgentThread> {
@@ -973,6 +1032,12 @@ impl ChatState {
                     }
                 }
 
+                let new_thread_ids = new_threads
+                    .iter()
+                    .map(|thread| thread.id.clone())
+                    .collect::<std::collections::HashSet<_>>();
+                self.retain_thread_history_stack(&new_thread_ids);
+
                 let existing_threads = std::mem::take(&mut self.threads);
                 self.threads = new_threads
                     .into_iter()
@@ -1075,6 +1140,7 @@ impl ChatState {
 
             ChatAction::ThreadCreated { thread_id, title } => {
                 self.pinned_message_top = None;
+                self.clear_thread_history_stack();
                 // Transfer messages from any local pending thread to the real thread
                 let local_messages = self
                     .active_thread()
@@ -1129,6 +1195,22 @@ impl ChatState {
                 }
                 self.move_thread_to_front(&thread_id);
                 self.active_thread_id = Some(thread_id);
+                self.clear_thread_history_stack();
+            }
+
+            ChatAction::ThreadDeleted { thread_id } => {
+                self.threads.retain(|thread| thread.id != thread_id);
+                self.thread_activity.remove(&thread_id);
+                let remaining_thread_ids = self
+                    .threads
+                    .iter()
+                    .map(|thread| thread.id.clone())
+                    .collect::<std::collections::HashSet<_>>();
+                self.retain_thread_history_stack(&remaining_thread_ids);
+                if self.active_thread_id.as_deref() == Some(thread_id.as_str()) {
+                    self.active_thread_id = self.threads.first().map(|thread| thread.id.clone());
+                    self.clear_thread_history_stack();
+                }
             }
 
             ChatAction::ClearThread { thread_id } => {
@@ -1182,6 +1264,36 @@ impl ChatState {
                 }
             }
 
+            ChatAction::UnpinMessageForCompaction {
+                thread_id,
+                message_id,
+                absolute_index,
+            } => {
+                if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                    let loaded_message_start = thread.loaded_message_start;
+                    for (index, message) in thread.messages.iter_mut().enumerate() {
+                        let matches_message_id = !message_id.is_empty()
+                            && message.id.as_deref() == Some(message_id.as_str());
+                        let matches_absolute_index = absolute_index.is_some_and(|absolute| {
+                            loaded_message_start.saturating_add(index) == absolute
+                        });
+                        if matches_message_id || matches_absolute_index {
+                            message.pinned_for_compaction = false;
+                        }
+                    }
+
+                    thread.pinned_messages.retain(|message| {
+                        let matches_message_id = !message_id.is_empty()
+                            && !message.message_id.is_empty()
+                            && message.message_id == message_id;
+                        let matches_absolute_index = absolute_index
+                            .is_some_and(|absolute| message.absolute_index == absolute);
+                        !(matches_message_id || matches_absolute_index)
+                    });
+                    thread.pinned_messages = effective_pinned_messages(thread);
+                }
+            }
+
             ChatAction::SelectThread(thread_id) => {
                 self.pinned_message_top = None;
                 self.active_thread_id = if thread_id.is_empty() {
@@ -1220,6 +1332,7 @@ impl ChatState {
             ChatAction::NewThread => {
                 self.pinned_message_top = None;
                 self.active_thread_id = None;
+                self.clear_thread_history_stack();
                 self.copied_message_feedback = None;
             }
 

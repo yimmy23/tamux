@@ -3,7 +3,7 @@ import { getDaemonOwnedAuthCapability, getProviderAuthSupportOptions } from "@/l
 import { getBridge } from "@/lib/bridge";
 import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
-import { DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW, getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, modelUsesContextWindowOverride, normalizeAuthSource, resolveProviderModelDefinition } from "../../lib/agentStore";
+import { DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW, getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, modelUsesContextWindowOverride, normalizeAuthSource, providerUsesConfigurableBaseUrl, resolveProviderModelDefinition } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
 import { GeneratedToolsPanel } from "../generated-tools/GeneratedToolsPanel";
@@ -54,6 +54,7 @@ export function AgentTab({
         { id: "featherless", label: "Featherless" },
         { id: "anthropic", label: "Anthropic" },
         { id: "openai", label: "OpenAI / ChatGPT" },
+        { id: "azure-openai", label: "Azure OpenAI" },
         { id: "github-copilot", label: "GitHub Copilot" },
         { id: "qwen", label: "Qwen" },
         { id: "qwen-deepinfra", label: "Qwen (DeepInfra)" },
@@ -80,6 +81,7 @@ export function AgentTab({
     ];
     const providerOptions = allProviderOptions.filter((provider) =>
         provider.id === "custom"
+        || provider.id === "azure-openai"
         || providerAuthStates.some(
             (state) => state.authenticated && state.provider_id === provider.id,
         ),
@@ -98,7 +100,8 @@ export function AgentTab({
     const supportedAuthSources = getSupportedAuthSources(settings.active_provider, authSupportOptions);
     const effectiveAuthSource = normalizeAuthSource(settings.active_provider, providerConfig.auth_source, authSupportOptions);
     const isCustomProvider = settings.active_provider === "custom";
-    const showUrlEditor = isCustomProvider || useCustomUrl || Boolean(providerConfig.base_url && providerConfig.base_url !== providerDef?.defaultBaseUrl);
+    const usesConfigurableUrl = providerUsesConfigurableBaseUrl(settings.active_provider);
+    const showUrlEditor = usesConfigurableUrl || useCustomUrl || Boolean(providerConfig.base_url && providerConfig.base_url !== providerDef?.defaultBaseUrl);
     const effectiveContextWindow = getEffectiveContextWindow(settings.active_provider, providerConfig);
     const canEditContextWindow = modelUsesContextWindowOverride(
         settings.active_provider,

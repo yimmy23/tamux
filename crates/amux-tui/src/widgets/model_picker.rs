@@ -7,18 +7,23 @@ use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
 
-pub fn available_models(config: &ConfigState) -> Vec<crate::state::config::FetchedModel> {
+pub fn available_models_for(
+    config: &ConfigState,
+    current_model: &str,
+    custom_model_name: Option<&str>,
+) -> Vec<crate::state::config::FetchedModel> {
     let mut models = config.fetched_models().to_vec();
-    let current_model = config.model().trim();
+    let current_model = current_model.trim();
+    let custom_model_name = custom_model_name.unwrap_or("").trim();
     if !current_model.is_empty() && !models.iter().any(|model| model.id == current_model) {
         models.insert(
             0,
             crate::state::config::FetchedModel {
                 id: current_model.to_string(),
-                name: Some(if config.custom_model_name.trim().is_empty() {
+                name: Some(if custom_model_name.is_empty() {
                     current_model.to_string()
                 } else {
-                    config.custom_model_name.clone()
+                    custom_model_name.to_string()
                 }),
                 context_window: None,
             },
@@ -27,11 +32,18 @@ pub fn available_models(config: &ConfigState) -> Vec<crate::state::config::Fetch
     models
 }
 
-pub fn render(
+#[allow(dead_code)]
+pub fn available_models(config: &ConfigState) -> Vec<crate::state::config::FetchedModel> {
+    available_models_for(config, config.model(), Some(&config.custom_model_name))
+}
+
+pub fn render_for(
     frame: &mut Frame,
     area: Rect,
     modal: &ModalState,
     config: &ConfigState,
+    current_model: &str,
+    custom_model_name: Option<&str>,
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
@@ -53,9 +65,9 @@ pub fn render(
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    let models = available_models(config);
+    let models = available_models_for(config, current_model, custom_model_name);
     let cursor = modal.picker_cursor();
-    let active_model = config.model();
+    let active_model = current_model.trim();
 
     let list_h = chunks[0].height as usize;
     let custom_row = "Custom model...";
@@ -128,6 +140,25 @@ pub fn render(
         Span::styled(" close", theme.fg_dim),
     ]);
     frame.render_widget(Paragraph::new(hints), chunks[1]);
+}
+
+#[allow(dead_code)]
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    modal: &ModalState,
+    config: &ConfigState,
+    theme: &ThemeTokens,
+) {
+    render_for(
+        frame,
+        area,
+        modal,
+        config,
+        config.model(),
+        Some(&config.custom_model_name),
+        theme,
+    );
 }
 
 #[cfg(test)]

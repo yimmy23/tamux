@@ -1,5 +1,5 @@
 use super::types::*;
-use amux_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
+use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 use anyhow::{bail, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,10 +67,10 @@ pub(super) fn resolve_provider_config_for(
                 resolved.model = def.default_model.to_string();
             }
         }
-        // For predefined providers, always use the canonical base URL from the
-        // provider definition so stale values in the DB config cannot override it.
-        // Only "custom" providers honour a user-supplied base_url.
-        if provider_id != PROVIDER_ID_CUSTOM {
+        // Providers with globally canonical endpoints can reset to the catalog
+        // default here; providers with per-account endpoints must keep the
+        // user-configured base URL from persisted config/runtime state.
+        if !provider_uses_configurable_base_url(provider_id) {
             if let Some(def) = get_provider_definition(provider_id) {
                 resolved.base_url =
                     get_provider_base_url(provider_id, &resolved.model, def.default_base_url);
@@ -175,9 +175,9 @@ pub(super) fn resolve_provider_model_switch(
     let mut api_transport = config.api_transport;
     let mut context_window_tokens = config.context_window_tokens;
 
-    if provider_id == PROVIDER_ID_CUSTOM {
+    if provider_uses_configurable_base_url(provider_id) {
         if base_url.trim().is_empty() {
-            bail!("base URL cannot be empty for provider 'custom'");
+            bail!("base URL cannot be empty for provider '{provider_id}'");
         }
     } else {
         let def = get_provider_definition(provider_id)
@@ -248,7 +248,8 @@ pub(super) fn resolve_provider_model_switch(
 mod tests {
     use super::*;
     use amux_shared::providers::{
-        PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI,
+        PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_GROQ,
+        PROVIDER_ID_OPENAI,
     };
 
     #[test]
@@ -484,5 +485,48 @@ mod tests {
         assert_eq!(resolved.context_window_tokens, 128_000);
         assert_eq!(resolved.auth_source, AuthSource::ChatgptSubscription);
         assert_eq!(resolved.api_transport, ApiTransport::Responses);
+    }
+
+    #[test]
+    fn azure_openai_keeps_user_configured_base_url() {
+        let mut config = AgentConfig::default();
+        config.provider = PROVIDER_ID_AZURE_OPENAI.to_string();
+        config.base_url = "https://my-resource.openai.azure.com/openai/v1".to_string();
+        config.model = "my-deployment".to_string();
+        config.api_key = "azure-key".to_string();
+        config.providers.insert(
+            PROVIDER_ID_AZURE_OPENAI.to_string(),
+            ProviderConfig {
+                base_url: "https://my-resource.openai.azure.com/openai/v1".to_string(),
+                model: "my-deployment".to_string(),
+                api_key: "azure-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::Responses,
+                context_window_tokens: 128_000,
+                reasoning_effort: String::new(),
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+            },
+        );
+
+        let resolved = resolve_active_provider_config(&config).expect("azure provider resolves");
+
+        assert_eq!(
+            resolved.base_url,
+            "https://my-resource.openai.azure.com/openai/v1"
+        );
+        assert_eq!(resolved.model, "my-deployment");
     }
 }

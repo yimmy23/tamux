@@ -110,6 +110,22 @@ pub(super) fn whatsapp_timeout_retry_selected(index: usize) -> bool {
     index == 0
 }
 
+pub(super) fn format_raw_mode_line_output(text: &str) -> String {
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut output = normalized.replace('\n', "\r\n");
+    output.push_str("\r\n");
+    output
+}
+
+fn write_raw_mode_line(stdout: &mut impl Write, text: &str) -> Result<()> {
+    stdout
+        .write_all(format_raw_mode_line_output(text).as_bytes())
+        .context("Failed to write raw-mode terminal output")?;
+    stdout
+        .flush()
+        .context("Failed to flush raw-mode terminal output")
+}
+
 pub(super) fn poll_for_setup_cancel_key() -> Result<bool> {
     if event::poll(std::time::Duration::from_millis(0)).context("Failed to poll keyboard input")? {
         if let Event::Key(KeyEvent {
@@ -168,12 +184,13 @@ pub(super) async fn run_whatsapp_link_attempt(
         tokio::time::Instant::now() + std::time::Duration::from_secs(WHATSAPP_LINK_TIMEOUT_SECS);
     let mut last_qr: Option<String> = None;
     let mut last_status: Option<String> = None;
+    let mut stdout = io::stdout();
 
     loop {
         if poll_for_setup_cancel_key()? {
             whatsapp_link_stop_and_unsubscribe(framed).await?;
-            println!();
-            println!("Skipped WhatsApp linking.");
+            write_raw_mode_line(&mut stdout, "")?;
+            write_raw_mode_line(&mut stdout, "Skipped WhatsApp linking.")?;
             return Ok(WhatsAppLinkAttemptOutcome::CancelledByUser);
         }
 
@@ -197,18 +214,24 @@ pub(super) async fn run_whatsapp_link_attempt(
                 expires_at_ms,
             } => {
                 if last_qr.as_deref() != Some(ascii_qr.as_str()) {
-                    println!();
-                    println!("{}", "WhatsApp QR:".bold());
-                    println!("{ascii_qr}");
+                    write_raw_mode_line(&mut stdout, "")?;
+                    write_raw_mode_line(&mut stdout, &format!("{}", "WhatsApp QR:".bold()))?;
+                    write_raw_mode_line(&mut stdout, &ascii_qr)?;
                     if let Some(expires_at) = expires_at_ms {
-                        println!("QR update expires at {expires_at} ms epoch.");
+                        write_raw_mode_line(
+                            &mut stdout,
+                            &format!("QR update expires at {expires_at} ms epoch."),
+                        )?;
                     }
                     last_qr = Some(ascii_qr);
                 }
             }
             DaemonMessage::AgentWhatsAppLinked { phone } => {
                 whatsapp_link_unsubscribe(framed).await?;
-                println!("WhatsApp linked: {}", phone.as_deref().unwrap_or("device"));
+                write_raw_mode_line(
+                    &mut stdout,
+                    &format!("WhatsApp linked: {}", phone.as_deref().unwrap_or("device")),
+                )?;
                 return Ok(WhatsAppLinkAttemptOutcome::Linked(phone));
             }
             DaemonMessage::AgentWhatsAppLinkStatus {
@@ -218,38 +241,58 @@ pub(super) async fn run_whatsapp_link_attempt(
             } => {
                 if state == "connected" {
                     whatsapp_link_unsubscribe(framed).await?;
-                    println!("WhatsApp linked: {}", phone.as_deref().unwrap_or("device"));
+                    write_raw_mode_line(
+                        &mut stdout,
+                        &format!("WhatsApp linked: {}", phone.as_deref().unwrap_or("device")),
+                    )?;
                     return Ok(WhatsAppLinkAttemptOutcome::Linked(phone));
                 }
                 if last_status.as_deref() != Some(state.as_str()) {
                     match state.as_str() {
-                        "starting" => println!("Preparing WhatsApp link session..."),
-                        "qr_ready" | "awaiting_qr" => {
-                            println!("QR is ready. Scan it in WhatsApp on your phone.")
+                        "starting" => {
+                            write_raw_mode_line(&mut stdout, "Preparing WhatsApp link session...")?
                         }
-                        "error" => println!(
-                            "WhatsApp link error: {}",
-                            last_error.as_deref().unwrap_or("unknown")
-                        ),
-                        "disconnected" => println!(
-                            "WhatsApp link disconnected: {}",
-                            last_error.as_deref().unwrap_or("none")
-                        ),
-                        _ => println!("WhatsApp link status: {state}"),
+                        "qr_ready" | "awaiting_qr" => write_raw_mode_line(
+                            &mut stdout,
+                            "QR is ready. Scan it in WhatsApp on your phone.",
+                        )?,
+                        "error" => write_raw_mode_line(
+                            &mut stdout,
+                            &format!(
+                                "WhatsApp link error: {}",
+                                last_error.as_deref().unwrap_or("unknown")
+                            ),
+                        )?,
+                        "disconnected" => write_raw_mode_line(
+                            &mut stdout,
+                            &format!(
+                                "WhatsApp link disconnected: {}",
+                                last_error.as_deref().unwrap_or("none")
+                            ),
+                        )?,
+                        _ => write_raw_mode_line(
+                            &mut stdout,
+                            &format!("WhatsApp link status: {state}"),
+                        )?,
                     }
                     last_status = Some(state);
                 }
             }
             DaemonMessage::AgentWhatsAppLinkError { message, .. } => {
-                println!("WhatsApp link error: {message}");
+                write_raw_mode_line(&mut stdout, &format!("WhatsApp link error: {message}"))?;
             }
             DaemonMessage::AgentWhatsAppLinkDisconnected { reason } => {
-                println!(
-                    "WhatsApp link disconnected: {}",
-                    reason.as_deref().unwrap_or("none")
-                );
+                write_raw_mode_line(
+                    &mut stdout,
+                    &format!(
+                        "WhatsApp link disconnected: {}",
+                        reason.as_deref().unwrap_or("none")
+                    ),
+                )?;
             }
-            DaemonMessage::Error { message } => println!("WhatsApp link error: {message}"),
+            DaemonMessage::Error { message } => {
+                write_raw_mode_line(&mut stdout, &format!("WhatsApp link error: {message}"))?
+            }
             DaemonMessage::GatewayBootstrap { .. }
             | DaemonMessage::GatewaySendRequest { .. }
             | DaemonMessage::GatewayReloadCommand { .. }

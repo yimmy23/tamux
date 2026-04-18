@@ -531,7 +531,7 @@ async fn execute_spawn_subagent(
         derived_limits.max_tool_calls.unwrap_or(0)
     );
     Ok(format!(
-        "Spawned subagent {} with runtime {}.{}{}{}{budget_suffix}{def_suffix}",
+        "Spawned subagent {} with runtime {}.{}{}{}{budget_suffix}{def_suffix}\nDo not busy-wait on child status. Use `list_subagents` only for occasional snapshots; if no other useful work remains, send a progress update and stop so tamux can resume you when the child reports back.",
         subagent.id, runtime, lane_suffix, persona_suffix, depth_suffix
     ))
 }
@@ -1261,7 +1261,10 @@ async fn execute_lookup_emergent_protocol(
         .unwrap_or(false);
 
     let payload = if record_usage {
-        let success = args.get("success").and_then(|v| v.as_bool()).unwrap_or(true);
+        let success = args
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
         let fallback_reason = args
             .get("fallback_reason")
             .and_then(|v| v.as_str())
@@ -1352,7 +1355,13 @@ async fn execute_decode_emergent_protocol(
     let normalized_pattern = args.get("normalized_pattern").and_then(|v| v.as_str());
 
     let payload = agent
-        .decode_thread_protocol_token(thread_id, token, current_role, target_role, normalized_pattern)
+        .decode_thread_protocol_token(
+            thread_id,
+            token,
+            current_role,
+            target_role,
+            normalized_pattern,
+        )
         .await?
         .map(serde_json::to_value)
         .transpose()?;
@@ -1618,12 +1627,7 @@ async fn execute_message_agent_visible_thread_continuation(
         .build_internal_delegate_payload(Some(thread_id), message, true)
         .await;
     let continuation_prompt = agent
-        .build_visible_thread_continuation_prompt(
-            thread_id,
-            sender,
-            resolved_target_id,
-            message,
-        )
+        .build_visible_thread_continuation_prompt(thread_id, sender, resolved_target_id, message)
         .await;
     agent
         .enqueue_visible_thread_continuation(

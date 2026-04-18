@@ -36,3 +36,13 @@ pub fn plugin_settings_action(plugin_name: &str) -> InboxNotificationAction {
         payload_json: None,
     }
 }
+
+pub fn open_thread_action(thread_id: &str) -> InboxNotificationAction {
+    InboxNotificationAction {
+        id: "open_thread".to_string(),
+        label: "Open thread".to_string(),
+        action_type: "open_thread".to_string(),
+        target: Some(thread_id.to_string()),
+        payload_json: None,
+    }
+}

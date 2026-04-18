@@ -405,6 +405,35 @@ fn mouse_drag_snapshot_uses_rendered_chat_area_without_sidebar() {
 }
 
 #[test]
+fn anticipatory_events_no_longer_shrink_chat_area() {
+    let mut model = build_model();
+    model.width = 100;
+    model.height = 40;
+    model.show_sidebar_override = Some(false);
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    let original = rendered_chat_area(&model);
+
+    model.handle_client_event(crate::client::ClientEvent::AnticipatoryItems(vec![
+        crate::wire::AnticipatoryItem {
+            id: "digest-1".to_string(),
+            title: "Task May Be Stuck".to_string(),
+            summary: "The task has been blocked for 20 minutes.".to_string(),
+            confidence: 0.78,
+            ..Default::default()
+        },
+    ]));
+
+    assert_eq!(rendered_chat_area(&model), original);
+}
+
+#[test]
 fn mouse_drag_snapshot_uses_rendered_chat_area_with_sidebar() {
     let mut model = build_model();
     model.width = 100;

@@ -49,6 +49,7 @@ fn task_status_label(status: crate::agent::types::TaskStatus) -> &'static str {
         crate::agent::types::TaskStatus::AwaitingApproval => "awaiting_approval",
         crate::agent::types::TaskStatus::Blocked => "blocked",
         crate::agent::types::TaskStatus::FailedAnalyzing => "failed_analyzing",
+        crate::agent::types::TaskStatus::BudgetExceeded => "budget_exceeded",
         crate::agent::types::TaskStatus::Completed => "completed",
         crate::agent::types::TaskStatus::Failed => "failed",
         crate::agent::types::TaskStatus::Cancelled => "cancelled",

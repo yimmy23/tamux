@@ -1,4 +1,48 @@
 impl TuiModel {
+    fn chat_scrollbar_layout(&self) -> Option<widgets::chat::ChatScrollbarLayout> {
+        widgets::chat::scrollbar_layout(
+            self.pane_layout().chat,
+            &self.chat,
+            &self.theme,
+            self.tick_counter,
+            self.retry_wait_start_selected,
+        )
+    }
+
+    fn capture_locked_chat_viewport(&self, thread_id: Option<&str>) -> Option<(usize, usize)> {
+        let thread_id = thread_id?;
+        if self.chat.active_thread_id() != Some(thread_id) || self.chat.scroll_offset() == 0 {
+            return None;
+        }
+
+        self.chat_scrollbar_layout()
+            .map(|layout| (layout.scroll, layout.max_scroll))
+    }
+
+    fn restore_locked_chat_viewport(&mut self, anchor: Option<(usize, usize)>) {
+        let Some((before_scroll, before_max_scroll)) = anchor else {
+            return;
+        };
+
+        let after_max_scroll = self
+            .chat_scrollbar_layout()
+            .map(|layout| layout.max_scroll)
+            .unwrap_or(0);
+        let target = if after_max_scroll >= before_max_scroll {
+            before_scroll.saturating_add(after_max_scroll - before_max_scroll)
+        } else {
+            before_scroll.saturating_sub(before_max_scroll - after_max_scroll)
+        };
+
+        self.set_chat_scroll_offset(target.min(after_max_scroll));
+    }
+
+    fn reduce_chat_for_thread(&mut self, thread_id: Option<&str>, action: chat::ChatAction) {
+        let anchor = self.capture_locked_chat_viewport(thread_id);
+        self.chat.reduce(action);
+        self.restore_locked_chat_viewport(anchor);
+    }
+
     fn sidebar_visible(&self) -> bool {
         if !matches!(
             self.main_pane_view,
@@ -15,6 +59,7 @@ impl TuiModel {
                 .work_context_for_thread(thread_id)
                 .is_some_and(|context| !context.entries.is_empty())
             || self.chat.active_thread_has_pinned_messages()
+            || crate::widgets::sidebar::has_spawned_tab(&self.tasks, &self.chat, Some(thread_id))
     }
 
     fn current_attention_target(&self) -> (String, Option<String>, Option<String>) {
@@ -27,9 +72,7 @@ impl TuiModel {
                     )
                 }
                 modal::ModalKind::ApprovalOverlay => "modal:approval".to_string(),
-                modal::ModalKind::OperatorQuestionOverlay => {
-                    "modal:operator_question".to_string()
-                }
+                modal::ModalKind::OperatorQuestionOverlay => "modal:operator_question".to_string(),
                 modal::ModalKind::ApprovalCenter => "modal:approval_center".to_string(),
                 modal::ModalKind::ChatActionConfirm => "modal:chat_action_confirm".to_string(),
                 modal::ModalKind::PinnedBudgetExceeded => {

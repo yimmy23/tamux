@@ -380,11 +380,11 @@ fn default_command_items() -> Vec<CommandItem> {
     vec![
         CommandItem {
             command: "provider".into(),
-            description: "Switch LLM backend".into(),
+            description: "Switch Svarog's provider".into(),
         },
         CommandItem {
             command: "model".into(),
-            description: "Switch active model".into(),
+            description: "Switch Svarog's model".into(),
         },
         CommandItem {
             command: "tools".into(),
@@ -392,7 +392,7 @@ fn default_command_items() -> Vec<CommandItem> {
         },
         CommandItem {
             command: "effort".into(),
-            description: "Set reasoning effort".into(),
+            description: "Set Svarog's reasoning effort".into(),
         },
         CommandItem {
             command: "thread".into(),

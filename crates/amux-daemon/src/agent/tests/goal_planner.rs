@@ -508,3 +508,110 @@ async fn handle_goal_run_step_failure_surfaces_strained_replan_summary_guidance(
     assert!(summary.contains("prefer proven tools"));
     assert!(summary.contains("keep iteration bounds short"));
 }
+
+#[tokio::test]
+async fn low_confidence_plan_gate_creates_task_backed_approval_that_can_be_resolved() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = crate::agent::tests::spawn_goal_recording_server(
+        recorded_bodies,
+        serde_json::json!({
+            "title": "Needs review",
+            "summary": "Plan includes a risky unknown step.",
+            "steps": [
+                {
+                    "title": "[LOW] Inspect the unknown deployment state",
+                    "instructions": "Inspect the current deployment and confirm unknowns.",
+                    "kind": "research",
+                    "success_criteria": "deployment state understood",
+                    "session_id": null,
+                    "llm_confidence": "unlikely",
+                    "llm_confidence_rationale": "missing state"
+                }
+            ],
+            "rejected_alternatives": []
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.uncertainty.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let goal_run_id = "goal-low-confidence-plan";
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Research,
+        "Inspect the deployment before taking action",
+    );
+    goal_run.status = GoalRunStatus::Queued;
+    goal_run.steps.clear();
+    goal_run.current_step_index = 0;
+    goal_run.current_step_title = None;
+    goal_run.current_step_kind = None;
+    goal_run.thread_id = Some("thread-low-confidence-plan".to_string());
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    engine
+        .plan_goal_run(goal_run_id)
+        .await
+        .expect("planning should succeed");
+
+    let awaiting_goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should exist");
+    assert_eq!(awaiting_goal.status, GoalRunStatus::AwaitingApproval);
+    let approval_id = awaiting_goal
+        .awaiting_approval_id
+        .clone()
+        .expect("low-confidence plan should produce an approval id");
+
+    let approval_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.awaiting_approval_id.as_deref() == Some(approval_id.as_str()))
+        .cloned()
+        .expect("low-confidence plan should create a task-backed approval");
+    assert_eq!(approval_task.source, "goal_plan_approval");
+    assert_eq!(approval_task.status, TaskStatus::AwaitingApproval);
+
+    assert!(
+        engine
+            .handle_task_approval_resolution(
+                &approval_id,
+                amux_protocol::ApprovalDecision::ApproveOnce
+            )
+            .await,
+        "approval resolution should succeed for low-confidence plan reviews"
+    );
+
+    let resumed_goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(resumed_goal.status, GoalRunStatus::Running);
+    assert!(resumed_goal.awaiting_approval_id.is_none());
+
+    let resolved_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == approval_task.id)
+        .cloned()
+        .expect("approval task should still exist");
+    assert_eq!(resolved_task.status, TaskStatus::Completed);
+    assert!(resolved_task.awaiting_approval_id.is_none());
+}

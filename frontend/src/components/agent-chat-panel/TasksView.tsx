@@ -34,6 +34,46 @@ import type {
   ThreadTarget,
 } from "./tasks-view/types";
 
+export function collectSelectedTaskSubagents(
+  selectedTask: AgentQueueTask | null,
+  runs: AgentRun[],
+): AgentRun[] {
+  if (!selectedTask) {
+    return [];
+  }
+
+  const subagentRuns = runs
+    .filter((run) => run.kind === "subagent")
+    .slice()
+    .sort((a, b) => b.created_at - a.created_at);
+  const selectedTaskIdentities = new Set<string>([selectedTask.id]);
+  const selectedRunIds = new Set<string>([selectedTask.id]);
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const run of subagentRuns) {
+      if (selectedRunIds.has(run.id)) {
+        continue;
+      }
+
+      const parentMatches =
+        Boolean(run.parent_run_id && selectedRunIds.has(run.parent_run_id)) ||
+        Boolean(run.parent_task_id && selectedTaskIdentities.has(run.parent_task_id));
+
+      if (!parentMatches) {
+        continue;
+      }
+
+      selectedRunIds.add(run.id);
+      selectedTaskIdentities.add(run.task_id ?? run.id);
+      changed = true;
+    }
+  }
+
+  return subagentRuns.filter((run) => selectedRunIds.has(run.id));
+}
+
 export function TasksView({ onOpenThreadView }: TasksViewProps) {
   const [tasks, setTasks] = useState<AgentQueueTask[]>([]);
   const [runs, setRuns] = useState<AgentRun[]>([]);
@@ -295,29 +335,6 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
     [tasks],
   );
 
-  const subagentRunsByParent = useMemo(() => {
-    const grouped = new Map<string, AgentRun[]>();
-    for (const run of runs) {
-      if (run.kind !== "subagent") {
-        continue;
-      }
-
-      const parentKey = run.parent_run_id
-        ? `task:${run.parent_run_id}`
-        : run.parent_thread_id
-          ? `thread:${run.parent_thread_id}`
-          : null;
-      if (!parentKey) {
-        continue;
-      }
-
-      const bucket = grouped.get(parentKey) ?? [];
-      bucket.push(run);
-      grouped.set(parentKey, bucket);
-    }
-    return grouped;
-  }, [runs]);
-
   const activeTasks = topLevelTasks.filter(isTaskActive);
   const completedTasks = topLevelTasks.filter((task) => !isTaskActive(task));
   const selectedTask =
@@ -326,13 +343,10 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
     tasks[0] ??
     null;
 
-  const selectedTaskSubagents = useMemo(() => {
-    if (!selectedTask) {
-      return [] as AgentRun[];
-    }
-    const directChildren = subagentRunsByParent.get(`task:${selectedTask.id}`) ?? [];
-    return directChildren.slice().sort((a, b) => b.created_at - a.created_at);
-  }, [selectedTask, subagentRunsByParent]);
+  const selectedTaskSubagents = useMemo(
+    () => collectSelectedTaskSubagents(selectedTask, runs),
+    [runs, selectedTask],
+  );
 
   const activeGoalRuns = useMemo(
     () => goalRuns.filter(isGoalRunActive),

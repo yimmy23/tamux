@@ -416,7 +416,10 @@ fn dispatch_lane_for_task(
 pub(in crate::agent) fn is_task_terminal_status(status: TaskStatus) -> bool {
     matches!(
         status,
-        TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
+        TaskStatus::Completed
+            | TaskStatus::BudgetExceeded
+            | TaskStatus::Failed
+            | TaskStatus::Cancelled
     )
 }
 
@@ -485,6 +488,7 @@ pub(in crate::agent) fn status_message(task: &AgentTask) -> &'static str {
         TaskStatus::AwaitingApproval => "Task awaiting approval",
         TaskStatus::Blocked => "Task blocked",
         TaskStatus::FailedAnalyzing => "Task analyzing failure",
+        TaskStatus::BudgetExceeded => "Task budget exceeded",
         TaskStatus::Completed => "Task completed",
         TaskStatus::Failed => "Task failed",
         TaskStatus::Cancelled => "Task cancelled",

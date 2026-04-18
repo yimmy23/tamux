@@ -121,6 +121,16 @@ fn bridge_event_from_daemon_message(message: &DaemonMessage) -> Option<serde_jso
                 "error": error,
             }
         })),
+        DaemonMessage::AgentModelsResponse {
+            operation_id,
+            models_json,
+        } => Some(serde_json::json!({
+            "type": "provider-models",
+            "data": {
+                "operation_id": operation_id,
+                "models": serde_json::from_str::<serde_json::Value>(models_json).unwrap_or_default(),
+            }
+        })),
         _ => None,
     }
 }
@@ -201,6 +211,14 @@ where
         }
         Some(Ok(DaemonMessage::AgentGoalRunControlled { goal_run_id, ok })) => {
             let msg = serde_json::json!({"type":"goal-run-controlled","data":{"goal_run_id":goal_run_id,"ok":ok}});
+            emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentThreadControlled {
+            thread_id,
+            action,
+            ok,
+        })) => {
+            let msg = serde_json::json!({"type":"thread-controlled","data":{"thread_id":thread_id,"action":action,"ok":ok}});
             emit_agent_event(&msg.to_string())?;
         }
         Some(Ok(DaemonMessage::AgentTodoList { todos_json })) => {

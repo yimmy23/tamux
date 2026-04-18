@@ -206,6 +206,30 @@ impl TuiModel {
                     self.settings.is_textarea() && is_settings_textarea_submit_key(code, modifiers);
                 if self.settings.is_textarea() {
                     match code {
+                        KeyCode::Left => {
+                            self.settings.reduce(SettingsAction::MoveCursorLeft);
+                            return false;
+                        }
+                        KeyCode::Right => {
+                            self.settings.reduce(SettingsAction::MoveCursorRight);
+                            return false;
+                        }
+                        KeyCode::Up => {
+                            self.settings.reduce(SettingsAction::MoveCursorUp);
+                            return false;
+                        }
+                        KeyCode::Down => {
+                            self.settings.reduce(SettingsAction::MoveCursorDown);
+                            return false;
+                        }
+                        KeyCode::Home => {
+                            self.settings.reduce(SettingsAction::MoveCursorHome);
+                            return false;
+                        }
+                        KeyCode::End => {
+                            self.settings.reduce(SettingsAction::MoveCursorEnd);
+                            return false;
+                        }
                         _ if textarea_submit => {}
                         KeyCode::Enter => {
                             self.settings.reduce(SettingsAction::InsertChar('\n'));
@@ -228,6 +252,12 @@ impl TuiModel {
                 }
 
                 match code {
+                    KeyCode::Left => self.settings.reduce(SettingsAction::MoveCursorLeft),
+                    KeyCode::Right => self.settings.reduce(SettingsAction::MoveCursorRight),
+                    KeyCode::Up => self.settings.reduce(SettingsAction::MoveCursorUp),
+                    KeyCode::Down => self.settings.reduce(SettingsAction::MoveCursorDown),
+                    KeyCode::Home => self.settings.reduce(SettingsAction::MoveCursorHome),
+                    KeyCode::End => self.settings.reduce(SettingsAction::MoveCursorEnd),
                     _ if textarea_submit || code == KeyCode::Enter => {
                         let field = self.settings.editing_field().unwrap_or("").to_string();
                         let value = self.settings.edit_buffer().to_string();
@@ -325,6 +355,21 @@ impl TuiModel {
                             "honcho_api_key" => self.config.honcho_api_key = value,
                             "honcho_base_url" => self.config.honcho_base_url = value,
                             "honcho_workspace_id" => self.config.honcho_workspace_id = value,
+                            "honcho_editor_api_key" => {
+                                if let Some(editor) = self.config.honcho_editor.as_mut() {
+                                    editor.api_key = value;
+                                }
+                            }
+                            "honcho_editor_base_url" => {
+                                if let Some(editor) = self.config.honcho_editor.as_mut() {
+                                    editor.base_url = value;
+                                }
+                            }
+                            "honcho_editor_workspace_id" => {
+                                if let Some(editor) = self.config.honcho_editor.as_mut() {
+                                    editor.workspace_id = value;
+                                }
+                            }
                             "compliance_retention_days" => {
                                 if let Ok(n) = value.parse::<u32>() {
                                     self.config.compliance_retention_days = n.clamp(1, 3650);
@@ -449,6 +494,11 @@ impl TuiModel {
                                 if let Some(editor) = self.subagents.editor.as_mut() {
                                     editor.role = value;
                                     editor.previous_role_preset = None;
+                                }
+                            }
+                            "subagent_model" => {
+                                if let Some(editor) = self.subagents.editor.as_mut() {
+                                    editor.model = value.trim().to_string();
                                 }
                             }
                             "subagent_system_prompt" => {
@@ -588,7 +638,12 @@ impl TuiModel {
                         self.settings.reduce(SettingsAction::ConfirmEdit);
                         if !matches!(
                             field.as_str(),
-                            "subagent_name" | "subagent_role" | "subagent_system_prompt"
+                            "subagent_name"
+                                | "subagent_role"
+                                | "subagent_system_prompt"
+                                | "honcho_editor_api_key"
+                                | "honcho_editor_base_url"
+                                | "honcho_editor_workspace_id"
                         ) {
                             self.sync_config_to_daemon();
                         }
@@ -604,6 +659,12 @@ impl TuiModel {
             match self.settings.active_tab() {
                 SettingsTab::Auth => {
                     if self.handle_auth_settings_key(code) {
+                        return false;
+                    }
+                }
+                SettingsTab::Chat => {
+                    if self.config.honcho_editor.is_some() {
+                        self.handle_honcho_settings_key(code);
                         return false;
                     }
                 }
@@ -631,6 +692,7 @@ impl TuiModel {
                         .unwrap_or(0);
                     let next_tab = all[next_idx];
                     self.settings.reduce(SettingsAction::SwitchTab(next_tab));
+                    self.settings_modal_scroll = 0;
                     if matches!(next_tab, SettingsTab::SubAgents) {
                         self.send_daemon_command(DaemonCommand::ListSubAgents);
                     } else if matches!(next_tab, SettingsTab::Concierge) {
@@ -653,6 +715,7 @@ impl TuiModel {
                         .unwrap_or(0);
                     let prev_tab = all[prev_idx];
                     self.settings.reduce(SettingsAction::SwitchTab(prev_tab));
+                    self.settings_modal_scroll = 0;
                     if matches!(prev_tab, SettingsTab::SubAgents) {
                         self.send_daemon_command(DaemonCommand::ListSubAgents);
                     } else if matches!(prev_tab, SettingsTab::Concierge) {
@@ -672,6 +735,23 @@ impl TuiModel {
                 KeyCode::Up => {
                     self.settings
                         .navigate_field(-1, self.settings_field_count());
+                    return false;
+                }
+                KeyCode::PageDown => {
+                    self.page_settings_modal_scroll(1);
+                    return false;
+                }
+                KeyCode::PageUp => {
+                    self.page_settings_modal_scroll(-1);
+                    return false;
+                }
+                KeyCode::Home => {
+                    self.set_settings_modal_scroll(0);
+                    return false;
+                }
+                KeyCode::End => {
+                    let max_scroll = self.settings_modal_max_scroll();
+                    self.set_settings_modal_scroll(max_scroll);
                     return false;
                 }
                 KeyCode::Enter => {
@@ -1119,6 +1199,38 @@ impl TuiModel {
                 self.modal.set_thread_picker_tab(next);
                 self.sync_thread_picker_item_count();
             }
+            KeyCode::Delete if kind == modal::ModalKind::ThreadPicker => {
+                if let Some(thread) = self.selected_thread_picker_thread() {
+                    self.open_pending_action_confirm(PendingConfirmAction::DeleteThread {
+                        thread_id: thread.id.clone(),
+                        title: widgets::thread_picker::thread_display_title(thread),
+                    });
+                }
+            }
+            KeyCode::Delete if kind == modal::ModalKind::GoalPicker => {
+                if let Some(run) = self.selected_goal_picker_run() {
+                    self.open_pending_action_confirm(PendingConfirmAction::DeleteGoalRun {
+                        goal_run_id: run.id.clone(),
+                        title: run.title.clone(),
+                    });
+                }
+            }
+            KeyCode::Char('s')
+                if modifiers.contains(KeyModifiers::CONTROL)
+                    && kind == modal::ModalKind::ThreadPicker =>
+            {
+                if let Some(action) = self.selected_thread_picker_confirm_action() {
+                    self.open_pending_action_confirm(action);
+                }
+            }
+            KeyCode::Char('s')
+                if modifiers.contains(KeyModifiers::CONTROL)
+                    && kind == modal::ModalKind::GoalPicker =>
+            {
+                if let Some(action) = self.selected_goal_picker_toggle_action() {
+                    self.open_pending_action_confirm(action);
+                }
+            }
             KeyCode::Down => self.modal.reduce(modal::ModalAction::Navigate(1)),
             KeyCode::Up => self.modal.reduce(modal::ModalAction::Navigate(-1)),
             KeyCode::Enter => {
@@ -1139,7 +1251,10 @@ impl TuiModel {
                     self.sync_goal_picker_item_count();
                 }
             }
-            KeyCode::Char(c) if is_searchable => {
+            KeyCode::Char(c)
+                if is_searchable
+                    && !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
                 self.input.reduce(input::InputAction::InsertChar(c));
                 self.modal.reduce(modal::ModalAction::SetQuery(
                     self.input.buffer().to_string(),

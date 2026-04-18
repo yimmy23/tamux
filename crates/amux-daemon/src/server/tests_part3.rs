@@ -808,7 +808,10 @@ async fn thread_list_subscription_registers_threads_for_live_agent_events() {
         .await
         .expect("subscribe to agent events");
     conn.framed
-        .send(ClientMessage::AgentListThreads)
+        .send(ClientMessage::AgentListThreads {
+            limit: None,
+            offset: None,
+        })
         .await
         .expect("request thread list");
 

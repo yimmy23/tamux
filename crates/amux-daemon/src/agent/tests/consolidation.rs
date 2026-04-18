@@ -137,6 +137,90 @@ async fn maybe_run_consolidation_if_idle_blocks_when_goal_run_is_awaiting_approv
     );
 }
 
+#[tokio::test]
+async fn maybe_run_consolidation_if_idle_persists_dream_note_when_strategy_learning_occurs() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.consolidation.enabled = true;
+    config.consolidation.idle_threshold_secs = 0;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let agent_id = crate::agent::agent_identity::current_agent_scope_id();
+    crate::agent::ensure_memory_files_for_scope(engine.data_dir.as_path(), &agent_id)
+        .await
+        .expect("seed memory files for current scope");
+    let initial_memory_path =
+        crate::agent::task_prompt::memory_paths_for_scope(engine.data_dir.as_path(), &agent_id)
+            .memory_path;
+    tokio::fs::write(&initial_memory_path, "# Memory\n")
+        .await
+        .expect("shrink memory file for deterministic idle-learning test");
+    let now = now_millis();
+    let metrics_json = serde_json::json!({
+        "total_duration_ms": 45_000,
+        "step_count": 2,
+        "success_rate": 0.5,
+        "operator_revisions": 1,
+        "exit_code": 1,
+    })
+    .to_string();
+
+    for idx in 0..3u64 {
+        let started_at = now.saturating_sub(1_000 + idx);
+        let completed_at = started_at + 100;
+        engine
+            .history
+            .insert_execution_trace(
+                &format!("dream-trace-{idx}"),
+                None,
+                None,
+                Some(&format!("task-{idx}")),
+                "coding",
+                "success",
+                Some(0.6),
+                "[\"bash_command\",\"read_file\"]",
+                &metrics_json,
+                45_000,
+                120,
+                &agent_id,
+                started_at,
+                completed_at,
+                completed_at,
+            )
+            .await
+            .expect("seed execution trace");
+    }
+
+    let result = engine
+        .maybe_run_consolidation_if_idle(Duration::from_millis(50))
+        .await
+        .expect("expected idle consolidation to run");
+    assert!(
+        result.forge_hints_generated > 0,
+        "expected existing idle strategy learning surface to generate hints"
+    );
+    assert!(
+        result.forge_hints_auto_applied > 0,
+        "expected idle consolidation to auto-apply at least one forge hint so dream persistence has source material"
+    );
+
+    let scope_id = crate::agent::agent_identity::current_agent_scope_id();
+    crate::agent::ensure_memory_files_for_scope(engine.data_dir.as_path(), &scope_id)
+        .await
+        .expect("ensure memory files for current scope");
+    let memory_path =
+        crate::agent::task_prompt::memory_paths_for_scope(engine.data_dir.as_path(), &scope_id)
+            .memory_path;
+    let content = tokio::fs::read_to_string(&memory_path)
+        .await
+        .expect("read memory file after idle consolidation");
+    assert!(
+        content.contains("[dream]"),
+        "dream state should persist an auditable [dream] note when idle strategy learning occurs; content was: {content}"
+    );
+}
+
 #[test]
 fn decay_returns_half_at_half_life() {
     let now = 1_000_000_000u64;

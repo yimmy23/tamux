@@ -1,6 +1,14 @@
 use super::*;
 use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
+fn make_thread(id: &str, title: &str) -> AgentThread {
+    AgentThread {
+        id: id.into(),
+        title: title.into(),
+        ..Default::default()
+    }
+}
+
 #[test]
 fn delta_appends_to_streaming_content() {
     let mut state = ChatState::new();
@@ -151,6 +159,113 @@ fn thread_list_received_replaces_threads() {
     ];
     state.reduce(ChatAction::ThreadListReceived(threads));
     assert_eq!(state.threads().len(), 2);
+}
+
+#[test]
+fn thread_history_stack_pushes_and_pops_in_order() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![
+        make_thread("thread-a", "A"),
+        make_thread("thread-b", "B"),
+        make_thread("thread-c", "C"),
+    ]));
+    state.reduce(ChatAction::SelectThread("thread-a".into()));
+
+    assert!(state.open_spawned_thread("thread-a", "thread-b"));
+    assert!(state.open_spawned_thread("thread-b", "thread-c"));
+    assert_eq!(
+        state.thread_history_stack(),
+        &["thread-a".to_string(), "thread-b".to_string()]
+    );
+
+    assert_eq!(state.go_back_thread(), Some("thread-b".to_string()));
+    assert_eq!(state.active_thread_id(), Some("thread-b"));
+    assert_eq!(state.thread_history_stack(), &["thread-a".to_string()]);
+
+    assert_eq!(state.go_back_thread(), Some("thread-a".to_string()));
+    assert_eq!(state.active_thread_id(), Some("thread-a"));
+    assert!(state.thread_history_stack().is_empty());
+}
+
+#[test]
+fn thread_history_stack_suppresses_duplicate_top_entries() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![
+        make_thread("thread-a", "A"),
+        make_thread("thread-b", "B"),
+    ]));
+    state.reduce(ChatAction::SelectThread("thread-a".into()));
+
+    assert!(state.open_spawned_thread("thread-a", "thread-b"));
+    assert!(state.open_spawned_thread("thread-a", "thread-b"));
+
+    assert_eq!(state.thread_history_stack(), &["thread-a".to_string()]);
+}
+
+#[test]
+fn thread_history_stack_allows_opening_unloaded_spawned_thread() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![make_thread(
+        "thread-a", "A",
+    )]));
+    state.reduce(ChatAction::SelectThread("thread-a".into()));
+
+    assert!(state.open_spawned_thread("thread-a", "thread-b"));
+    assert_eq!(state.active_thread_id(), Some("thread-b"));
+    assert_eq!(state.thread_history_stack(), &["thread-a".to_string()]);
+}
+
+#[test]
+fn thread_history_stack_survives_ordinary_selection_and_prunes_deleted_threads() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![
+        make_thread("thread-a", "A"),
+        make_thread("thread-b", "B"),
+        make_thread("thread-c", "C"),
+    ]));
+    state.reduce(ChatAction::SelectThread("thread-a".into()));
+
+    assert!(state.open_spawned_thread("thread-a", "thread-b"));
+    assert!(state.open_spawned_thread("thread-b", "thread-c"));
+    assert_eq!(state.thread_navigation_depth(), 2);
+
+    state.reduce(ChatAction::SelectThread("thread-c".into()));
+    assert_eq!(
+        state.thread_history_stack(),
+        &["thread-a".to_string(), "thread-b".to_string()]
+    );
+    assert_eq!(state.go_back_thread(), Some("thread-b".to_string()));
+    assert_eq!(state.active_thread_id(), Some("thread-b"));
+
+    assert!(state.open_spawned_thread("thread-b", "thread-c"));
+    state.reduce(ChatAction::ThreadDeleted {
+        thread_id: "thread-c".into(),
+    });
+    assert!(
+        state.thread_history_stack().is_empty(),
+        "deleting the active thread should reset spawned-thread history"
+    );
+    assert_eq!(state.go_back_thread(), None);
+}
+
+#[test]
+fn thread_history_stack_prunes_missing_threads_on_list_replacement() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![
+        make_thread("thread-a", "A"),
+        make_thread("thread-b", "B"),
+        make_thread("thread-c", "C"),
+    ]));
+    state.reduce(ChatAction::SelectThread("thread-a".into()));
+
+    assert!(state.open_spawned_thread("thread-a", "thread-b"));
+    assert_eq!(state.thread_history_stack(), &["thread-a".to_string()]);
+
+    state.reduce(ChatAction::ThreadListReceived(vec![make_thread(
+        "thread-c", "C",
+    )]));
+    assert!(state.thread_history_stack().is_empty());
+    assert_eq!(state.go_back_thread(), None);
 }
 
 #[test]
@@ -314,6 +429,42 @@ fn thread_detail_hydrates_pinned_summaries_outside_loaded_window() {
     assert_eq!(pinned[0].message_id, "m1");
     assert_eq!(pinned[0].absolute_index, 0);
     assert_eq!(pinned[0].content, "offscreen pin");
+}
+
+#[test]
+fn local_unpin_removes_offscreen_pinned_summary_immediately() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Pinned".into(),
+        messages: vec![AgentMessage {
+            id: Some("m3".into()),
+            role: MessageRole::Assistant,
+            content: "latest".into(),
+            pinned_for_compaction: false,
+            ..Default::default()
+        }],
+        pinned_messages: vec![PinnedThreadMessage {
+            message_id: "m1".into(),
+            absolute_index: 0,
+            role: MessageRole::User,
+            content: "offscreen pin".into(),
+        }],
+        loaded_message_start: 2,
+        loaded_message_end: 3,
+        total_message_count: 3,
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    state.reduce(ChatAction::UnpinMessageForCompaction {
+        thread_id: "t1".into(),
+        message_id: "m1".into(),
+        absolute_index: Some(0),
+    });
+
+    assert!(!state.active_thread_has_pinned_messages());
+    assert!(state.active_thread_pinned_messages().is_empty());
 }
 
 #[test]

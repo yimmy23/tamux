@@ -103,6 +103,20 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn delete_checkpoints_for_goal_run(&self, goal_run_id: &str) -> Result<usize> {
+        let goal_run_id = goal_run_id.to_string();
+        self.conn
+            .call(move |conn| {
+                let deleted = conn.execute(
+                    "DELETE FROM agent_checkpoints WHERE goal_run_id = ?1",
+                    params![goal_run_id],
+                )?;
+                Ok(deleted)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     // -- Health log --
 
     pub async fn insert_health_log(

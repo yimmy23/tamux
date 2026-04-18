@@ -113,8 +113,7 @@ impl TuiModel {
         self.config
             .reduce(config::ConfigAction::ModelsFetched(models));
         if self.modal.top() == Some(crate::state::modal::ModalKind::ModelPicker) {
-            let count = widgets::model_picker::available_models(&self.config).len() + 1;
-            self.modal.set_picker_item_count(count);
+            self.sync_model_picker_item_count();
         }
     }
 
@@ -255,10 +254,9 @@ impl TuiModel {
 
     pub(in crate::app) fn handle_anticipatory_items_event(
         &mut self,
-        items: Vec<crate::wire::AnticipatoryItem>,
+        _items: Vec<crate::wire::AnticipatoryItem>,
     ) {
-        self.anticipatory
-            .reduce(crate::state::AnticipatoryAction::Replace(items));
+        // Anticipatory items are surfaced through inbox notifications now.
     }
 
     pub(in crate::app) fn handle_gateway_status_event(

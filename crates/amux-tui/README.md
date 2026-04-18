@@ -61,9 +61,9 @@ Requires a running amux daemon (connects via Unix socket or TCP).
 | Command | Action |
 |---------|--------|
 | /settings | Open settings panel |
-| /provider | Switch LLM provider |
-| /model | Switch model |
-| /effort | Set reasoning effort |
+| /provider | Switch Svarog's provider |
+| /model | Switch Svarog's model |
+| /effort | Set Svarog's reasoning effort |
 | /thread | Pick thread |
 | /new | New conversation |
 | /attach \<path\> | Attach file |

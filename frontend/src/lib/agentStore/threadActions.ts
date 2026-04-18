@@ -1,7 +1,6 @@
 import { scheduleJsonWrite } from "../persistence";
 import {
   AGENT_ACTIVE_THREAD_FILE,
-  type AgentChatState,
   getAgentDbApi,
   nextMessageId,
   nextThreadId,
@@ -19,6 +18,8 @@ type ThreadActionKeys =
   | "createThread"
   | "deleteThread"
   | "setActiveThread"
+  | "openSpawnedThread"
+  | "goBackThread"
   | "searchThreads"
   | "addMessage"
   | "updateLastAssistantMessage"
@@ -33,6 +34,42 @@ type ThreadActionKeys =
 
 function shouldPersistCurrentHistory(agentSettings: AgentSettings): boolean {
   return shouldPersistHistory(agentSettings.agent_backend);
+}
+
+function persistActiveThreadSelection(get: AgentStoreGet, activeThreadId: string | null): void {
+  if (shouldPersistCurrentHistory(get().agentSettings)) {
+    scheduleJsonWrite(AGENT_ACTIVE_THREAD_FILE, { activeThreadId });
+  }
+}
+
+function appendThreadHistory(stack: string[], fromThreadId: string): string[] {
+  if (stack[stack.length - 1] === fromThreadId) {
+    return stack;
+  }
+  return [...stack, fromThreadId];
+}
+
+function popPreviousThread(
+  currentActiveThreadId: string | null,
+  threads: AgentState["threads"],
+  stack: string[],
+): { activeThreadId: string | null; threadHistoryStack: string[] } {
+  const nextStack = [...stack];
+
+  while (nextStack.length > 0) {
+    const nextThreadId = nextStack.pop();
+    if (!nextThreadId) {
+      continue;
+    }
+    if (threads.some((thread) => thread.id === nextThreadId)) {
+      return {
+        activeThreadId: nextThreadId,
+        threadHistoryStack: nextStack,
+      };
+    }
+  }
+
+  return { activeThreadId: currentActiveThreadId, threadHistoryStack: [] };
 }
 
 export function createThreadActions(
@@ -66,11 +103,12 @@ export function createThreadActions(
         upstreamAssistantId: null,
       };
       set((state) => {
-        const next: AgentChatState = {
+        const next = {
           threads: [thread, ...state.threads],
           messages: { ...state.messages, [id]: [] },
           todos: { ...state.todos, [id]: [] },
           activeThreadId: id,
+          threadHistoryStack: [],
         };
         if (shouldPersistCurrentHistory(get().agentSettings)) {
           persistDaemonThreadMap(next.threads);
@@ -85,7 +123,7 @@ export function createThreadActions(
       set((state) => {
         const { [id]: _message, ...remainingMessages } = state.messages;
         const { [id]: _todo, ...remainingTodos } = state.todos;
-        const next: AgentChatState = {
+        const next = {
           threads: state.threads.filter((thread) => thread.id !== id),
           messages: remainingMessages,
           todos: remainingTodos,
@@ -99,10 +137,34 @@ export function createThreadActions(
       });
     },
     setActiveThread: (id) => {
-      set({ activeThreadId: id });
-      if (shouldPersistCurrentHistory(get().agentSettings)) {
-        scheduleJsonWrite(AGENT_ACTIVE_THREAD_FILE, { activeThreadId: id });
+      set({ activeThreadId: id, threadHistoryStack: [] });
+      persistActiveThreadSelection(get, id);
+    },
+    openSpawnedThread: (fromThreadId, toThreadId) => {
+      const state = get();
+      if (fromThreadId === toThreadId || !state.threads.some((thread) => thread.id === toThreadId)) {
+        return;
       }
+
+      set({
+        activeThreadId: toThreadId,
+        threadHistoryStack: appendThreadHistory(state.threadHistoryStack, fromThreadId),
+      });
+      persistActiveThreadSelection(get, toThreadId);
+    },
+    goBackThread: () => {
+      const state = get();
+      if (state.threadHistoryStack.length === 0) {
+        return;
+      }
+
+      const next = popPreviousThread(
+        state.activeThreadId,
+        state.threads,
+        state.threadHistoryStack,
+      );
+      set(next);
+      persistActiveThreadSelection(get, next.activeThreadId);
     },
     searchThreads: (query) => {
       const lower = query.toLowerCase();
@@ -120,7 +182,7 @@ export function createThreadActions(
       };
       set((state) => {
         const threadMessages = [...(state.messages[threadId] ?? []), fullMessage];
-        const next: AgentChatState = {
+        const next = {
           messages: { ...state.messages, [threadId]: threadMessages },
           todos: state.todos,
           threads: state.threads.map((thread) =>

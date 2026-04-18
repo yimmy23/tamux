@@ -505,7 +505,14 @@ if matches!(
 
                 ClientMessage::AgentStopStream { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
-                    let _ = agent.stop_stream(&thread_id).await;
+                    let ok = agent.stop_stream(&thread_id).await;
+                    framed
+                        .send(DaemonMessage::AgentThreadControlled {
+                            thread_id,
+                            action: "stop".to_string(),
+                            ok,
+                        })
+                        .await?;
                 }
                 ClientMessage::AgentForceCompact { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
@@ -659,7 +666,14 @@ if matches!(
                 }
                 ClientMessage::AgentRetryStreamNow { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
-                    let _ = agent.retry_stream_now(&thread_id).await;
+                    let ok = agent.retry_stream_now(&thread_id).await;
+                    framed
+                        .send(DaemonMessage::AgentThreadControlled {
+                            thread_id,
+                            action: "resume".to_string(),
+                            ok,
+                        })
+                        .await?;
                 }
 
             _ => unreachable!("message chunk should be exhaustive"),

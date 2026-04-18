@@ -1,7 +1,7 @@
 if matches!(
         &msg,
         ClientMessage::AgentRecordAttention{ .. } |
-        ClientMessage::AgentListThreads |
+        ClientMessage::AgentListThreads{ .. } |
         ClientMessage::AgentGetThread{ .. } |
         ClientMessage::AgentDeleteThread{ .. } |
         ClientMessage::AgentPinThreadMessageForCompaction{ .. } |
@@ -12,9 +12,11 @@ if matches!(
         ClientMessage::AgentListRuns |
         ClientMessage::AgentGetRun{ .. } |
         ClientMessage::AgentStartGoalRun{ .. } |
-        ClientMessage::AgentListGoalRuns |
+        ClientMessage::AgentListGoalRuns{ .. } |
         ClientMessage::AgentGetGoalRun{ .. } |
+        ClientMessage::AgentGetGoalRunPage{ .. } |
         ClientMessage::AgentControlGoalRun{ .. } |
+        ClientMessage::AgentDeleteGoalRun{ .. } |
         ClientMessage::AgentListTodos |
         ClientMessage::AgentGetTodos{ .. } |
         ClientMessage::AgentGetWorkContext{ .. } |
@@ -65,8 +67,9 @@ if matches!(
                     }
                 }
 
-                ClientMessage::AgentListThreads => {
-                    let (threads, truncated) = cap_agent_thread_list_for_ipc(agent.list_threads().await);
+                ClientMessage::AgentListThreads { limit, offset } => {
+                    let threads = agent.list_threads_paginated(limit, offset.unwrap_or(0)).await;
+                    let (threads, truncated) = cap_agent_thread_list_for_ipc(threads);
                     client_agent_threads.extend(threads.iter().map(|thread| thread.id.clone()));
                     if truncated {
                         tracing::warn!("truncated agent thread list to fit IPC frame limit");
@@ -238,8 +241,10 @@ if matches!(
                         .await?;
                 }
 
-                ClientMessage::AgentListGoalRuns => {
-                    let (goal_runs, truncated) = agent.list_goal_runs_capped_for_ipc().await;
+                ClientMessage::AgentListGoalRuns { limit, offset } => {
+                    let (goal_runs, truncated) = agent
+                        .list_goal_runs_paginated_capped_for_ipc(limit, offset)
+                        .await;
                     if truncated {
                         tracing::warn!(
                             "truncated goal run list to fit IPC frame limit"
@@ -261,8 +266,41 @@ if matches!(
                             "truncated goal run detail to fit IPC frame limit"
                         );
                     }
-                    let goal_run = detail.map(|(goal_run, _)| goal_run);
-                    let json = serde_json::to_string(&goal_run).unwrap_or_default();
+                    let json = detail
+                        .map(|(goal_run_json, _)| goal_run_json)
+                        .unwrap_or_else(|| "null".to_string());
+                    framed
+                        .send(DaemonMessage::AgentGoalRunDetail {
+                            goal_run_json: json,
+                        })
+                        .await?;
+                }
+
+                ClientMessage::AgentGetGoalRunPage {
+                    goal_run_id,
+                    step_offset,
+                    step_limit,
+                    event_offset,
+                    event_limit,
+                } => {
+                    let detail = agent
+                        .get_goal_run_page_capped_for_ipc(
+                            &goal_run_id,
+                            step_offset,
+                            step_limit,
+                            event_offset,
+                            event_limit,
+                        )
+                        .await;
+                    if detail.as_ref().is_some_and(|(_, truncated)| *truncated) {
+                        tracing::warn!(
+                            goal_run_id = %goal_run_id,
+                            "truncated goal run detail page to fit IPC frame limit"
+                        );
+                    }
+                    let json = detail
+                        .map(|(goal_run_json, _)| goal_run_json)
+                        .unwrap_or_else(|| "null".to_string());
                     framed
                         .send(DaemonMessage::AgentGoalRunDetail {
                             goal_run_json: json,
@@ -280,6 +318,16 @@ if matches!(
                         .await;
                     framed
                         .send(DaemonMessage::AgentGoalRunControlled { goal_run_id, ok })
+                        .await?;
+                }
+
+                ClientMessage::AgentDeleteGoalRun { goal_run_id } => {
+                    let deleted = agent.delete_goal_run(&goal_run_id).await;
+                    framed
+                        .send(DaemonMessage::AgentGoalRunDeleted {
+                            goal_run_id,
+                            deleted,
+                        })
                         .await?;
                 }
 

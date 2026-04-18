@@ -31,6 +31,59 @@ impl TuiModel {
         self.work_context_drag_current_point = None;
     }
 
+    pub(in crate::app) fn current_detail_view_max_scroll(&self) -> usize {
+        let area = self.pane_layout().chat;
+        match &self.main_pane_view {
+            MainPaneView::Task(target) => widgets::task_view::max_scroll(
+                area,
+                &self.tasks,
+                target,
+                &self.theme,
+                self.task_show_live_todos,
+                self.task_show_timeline,
+                self.task_show_files,
+            ),
+            MainPaneView::WorkContext => widgets::work_context_view::max_scroll(
+                area,
+                &self.tasks,
+                self.chat.active_thread_id(),
+                self.sidebar.active_tab(),
+                self.sidebar.selected_item(),
+                &self.theme,
+            ),
+            MainPaneView::FilePreview(target) => {
+                widgets::file_preview::max_scroll(area, &self.tasks, target, &self.theme)
+            }
+            _ => 0,
+        }
+    }
+
+    pub(in super::super) fn clamp_detail_view_scroll(&mut self) {
+        self.task_view_scroll = self
+            .task_view_scroll
+            .min(self.current_detail_view_max_scroll());
+    }
+
+    pub(in super::super) fn step_detail_view_scroll(&mut self, delta: i32) {
+        let max_scroll = self.current_detail_view_max_scroll();
+        if delta >= 0 {
+            self.task_view_scroll = self
+                .task_view_scroll
+                .saturating_add(delta as usize)
+                .min(max_scroll);
+        } else {
+            self.task_view_scroll = self.task_view_scroll.saturating_sub((-delta) as usize);
+        }
+    }
+
+    pub(in super::super) fn scroll_detail_view_to_top(&mut self) {
+        self.task_view_scroll = 0;
+    }
+
+    pub(in super::super) fn scroll_detail_view_to_bottom(&mut self) {
+        self.task_view_scroll = self.current_detail_view_max_scroll();
+    }
+
     fn byte_offset_for_display_col(text: &str, target_col: usize) -> usize {
         use unicode_width::UnicodeWidthChar;
 
@@ -108,7 +161,7 @@ impl TuiModel {
                     });
                     self.send_daemon_command(DaemonCommand::RetryStreamNow { thread_id });
                     self.status_line = "Retrying now...".to_string();
-                    self.agent_activity = Some("retrying".to_string());
+                    self.set_active_thread_activity("retrying");
                 }
             }
             Some(chat::ChatHitTarget::RetryStop) => {
@@ -116,7 +169,7 @@ impl TuiModel {
                     self.retry_wait_start_selected = false;
                     self.cancelled_thread_id = Some(thread_id.clone());
                     self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-                    self.agent_activity = None;
+                    self.clear_active_thread_activity();
                     self.send_daemon_command(DaemonCommand::StopStream { thread_id });
                     self.status_line = "Stopped retry loop".to_string();
                 }
@@ -181,6 +234,9 @@ impl TuiModel {
 
         match mouse.kind {
             MouseEventKind::ScrollUp if inside => match kind {
+                modal::ModalKind::Settings => {
+                    self.step_settings_modal_scroll(-3);
+                }
                 modal::ModalKind::CommandPalette
                 | modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
@@ -220,6 +276,9 @@ impl TuiModel {
                 _ => {}
             },
             MouseEventKind::ScrollDown if inside => match kind {
+                modal::ModalKind::Settings => {
+                    self.step_settings_modal_scroll(3);
+                }
                 modal::ModalKind::CommandPalette
                 | modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
@@ -303,6 +362,7 @@ impl TuiModel {
                         &self.config,
                         &self.auth,
                         &self.subagents,
+                        self.settings_modal_scroll,
                         Position::new(mouse.column, mouse.row),
                     ) {
                         Some(widgets::settings::SettingsHitTarget::EditCursor { line, col }) => {
@@ -314,6 +374,7 @@ impl TuiModel {
                                 return;
                             }
                             self.settings.reduce(SettingsAction::SwitchTab(tab));
+                            self.settings_modal_scroll = 0;
                             if matches!(tab, SettingsTab::SubAgents) {
                                 self.send_daemon_command(DaemonCommand::ListSubAgents);
                             } else if matches!(tab, SettingsTab::Concierge) {
@@ -686,7 +747,7 @@ impl TuiModel {
                         && mouse.row < inner.y.saturating_add(inner.height.saturating_sub(1))
                     {
                         let idx = mouse.row.saturating_sub(inner.y) as usize;
-                        if idx <= widgets::model_picker::available_models(&self.config).len() {
+                        if idx <= self.available_model_picker_models().len() {
                             self.modal_navigate_to(idx);
                             self.handle_modal_enter(kind);
                         }

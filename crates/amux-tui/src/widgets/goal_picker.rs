@@ -112,7 +112,7 @@ pub fn render(
             let status = format!(
                 "{:?}",
                 run.status
-                    .unwrap_or(crate::state::task::GoalRunStatus::Pending)
+                    .unwrap_or(crate::state::task::GoalRunStatus::Queued)
             )
             .to_ascii_lowercase();
 
@@ -137,14 +137,21 @@ pub fn render(
 
     frame.render_widget(List::new(list_items), chunks[2]);
 
-    let hints = Line::from(vec![
+    let mut hints = vec![
         Span::raw(" "),
         Span::styled("↑↓", theme.fg_active),
         Span::styled(" navigate  ", theme.fg_dim),
         Span::styled("Enter", theme.fg_active),
         Span::styled(" open/create  ", theme.fg_dim),
-        Span::styled("Esc", theme.fg_active),
-        Span::styled(" close", theme.fg_dim),
-    ]);
+    ];
+    if cursor > 0 {
+        hints.push(Span::styled("Del", theme.fg_active));
+        hints.push(Span::styled(" delete  ", theme.fg_dim));
+        hints.push(Span::styled("Ctrl+S", theme.fg_active));
+        hints.push(Span::styled(" pause/resume  ", theme.fg_dim));
+    }
+    hints.push(Span::styled("Esc", theme.fg_active));
+    hints.push(Span::styled(" close", theme.fg_dim));
+    let hints = Line::from(hints);
     frame.render_widget(Paragraph::new(hints), chunks[3]);
 }

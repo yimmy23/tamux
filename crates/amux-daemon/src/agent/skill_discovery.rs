@@ -5,6 +5,7 @@
 //! novelty relative to known patterns.
 
 use std::collections::HashSet;
+use std::path::Path;
 
 use super::learning::patterns::ToolPattern;
 use super::types::SkillDiscoveryConfig;
@@ -16,6 +17,118 @@ use helpers::{
     extract_tool_sequence_from_json, is_novel_sequence, meets_complexity_threshold,
     parse_mental_test_results,
 };
+
+pub(crate) fn sanitize_agentskills_name(value: &str) -> String {
+    let mut normalized = value
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while normalized.contains("--") {
+        normalized = normalized.replace("--", "-");
+    }
+    normalized.trim_matches('-').to_string()
+}
+
+pub(crate) fn infer_draft_context_tags(
+    tool_sequence: &[String],
+    task_type: &str,
+    workspace_root: Option<&Path>,
+) -> Vec<String> {
+    let mut tags = std::collections::BTreeSet::new();
+    let lowered_task_type = task_type.to_ascii_lowercase();
+    if !lowered_task_type.is_empty() && lowered_task_type != "unknown" {
+        tags.insert(lowered_task_type);
+    }
+
+    for tool in tool_sequence {
+        let lowered = tool.to_ascii_lowercase();
+        match lowered.as_str() {
+            "cargo_test" | "cargo_build" | "cargo_check" => {
+                tags.insert("rust".to_string());
+            }
+            "pytest" => {
+                tags.insert("python".to_string());
+                tags.insert("testing".to_string());
+            }
+            "npm" | "pnpm" | "yarn" => {
+                tags.insert("node".to_string());
+            }
+            "read_file" | "search_files" | "replace_in_file" | "apply_file_patch"
+            | "apply_patch" => {
+                tags.insert("codebase".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(root) = workspace_root {
+        tags.extend(super::semantic_env::infer_workspace_context_tags(root));
+    }
+
+    tags.into_iter().collect()
+}
+
+pub(crate) fn build_skill_drafting_prompt(
+    tool_sequence: &[String],
+    task_type: &str,
+    context_tags: &[String],
+) -> String {
+    let tool_list = tool_sequence.join(", ");
+    let suggested_name =
+        sanitize_agentskills_name(&format!("{}-{}", task_type, tool_sequence.join("-")));
+    let context_tags_yaml = if context_tags.is_empty() {
+        "      []".to_string()
+    } else {
+        context_tags
+            .iter()
+            .map(|tag| format!("      - {}", sanitize_agentskills_name(tag)))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        "You are a skill documentation agent for an AI assistant.\n\n\
+         A successful execution trace used these tools in order: [{tool_list}]\n\
+         Task type: {task_type}\n\
+         Auto-inferred context tags: {}\n\n\
+         Generate a SKILL.md document for this discovered skill pattern.\n\
+         Use agentskills.io-compatible YAML frontmatter.\n\
+         Required frontmatter fields:\n\
+         - name: lowercase-hyphenated, max 64 chars, directory-compatible\n\
+         - description: what the skill does and when to use it\n\
+         Optional tamux-specific tags must go under `tamux.context_tags`, not top-level `context_tags`.\n\n\
+         Use this exact structure:\n\n\
+         ---\n\
+         name: {suggested_name}\n\
+         description: <one-line description of what this skill does and when to use it>\n\
+         tamux:\n\
+           context_tags:\n{context_tags_yaml}\n\
+         ---\n\n\
+         # <Skill Name>\n\n\
+         ## When to Use\n\
+         <2-3 sentences describing when this skill is useful>\n\n\
+         ## Tool Sequence\n\
+         {tool_list}\n\n\
+         ## Guidance\n\
+         - <tactical guidance 1>\n\
+         - <tactical guidance 2>\n\
+         - <tactical guidance 3>\n\n\
+         Respond ONLY with the SKILL.md content, nothing else.",
+        if context_tags.is_empty() {
+            "none".to_string()
+        } else {
+            context_tags.join(", ")
+        }
+    )
+}
 
 // ---------------------------------------------------------------------------
 // Complexity threshold
@@ -90,6 +203,25 @@ impl AgentEngine {
             let tool_sequence =
                 extract_tool_sequence_from_json(trace.tool_sequence_json.as_deref());
             if tool_sequence.is_empty() {
+                continue;
+            }
+
+            let had_skill_consultation = match self
+                .history
+                .trace_has_skill_consultation(
+                    None,
+                    trace.task_id.as_deref(),
+                    trace.goal_run_id.as_deref(),
+                )
+                .await
+            {
+                Ok(value) => value,
+                Err(e) => {
+                    tracing::warn!(error = %e, trace_id = %trace.id, "failed to inspect skill consultation history for trace");
+                    continue;
+                }
+            };
+            if had_skill_consultation {
                 continue;
             }
 
@@ -235,29 +367,12 @@ impl AgentEngine {
 
         let tool_sequence = extract_tool_sequence_from_json(trace.tool_sequence_json.as_deref());
         let task_type = trace.task_type.as_deref().unwrap_or("unknown");
+        let context_tags =
+            infer_draft_context_tags(&tool_sequence, task_type, self.workspace_root.as_deref());
 
         // Build template part (tool sequence) + LLM prompt for description/guidance
         let tool_list = tool_sequence.join(", ");
-        let drafting_prompt = format!(
-            "You are a skill documentation agent for an AI assistant.\n\n\
-             A successful execution trace used these tools in order: [{tool_list}]\n\
-             Task type: {task_type}\n\n\
-             Generate a SKILL.md document for this discovered skill pattern.\n\
-             Use this exact format:\n\n\
-             ---\n\
-             name: <concise snake_case skill name>\n\
-             description: <one-line description>\n\
-             context_tags: [<relevant tags>]\n\
-             ---\n\n\
-             # <Skill Name>\n\n\
-             ## When to Use\n\
-             <2-3 sentences describing when this skill is useful>\n\n\
-             ## Tool Sequence\n\
-             {tool_list}\n\n\
-             ## Guidance\n\
-             <3-5 bullet points of tactical guidance for executing this skill effectively>\n\n\
-             Respond ONLY with the SKILL.md content, nothing else.",
-        );
+        let drafting_prompt = build_skill_drafting_prompt(&tool_sequence, task_type, &context_tags);
 
         let llm_timeout = remaining.saturating_sub(std::time::Duration::from_secs(2));
 

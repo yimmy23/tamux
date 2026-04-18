@@ -1,4 +1,64 @@
 impl TuiModel {
+    pub(super) fn handle_honcho_settings_key(&mut self, code: KeyCode) -> bool {
+        let Some(editor) = self.config.honcho_editor.as_mut() else {
+            return false;
+        };
+
+        match code {
+            KeyCode::Esc => {
+                self.close_honcho_editor();
+                true
+            }
+            KeyCode::Up => {
+                editor.field = editor.field.prev();
+                true
+            }
+            KeyCode::Down | KeyCode::Tab => {
+                editor.field = editor.field.next();
+                true
+            }
+            KeyCode::BackTab => {
+                editor.field = editor.field.prev();
+                true
+            }
+            KeyCode::Char(' ') => {
+                if editor.field == crate::state::config::HonchoEditorField::Enabled {
+                    editor.enabled = !editor.enabled;
+                    return true;
+                }
+                false
+            }
+            KeyCode::Enter => {
+                match editor.field {
+                    crate::state::config::HonchoEditorField::Enabled => {
+                        editor.enabled = !editor.enabled;
+                    }
+                    crate::state::config::HonchoEditorField::ApiKey => {
+                        let current = editor.api_key.clone();
+                        self.settings.start_editing("honcho_editor_api_key", &current);
+                    }
+                    crate::state::config::HonchoEditorField::BaseUrl => {
+                        let current = editor.base_url.clone();
+                        self.settings.start_editing("honcho_editor_base_url", &current);
+                    }
+                    crate::state::config::HonchoEditorField::WorkspaceId => {
+                        let current = editor.workspace_id.clone();
+                        self.settings
+                            .start_editing("honcho_editor_workspace_id", &current);
+                    }
+                    crate::state::config::HonchoEditorField::Save => {
+                        self.commit_honcho_editor();
+                    }
+                    crate::state::config::HonchoEditorField::Cancel => {
+                        self.close_honcho_editor();
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn handle_auth_settings_key(&mut self, code: KeyCode) -> bool {
         if self.auth.login_target.is_some() {
             match code {

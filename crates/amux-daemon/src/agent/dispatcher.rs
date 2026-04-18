@@ -101,7 +101,7 @@ impl AgentEngine {
             TaskStatus::AwaitingApproval => {
                 self.sync_goal_run_with_task(goal_run_id, &task).await;
             }
-            TaskStatus::Completed => {
+            TaskStatus::Completed | TaskStatus::BudgetExceeded => {
                 self.handle_goal_run_step_completion(goal_run_id, &task)
                     .await?;
             }
@@ -238,7 +238,9 @@ impl AgentEngine {
                         .collect::<Vec<_>>();
                     if let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) {
                         let waiting_for_subagents = !active_child_ids.is_empty();
-                        current.status = if waiting_for_subagents {
+                        current.status = if outcome.terminated_for_budget {
+                            TaskStatus::BudgetExceeded
+                        } else if waiting_for_subagents {
                             TaskStatus::Blocked
                         } else {
                             TaskStatus::Completed
@@ -305,13 +307,18 @@ impl AgentEngine {
                                 .map(|reason| reason.split(',').count())
                                 .unwrap_or(0)
                         )
+                    } else if updated.status == TaskStatus::BudgetExceeded {
+                        "Task stopped after exhausting its execution budget".into()
                     } else if updated.retry_count > 0 {
                         "Task self-healed and completed".into()
                     } else {
                         "Task completed".into()
                     }),
                 );
-                if updated.status == TaskStatus::Completed {
+                if matches!(
+                    updated.status,
+                    TaskStatus::Completed | TaskStatus::BudgetExceeded
+                ) {
                     self.settle_task_skill_consultations(&updated, "success")
                         .await;
                     if updated.source == "divergent" {

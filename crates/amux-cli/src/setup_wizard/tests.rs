@@ -258,6 +258,18 @@ fn whatsapp_setup_invalid_submission_requests_retry() {
 }
 
 #[test]
+fn raw_mode_line_output_uses_carriage_return_line_feed() {
+    assert_eq!(
+        format_raw_mode_line_output("██\n██"),
+        "██\r\n██\r\n".to_string()
+    );
+    assert_eq!(
+        format_raw_mode_line_output("status line"),
+        "status line\r\n".to_string()
+    );
+}
+
+#[test]
 fn whatsapp_setup_persists_allowlist_as_string_before_gateway_enable() {
     let writes =
         whatsapp_gateway_config_writes("+48 123 456 789, 15551230000").expect("valid writes");
@@ -453,6 +465,38 @@ fn anthropic_setup_uses_api_key_prompt_and_validation() {
 }
 
 #[test]
+fn setup_agent_model_hints_match_agent_roles() {
+    assert_eq!(
+        super::agents::setup_agent_model_hint("Svarog"),
+        "Svarog is the main working fire. Prefer your strongest model."
+    );
+    assert_eq!(
+        super::agents::setup_agent_model_hint("Rarog"),
+        "Rarog should stay light, cheap, and responsive."
+    );
+    assert_eq!(
+        super::agents::setup_agent_model_hint("WELES"),
+        "Weles should stay strong enough for review and governance."
+    );
+}
+
+#[test]
+fn setup_agent_reasoning_hints_match_agent_roles() {
+    assert_eq!(
+        super::agents::setup_agent_reasoning_hint("Svarog"),
+        "Svarog handles primary execution and longer reasoning chains."
+    );
+    assert_eq!(
+        super::agents::setup_agent_reasoning_hint("Rarog"),
+        "Non-reasoning is fine for Rarog; add more only if it clearly helps."
+    );
+    assert_eq!(
+        super::agents::setup_agent_reasoning_hint("WELES"),
+        "Weles does not need to be your top model, but avoid weak review setups."
+    );
+}
+
+#[test]
 fn github_cli_token_output_trims_trailing_newlines() {
     assert_eq!(
         parse_gh_cli_token_output(b"copilot-token\n"),
@@ -463,4 +507,122 @@ fn github_cli_token_output_trims_trailing_newlines() {
 #[test]
 fn github_cli_token_output_rejects_empty_stdout() {
     assert_eq!(parse_gh_cli_token_output(b"\n"), None);
+}
+
+#[test]
+fn remote_model_pricing_subtitle_formats_prompt_and_completion_costs() {
+    let model: super::types::RemoteModelOption = serde_json::from_value(serde_json::json!({
+        "id": "openai/gpt-5.4",
+        "pricing": {
+            "prompt": "0.0000025",
+            "completion": "0.00001"
+        }
+    }))
+    .expect("parse remote model option");
+
+    assert_eq!(
+        super::flow::format_remote_model_pricing_subtitle(&model),
+        Some("Prompt $2.50/M tok, completion $10.00/M tok".to_string())
+    );
+}
+
+#[test]
+fn remote_model_pricing_subtitle_returns_free_for_zero_prompt_and_completion() {
+    let model: super::types::RemoteModelOption = serde_json::from_value(serde_json::json!({
+        "id": "meta-llama/free",
+        "pricing": {
+            "prompt": "0",
+            "completion": "0"
+        }
+    }))
+    .expect("parse remote model option");
+
+    assert_eq!(
+        super::flow::format_remote_model_pricing_subtitle(&model),
+        Some("free".to_string())
+    );
+}
+
+#[test]
+fn weles_compaction_choice_yes_reuses_weles_provider_model_and_effort() {
+    let writes = super::agents::weles_compaction_writes(
+        super::agents::WelesCompactionChoice::Yes,
+        "anthropic",
+        "claude-opus-4-7",
+        Some("high"),
+    );
+
+    assert_eq!(
+        writes,
+        vec![
+            super::types::ConfigWrite {
+                key_path: "/auto_compact_context".to_string(),
+                value_json: "true".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/strategy".to_string(),
+                value_json: "\"weles\"".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/weles/provider".to_string(),
+                value_json: "\"anthropic\"".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/weles/model".to_string(),
+                value_json: "\"claude-opus-4-7\"".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/weles/reasoning_effort".to_string(),
+                value_json: "\"high\"".to_string(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn weles_compaction_choice_default_heuristic_enables_auto_compaction_without_overriding_weles() {
+    let writes = super::agents::weles_compaction_writes(
+        super::agents::WelesCompactionChoice::NoUseDefault,
+        "openai",
+        "gpt-5.4-mini",
+        Some("medium"),
+    );
+
+    assert_eq!(
+        writes,
+        vec![
+            super::types::ConfigWrite {
+                key_path: "/auto_compact_context".to_string(),
+                value_json: "true".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/strategy".to_string(),
+                value_json: "\"heuristic\"".to_string(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn weles_compaction_choice_no_uses_default_heuristic() {
+    let writes = super::agents::weles_compaction_writes(
+        super::agents::WelesCompactionChoice::NoUseDefault,
+        "openai",
+        "gpt-5.4-mini",
+        Some("none"),
+    );
+
+    assert_eq!(
+        writes,
+        vec![
+            super::types::ConfigWrite {
+                key_path: "/auto_compact_context".to_string(),
+                value_json: "true".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/strategy".to_string(),
+                value_json: "\"heuristic\"".to_string(),
+            },
+        ]
+    );
 }

@@ -57,6 +57,7 @@ fn hit_test_detects_close_preview_row() {
         Some("t1"),
         SidebarTab::Files,
         0,
+        0,
         Position::new(2, 1),
         &ThemeTokens::default(),
     );

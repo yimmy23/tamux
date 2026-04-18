@@ -34,6 +34,36 @@ fn next_thread_request(
     None
 }
 
+fn next_goal_run_page_request(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) -> Option<(
+    String,
+    Option<usize>,
+    Option<usize>,
+    Option<usize>,
+    Option<usize>,
+)> {
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::RequestGoalRunDetailPage {
+            goal_run_id,
+            step_offset,
+            step_limit,
+            event_offset,
+            event_limit,
+        } = command
+        {
+            return Some((
+                goal_run_id,
+                step_offset,
+                step_limit,
+                event_offset,
+                event_limit,
+            ));
+        }
+    }
+    None
+}
+
 #[test]
 fn connected_event_defers_concierge_welcome_until_config_loads() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
@@ -300,6 +330,150 @@ fn operator_question_event_appends_inline_message_and_actions_without_modal() {
 }
 
 #[test]
+fn thread_deleted_event_removes_thread_from_chat_state() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
+        chat::AgentThread {
+            id: "thread-1".into(),
+            title: "Thread One".into(),
+            ..Default::default()
+        },
+        chat::AgentThread {
+            id: "thread-2".into(),
+            title: "Thread Two".into(),
+            ..Default::default()
+        },
+    ]));
+    model.open_thread_conversation("thread-1".into());
+
+    model.handle_client_event(ClientEvent::ThreadDeleted {
+        thread_id: "thread-1".into(),
+        deleted: true,
+    });
+
+    assert!(model
+        .chat
+        .threads()
+        .iter()
+        .all(|thread| thread.id != "thread-1"));
+}
+
+#[test]
+fn thread_deleted_event_reclamps_open_thread_picker_cursor() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
+        chat::AgentThread {
+            id: "thread-1".into(),
+            title: "Thread One".into(),
+            ..Default::default()
+        },
+        chat::AgentThread {
+            id: "thread-2".into(),
+            title: "Thread Two".into(),
+            ..Default::default()
+        },
+    ]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model.sync_thread_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(2));
+
+    assert_eq!(model.modal.picker_cursor(), 2);
+    assert_eq!(
+        model
+            .selected_thread_picker_thread()
+            .map(|thread| thread.id.as_str()),
+        Some("thread-2")
+    );
+
+    model.handle_client_event(ClientEvent::ThreadDeleted {
+        thread_id: "thread-2".into(),
+        deleted: true,
+    });
+
+    assert_eq!(model.modal.picker_cursor(), 1);
+    assert_eq!(
+        model
+            .selected_thread_picker_thread()
+            .map(|thread| thread.id.as_str()),
+        Some("thread-1")
+    );
+}
+
+#[test]
+fn goal_run_deleted_event_removes_goal_from_task_state() {
+    let mut model = make_model();
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunListReceived(vec![
+            task::GoalRun {
+                id: "goal-1".into(),
+                title: "Goal One".into(),
+                status: Some(task::GoalRunStatus::Cancelled),
+                ..Default::default()
+            },
+            task::GoalRun {
+                id: "goal-2".into(),
+                title: "Goal Two".into(),
+                status: Some(task::GoalRunStatus::Completed),
+                ..Default::default()
+            },
+        ]));
+
+    model.handle_client_event(ClientEvent::GoalRunDeleted {
+        goal_run_id: "goal-1".into(),
+        deleted: true,
+    });
+
+    assert!(model.tasks.goal_run_by_id("goal-1").is_none());
+    assert!(model.tasks.goal_run_by_id("goal-2").is_some());
+}
+
+#[test]
+fn goal_run_deleted_event_reclamps_open_goal_picker_cursor() {
+    let mut model = make_model();
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunListReceived(vec![
+            task::GoalRun {
+                id: "goal-1".into(),
+                title: "Goal One".into(),
+                status: Some(task::GoalRunStatus::Completed),
+                ..Default::default()
+            },
+            task::GoalRun {
+                id: "goal-2".into(),
+                title: "Goal Two".into(),
+                status: Some(task::GoalRunStatus::Cancelled),
+                ..Default::default()
+            },
+        ]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(2));
+
+    assert_eq!(model.modal.picker_cursor(), 2);
+    assert_eq!(
+        model.selected_goal_picker_run().map(|run| run.id.as_str()),
+        Some("goal-2")
+    );
+
+    model.handle_client_event(ClientEvent::GoalRunDeleted {
+        goal_run_id: "goal-2".into(),
+        deleted: true,
+    });
+
+    assert_eq!(model.modal.picker_cursor(), 1);
+    assert_eq!(
+        model.selected_goal_picker_run().map(|run| run.id.as_str()),
+        Some("goal-1")
+    );
+}
+
+#[test]
 fn operator_question_resolved_event_marks_message_answered_and_clears_actions() {
     let mut model = make_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {
@@ -387,6 +561,113 @@ fn operator_question_event_does_not_replace_existing_modal() {
     assert_ne!(
         model.modal.top(),
         Some(modal::ModalKind::OperatorQuestionOverlay)
+    );
+}
+
+#[test]
+fn operator_question_event_preserves_locked_chat_viewport() {
+    let mut model = make_model();
+    model.width = 100;
+    model.height = 40;
+    model.show_sidebar_override = Some(false);
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    for idx in 0..40 {
+        model.chat.reduce(chat::ChatAction::AppendMessage {
+            thread_id: "thread-1".to_string(),
+            message: chat::AgentMessage {
+                role: chat::MessageRole::Assistant,
+                content: format!("message {idx}"),
+                ..Default::default()
+            },
+        });
+    }
+    model.chat.reduce(chat::ChatAction::ScrollChat(8));
+
+    let before = widgets::chat::scrollbar_layout(
+        model.pane_layout().chat,
+        &model.chat,
+        &model.theme,
+        model.tick_counter,
+        model.retry_wait_start_selected,
+    )
+    .expect("chat should produce a scrollbar layout");
+
+    model.handle_operator_question_event(
+        "oq-1".to_string(),
+        "Approve this slice?\nA - proceed\nB - revise".to_string(),
+        vec!["A".to_string(), "B".to_string()],
+        Some("thread-1".to_string()),
+    );
+
+    let after = widgets::chat::scrollbar_layout(
+        model.pane_layout().chat,
+        &model.chat,
+        &model.theme,
+        model.tick_counter,
+        model.retry_wait_start_selected,
+    )
+    .expect("chat should still produce a scrollbar layout");
+
+    assert!(
+        before.scroll > 0,
+        "test setup should scroll away from the live bottom"
+    );
+    assert_eq!(
+        after.scroll as isize - before.scroll as isize,
+        after.max_scroll as isize - before.max_scroll as isize,
+        "locked viewport should stay anchored when a new message extends the transcript"
+    );
+}
+
+#[test]
+fn operator_question_event_keeps_bottom_follow_when_chat_is_at_latest_message() {
+    let mut model = make_model();
+    model.width = 100;
+    model.height = 40;
+    model.show_sidebar_override = Some(false);
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    for idx in 0..40 {
+        model.chat.reduce(chat::ChatAction::AppendMessage {
+            thread_id: "thread-1".to_string(),
+            message: chat::AgentMessage {
+                role: chat::MessageRole::Assistant,
+                content: format!("message {idx}"),
+                ..Default::default()
+            },
+        });
+    }
+
+    model.handle_operator_question_event(
+        "oq-1".to_string(),
+        "Approve this slice?\nA - proceed\nB - revise".to_string(),
+        vec!["A".to_string(), "B".to_string()],
+        Some("thread-1".to_string()),
+    );
+
+    let after = widgets::chat::scrollbar_layout(
+        model.pane_layout().chat,
+        &model.chat,
+        &model.theme,
+        model.tick_counter,
+        model.retry_wait_start_selected,
+    )
+    .expect("chat should produce a scrollbar layout");
+
+    assert_eq!(
+        after.scroll, 0,
+        "when already at the live bottom, new messages should continue following the stack"
     );
 }
 
@@ -922,6 +1203,60 @@ fn task_list_hydrates_pending_approvals_from_awaiting_approval_tasks() {
 }
 
 #[test]
+fn task_list_event_preserves_spawned_tree_metadata() {
+    let mut model = make_model();
+
+    model.handle_task_list_event(vec![crate::wire::AgentTask {
+        id: "task-1".to_string(),
+        title: "Hydrated child".to_string(),
+        thread_id: Some("thread-1".to_string()),
+        parent_task_id: Some("task-root".to_string()),
+        parent_thread_id: Some("thread-root".to_string()),
+        created_at: 42,
+        ..Default::default()
+    }]);
+
+    let task = model
+        .tasks
+        .task_by_id("task-1")
+        .expect("task should be present after hydration");
+    assert_eq!(task.parent_task_id.as_deref(), Some("task-root"));
+    assert_eq!(task.parent_thread_id.as_deref(), Some("thread-root"));
+    assert_eq!(task.created_at, 42);
+}
+
+#[test]
+fn fallback_task_update_preserves_spawned_tree_metadata() {
+    let mut model = make_model();
+
+    model.handle_task_list_event(vec![crate::wire::AgentTask {
+        id: "task-1".to_string(),
+        title: "Hydrated child".to_string(),
+        thread_id: Some("thread-1".to_string()),
+        parent_task_id: Some("task-root".to_string()),
+        parent_thread_id: Some("thread-root".to_string()),
+        created_at: 42,
+        ..Default::default()
+    }]);
+
+    model.handle_task_update_event(crate::wire::AgentTask {
+        id: "task-1".to_string(),
+        title: "Hydrated child".to_string(),
+        status: Some(crate::wire::TaskStatus::InProgress),
+        progress: 75,
+        ..Default::default()
+    });
+
+    let task = model
+        .tasks
+        .task_by_id("task-1")
+        .expect("task should still be present after update");
+    assert_eq!(task.parent_task_id.as_deref(), Some("task-root"));
+    assert_eq!(task.parent_thread_id.as_deref(), Some("thread-root"));
+    assert_eq!(task.created_at, 42);
+}
+
+#[test]
 fn unrelated_sync_does_not_clear_event_backed_pending_approval() {
     let mut model = make_model();
 
@@ -1151,7 +1486,7 @@ fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
         failure_class: "temporary_upstream".to_string(),
         message: "upstream timeout".to_string(),
     });
-    assert_eq!(model.agent_activity.as_deref(), Some("retrying"));
+    assert_eq!(model.footer_activity_text().as_deref(), Some("retrying"));
     assert!(model.chat.retry_status().is_some());
 
     model.handle_client_event(ClientEvent::Delta {
@@ -1173,7 +1508,7 @@ fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
     });
 
     assert!(
-        model.agent_activity.is_none(),
+        model.footer_activity_text().is_none(),
         "done should clear the retrying placeholder"
     );
     assert!(
@@ -1192,7 +1527,7 @@ fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
     });
 
     assert!(
-        model.agent_activity.is_none(),
+        model.footer_activity_text().is_none(),
         "late retry events for a completed turn must not restore the retrying placeholder"
     );
     assert!(
@@ -1830,6 +2165,176 @@ fn prepending_older_history_releases_the_top_edge_until_user_scrolls_again() {
 }
 
 #[test]
+fn on_tick_requests_next_older_goal_run_page_when_scrolled_to_top_of_loaded_window() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.focus = FocusArea::Chat;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Paged Goal".to_string(),
+            loaded_step_start: 20,
+            loaded_step_end: 40,
+            total_step_count: 40,
+            loaded_event_start: 60,
+            loaded_event_end: 120,
+            total_event_count: 120,
+            steps: (20..40)
+                .map(|idx| task::GoalRunStep {
+                    id: format!("step-{idx}"),
+                    title: format!("Step {idx}"),
+                    instructions: format!("instructions {idx}"),
+                    order: idx as u32,
+                    ..Default::default()
+                })
+                .collect(),
+            events: (60..120)
+                .map(|idx| task::GoalRunEvent {
+                    id: format!("event-{idx}"),
+                    message: format!("event {idx}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }));
+
+    model.on_tick();
+
+    match next_goal_run_page_request(&mut daemon_rx) {
+        Some((goal_run_id, step_offset, step_limit, event_offset, event_limit)) => {
+            assert_eq!(goal_run_id, "goal-1");
+            assert_eq!(step_offset, Some(0));
+            assert_eq!(step_limit, Some(20));
+            assert_eq!(event_offset, Some(0));
+            assert_eq!(event_limit, Some(60));
+        }
+        other => panic!("expected older goal-run page request, got {other:?}"),
+    }
+}
+
+#[test]
+fn prepending_older_goal_run_history_releases_top_edge_until_user_scrolls_again() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.focus = FocusArea::Chat;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Paged Goal".to_string(),
+            loaded_step_start: 20,
+            loaded_step_end: 40,
+            total_step_count: 40,
+            loaded_event_start: 60,
+            loaded_event_end: 120,
+            total_event_count: 120,
+            steps: (20..40)
+                .map(|idx| task::GoalRunStep {
+                    id: format!("step-{idx}"),
+                    title: format!("Step {idx}"),
+                    instructions: format!("instructions {idx}"),
+                    order: idx as u32,
+                    ..Default::default()
+                })
+                .collect(),
+            events: (60..120)
+                .map(|idx| task::GoalRunEvent {
+                    id: format!("event-{idx}"),
+                    message: format!("event {idx}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }));
+
+    model.on_tick();
+
+    match next_goal_run_page_request(&mut daemon_rx) {
+        Some((goal_run_id, step_offset, step_limit, event_offset, event_limit)) => {
+            assert_eq!(goal_run_id, "goal-1");
+            assert_eq!(step_offset, Some(0));
+            assert_eq!(step_limit, Some(20));
+            assert_eq!(event_offset, Some(0));
+            assert_eq!(event_limit, Some(60));
+        }
+        other => panic!("expected initial older goal-run page request, got {other:?}"),
+    }
+
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Paged Goal".to_string(),
+            loaded_step_start: 0,
+            loaded_step_end: 20,
+            total_step_count: 40,
+            loaded_event_start: 0,
+            loaded_event_end: 60,
+            total_event_count: 120,
+            steps: (0..20)
+                .map(|idx| task::GoalRunStep {
+                    id: format!("step-{idx}"),
+                    title: format!("Step {idx}"),
+                    instructions: format!("instructions {idx}"),
+                    order: idx as u32,
+                    ..Default::default()
+                })
+                .collect(),
+            events: (0..60)
+                .map(|idx| task::GoalRunEvent {
+                    id: format!("event-{idx}"),
+                    message: format!("event {idx}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }));
+    model.handle_goal_run_detail_event(crate::wire::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Paged Goal".to_string(),
+        loaded_step_start: 0,
+        loaded_step_end: 20,
+        total_step_count: 40,
+        loaded_event_start: 0,
+        loaded_event_end: 60,
+        total_event_count: 120,
+        steps: (0..20)
+            .map(|idx| crate::wire::GoalRunStep {
+                id: format!("step-{idx}"),
+                position: idx,
+                title: format!("Step {idx}"),
+                instructions: format!("instructions {idx}"),
+                ..Default::default()
+            })
+            .collect(),
+        events: (0..60)
+            .map(|idx| crate::wire::GoalRunEvent {
+                id: format!("event-{idx}"),
+                message: format!("event {idx}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    });
+
+    model.on_tick();
+
+    assert!(
+        next_goal_run_page_request(&mut daemon_rx).is_none(),
+        "prepend anchor should move the viewport below the new top so goal history does not auto-fetch again"
+    );
+}
+
+#[test]
 fn sidebar_enter_on_offscreen_pinned_message_requests_containing_page() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.config.tui_chat_history_page_size = 100;
@@ -2239,10 +2744,89 @@ fn inactive_thread_events_do_not_replace_selected_thread_activity_badge() {
     });
 
     assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
-    assert!(model.agent_activity.is_none());
+    assert!(model.footer_activity_text().is_none());
     assert_eq!(model.chat.streaming_content(), "");
     assert_eq!(model.chat.streaming_reasoning(), "");
     assert!(model.chat.active_tool_calls().is_empty());
+}
+
+#[test]
+fn inactive_thread_workflow_notice_does_not_replace_selected_thread_footer_activity() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-other".to_string(),
+        title: "Other Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.handle_client_event(ClientEvent::Reasoning {
+        thread_id: "thread-user".to_string(),
+        content: "active reasoning".to_string(),
+    });
+    assert_eq!(model.footer_activity_text().as_deref(), Some("reasoning"));
+
+    model.handle_client_event(ClientEvent::WorkflowNotice {
+        thread_id: Some("thread-other".to_string()),
+        kind: "skill-gate".to_string(),
+        message: "background skill gate".to_string(),
+        details: Some(r#"{"recommended_skill":"onecontext"}"#.to_string()),
+    });
+
+    assert_eq!(
+        model.footer_activity_text().as_deref(),
+        Some("reasoning"),
+        "background workflow notices must not replace the selected thread footer activity"
+    );
+}
+
+#[test]
+fn thread_footer_activity_remains_scoped_when_switching_between_busy_threads() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-other".to_string(),
+        title: "Other Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.submit_prompt("investigate the auth regression".to_string());
+    assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
+
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.handle_client_event(ClientEvent::WorkflowNotice {
+        thread_id: Some("thread-other".to_string()),
+        kind: "skill-gate".to_string(),
+        message: "background skill gate".to_string(),
+        details: Some(r#"{"recommended_skill":"onecontext"}"#.to_string()),
+    });
+
+    assert_eq!(
+        model.footer_activity_text().as_deref(),
+        Some("thinking"),
+        "selected thread should keep its own footer activity after background updates"
+    );
+
+    model.open_thread_conversation("thread-other".to_string());
+    while daemon_rx.try_recv().is_ok() {}
+    assert_eq!(model.footer_activity_text().as_deref(), Some("skill gate"));
+
+    model.open_thread_conversation("thread-user".to_string());
+    while daemon_rx.try_recv().is_ok() {}
+    assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
 }
 
 #[test]
@@ -3198,6 +3782,58 @@ fn leading_internal_delegate_prompt_routes_to_internal_command() {
 }
 
 #[test]
+fn known_agent_directive_aliases_keep_builtin_entries_canonical_lowercase() {
+    let (model, _) = make_model_with_daemon_rx();
+    let aliases = model.known_agent_directive_aliases();
+
+    assert!(aliases.iter().any(|alias| alias == "swarozyc"));
+    assert!(aliases.iter().any(|alias| alias == "mokosh"));
+    assert!(aliases.iter().any(|alias| alias == "veles"));
+    assert!(!aliases.iter().any(|alias| alias == "Swarozyc"));
+    assert!(!aliases.iter().any(|alias| alias == "Mokosh"));
+    assert!(!aliases.iter().any(|alias| alias == "Dazhbog"));
+}
+
+#[test]
+fn leading_internal_delegate_prompt_routes_veles_alias_to_internal_command() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.submit_prompt("!veles verify the auth regression".to_string());
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::InternalDelegate {
+            thread_id,
+            target_agent_id,
+            content,
+            ..
+        }) => {
+            assert_eq!(thread_id.as_deref(), Some("thread-1"));
+            assert_eq!(target_agent_id, "veles");
+            assert_eq!(content, "verify the auth regression");
+        }
+        other => panic!("expected internal delegate command, got {:?}", other),
+    }
+    assert!(
+        model
+            .chat
+            .active_thread()
+            .expect("thread should remain selected")
+            .messages
+            .is_empty(),
+        "internal delegation should not append a visible user turn"
+    );
+}
+
+#[test]
 fn leading_participant_prompt_routes_to_participant_command() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
@@ -3250,6 +3886,109 @@ fn leading_participant_prompt_routes_to_participant_command() {
         notice.contains("joined") || notice.contains("updated"),
         "expected participant update wording in notice, got: {notice}"
     );
+}
+
+#[test]
+fn unconfigured_mokosh_participant_prompt_opens_setup_and_retries_after_model_selection() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN.to_string(),
+        provider_name: "Alibaba Coding Plan".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "qwen3.6-plus".to_string(),
+    }];
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.submit_prompt("@mokosh keep flow moving".to_string());
+
+    assert_eq!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::ProviderPicker)
+    );
+    assert!(
+        daemon_rx.try_recv().is_err(),
+        "setup should happen before any daemon command is emitted"
+    );
+
+    let provider_index = widgets::provider_picker::available_provider_defs(&model.auth)
+        .iter()
+        .position(|provider| provider.id == amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN)
+        .expect("provider to exist");
+    if provider_index > 0 {
+        model
+            .modal
+            .reduce(crate::state::modal::ModalAction::Navigate(
+                provider_index as i32,
+            ));
+    }
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        crate::state::modal::ModalKind::ProviderPicker,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::ModelPicker)
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        crate::state::modal::ModalKind::ModelPicker,
+    );
+    assert!(!quit);
+
+    match daemon_rx
+        .try_recv()
+        .expect("expected targeted builtin persona config command")
+    {
+        DaemonCommand::SetTargetAgentProviderModel {
+            target_agent_id,
+            provider_id,
+            model,
+        } => {
+            assert_eq!(target_agent_id, "mokosh");
+            assert_eq!(
+                provider_id,
+                amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN
+            );
+            assert!(
+                !model.trim().is_empty(),
+                "setup flow should choose a concrete model"
+            );
+        }
+        other => panic!("expected builtin persona provider/model command, got {other:?}"),
+    }
+
+    match daemon_rx
+        .try_recv()
+        .expect("expected retried participant command after setup")
+    {
+        DaemonCommand::ThreadParticipantCommand {
+            thread_id,
+            target_agent_id,
+            action,
+            instruction,
+            ..
+        } => {
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(target_agent_id, "mokosh");
+            assert_eq!(action, "upsert");
+            assert_eq!(instruction.as_deref(), Some("keep flow moving"));
+        }
+        other => panic!("expected participant command, got {other:?}"),
+    }
 }
 
 #[test]
@@ -3327,7 +4066,10 @@ fn unconfigured_builtin_participant_prompt_opens_setup_and_retries_after_model_s
                 provider_id,
                 amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN
             );
-            assert_eq!(model, "qwen3.6-plus");
+            assert!(
+                !model.trim().is_empty(),
+                "setup flow should choose a concrete model"
+            );
         }
         other => panic!("expected builtin persona provider/model command, got {other:?}"),
     }

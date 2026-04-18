@@ -229,6 +229,48 @@
     }
 
     #[test]
+    fn event_trigger_tools_are_exposed_with_expected_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+
+        let list_triggers = tools
+            .iter()
+            .find(|tool| tool.function.name == "list_triggers")
+            .expect("list_triggers tool should be available");
+        let list_triggers_properties = list_triggers
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("list_triggers schema should expose properties object");
+        assert!(list_triggers_properties.is_empty());
+
+        let add_trigger = tools
+            .iter()
+            .find(|tool| tool.function.name == "add_trigger")
+            .expect("add_trigger tool should be available");
+        let properties = add_trigger
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("add_trigger schema should expose properties object");
+        for required_property in [
+            "event_family",
+            "event_kind",
+            "notification_kind",
+            "title_template",
+            "body_template",
+        ] {
+            assert!(
+                properties.contains_key(required_property),
+                "add_trigger should expose {required_property}"
+            );
+        }
+    }
+
+    #[test]
     fn memory_read_tools_are_exposed_with_injection_aware_schema() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();

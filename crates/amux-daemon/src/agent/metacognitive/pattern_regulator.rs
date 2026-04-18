@@ -191,7 +191,10 @@ impl AgentEngine {
             model.last_updated_ms = now;
             model.clone()
         };
-        let predicted_success = predicted_band != ConfidenceBand::Guessing;
+        let predicted_success = matches!(
+            predicted_band,
+            ConfidenceBand::Confident | ConfidenceBand::Likely
+        );
         self.calibration_tracker.write().await.record_observation(
             predicted_band,
             predicted_success,

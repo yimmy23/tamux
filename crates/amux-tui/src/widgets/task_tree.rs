@@ -321,6 +321,7 @@ fn resolved_scroll(rows: &[SidebarRow], sidebar: &SidebarState, body_height: usi
 fn goal_run_status_dot(status: Option<GoalRunStatus>, theme: &ThemeTokens) -> Span<'static> {
     match status {
         Some(GoalRunStatus::Running) => Span::styled("\u{25cf}", theme.accent_secondary),
+        Some(GoalRunStatus::Paused) => Span::styled("\u{25cf}", theme.accent_primary),
         Some(GoalRunStatus::Completed) => Span::styled("\u{25cf}", theme.accent_success),
         Some(GoalRunStatus::Failed) => Span::styled("\u{25cf}", theme.accent_danger),
         _ => Span::styled("\u{25cf}", theme.fg_dim),
@@ -330,17 +331,24 @@ fn goal_run_status_dot(status: Option<GoalRunStatus>, theme: &ThemeTokens) -> Sp
 fn goal_run_status_label(status: Option<GoalRunStatus>, theme: &ThemeTokens) -> Span<'static> {
     match status {
         Some(GoalRunStatus::Running) => Span::styled(" running", theme.accent_secondary),
+        Some(GoalRunStatus::Paused) => Span::styled(" paused", theme.accent_primary),
         Some(GoalRunStatus::Completed) => Span::styled(" done", theme.accent_success),
         Some(GoalRunStatus::Failed) => Span::styled(" failed", theme.accent_danger),
         Some(GoalRunStatus::Cancelled) => Span::styled(" cancelled", theme.fg_dim),
-        _ => Span::styled(" pending", theme.fg_dim),
+        Some(GoalRunStatus::Planning) => Span::styled(" planning", theme.fg_dim),
+        Some(GoalRunStatus::AwaitingApproval) => Span::styled(" awaiting approval", theme.fg_dim),
+        _ => Span::styled(" queued", theme.fg_dim),
     }
 }
 
 fn step_status_chip(status: Option<GoalRunStatus>, theme: &ThemeTokens) -> Span<'static> {
     match status {
-        None | Some(GoalRunStatus::Pending) => Span::styled("[ ]", theme.fg_dim),
+        None
+        | Some(GoalRunStatus::Queued)
+        | Some(GoalRunStatus::Planning)
+        | Some(GoalRunStatus::AwaitingApproval) => Span::styled("[ ]", theme.fg_dim),
         Some(GoalRunStatus::Running) => Span::styled("[~]", theme.accent_secondary),
+        Some(GoalRunStatus::Paused) => Span::styled("[P]", theme.accent_primary),
         Some(GoalRunStatus::Completed) => Span::styled("[x]", theme.accent_success),
         Some(GoalRunStatus::Failed) => Span::styled("[!]", theme.accent_danger),
         Some(GoalRunStatus::Cancelled) => Span::styled("[C]", theme.fg_dim),

@@ -8,9 +8,9 @@ use super::operator_profile::user_sync::{
 use super::*;
 use crate::history::{HistoryStore, MemoryProvenanceRecord};
 
-const SOUL_LIMIT_CHARS: usize = 1_500;
-const MEMORY_LIMIT_CHARS: usize = 2_200;
-const USER_LIMIT_CHARS: usize = 1_375;
+const SOUL_LIMIT_CHARS: usize = 2_000;
+const MEMORY_LIMIT_CHARS: usize = 3_600;
+const USER_LIMIT_CHARS: usize = 1_800;
 
 const DEFAULT_MEMORY: &str = "# Memory\n\n## tamux Architecture (Verified)\n- tamux is a Rust, daemon-first terminal multiplexer and multi-agent runtime\n- Daemon-first: daemon owns all state; TUI/Electron/CLI/MCP/gateway are clients\n- Memory: layered — SOUL.md (identity), MEMORY.md (durable facts/strategy), USER.md (operator profile), plus daemon state, recall, skills, and provenance\n- Provenance-backed: durable memory writes are tracked in SQLite with contradiction handling and operator-auditable lifecycle\n- Persistence: SQLite (threads, tasks, goals, provenance); Files (markdown, skills, ledgers)\n- Goal runners: durable autonomy — plan, dispatch, monitor, replan, reflect\n- M1–M10: operator model, causal traces, skill evolution, semantic env, collaboration,\n  trusted provenance, implicit feedback, tool synthesis, anticipatory runtime\n- Security: governance over transitions with approvals, critique, sandbox constraints, and audit trails\n\n## First-Run Truth\nDaemon = source of truth. Memory = curated, not dumped. Goals = autonomy.\nSecurity = governance, not vibes. Rust codebase — `cargo build`, `./scripts/setup.sh --check --profile source`.\n";
 

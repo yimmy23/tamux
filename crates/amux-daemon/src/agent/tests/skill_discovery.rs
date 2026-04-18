@@ -1,6 +1,11 @@
 #[cfg(test)]
 use super::*;
+use crate::agent::engine::AgentEngine;
 use crate::agent::learning::patterns::{PatternType, ToolPattern};
+use crate::agent::types::AgentConfig;
+use crate::history::SkillVariantConsultationRecord;
+use crate::session_manager::SessionManager;
+use tempfile::tempdir;
 
 fn default_config() -> SkillDiscoveryConfig {
     SkillDiscoveryConfig::default()
@@ -27,6 +32,24 @@ fn seq(items: &[&str]) -> Vec<String> {
 // -----------------------------------------------------------------------
 // meets_complexity_threshold
 // -----------------------------------------------------------------------
+
+#[test]
+fn skill_drafting_prompt_uses_agentskills_schema_and_tamux_context_tags() {
+    let prompt = build_skill_drafting_prompt(
+        &seq(&["read_file", "cargo_test", "apply_patch"]),
+        "coding",
+        &["rust".to_string(), "async".to_string()],
+    );
+
+    assert!(prompt.contains("Use agentskills.io-compatible YAML frontmatter."));
+    assert!(prompt.contains("name: coding-read-file-cargo-test-apply-patch"));
+    assert!(prompt.contains("tamux:"));
+    assert!(prompt.contains("context_tags:"));
+    assert!(prompt.contains("- rust"));
+    assert!(prompt.contains("- async"));
+    assert!(!prompt.contains("name: <concise snake_case skill name>"));
+    assert!(!prompt.contains("context_tags: [<relevant tags>]"));
+}
 
 #[test]
 fn skill_discovery_complexity_returns_false_when_outcome_not_success() {
@@ -206,4 +229,90 @@ fn skill_discovery_mental_test_returns_zero_for_invalid_response() {
 fn skill_discovery_mental_test_fallback_counts_would_help() {
     let response = r#"Some text "would_help": true and "would_help":true but "would_help": false"#;
     assert_eq!(parse_mental_test_results(response), 2);
+}
+
+#[tokio::test]
+async fn flag_skill_draft_candidates_skips_successful_traces_when_a_skill_was_consulted() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.skill_discovery.min_tool_count = 3;
+    config.skill_discovery.novelty_similarity_threshold = 0.95;
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+
+    let skill_path = root.path().join("skills/generated/consulted-build.md");
+    std::fs::create_dir_all(skill_path.parent().expect("skill parent")).expect("create skill dir");
+    std::fs::write(
+        &skill_path,
+        "# Consulted Build\nUse cargo build and cargo test.\n",
+    )
+    .expect("write skill");
+    let variant = engine
+        .history
+        .register_skill_document(&skill_path)
+        .await
+        .expect("register skill");
+
+    engine
+        .history
+        .insert_execution_trace(
+            "trace-skill-consulted",
+            None,
+            None,
+            Some("task-skill-consulted"),
+            "coding",
+            "success",
+            Some(0.95),
+            r#"["read_file","search_files","replace_in_file","cargo_test"]"#,
+            "{}",
+            250,
+            120,
+            "svarog",
+            1_000,
+            1_000,
+            1_000,
+        )
+        .await
+        .expect("insert execution trace");
+
+    engine
+        .history
+        .record_skill_variant_consultation(&SkillVariantConsultationRecord {
+            usage_id: "usage-skill-consulted",
+            variant_id: &variant.variant_id,
+            thread_id: Some("thread-skill-consulted"),
+            task_id: Some("task-skill-consulted"),
+            goal_run_id: None,
+            context_tags: &["coding".to_string(), "rust".to_string()],
+            consulted_at: 1_000,
+        })
+        .await
+        .expect("record skill consultation");
+    engine
+        .history
+        .settle_skill_variant_usage(
+            Some("thread-skill-consulted"),
+            Some("task-skill-consulted"),
+            None,
+            "success",
+        )
+        .await
+        .expect("settle skill usage");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let flagged = engine.flag_skill_draft_candidates(&config, &deadline).await;
+
+    assert_eq!(
+        flagged, 0,
+        "successful traces that already used a matched skill should not become new draft candidates"
+    );
+    let states = engine
+        .history
+        .list_consolidation_state_by_prefix("skill_draft_candidate:")
+        .await
+        .expect("list draft candidate states");
+    assert!(
+        states.is_empty(),
+        "no draft candidate state should be recorded for assisted traces"
+    );
 }

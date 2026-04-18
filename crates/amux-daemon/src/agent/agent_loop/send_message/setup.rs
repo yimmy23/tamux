@@ -798,6 +798,7 @@ impl<'a> SendMessageRunner<'a> {
             loop_count: 0,
             was_cancelled: false,
             interrupted_for_approval: false,
+            terminated_for_budget: false,
             policy_aborted_retry: false,
             previous_tool_signature: None,
             previous_tool_outcome: None,

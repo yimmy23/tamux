@@ -10,6 +10,23 @@ impl TuiModel {
             && self.chat.active_thread_has_pinned_messages()
     }
 
+    fn sidebar_navigation_tabs(&self) -> Vec<sidebar::SidebarTab> {
+        widgets::sidebar::visible_tabs(&self.tasks, &self.chat, self.chat.active_thread_id())
+    }
+
+    fn step_sidebar_tab(&mut self, delta: i32) {
+        let tabs = self.sidebar_navigation_tabs();
+        let Some(last_index) = tabs.len().checked_sub(1) else {
+            return;
+        };
+        let current_index = tabs
+            .iter()
+            .position(|tab| *tab == self.sidebar.active_tab())
+            .unwrap_or(0);
+        let next_index = (current_index as i32 + delta).clamp(0, last_index as i32) as usize;
+        self.activate_sidebar_tab(tabs[next_index]);
+    }
+
     fn arm_pinned_shortcut_leader(&mut self) {
         self.pending_pinned_shortcut_leader = Some(PendingPinnedShortcutLeader::Active);
         self.status_line = "Pinned shortcuts: J jump, U unpin".to_string();
@@ -125,7 +142,7 @@ impl TuiModel {
             if self.assistant_busy() {
                 self.cancelled_thread_id = self.chat.active_thread_id().map(String::from);
                 self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-                self.agent_activity = None;
+                self.clear_active_thread_activity();
                 self.show_input_notice("Stopped stream", InputNoticeKind::Success, 100, false);
             } else if self.focus == FocusArea::Chat {
                 if matches!(self.main_pane_view, MainPaneView::WorkContext) {
@@ -178,6 +195,14 @@ impl TuiModel {
                 }
                 _ => {}
             }
+        }
+
+        if code == KeyCode::Backspace
+            && self.focus == FocusArea::Sidebar
+            && self.chat.can_go_back_thread()
+        {
+            self.go_back_thread();
+            return false;
         }
 
         if !self.chat.active_actions().is_empty() && self.focus == FocusArea::Chat {
@@ -282,11 +307,11 @@ impl TuiModel {
                             });
                             self.send_daemon_command(DaemonCommand::RetryStreamNow { thread_id });
                             self.status_line = "Retrying now...".to_string();
-                            self.agent_activity = Some("retrying".to_string());
+                            self.set_active_thread_activity("retrying");
                         } else {
                             self.cancelled_thread_id = Some(thread_id.clone());
                             self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-                            self.agent_activity = None;
+                            self.clear_active_thread_activity();
                             self.send_daemon_command(DaemonCommand::StopStream { thread_id });
                             self.status_line = "Stopped retry loop".to_string();
                         }
@@ -368,9 +393,7 @@ impl TuiModel {
                     self.main_pane_view,
                     MainPaneView::Task(_) | MainPaneView::WorkContext
                 ) {
-                    self.task_view_scroll = self
-                        .task_view_scroll
-                        .saturating_add((self.height / 2) as usize);
+                    self.step_detail_view_scroll((self.height / 2) as i32);
                 } else {
                     let half_page = (self.height / 2) as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(-half_page));
@@ -383,9 +406,7 @@ impl TuiModel {
                     self.main_pane_view,
                     MainPaneView::Task(_) | MainPaneView::WorkContext
                 ) {
-                    self.task_view_scroll = self
-                        .task_view_scroll
-                        .saturating_sub((self.height / 2) as usize);
+                    self.step_detail_view_scroll(-((self.height / 2) as i32));
                 } else {
                     let half_page = (self.height / 2) as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(half_page));
@@ -412,9 +433,7 @@ impl TuiModel {
                     self.main_pane_view,
                     MainPaneView::Task(_) | MainPaneView::WorkContext
                 ) {
-                    self.task_view_scroll = self
-                        .task_view_scroll
-                        .saturating_add((self.height / 2) as usize);
+                    self.step_detail_view_scroll((self.height / 2) as i32);
                 } else {
                     let half_page = (self.height / 2) as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(-half_page));
@@ -425,9 +444,7 @@ impl TuiModel {
                     self.main_pane_view,
                     MainPaneView::Task(_) | MainPaneView::WorkContext
                 ) {
-                    self.task_view_scroll = self
-                        .task_view_scroll
-                        .saturating_sub((self.height / 2) as usize);
+                    self.step_detail_view_scroll(-((self.height / 2) as i32));
                 } else {
                     let half_page = (self.height / 2) as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(half_page));
@@ -442,7 +459,7 @@ impl TuiModel {
                     if self.pending_stop_active() {
                         self.cancelled_thread_id = self.chat.active_thread_id().map(String::from);
                         self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-                        self.agent_activity = None;
+                        self.clear_active_thread_activity();
                         self.status_line = "Stopped stream".to_string();
                         self.show_input_notice(
                             "Stopped stream",
@@ -536,7 +553,7 @@ impl TuiModel {
                     self.main_pane_view,
                     MainPaneView::Task(_) | MainPaneView::WorkContext
                 ) {
-                    self.task_view_scroll = 0;
+                    self.scroll_detail_view_to_top();
                 } else {
                     self.chat.reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
                     self.chat.select_message(Some(0));
@@ -547,7 +564,7 @@ impl TuiModel {
                     self.main_pane_view,
                     MainPaneView::Task(_) | MainPaneView::WorkContext
                 ) {
-                    self.task_view_scroll = usize::MAX / 4;
+                    self.scroll_detail_view_to_bottom();
                 } else {
                     let offset = self.chat.scroll_offset() as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(-offset));
@@ -566,7 +583,7 @@ impl TuiModel {
                         self.main_pane_view,
                         MainPaneView::Task(_) | MainPaneView::WorkContext
                     ) {
-                        self.task_view_scroll = self.task_view_scroll.saturating_add(1);
+                        self.step_detail_view_scroll(1);
                     } else {
                         self.chat.select_next_message()
                     }
@@ -586,7 +603,7 @@ impl TuiModel {
                         self.main_pane_view,
                         MainPaneView::Task(_) | MainPaneView::WorkContext
                     ) {
-                        self.task_view_scroll = self.task_view_scroll.saturating_sub(1);
+                        self.step_detail_view_scroll(-1);
                     } else {
                         self.chat.select_prev_message()
                     }
@@ -623,44 +640,16 @@ impl TuiModel {
                 }
             }
             KeyCode::Left if self.focus == FocusArea::Sidebar => {
-                let next_tab = match self.sidebar.active_tab() {
-                    sidebar::SidebarTab::Pinned => sidebar::SidebarTab::Files,
-                    sidebar::SidebarTab::Files => sidebar::SidebarTab::Todos,
-                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Todos,
-                };
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
+                self.step_sidebar_tab(-1);
             }
             KeyCode::Right if self.focus == FocusArea::Sidebar => {
-                let next_tab = match self.sidebar.active_tab() {
-                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Files,
-                    sidebar::SidebarTab::Files if self.chat.active_thread_has_pinned_messages() => {
-                        sidebar::SidebarTab::Pinned
-                    }
-                    current => current,
-                };
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
+                self.step_sidebar_tab(1);
             }
             KeyCode::Char('[') if self.sidebar_visible() && self.focus != FocusArea::Input => {
-                let next_tab = match self.sidebar.active_tab() {
-                    sidebar::SidebarTab::Pinned => sidebar::SidebarTab::Files,
-                    sidebar::SidebarTab::Files => sidebar::SidebarTab::Todos,
-                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Todos,
-                };
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
+                self.step_sidebar_tab(-1);
             }
             KeyCode::Char(']') if self.sidebar_visible() && self.focus != FocusArea::Input => {
-                let next_tab = match self.sidebar.active_tab() {
-                    sidebar::SidebarTab::Todos => sidebar::SidebarTab::Files,
-                    sidebar::SidebarTab::Files if self.chat.active_thread_has_pinned_messages() => {
-                        sidebar::SidebarTab::Pinned
-                    }
-                    current => current,
-                };
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(next_tab));
+                self.step_sidebar_tab(1);
             }
             KeyCode::Char('u')
                 if self.focus == FocusArea::Sidebar
@@ -698,18 +687,21 @@ impl TuiModel {
                     && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
             {
                 self.task_show_live_todos = !self.task_show_live_todos;
+                self.clamp_detail_view_scroll();
             }
             KeyCode::Char('l')
                 if self.focus == FocusArea::Chat
                     && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
             {
                 self.task_show_timeline = !self.task_show_timeline;
+                self.clamp_detail_view_scroll();
             }
             KeyCode::Char('f')
                 if self.focus == FocusArea::Chat
                     && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
             {
                 self.task_show_files = !self.task_show_files;
+                self.clamp_detail_view_scroll();
             }
             KeyCode::Char('e') if self.focus == FocusArea::Chat => {
                 if let Some(sel) = self.chat.selected_message() {

@@ -332,7 +332,7 @@ pub(super) fn auto_response_button_bounds(
 pub(super) fn render_chat_action_confirm_modal(
     frame: &mut Frame,
     area: Rect,
-    pending: Option<(&str, usize)>,
+    pending: Option<&str>,
     accept_selected: bool,
     theme: &ThemeTokens,
 ) {
@@ -354,11 +354,9 @@ pub(super) fn render_chat_action_confirm_modal(
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    let body = if let Some((action, message_number)) = pending {
+    let body = if let Some(message) = pending {
         vec![
-            Line::from(format!(
-                "Proceed with {action} for message {message_number}?"
-            )),
+            Line::from(message.to_string()),
             Line::raw(""),
             Line::from(Span::styled(
                 "This action requires explicit confirmation to avoid accidental clicks.",
@@ -487,7 +485,7 @@ mod tests {
                 render_chat_action_confirm_modal(
                     frame,
                     area,
-                    Some(("delete", 1)),
+                    Some("Delete thread \"demo\"?"),
                     true,
                     &ThemeTokens::default(),
                 );

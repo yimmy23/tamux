@@ -881,6 +881,103 @@ fn agent_get_thread_round_trip_preserves_message_page_arguments() {
     }
 }
 
+#[test]
+fn agent_list_threads_round_trip_preserves_pagination_arguments() {
+    let msg = ClientMessage::AgentListThreads {
+        limit: Some(20),
+        offset: Some(40),
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentListThreads { limit, offset } => {
+            assert_eq!(limit, Some(20));
+            assert_eq!(offset, Some(40));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn agent_list_goal_runs_round_trip_preserves_pagination_arguments() {
+    let msg = ClientMessage::AgentListGoalRuns {
+        limit: Some(10),
+        offset: Some(20),
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentListGoalRuns { limit, offset } => {
+            assert_eq!(limit, Some(10));
+            assert_eq!(offset, Some(20));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn agent_delete_goal_run_round_trip_preserves_goal_run_id() {
+    let msg = ClientMessage::AgentDeleteGoalRun {
+        goal_run_id: "goal-1".to_string(),
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentDeleteGoalRun { goal_run_id } => {
+            assert_eq!(goal_run_id, "goal-1");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_goal_run_deleted() {
+    let msg = DaemonMessage::AgentGoalRunDeleted {
+        goal_run_id: "goal-1".to_string(),
+        deleted: true,
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentGoalRunDeleted {
+            goal_run_id,
+            deleted,
+        } => {
+            assert_eq!(goal_run_id, "goal-1");
+            assert!(deleted);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_thread_controlled() {
+    let msg = DaemonMessage::AgentThreadControlled {
+        thread_id: "thread-1".to_string(),
+        action: "resume".to_string(),
+        ok: true,
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentThreadControlled {
+            thread_id,
+            action,
+            ok,
+        } => {
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(action, "resume");
+            assert!(ok);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
 fn sample_skill_variant() -> SkillVariantPublic {
     SkillVariantPublic {
         variant_id: "sv-001".to_string(),

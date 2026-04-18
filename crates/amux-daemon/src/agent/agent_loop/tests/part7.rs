@@ -202,6 +202,31 @@ async fn metacognitive_confirmation_warning_restarts_with_reflection_before_tool
 }
 
 #[tokio::test]
+async fn metacognitive_calibration_records_uncertain_band_as_negative_predicted_success() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .apply_meta_cognitive_calibration_adjustment(
+            -0.05,
+            crate::agent::explanation::ConfidenceBand::Uncertain,
+        )
+        .await;
+
+    let tracker = engine.calibration_tracker.read().await;
+    let stats = tracker.calibration_stats();
+    let (count, accuracy) = stats
+        .get("LOW")
+        .expect("uncertain band should record a LOW calibration observation");
+    assert_eq!(*count, 1);
+    assert_eq!(
+        *accuracy, 0.0,
+        "uncertain-band metacognitive penalties should record a negative predicted-success observation"
+    );
+}
+
+#[tokio::test]
 async fn metacognitive_learning_updates_persist_across_rehydrate() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

@@ -44,6 +44,7 @@ fn build_rows(tasks: &TaskState, sidebar: &SidebarState, theme: &ThemeTokens) ->
         let dot = goal_run_dot(run.status, theme);
         let status_span = match run.status {
             Some(GoalRunStatus::Running) => Span::styled("running", theme.accent_secondary),
+            Some(GoalRunStatus::Paused) => Span::styled("paused", theme.accent_primary),
             Some(GoalRunStatus::Completed) => Span::styled("done", theme.accent_success),
             Some(GoalRunStatus::Failed) => Span::styled("failed", theme.accent_danger),
             _ => Span::styled("idle", theme.fg_dim),
@@ -269,6 +270,7 @@ fn resolved_scroll(rows: &[SidebarRow], sidebar: &SidebarState, body_height: usi
 fn goal_run_dot<'a>(status: Option<GoalRunStatus>, theme: &ThemeTokens) -> Span<'a> {
     match status {
         Some(GoalRunStatus::Running) => Span::styled("\u{25cf}", theme.accent_secondary),
+        Some(GoalRunStatus::Paused) => Span::styled("\u{25cf}", theme.accent_primary),
         Some(GoalRunStatus::Completed) => Span::styled("\u{25cf}", theme.accent_success),
         Some(GoalRunStatus::Failed) => Span::styled("\u{25cf}", theme.accent_danger),
         _ => Span::styled("\u{25cf}", theme.fg_dim),

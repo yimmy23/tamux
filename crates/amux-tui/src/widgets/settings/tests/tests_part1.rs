@@ -120,6 +120,143 @@ fn settings_tab_bar_includes_about_label() {
 }
 
 #[test]
+fn chat_tab_keeps_honcho_as_single_row_in_main_list() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Chat,
+    ));
+    settings.reduce(crate::state::settings::SettingsAction::NavigateField(2));
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let subagents = SubAgentsState::new();
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+    let lines = render_tab_content(
+        100,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("Honcho Memory"));
+    assert!(!text.contains("Honcho API Key"));
+    assert!(!text.contains("Honcho Base URL"));
+    assert!(!text.contains("Honcho Workspace"));
+}
+
+#[test]
+fn chat_tab_renders_inline_honcho_editor_when_active() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Chat,
+    ));
+    let mut config = ConfigState::new();
+    config.honcho_editor = Some(crate::state::config::HonchoEditorState {
+        enabled: true,
+        api_key: "hc_test".to_string(),
+        base_url: "https://honcho.example".to_string(),
+        workspace_id: "tamux-lab".to_string(),
+        field: crate::state::config::HonchoEditorField::ApiKey,
+    });
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let subagents = SubAgentsState::new();
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+    let lines = render_tab_content(
+        100,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("Honcho Memory Settings"));
+    assert!(text.contains("API Key"));
+    assert!(text.contains("Base URL"));
+    assert!(text.contains("Workspace"));
+    assert!(text.contains("[Save]"));
+    assert!(text.contains("[Cancel]"));
+}
+
+#[test]
+fn chat_tab_places_honcho_editor_below_last_checkbox() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Chat,
+    ));
+    let mut config = ConfigState::new();
+    config.honcho_editor = Some(crate::state::config::HonchoEditorState {
+        enabled: false,
+        api_key: String::new(),
+        base_url: String::new(),
+        workspace_id: "tamux".to_string(),
+        field: crate::state::config::HonchoEditorField::Enabled,
+    });
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let subagents = SubAgentsState::new();
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+    let lines = render_tab_content(
+        100,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let require_activation = text
+        .find("Require Activation")
+        .expect("require activation row should render");
+    let honcho_editor = text
+        .find("Honcho Memory Settings")
+        .expect("honcho editor heading should render");
+    let tool_limit = text.find("Tool Limit:").expect("tool limit row should render");
+
+    assert!(require_activation < honcho_editor);
+    assert!(honcho_editor < tool_limit);
+}
+
+#[test]
 fn about_tab_renders_product_metadata() {
     let mut settings = SettingsState::new();
     settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
@@ -467,6 +604,67 @@ fn subagent_editor_shows_live_name_edit_buffer() {
 
     assert!(text.contains("Draft Name█"));
     assert!(!text.contains("Old Name"));
+}
+
+#[test]
+fn subagent_system_prompt_textarea_wraps_long_lines_to_content_width() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::SubAgents,
+    ));
+    settings.start_editing(
+        "subagent_system_prompt",
+        "You are tamux, an always-on agentic terminal multiplexer assistant. You can execute terminal commands and coordinate subagents carefully.",
+    );
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let mut subagents = SubAgentsState::new();
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        0,
+        PROVIDER_ID_OPENAI.to_string(),
+        "gpt-5.4".to_string(),
+    );
+    editor.field = crate::state::subagents::SubAgentEditorField::SystemPrompt;
+    subagents.editor = Some(editor);
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+    let lines = render_tab_content(
+        60,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let rendered_lines = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+    let prompt_lines = rendered_lines
+        .iter()
+        .filter(|line| line.starts_with("  │ "))
+        .collect::<Vec<_>>();
+
+    assert!(
+        prompt_lines.len() >= 2,
+        "expected wrapped textarea content, got: {:?}",
+        prompt_lines
+    );
+    assert!(
+        prompt_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(line.as_str()) <= 60),
+        "wrapped textarea should stay within content width, got: {:?}",
+        prompt_lines
+    );
 }
 
 #[test]

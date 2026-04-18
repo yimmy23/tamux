@@ -18,10 +18,16 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
         "\nUse execute_managed_command when work should run inside a daemon-managed terminal lane, needs a real PTY, or may require operator approval.",
     );
     prompt.push_str(
+        "\nFor browser-readable pages, search/discovery work, or HTTP reads where you need text or JSON content, prefer web_search and fetch_url. For direct reachability checks, HEAD or range requests, large or binary downloads, or streaming transfers, prefer curl or wget in a managed command instead of fetch_url.",
+    );
+    prompt.push_str(
         "\nIf the task is more than a one-shot action, call update_todo immediately with a concise plan and keep it current as steps advance.",
     );
     prompt.push_str(
         "\nIf this task is large and parallelizable, use spawn_subagent for bounded child work items and monitor them with list_subagents.",
+    );
+    prompt.push_str(
+        "\nDo not use list_agents to check spawned child progress, and do not busy-wait on active subagents. If delegation is in flight and no other useful work remains, send a concise progress update and stop so tamux can resume you when children finish.",
     );
 
     if let Some(command) = task.command.as_deref() {
@@ -184,7 +190,17 @@ pub(super) fn agent_data_dir() -> std::path::PathBuf {
 
 pub(super) fn ordered_memory_dirs(agent_data_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let root = agent_data_dir.parent().unwrap_or(std::path::Path::new("."));
-    let mut dirs = vec![root.join("agent-mission"), agent_data_dir.to_path_buf()];
+    let legacy_dir = root.join("agent-mission");
+    let prefers_legacy = agent_data_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("agent"));
+
+    let mut dirs = if prefers_legacy {
+        vec![legacy_dir, agent_data_dir.to_path_buf()]
+    } else {
+        vec![agent_data_dir.to_path_buf(), legacy_dir]
+    };
     dirs.dedup();
     dirs
 }
@@ -285,6 +301,14 @@ pub(super) fn active_memory_dir_for_scope(
         return persona_memory_dir(agent_data_dir, scope_id);
     }
 
+    let agent_dir_name = agent_data_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if !agent_dir_name.eq_ignore_ascii_case("agent") {
+        return agent_data_dir.to_path_buf();
+    }
+
     let dirs = ordered_memory_dirs(agent_data_dir);
     if let Some(path) = dirs.iter().find(|dir| dir_has_memory_files(dir)) {
         return path.clone();
@@ -344,6 +368,73 @@ mod tests {
     use super::*;
     use crate::agent::agent_identity::{MAIN_AGENT_ID, RADOGOST_AGENT_ID};
     use tempfile::tempdir;
+
+    fn sample_task() -> AgentTask {
+        AgentTask {
+            id: "task-1".to_string(),
+            title: "Investigate search failures".to_string(),
+            description: "Diagnose why remote research is failing.".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some("thread-1".to_string()),
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            sub_agent_def_id: None,
+        }
+    }
+
+    #[test]
+    fn build_task_prompt_distinguishes_web_reads_from_binary_downloads() {
+        let prompt = build_task_prompt(&sample_task());
+
+        assert!(prompt.contains("web_search"));
+        assert!(prompt.contains("fetch_url"));
+        assert!(prompt.contains("curl"));
+        assert!(prompt.contains("wget"));
+        assert!(prompt.contains("large or binary"));
+    }
 
     #[test]
     fn memory_paths_for_main_scope_falls_back_to_legacy_root() {

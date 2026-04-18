@@ -214,6 +214,9 @@ impl TuiModel {
                 self.config.browse_provider = next.to_string();
                 self.sync_config_to_daemon();
             }
+            "enable_honcho_memory" => {
+                self.open_honcho_editor();
+            }
             "honcho_api_key" => self
                 .settings
                 .start_editing("honcho_api_key", &self.config.honcho_api_key.clone()),
@@ -332,7 +335,8 @@ impl TuiModel {
             }
             "compaction_weles_model" => self.open_compaction_weles_model_picker(),
             "compaction_weles_reasoning_effort" => {
-                self.settings_picker_target = Some(SettingsPickerTarget::CompactionWelesReasoningEffort);
+                self.settings_picker_target =
+                    Some(SettingsPickerTarget::CompactionWelesReasoningEffort);
                 self.execute_command("effort");
             }
             "compaction_custom_provider" => {
@@ -466,10 +470,9 @@ impl TuiModel {
                     self.config
                         .reduce(config::ConfigAction::ModelsFetched(models));
                 }
-                let count = widgets::model_picker::available_models(&self.config).len() + 1;
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
-                self.modal.set_picker_item_count(count);
+                self.sync_model_picker_item_count();
             }
             "concierge_reasoning_effort" => {
                 self.settings_picker_target = Some(SettingsPickerTarget::ConciergeReasoningEffort);

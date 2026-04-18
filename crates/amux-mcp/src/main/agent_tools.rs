@@ -198,7 +198,11 @@ pub(super) async fn tool_ask_questions(args: &Value) -> Result<Value> {
 }
 
 pub(super) async fn tool_list_goal_runs() -> Result<Value> {
-    let resp = daemon_roundtrip(ClientMessage::AgentListGoalRuns).await?;
+    let resp = daemon_roundtrip(ClientMessage::AgentListGoalRuns {
+        limit: None,
+        offset: None,
+    })
+    .await?;
 
     match resp {
         DaemonMessage::AgentGoalRunList { goal_runs_json } => Ok(serde_json::json!({

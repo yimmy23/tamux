@@ -371,6 +371,205 @@
         assert!(models.is_empty());
     }
 
+    #[tokio::test]
+    async fn fetch_models_preserves_remote_metadata_and_pricing() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind model fetch listener");
+        let addr = listener.local_addr().expect("model fetch listener addr");
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept model fetch request");
+            let mut buf = [0_u8; 4096];
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                tokio::io::AsyncReadExt::read(&mut stream, &mut buf),
+            )
+            .await;
+
+            let body = serde_json::json!({
+                "data": [
+                    {
+                        "id": "openai/gpt-audio",
+                        "name": "OpenAI: GPT Audio",
+                        "description": "Audio model",
+                        "context_length": 128000,
+                        "pricing": {
+                            "prompt": "0.0000025",
+                            "completion": "0.00001",
+                            "audio": "0.000032"
+                        },
+                        "architecture": {
+                            "modality": "text+audio->text+audio",
+                            "input_modalities": ["text", "audio"],
+                            "output_modalities": ["text", "audio"]
+                        }
+                    }
+                ]
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write model fetch response");
+        });
+
+        let models = fetch_models(
+            amux_shared::providers::PROVIDER_ID_OPENROUTER,
+            &format!("http://{addr}"),
+            "",
+        )
+        .await
+        .expect("fetch models should succeed");
+
+        server.await.expect("model fetch server task");
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "openai/gpt-audio");
+        assert_eq!(
+            models[0].pricing.as_ref().and_then(|pricing| pricing.prompt.as_deref()),
+            Some("0.0000025")
+        );
+        assert_eq!(
+            models[0]
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("architecture"))
+                .and_then(|architecture| architecture.get("modality"))
+                .and_then(|value| value.as_str()),
+            Some("text+audio->text+audio")
+        );
+    }
+
+    #[tokio::test]
+    async fn azure_openai_validation_uses_models_endpoint() {
+        let request_paths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind azure validation listener");
+        let addr = listener.local_addr().expect("azure validation listener addr");
+        let request_paths_for_server = std::sync::Arc::clone(&request_paths);
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept azure validation request");
+            let mut buf = [0_u8; 4096];
+            let size = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                tokio::io::AsyncReadExt::read(&mut stream, &mut buf),
+            )
+            .await
+            .expect("read azure validation request timed out")
+            .expect("read azure validation request");
+            let request = String::from_utf8_lossy(&buf[..size]).to_string();
+            let request_line = request.lines().next().unwrap_or_default().to_string();
+            request_paths_for_server
+                .lock()
+                .expect("lock azure validation request paths")
+                .push(request_line.clone());
+
+            let response = if request_line.contains("GET /openai/v1/models ") {
+                let body = "{\"data\":[{\"id\":\"gpt-4.1\"}]}";
+                format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+            } else {
+                "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    .to_string()
+            };
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write azure validation response");
+        });
+
+        validate_provider_connection(
+            amux_shared::providers::PROVIDER_ID_AZURE_OPENAI,
+            &format!("http://{addr}/openai/v1"),
+            "azure-key",
+            AuthSource::ApiKey,
+        )
+        .await
+        .expect("azure validation should succeed");
+
+        server.await.expect("azure validation server task");
+        let request_paths = request_paths
+            .lock()
+            .expect("lock azure validation request paths");
+        assert_eq!(request_paths.len(), 1);
+        assert!(request_paths[0].contains("GET /openai/v1/models "));
+        assert!(!request_paths[0].contains("/chat/completions"));
+    }
+
+    #[tokio::test]
+    async fn azure_openai_validation_surfaces_models_auth_failures() {
+        let request_paths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind azure auth failure listener");
+        let addr = listener.local_addr().expect("azure auth failure listener addr");
+        let request_paths_for_server = std::sync::Arc::clone(&request_paths);
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("accept azure auth failure request");
+            let mut buf = [0_u8; 4096];
+            let size = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                tokio::io::AsyncReadExt::read(&mut stream, &mut buf),
+            )
+            .await
+            .expect("read azure auth failure request timed out")
+            .expect("read azure auth failure request");
+            let request = String::from_utf8_lossy(&buf[..size]).to_string();
+            let request_line = request.lines().next().unwrap_or_default().to_string();
+            request_paths_for_server
+                .lock()
+                .expect("lock azure auth failure request paths")
+                .push(request_line.clone());
+
+            let response = if request_line.contains("GET /openai/v1/models ") {
+                let body = "invalid azure";
+                format!(
+                    "HTTP/1.1 401 Unauthorized\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+            } else {
+                "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    .to_string()
+            };
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write azure auth failure response");
+        });
+
+        let err = validate_provider_connection(
+            amux_shared::providers::PROVIDER_ID_AZURE_OPENAI,
+            &format!("http://{addr}/openai/v1"),
+            "azure-key",
+            AuthSource::ApiKey,
+        )
+        .await
+        .expect_err("azure validation should surface auth failure");
+
+        server.await.expect("azure auth failure server task");
+        let message = err.to_string();
+        assert!(message.contains("401"));
+        let request_paths = request_paths
+            .lock()
+            .expect("lock azure auth failure request paths");
+        assert_eq!(request_paths.len(), 1);
+        assert!(request_paths[0].contains("GET /openai/v1/models "));
+        assert!(!request_paths[0].contains("/chat/completions"));
+    }
+
     async fn responses_sse_test_response(body: &str) -> (reqwest::Response, tokio::task::JoinHandle<()>) {
         let client = reqwest::Client::new();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

@@ -1,14 +1,28 @@
 import type { Dispatch, SetStateAction } from "react";
-import { buildHydratedRemoteThread, useAgentStore } from "@/lib/agentStore";
-import type { AgentMessage, AgentProviderConfig, AgentThread, AgentTodoItem } from "@/lib/agentStore";
+import { buildHydratedRemoteMessage, buildHydratedRemoteThread, useAgentStore } from "@/lib/agentStore";
+import type {
+  AgentMessage,
+  AgentProviderConfig,
+  AgentThread,
+  AgentTodoItem,
+  RemoteAgentMessageRecord,
+} from "@/lib/agentStore";
 import { useAgentMissionStore } from "@/lib/agentMissionStore";
 import { getAgentBridge } from "@/lib/agentDaemonConfig";
 import { fetchThreadTodos } from "@/lib/agentTodos";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
 import { resolveReactChatHistoryMessageLimit } from "@/lib/chatHistoryPageSize";
 import type { GoalRun } from "@/lib/goalRuns";
+import type { Workspace } from "@/lib/types";
 import type { WelesHealthState } from "@/lib/agentStore/types";
+import { findTaskWorkspaceLocation } from "../tasks-view/helpers";
 import { formatSkillWorkflowNotice } from "./skillWorkflowNotice";
+
+type RemoteAgentThread = {
+  id: string;
+  title: string;
+  messages: RemoteAgentMessageRecord[];
+};
 
 export function normalizeBridgePayload(payload: any) {
   if (payload && typeof payload === "object" && "data" in payload) {
@@ -136,6 +150,48 @@ export async function reloadDaemonThreadIntoLocalState({
   const todos = await fetchThreadTodos(daemonThreadId).catch(() => []);
   setThreadTodos(localThreadId, todos);
   setDaemonTodosByThread((current) => ({ ...current, [daemonThreadId]: todos }));
+}
+
+export async function hydrateDaemonThreadIntoLocalState({
+  sessionId,
+  fallbackTitle,
+  workspaces,
+  remoteThread,
+  fetchThreadTodos: fetchThreadTodosForThread,
+  createThread,
+  addMessage,
+  setThreadDaemonId,
+  setThreadTodos,
+  onThreadReady,
+}: {
+  sessionId?: string | null;
+  fallbackTitle: string;
+  workspaces: Workspace[];
+  remoteThread: RemoteAgentThread;
+  fetchThreadTodos: (threadId: string) => Promise<AgentTodoItem[]>;
+  createThread: ReturnType<typeof useAgentStore.getState>["createThread"];
+  addMessage: ReturnType<typeof useAgentStore.getState>["addMessage"];
+  setThreadDaemonId: ReturnType<typeof useAgentStore.getState>["setThreadDaemonId"];
+  setThreadTodos: ReturnType<typeof useAgentStore.getState>["setThreadTodos"];
+  onThreadReady?: (localThreadId: string, remoteThreadId: string) => void;
+}): Promise<string | null> {
+  const location = findTaskWorkspaceLocation(workspaces, sessionId);
+  const localThreadId = createThread({
+    workspaceId: location?.workspaceId ?? null,
+    surfaceId: location?.surfaceId ?? null,
+    paneId: location?.paneId ?? null,
+    title: remoteThread.title || fallbackTitle,
+  });
+  setThreadDaemonId(localThreadId, remoteThread.id);
+  onThreadReady?.(localThreadId, remoteThread.id);
+
+  for (const message of remoteThread.messages ?? []) {
+    addMessage(localThreadId, buildHydratedRemoteMessage(localThreadId, message));
+  }
+
+  const todos = await fetchThreadTodosForThread(remoteThread.id).catch(() => []);
+  setThreadTodos(localThreadId, todos);
+  return localThreadId;
 }
 
 export function syncWelesHealth(

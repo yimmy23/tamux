@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBridge } from "@/lib/bridge";
-import { ActionButton, iconButtonStyle } from "../shared";
+import { ActionButton, EmptyPanel, iconButtonStyle } from "../shared";
 import {
   fetchFilePreview,
   fetchGitDiff,
@@ -11,14 +11,119 @@ import {
   formatTaskStatus,
   formatTaskTimestamp,
   isTaskActive,
+  isTaskTerminal,
   taskStatusColor,
   type AgentQueueTask,
 } from "../../../lib/agentTaskQueue";
-import { formatRunStatus, runStatusColor, type AgentRun } from "../../../lib/agentRuns";
+import { type AgentRun } from "../../../lib/agentRuns";
+import { type SpawnedAgentTree, type SpawnedAgentTreeNode } from "../../../lib/spawnedAgentTree";
 import { shortenHomePath, useWorkspaceStore } from "../../../lib/workspaceStore";
+import { SpawnedAgentNode } from "../SpawnedAgentsPanel";
 import { detailLabelStyle } from "./styles";
 import { findTaskWorkspaceLocation, taskLooksLikeCoding, workContextKindColor, workContextKindLabel } from "./helpers";
 import type { TaskWorkspaceLocation, ThreadTarget } from "./types";
+
+function compareSubagentRuns(left: AgentRun, right: AgentRun): number {
+  if (left.created_at !== right.created_at) {
+    return right.created_at - left.created_at;
+  }
+
+  if (left.task_id !== right.task_id) {
+    return left.task_id.localeCompare(right.task_id);
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function uniqueSubagentRuns(runs: readonly AgentRun[]): AgentRun[] {
+  const seen = new Set<string>();
+  const result: AgentRun[] = [];
+
+  for (const run of runs) {
+    if (seen.has(run.id)) {
+      continue;
+    }
+    seen.add(run.id);
+    result.push(run);
+  }
+
+  return result;
+}
+
+export function buildTaskSubagentTree(
+  task: AgentQueueTask,
+  subagents: AgentRun[],
+): SpawnedAgentTree<AgentRun> | null {
+  const canonicalSubagents = uniqueSubagentRuns(
+    subagents
+      .filter((run) => run.kind === "subagent")
+      .slice()
+      .sort(compareSubagentRuns),
+  );
+
+  if (canonicalSubagents.length === 0) {
+    return null;
+  }
+
+  const byParentTaskId = new Map<string, AgentRun[]>();
+  const byParentRunId = new Map<string, AgentRun[]>();
+  const push = (map: Map<string, AgentRun[]>, key: string, run: AgentRun) => {
+    const bucket = map.get(key);
+    if (bucket) {
+      bucket.push(run);
+      return;
+    }
+    map.set(key, [run]);
+  };
+
+  for (const run of canonicalSubagents) {
+    if (run.parent_task_id) {
+      push(byParentTaskId, run.parent_task_id, run);
+    }
+    if (run.parent_run_id) {
+      push(byParentRunId, run.parent_run_id, run);
+    }
+  }
+
+  const buildChildren = (
+    parentTaskId: string,
+    parentRunId: string | null,
+    ancestry: Set<string>,
+  ): SpawnedAgentTreeNode<AgentRun>[] => {
+    const childCandidates = uniqueSubagentRuns([
+      ...(byParentTaskId.get(parentTaskId) ?? []),
+      ...(parentRunId ? byParentRunId.get(parentRunId) ?? [] : []),
+    ])
+      .filter((candidate) => !ancestry.has(candidate.id))
+      .sort(compareSubagentRuns);
+
+    if (childCandidates.length === 0) {
+      return [];
+    }
+
+    return childCandidates.map((candidate) => {
+      const nextAncestry = new Set(ancestry);
+      nextAncestry.add(candidate.id);
+      return {
+        item: candidate,
+        children: buildChildren(candidate.task_id ?? candidate.id, candidate.id, nextAncestry),
+        openable: Boolean(candidate.thread_id),
+        live: !isTaskTerminal(candidate),
+      };
+    });
+  };
+
+  const roots = buildChildren(task.id, task.id, new Set());
+  if (roots.length === 0) {
+    return null;
+  }
+
+  return {
+    activeThreadId: task.thread_id ?? task.id,
+    anchor: null,
+    roots,
+  };
+}
 
 export function TaskCard({
   task,
@@ -301,6 +406,82 @@ function TaskCodePreview({
   );
 }
 
+type TaskSubagentTreeProps = {
+  subagentCount: number;
+  tree: SpawnedAgentTree<AgentRun> | null;
+  selectedTaskId: string | null;
+  selectedDaemonThreadId: string | null;
+  onSelectTask: (taskId: string) => void;
+  onOpenTaskThread: (task: ThreadTarget) => void;
+};
+
+export function TaskSubagentTree({
+  subagentCount,
+  tree,
+  selectedTaskId,
+  selectedDaemonThreadId,
+  onSelectTask,
+  onOpenTaskThread,
+}: TaskSubagentTreeProps) {
+  const renderNodeActions = ({
+    node,
+    canOpen,
+    openSpawnedThread,
+  }: {
+    node: SpawnedAgentTreeNode<AgentRun>;
+    canOpen: boolean;
+    openSpawnedThread: () => void;
+  }) => (
+    <>
+      {node.item.thread_id && (
+        <ActionButton disabled={!canOpen} onClick={canOpen ? openSpawnedThread : undefined}>
+          <span aria-label={`Open chat for ${node.item.title}`}>Open Chat</span>
+        </ActionButton>
+      )}
+      <ActionButton onClick={() => onSelectTask(node.item.task_id ?? node.item.id)}>
+        Inspect
+      </ActionButton>
+    </>
+  );
+
+  return (
+    <div style={{ marginTop: "var(--space-3)" }}>
+      <div
+        style={{
+          fontSize: "var(--text-xs)",
+          color: "var(--text-muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: "var(--space-2)",
+        }}
+      >
+        Subagents ({subagentCount})
+      </div>
+      {tree ? (
+        <div style={{ display: "grid", gap: "var(--space-2)" }}>
+          {tree.roots.map((root) => (
+            <SpawnedAgentNode
+              key={root.item.id}
+              node={root}
+              depth={0}
+              selectedDaemonThreadId={selectedDaemonThreadId}
+              selectedTaskId={selectedTaskId}
+              canOpenSpawnedThread={(run) => Boolean(run.thread_id)}
+              openSpawnedThread={async (run) => {
+                onOpenTaskThread(run);
+                return true;
+              }}
+              renderActions={renderNodeActions}
+            />
+          ))}
+        </div>
+      ) : (
+        <EmptyPanel message="No child subagents have been spawned for this task." />
+      )}
+    </div>
+  );
+}
+
 export function TaskPostMortem({
   task,
   subagents,
@@ -321,6 +502,10 @@ export function TaskPostMortem({
   const location = useMemo(
     () => findTaskWorkspaceLocation(workspaces, task.session_id),
     [task.session_id, workspaces],
+  );
+  const tree = useMemo(
+    () => buildTaskSubagentTree(task, subagents),
+    [subagents, task],
   );
   const openTaskSession = useCallback(() => {
     if (!location) {
@@ -393,42 +578,14 @@ export function TaskPostMortem({
         </div>
       )}
       <TaskCodePreview task={task} location={location} />
-      <div style={{ marginTop: "var(--space-3)" }}>
-        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "var(--space-2)" }}>
-          Subagents ({subagents.length})
-        </div>
-        {subagents.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-            {subagents.map((subagent) => (
-              <div key={subagent.id} style={{ padding: "var(--space-2)", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)", border: `1px solid ${runStatusColor(subagent.status)}` }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", flexWrap: "wrap" }}>
-                  <div>
-                    <div style={{ fontSize: "var(--text-sm)", color: "var(--text-primary)", fontWeight: 600 }}>{subagent.title}</div>
-                    <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 2 }}>
-                      {formatRunStatus(subagent)} · runtime {subagent.runtime ?? "daemon"}
-                      {subagent.classification ? ` · ${subagent.classification}` : ""}
-                      {subagent.session_id ? ` · session ${subagent.session_id}` : ""}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-                    {subagent.thread_id && (
-                      <ActionButton onClick={() => onOpenTaskThread(subagent)}>Open Chat</ActionButton>
-                    )}
-                    <ActionButton onClick={() => onSelectTask(subagent.id)}>Inspect</ActionButton>
-                  </div>
-                </div>
-                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginTop: "var(--space-2)" }}>
-                  {subagent.description}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
-            No child subagents have been spawned for this task.
-          </div>
-        )}
-      </div>
+      <TaskSubagentTree
+        subagentCount={subagents.length}
+        tree={tree}
+        selectedTaskId={task.id}
+        selectedDaemonThreadId={task.thread_id ?? null}
+        onSelectTask={onSelectTask}
+        onOpenTaskThread={onOpenTaskThread}
+      />
       <div style={{ marginTop: "var(--space-3)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
         {logs.length > 0 ? logs.map((log) => (
           <div key={log.id} style={{ padding: "var(--space-2)", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)" }}>

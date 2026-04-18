@@ -247,6 +247,10 @@ impl<'a> SendMessageRunner<'a> {
                 crate::agent::learning::traces::TraceOutcome::Failure {
                     reason: "policy halted repeated retry".to_string(),
                 }
+            } else if self.terminated_for_budget {
+                crate::agent::learning::traces::TraceOutcome::Failure {
+                    reason: "budget exceeded".to_string(),
+                }
             } else if self.interrupted_for_approval {
                 crate::agent::learning::traces::TraceOutcome::Partial {
                     completed_pct: 50.0,
@@ -347,6 +351,7 @@ impl<'a> SendMessageRunner<'a> {
         let outcome = SendMessageOutcome {
             thread_id: self.tid,
             interrupted_for_approval: self.interrupted_for_approval,
+            terminated_for_budget: self.terminated_for_budget,
             upstream_message: final_upstream_message,
             provider_final_result: self.provider_final_result,
             fresh_runner_retry: self.fresh_runner_retry,

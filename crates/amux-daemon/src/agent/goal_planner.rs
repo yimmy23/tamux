@@ -105,26 +105,102 @@ impl AgentEngine {
         .await;
 
         // Check plan confidence and route to approval if needed (UNCR-08)
+        let low_confidence_steps = collect_low_confidence_plan_steps(&updated);
         let gate_action = self.plan_confidence_gate(&updated).await;
         if gate_action == super::uncertainty::PlanConfidenceAction::RequireApproval {
-            let mut goal_runs = self.goal_runs.lock().await;
-            if let Some(current) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) {
-                current.status = GoalRunStatus::AwaitingApproval;
-                current.updated_at = now_millis();
-                current.events.push(make_goal_run_event(
-                    "confidence_gate",
-                    "plan requires operator approval due to LOW-confidence steps",
-                    None,
-                ));
-            }
-            drop(goal_runs);
-            self.persist_goal_runs().await;
-            self.emit_goal_run_update(
+            self.gate_low_confidence_plan_for_approval(
+                goal_run_id,
                 &updated,
-                Some("Plan awaiting approval: LOW-confidence steps detected".into()),
-            );
+                &low_confidence_steps,
+            )
+            .await?;
         }
 
+        Ok(())
+    }
+
+    async fn gate_low_confidence_plan_for_approval(
+        &self,
+        goal_run_id: &str,
+        goal_run: &GoalRun,
+        low_confidence_steps: &[String],
+    ) -> Result<()> {
+        let approval_id = format!("goal-plan-approval-{}", Uuid::new_v4());
+        let review_command = "review low-confidence goal plan".to_string();
+        let detail = if low_confidence_steps.is_empty() {
+            "Plan includes LOW-confidence steps that require operator approval before execution."
+                .to_string()
+        } else {
+            format!(
+                "LOW-confidence steps require operator approval before execution: {}",
+                low_confidence_steps.join("; ")
+            )
+        };
+        let review_task = self
+            .enqueue_task(
+                format!("Review plan: {}", goal_run.title),
+                detail.clone(),
+                "normal",
+                Some(review_command.clone()),
+                None,
+                Vec::new(),
+                None,
+                "goal_plan_approval",
+                Some(goal_run_id.to_string()),
+                None,
+                None,
+                Some("daemon".to_string()),
+            )
+            .await;
+
+        let updated_task = {
+            let mut tasks = self.tasks.lock().await;
+            let Some(task) = tasks.iter_mut().find(|entry| entry.id == review_task.id) else {
+                anyhow::bail!("goal plan approval task disappeared before gating");
+            };
+            task.notify_on_complete = false;
+            task.notify_channels.clear();
+            task.thread_id = goal_run.thread_id.clone();
+            task.goal_run_title = Some(goal_run.title.clone());
+            task.goal_step_title = goal_run.current_step_title.clone();
+            task.status = TaskStatus::AwaitingApproval;
+            task.progress = task.progress.max(35);
+            task.awaiting_approval_id = Some(approval_id.clone());
+            task.blocked_reason = Some(format!("waiting for operator approval: {review_command}"));
+            task.logs.push(make_task_log_entry(
+                task.retry_count,
+                TaskLogLevel::Warn,
+                "confidence_gate",
+                "goal plan paused for operator approval due to LOW-confidence steps",
+                Some(detail.clone()),
+            ));
+            task.clone()
+        };
+
+        let updated_goal = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(current) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                anyhow::bail!("goal run disappeared while applying confidence gate");
+            };
+            current.status = GoalRunStatus::AwaitingApproval;
+            current.updated_at = now_millis();
+            current.awaiting_approval_id = Some(approval_id.clone());
+            current.active_task_id = Some(updated_task.id.clone());
+            current.events.push(make_goal_run_event(
+                "confidence_gate",
+                "plan requires operator approval due to LOW-confidence steps",
+                Some(detail),
+            ));
+            current.clone()
+        };
+
+        self.persist_tasks().await;
+        self.persist_goal_runs().await;
+        self.emit_task_update(&updated_task, Some("Task awaiting approval".into()));
+        self.emit_goal_run_update(
+            &updated_goal,
+            Some("Plan awaiting approval: LOW-confidence steps detected".into()),
+        );
         Ok(())
     }
 
@@ -144,19 +220,15 @@ impl AgentEngine {
         drop(config);
 
         let mut has_medium = false;
-        let mut has_low = false;
-        let mut low_steps = Vec::new();
+        let low_steps = collect_low_confidence_plan_steps(goal_run);
 
-        for (i, step) in goal_run.steps.iter().enumerate() {
-            if step.title.starts_with("[LOW]") {
-                has_low = true;
-                low_steps.push(format!("Step {}: {}", i + 1, step.title));
-            } else if step.title.starts_with("[MEDIUM]") {
+        for step in &goal_run.steps {
+            if !step.title.starts_with("[LOW]") && step.title.starts_with("[MEDIUM]") {
                 has_medium = true;
             }
         }
 
-        if has_low {
+        if !low_steps.is_empty() {
             let thread_id = goal_run.thread_id.clone().unwrap_or_default();
             let _ = self.event_tx.send(AgentEvent::ConfidenceWarning {
                 thread_id: thread_id.clone(),
@@ -497,6 +569,16 @@ impl AgentEngine {
 
         Ok(())
     }
+}
+
+fn collect_low_confidence_plan_steps(goal_run: &GoalRun) -> Vec<String> {
+    goal_run
+        .steps
+        .iter()
+        .enumerate()
+        .filter(|(_, step)| step.title.starts_with("[LOW]"))
+        .map(|(index, step)| format!("Step {}: {}", index + 1, step.title))
+        .collect()
 }
 
 #[cfg(test)]

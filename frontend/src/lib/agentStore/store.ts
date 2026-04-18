@@ -13,6 +13,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   messages: {},
   todos: {},
   activeThreadId: null,
+  threadHistoryStack: [],
   agentPanelOpen: false,
   agentSettings: loadAgentSettings(),
   agentSettingsHydrated: false,

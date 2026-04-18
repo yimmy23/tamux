@@ -239,7 +239,10 @@ impl DaemonClient {
                     supports_operation_acceptance: true,
                 },
             },
-            ClientMessage::AgentListThreads,
+            ClientMessage::AgentListThreads {
+                limit: None,
+                offset: None,
+            },
         ] {
             if let Err(err) = amux_protocol::validate_client_message_size(&request) {
                 error!("Rejected initial oversized daemon request: {}", err);

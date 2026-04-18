@@ -1,3 +1,71 @@
+fn wrap_textarea_visual_line(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0usize;
+
+    for ch in text.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        let next_width = current_width + ch_width;
+        if !current.is_empty() && next_width > width {
+            lines.push(std::mem::take(&mut current));
+            current_width = 0;
+        }
+        current.push(ch);
+        current_width += ch_width;
+    }
+
+    if current.is_empty() {
+        lines.push(String::new());
+    } else {
+        lines.push(current);
+    }
+
+    lines
+}
+
+fn pad_visual_width(text: &str, width: usize) -> String {
+    let visible_width = unicode_width::UnicodeWidthStr::width(text);
+    if visible_width >= width {
+        return text.to_string();
+    }
+
+    let mut padded = String::with_capacity(text.len() + (width - visible_width));
+    padded.push_str(text);
+    padded.push_str(&" ".repeat(width - visible_width));
+    padded
+}
+
+fn render_wrapped_textarea_buffer(
+    buffer: &str,
+    cursor_line: usize,
+    cursor_col: usize,
+    width: usize,
+) -> Vec<String> {
+    let mut visual_lines = Vec::new();
+
+    for (idx, raw_line) in buffer.split('\n').enumerate() {
+        let rendered = if idx == cursor_line {
+            render_edit_line_with_cursor(raw_line, cursor_col)
+        } else {
+            raw_line.to_string()
+        };
+        visual_lines.extend(wrap_textarea_visual_line(&rendered, width.max(1)));
+    }
+
+    if visual_lines.is_empty() {
+        visual_lines.push(render_edit_line_with_cursor("", 0));
+    }
+
+    visual_lines
+}
+
 fn render_subagents_tab<'a>(
     content_width: u16,
     settings: &'a SettingsState,
@@ -127,6 +195,14 @@ fn render_subagents_tab<'a>(
         ));
         lines.push(Line::raw(""));
         if prompt_is_editing && settings.is_textarea() {
+            let prompt_inner_width = (content_width as usize).saturating_sub(6).max(1);
+            let (cursor_line, cursor_col) = settings.edit_cursor_line_col();
+            let prompt_lines = render_wrapped_textarea_buffer(
+                settings.edit_buffer(),
+                cursor_line,
+                cursor_col,
+                prompt_inner_width,
+            );
             lines.push(Line::from(vec![
                 Span::styled(
                     if matches!(
@@ -150,22 +226,18 @@ fn render_subagents_tab<'a>(
                 Span::styled(" [Ctrl+S/Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
             ]));
             lines.push(Line::from(Span::styled(
-                "  ╭──────────────────────────────────────────╮",
+                format!("  ╭{}╮", "─".repeat(prompt_inner_width + 2)),
                 theme.fg_dim,
             )));
-            for (idx, buf_line) in settings.edit_buffer().split('\n').enumerate() {
-                let rendered = if idx == settings.edit_cursor_line_col().0 {
-                    render_edit_line_with_cursor(buf_line, settings.edit_cursor_line_col().1)
-                } else {
-                    buf_line.to_string()
-                };
+            for rendered in prompt_lines {
                 lines.push(Line::from(vec![
                     Span::styled("  │ ", theme.fg_dim),
-                    Span::styled(rendered, theme.fg_active),
+                    Span::styled(pad_visual_width(&rendered, prompt_inner_width), theme.fg_active),
+                    Span::styled(" │", theme.fg_dim),
                 ]));
             }
             lines.push(Line::from(Span::styled(
-                "  ╰──────────────────────────────────────────╯",
+                format!("  ╰{}╯", "─".repeat(prompt_inner_width + 2)),
                 theme.fg_dim,
             )));
         } else {

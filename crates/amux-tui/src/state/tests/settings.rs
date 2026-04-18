@@ -324,12 +324,6 @@ fn current_field_name_chat_tab() {
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "enable_honcho_memory");
     state.reduce(SettingsAction::NavigateField(1));
-    assert_eq!(state.current_field_name(), "honcho_api_key");
-    state.reduce(SettingsAction::NavigateField(1));
-    assert_eq!(state.current_field_name(), "honcho_base_url");
-    state.reduce(SettingsAction::NavigateField(1));
-    assert_eq!(state.current_field_name(), "honcho_workspace_id");
-    state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "anticipatory_enabled");
     state.reduce(SettingsAction::NavigateField(4));
     assert_eq!(state.current_field_name(), "operator_model_enabled");
@@ -348,7 +342,7 @@ fn current_field_name_chat_tab() {
     assert_eq!(state.current_field_name(), "generated_tools_inspect");
     state.reduce(SettingsAction::NavigateField(4));
     assert_eq!(state.current_field_name(), "generated_tools_inspect");
-    assert_eq!(state.field_cursor(), 25);
+    assert_eq!(state.field_cursor(), 22);
 }
 
 #[test]
@@ -414,7 +408,7 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::WebSearch));
     assert_eq!(state.field_count(), 8);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
-    assert_eq!(state.field_count(), 26);
+    assert_eq!(state.field_count(), 23);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
     assert_eq!(state.field_count(), 14);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Auth));

@@ -98,6 +98,7 @@ pub fn render(
     concierge: &ConciergeState,
     tier: &crate::state::tier::TierState,
     plugin_settings: &PluginSettingsState,
+    scroll: usize,
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
@@ -153,7 +154,7 @@ pub fn render(
         plugin_settings,
         theme,
     );
-    let paragraph = Paragraph::new(content_lines);
+    let paragraph = Paragraph::new(content_lines).scroll((scroll.min(u16::MAX as usize) as u16, 0));
     frame.render_widget(paragraph, chunks[2]);
 
     // Hints — context-sensitive
@@ -189,6 +190,7 @@ pub fn hit_test(
     config: &ConfigState,
     auth: &crate::state::auth::AuthState,
     subagents: &SubAgentsState,
+    scroll: usize,
     mouse: Position,
 ) -> Option<SettingsHitTarget> {
     let block = Block::default()
@@ -226,19 +228,19 @@ pub fn hit_test(
         return None;
     }
 
-    if let Some((line, col)) = editing_cursor_hit_test(chunks[2], settings, config, mouse) {
+    if let Some((line, col)) = editing_cursor_hit_test(chunks[2], settings, config, scroll, mouse) {
         return Some(SettingsHitTarget::EditCursor { line, col });
     }
 
     if matches!(settings.active_tab(), SettingsTab::Auth) {
-        return auth_hit_test(chunks[2], auth, mouse);
+        return auth_hit_test(chunks[2], auth, scroll, mouse);
     }
 
     if matches!(settings.active_tab(), SettingsTab::SubAgents) {
-        return subagents_hit_test(chunks[2], subagents, mouse);
+        return subagents_hit_test(chunks[2], subagents, scroll, mouse);
     }
 
-    let row = mouse.y.saturating_sub(chunks[2].y) as usize;
+    let row = mouse.y.saturating_sub(chunks[2].y) as usize + scroll;
     match settings_row_hit(settings, config, subagents, row) {
         Some((_, Some(subagent_index))) => {
             Some(SettingsHitTarget::SubAgentListItem(subagent_index))
@@ -301,14 +303,7 @@ fn visible_tabs(tab_area: Rect, active_index: usize) -> Vec<VisibleTab> {
     }
 
     let prefix = if start > 0 { "« " } else { "" };
-    let suffix = if end + 1 < all.len() { " »" } else { "" };
-    let inner_width = total_width(start, end)
-        .saturating_add(prefix.chars().count() as u16)
-        .saturating_add(suffix.chars().count() as u16);
-    let mut x = tab_area
-        .x
-        .saturating_add(tab_area.width.saturating_sub(inner_width) / 2)
-        .saturating_add(prefix.chars().count() as u16);
+    let mut x = tab_area.x.saturating_add(prefix.chars().count() as u16);
 
     let mut visible = Vec::new();
     for idx in start..=end {
@@ -361,10 +356,11 @@ fn editing_cursor_hit_test(
     content_area: Rect,
     settings: &SettingsState,
     config: &ConfigState,
+    scroll: usize,
     mouse: Position,
 ) -> Option<(usize, usize)> {
     let field = settings.editing_field()?;
-    let row = mouse.y.saturating_sub(content_area.y) as usize;
+    let row = mouse.y.saturating_sub(content_area.y) as usize + scroll;
     let rel_x = mouse.x.saturating_sub(content_area.x) as usize;
 
     if settings.is_textarea() {
@@ -384,4 +380,57 @@ fn editing_cursor_hit_test(
         return Some((0, rel_x.saturating_sub(start_col)));
     }
     None
+}
+
+fn content_area(area: Rect) -> Option<Rect> {
+    let block = Block::default()
+        .title(" SETTINGS ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double);
+    let inner = block.inner(area);
+    if inner.height < 5 {
+        return None;
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    Some(chunks[2])
+}
+
+pub fn max_scroll(
+    area: Rect,
+    settings: &SettingsState,
+    config: &ConfigState,
+    modal: &ModalState,
+    auth: &crate::state::auth::AuthState,
+    subagents: &SubAgentsState,
+    concierge: &ConciergeState,
+    tier: &crate::state::tier::TierState,
+    plugin_settings: &PluginSettingsState,
+    theme: &ThemeTokens,
+) -> usize {
+    let Some(content_area) = content_area(area) else {
+        return 0;
+    };
+    let line_count = render_tab_content(
+        content_area.width,
+        settings,
+        config,
+        modal,
+        auth,
+        subagents,
+        concierge,
+        tier,
+        plugin_settings,
+        theme,
+    )
+    .len();
+    line_count.saturating_sub(content_area.height as usize)
 }

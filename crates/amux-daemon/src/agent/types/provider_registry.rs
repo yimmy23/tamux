@@ -56,6 +56,22 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: true,
     },
     ProviderDefinition {
+        id: PROVIDER_ID_AZURE_OPENAI,
+        name: "Azure OpenAI",
+        default_base_url: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1",
+        default_model: "",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: EMPTY_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
+        default_transport: ApiTransport::Responses,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: true,
+    },
+    ProviderDefinition {
         id: PROVIDER_ID_ANTHROPIC,
         name: "Anthropic",
         default_base_url: "https://api.anthropic.com",
@@ -395,7 +411,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         id: PROVIDER_ID_OPENCODE_ZEN,
         name: "OpenCode Zen",
         default_base_url: "https://opencode.ai/zen/v1",
-        default_model: "claude-sonnet-4-5",
+        default_model: "claude-sonnet-4-6",
         api_type: ApiType::Anthropic,
         auth_method: AuthMethod::Bearer,
         models: OPENCODE_ZEN_MODELS,
@@ -442,6 +458,10 @@ pub fn default_api_transport_for_provider(provider_id: &str) -> ApiTransport {
     get_provider_definition(provider_id)
         .map(|definition| definition.default_transport)
         .unwrap_or(ApiTransport::ChatCompletions)
+}
+
+pub fn provider_uses_configurable_base_url(provider_id: &str) -> bool {
+    matches!(provider_id, PROVIDER_ID_CUSTOM | PROVIDER_ID_AZURE_OPENAI)
 }
 
 pub fn supports_response_continuity(provider_id: &str) -> bool {

@@ -294,7 +294,10 @@ fn concierge_mouse_click_executes_visible_action() {
             message_offset,
         }) => {
             assert_eq!(thread_id, "concierge");
-            assert_eq!(message_limit, Some(50));
+            assert_eq!(
+                message_limit,
+                Some(model.config.tui_chat_history_page_size as usize)
+            );
             assert_eq!(message_offset, Some(0));
         }
         other => panic!("expected thread request command, got {:?}", other),

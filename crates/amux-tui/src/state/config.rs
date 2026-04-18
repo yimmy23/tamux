@@ -25,6 +25,61 @@ pub struct AgentConfigSnapshot {
     pub context_window_tokens: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HonchoEditorField {
+    Enabled,
+    ApiKey,
+    BaseUrl,
+    WorkspaceId,
+    Save,
+    Cancel,
+}
+
+impl HonchoEditorField {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Enabled => Self::ApiKey,
+            Self::ApiKey => Self::BaseUrl,
+            Self::BaseUrl => Self::WorkspaceId,
+            Self::WorkspaceId => Self::Save,
+            Self::Save => Self::Cancel,
+            Self::Cancel => Self::Enabled,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Enabled => Self::Cancel,
+            Self::ApiKey => Self::Enabled,
+            Self::BaseUrl => Self::ApiKey,
+            Self::WorkspaceId => Self::BaseUrl,
+            Self::Save => Self::WorkspaceId,
+            Self::Cancel => Self::Save,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HonchoEditorState {
+    pub enabled: bool,
+    pub api_key: String,
+    pub base_url: String,
+    pub workspace_id: String,
+    pub field: HonchoEditorField,
+}
+
+impl HonchoEditorState {
+    pub fn from_config(config: &ConfigState) -> Self {
+        Self {
+            enabled: config.enable_honcho_memory,
+            api_key: config.honcho_api_key.clone(),
+            base_url: config.honcho_base_url.clone(),
+            workspace_id: config.honcho_workspace_id.clone(),
+            field: HonchoEditorField::Enabled,
+        }
+    }
+}
+
 // ── ConfigAction ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -100,6 +155,7 @@ pub struct ConfigState {
     pub honcho_api_key: String,
     pub honcho_base_url: String,
     pub honcho_workspace_id: String,
+    pub honcho_editor: Option<HonchoEditorState>,
     pub anticipatory_enabled: bool,
     pub anticipatory_morning_brief: bool,
     pub anticipatory_predictive_hydration: bool,
@@ -209,20 +265,21 @@ impl ConfigState {
             honcho_api_key: String::new(),
             honcho_base_url: String::new(),
             honcho_workspace_id: "tamux".to_string(),
-            anticipatory_enabled: false,
-            anticipatory_morning_brief: false,
-            anticipatory_predictive_hydration: false,
-            anticipatory_stuck_detection: false,
-            operator_model_enabled: false,
-            operator_model_allow_message_statistics: false,
-            operator_model_allow_approval_learning: false,
-            operator_model_allow_attention_tracking: false,
-            operator_model_allow_implicit_feedback: false,
-            collaboration_enabled: false,
+            honcho_editor: None,
+            anticipatory_enabled: true,
+            anticipatory_morning_brief: true,
+            anticipatory_predictive_hydration: true,
+            anticipatory_stuck_detection: true,
+            operator_model_enabled: true,
+            operator_model_allow_message_statistics: true,
+            operator_model_allow_approval_learning: true,
+            operator_model_allow_attention_tracking: true,
+            operator_model_allow_implicit_feedback: true,
+            collaboration_enabled: true,
             compliance_mode: "standard".to_string(),
             compliance_retention_days: 30,
-            compliance_sign_all_events: false,
-            tool_synthesis_enabled: false,
+            compliance_sign_all_events: true,
+            tool_synthesis_enabled: true,
             tool_synthesis_require_activation: true,
             tool_synthesis_max_generated_tools: 24,
             managed_sandbox_enabled: false,

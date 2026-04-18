@@ -11,6 +11,7 @@ function createWindowRuntime(options) {
         shell,
         stopAllTerminalBridges,
     } = options;
+    const { resolveRendererLoadTarget } = require("./load-target.cjs");
 
     function sendAppCommand(command) {
         getMainWindow()?.webContents.send('app-command', command);
@@ -92,8 +93,17 @@ function createWindowRuntime(options) {
             opacity: 1,
         });
         setMainWindow(mainWindow);
-        if (!app.isPackaged) mainWindow.loadURL('http://localhost:5173');
-        else mainWindow.loadFile(path.join(options.electronDir, '..', 'dist', 'index.html'));
+        const rendererLoadTarget = resolveRendererLoadTarget({
+            app,
+            electronDir: options.electronDir,
+            env: process.env,
+            path,
+        });
+        if (rendererLoadTarget.kind === "url") {
+            mainWindow.loadURL(rendererLoadTarget.value);
+        } else {
+            mainWindow.loadFile(rendererLoadTarget.value);
+        }
         mainWindow.webContents.setWindowOpenHandler(({ url }) => /^https?:\/\//i.test(url) ? (void shell.openExternal(url), { action: 'deny' }) : { action: 'allow' });
         mainWindow.webContents.on('will-navigate', (event, url) => {
             const currentUrl = mainWindow.webContents.getURL();

@@ -20,7 +20,32 @@ fn skill_gate_exempt_tool(name: &str) -> bool {
     )
 }
 
+fn should_suppress_busy_wait_poll(
+    tool_name: &str,
+    current_signature: &str,
+    previous_signature: Option<&str>,
+    consecutive_same_tool_calls: u32,
+    has_active_subagents: bool,
+) -> bool {
+    has_active_subagents
+        && matches!(tool_name, "list_agents" | "list_subagents")
+        && previous_signature.is_some_and(|value| value == current_signature)
+        && consecutive_same_tool_calls >= 1
+}
+
 impl<'a> SendMessageRunner<'a> {
+    async fn current_task_has_active_subagents(&self) -> bool {
+        let Some(task_id) = self.task_id else {
+            return false;
+        };
+
+        self.engine.list_tasks().await.into_iter().any(|task| {
+            task.source == "subagent"
+                && task.parent_task_id.as_deref() == Some(task_id)
+                && !crate::agent::task_scheduler::is_task_terminal_status(task.status)
+        })
+    }
+
     async fn handle_metacognitive_intervention(
         &mut self,
         tc: &ToolCall,
@@ -609,6 +634,44 @@ impl<'a> SendMessageRunner<'a> {
 
     async fn execute_tool_call(&mut self, tc: &ToolCall) -> ToolResult {
         let current_tool_signature = normalized_tool_signature(tc);
+        let has_active_subagents = self.current_task_has_active_subagents().await;
+        if should_suppress_busy_wait_poll(
+            &tc.function.name,
+            &current_tool_signature,
+            self.previous_tool_signature.as_deref(),
+            self.consecutive_same_tool_calls,
+            has_active_subagents,
+        ) {
+            let (summary, content) = if tc.function.name == "list_agents" {
+                (
+                    "Repeated list_agents polling suppressed while child subagents are still running.",
+                    "Repeated list_agents polling suppressed. `list_agents` does not report spawned child progress. Do not busy-wait while child subagents are active; continue unrelated work or send a normal response so tamux can resume you when children finish.".to_string(),
+                )
+            } else {
+                (
+                    "Repeated list_subagents polling suppressed while child subagents are still running.",
+                    "Repeated list_subagents polling suppressed because the agent appears to be busy-waiting on active child subagents. Use list_subagents only for occasional snapshots, then continue other work or send a normal response so tamux can resume you when children finish.".to_string(),
+                )
+            };
+            self.engine.emit_workflow_notice(
+                &self.tid,
+                "tool-stall",
+                summary,
+                Some(format!(
+                    "tool={} signature={}",
+                    tc.function.name, current_tool_signature
+                )),
+            );
+            self.previous_tool_signature = Some(current_tool_signature);
+            return ToolResult {
+                tool_call_id: tc.id.clone(),
+                name: tc.function.name.clone(),
+                content,
+                is_error: true,
+                weles_review: tc.weles_review.clone(),
+                pending_approval: None,
+            };
+        }
         let repeated = self
             .previous_tool_signature
             .as_deref()
@@ -737,6 +800,7 @@ impl<'a> SendMessageRunner<'a> {
                     } => match overflow_action {
                         crate::agent::types::ContextOverflowAction::Error => {
                             tracing::warn!(thread_id = %self.tid, "context budget exceeded - stopping");
+                            self.terminated_for_budget = true;
                             self.engine.emit_workflow_notice(
                                 &self.tid,
                                 "budget-exceeded",
@@ -781,5 +845,38 @@ mod tests {
             Some(Duration::from_millis(500))
         );
         assert_eq!(inter_tool_call_delay(1, 0), None);
+    }
+
+    #[test]
+    fn busy_wait_poll_detection_flags_repeated_list_agents_with_active_subagents() {
+        assert!(super::should_suppress_busy_wait_poll(
+            "list_agents",
+            "list_agents:{}",
+            Some("list_agents:{}"),
+            1,
+            true,
+        ));
+    }
+
+    #[test]
+    fn busy_wait_poll_detection_allows_first_status_probe() {
+        assert!(!super::should_suppress_busy_wait_poll(
+            "list_subagents",
+            "list_subagents:{}",
+            Some("spawn_subagent:{\"title\":\"review\"}"),
+            1,
+            true,
+        ));
+    }
+
+    #[test]
+    fn busy_wait_poll_detection_ignores_non_poll_tools() {
+        assert!(!super::should_suppress_busy_wait_poll(
+            "read_file",
+            "read_file:{\"path\":\"PROJECT.md\"}",
+            Some("read_file:{\"path\":\"PROJECT.md\"}"),
+            1,
+            true,
+        ));
     }
 }

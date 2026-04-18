@@ -1,4 +1,6 @@
 use super::participants::{apply_vote_to_disagreement, normalize_position, normalize_topic};
+
+const MIN_CONSENSUS_BID_CONFIDENCE: f64 = 0.3;
 use super::*;
 use crate::agent::debate::protocol::create_debate_session;
 use crate::agent::debate::types::{Argument, DebateSession, RoleKind};
@@ -714,12 +716,22 @@ impl AgentEngine {
         });
         let primary = ranked
             .iter()
-            .find(|bid| !matches!(bid.availability, BidAvailability::Unavailable))
+            .find(|bid| {
+                !matches!(bid.availability, BidAvailability::Unavailable)
+                    && bid.confidence >= MIN_CONSENSUS_BID_CONFIDENCE
+            })
             .cloned()
-            .unwrap_or_else(|| ranked[0].clone());
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no bid cleared the minimum confidence threshold ({MIN_CONSENSUS_BID_CONFIDENCE}); falling back to safe static routing"
+                )
+            })?;
         let reviewer = ranked
             .iter()
-            .find(|bid| bid.task_id != primary.task_id)
+            .find(|bid| {
+                bid.task_id != primary.task_id
+                    && !matches!(bid.availability, BidAvailability::Unavailable)
+            })
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("a distinct reviewer bid is required"))?;
 

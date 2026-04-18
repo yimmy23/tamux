@@ -106,6 +106,24 @@ fn sample_goal_run(id: &str, thread_id: Option<&str>) -> GoalRun {
     }
 }
 
+fn sample_anticipatory_item(id: &str, kind: &str, title: &str, summary: &str) -> AnticipatoryItem {
+    AnticipatoryItem {
+        id: id.to_string(),
+        kind: kind.to_string(),
+        title: title.to_string(),
+        summary: summary.to_string(),
+        bullets: Vec::new(),
+        intent_prediction: None,
+        confidence: 0.0,
+        goal_run_id: None,
+        thread_id: None,
+        preferred_client_surface: None,
+        preferred_attention_surface: None,
+        created_at: 0,
+        updated_at: 0,
+    }
+}
+
 #[test]
 fn circular_hour_distance_wraps_across_midnight() {
     assert_eq!(circular_hour_distance(23, 1), 2);
@@ -330,6 +348,122 @@ async fn morning_brief_inherits_route_from_top_goal_surface() {
         .find(|candidate| candidate.kind == "morning_brief")
         .expect("expected a morning brief");
     assert_eq!(item.preferred_client_surface.as_deref(), Some("tui"));
+}
+
+#[tokio::test]
+async fn anticipatory_updates_are_persisted_as_inbox_notifications() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut item = sample_anticipatory_item(
+        "digest-1",
+        "stuck_hint",
+        "Task May Be Stuck",
+        "Release packaging has stalled for 28m.",
+    );
+    item.bullets = vec![
+        "No terminal output has arrived since the last retry.".to_string(),
+        "Operator attention is focused on the release thread.".to_string(),
+    ];
+    item.confidence = 0.73;
+    item.thread_id = Some("thread-release".to_string());
+    item.created_at = 10;
+    item.updated_at = 20;
+
+    engine.emit_anticipatory_update(vec![item]).await;
+
+    let notifications = engine
+        .history
+        .list_notifications(false, Some(10))
+        .await
+        .unwrap();
+    let notification = notifications
+        .iter()
+        .find(|candidate| candidate.id == "anticipatory:digest-1")
+        .expect("anticipatory notification should be persisted");
+
+    assert_eq!(notification.source, "anticipatory");
+    assert_eq!(notification.kind, "stuck_hint");
+    assert_eq!(notification.title, "Task May Be Stuck");
+    assert!(notification.body.contains("Release packaging has stalled"));
+    assert!(notification.body.contains("No terminal output has arrived"));
+    assert_eq!(notification.severity, "warning");
+    assert_eq!(notification.archived_at, None);
+    assert_eq!(notification.actions.len(), 1);
+    assert_eq!(notification.actions[0].action_type, "open_thread");
+    assert_eq!(
+        notification.actions[0].target.as_deref(),
+        Some("thread-release")
+    );
+}
+
+#[tokio::test]
+async fn anticipatory_updates_archive_stale_notifications() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut item_one = sample_anticipatory_item(
+        "digest-1",
+        "stuck_hint",
+        "Task May Be Stuck",
+        "Thread A looks blocked.",
+    );
+    item_one.confidence = 0.82;
+    item_one.thread_id = Some("thread-a".to_string());
+    item_one.created_at = 10;
+    item_one.updated_at = 20;
+
+    let mut item_two = sample_anticipatory_item(
+        "digest-2",
+        "intent_prediction",
+        "Likely Next Action",
+        "You will probably inspect the release checklist.",
+    );
+    item_two.confidence = 0.65;
+    item_two.thread_id = Some("thread-b".to_string());
+    item_two.created_at = 11;
+    item_two.updated_at = 21;
+
+    engine
+        .emit_anticipatory_update(vec![item_one, item_two])
+        .await;
+
+    let mut updated_item = sample_anticipatory_item(
+        "digest-1",
+        "stuck_hint",
+        "Task May Be Stuck",
+        "Thread A still looks blocked.",
+    );
+    updated_item.confidence = 0.84;
+    updated_item.thread_id = Some("thread-a".to_string());
+    updated_item.created_at = 10;
+    updated_item.updated_at = 30;
+
+    engine.emit_anticipatory_update(vec![updated_item]).await;
+
+    let notifications = engine
+        .history
+        .list_notifications(true, Some(10))
+        .await
+        .unwrap();
+    let active = notifications
+        .iter()
+        .find(|candidate| candidate.id == "anticipatory:digest-1")
+        .expect("active anticipatory notification should remain");
+    let archived = notifications
+        .iter()
+        .find(|candidate| candidate.id == "anticipatory:digest-2")
+        .expect("stale anticipatory notification should remain in history");
+
+    assert_eq!(active.archived_at, None);
+    assert!(archived.archived_at.is_some());
+    assert_eq!(archived.source, "anticipatory");
 }
 
 #[tokio::test]
@@ -1010,6 +1144,278 @@ async fn intent_prediction_resolution_treats_inspect_changes_as_repo_verificatio
 }
 
 #[tokio::test]
+async fn intent_prediction_updates_active_prediction_instead_of_duplicating_when_confidence_changes(
+) {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-intent-update"), None)
+        .await
+        .unwrap();
+
+    let mut task = sample_task("task-intent-update", Some("thread-intent-update"), None);
+    task.title = "Need approval".to_string();
+    task.status = TaskStatus::AwaitingApproval;
+    engine.tasks.lock().await.push_back(task);
+
+    engine.run_anticipatory_tick().await;
+
+    let before = engine
+        .history
+        .list_intent_predictions("thread-intent-update", 10)
+        .await
+        .expect("list initial intent predictions");
+    assert_eq!(before.len(), 1);
+    let initial_confidence = before[0].confidence;
+
+    engine
+        .history
+        .insert_intent_prediction(&IntentPredictionRow {
+            id: "intent-prior-1".to_string(),
+            session_id: "thread-prior".to_string(),
+            context_state_hash: "ctx-prior-1".to_string(),
+            predicted_action: "review pending approval".to_string(),
+            confidence: 0.90,
+            actual_action: Some("review pending approval".to_string()),
+            was_correct: Some(true),
+            created_at_ms: now_millis(),
+        })
+        .await
+        .expect("seed first resolved intent prior");
+    engine
+        .history
+        .insert_intent_prediction(&IntentPredictionRow {
+            id: "intent-prior-2".to_string(),
+            session_id: "thread-prior".to_string(),
+            context_state_hash: "ctx-prior-2".to_string(),
+            predicted_action: "review pending approval".to_string(),
+            confidence: 0.90,
+            actual_action: Some("review pending approval".to_string()),
+            was_correct: Some(true),
+            created_at_ms: now_millis().saturating_add(1),
+        })
+        .await
+        .expect("seed second resolved intent prior");
+
+    {
+        let mut runtime = engine.anticipatory.write().await;
+        runtime.last_surface_at = None;
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    let predictions = engine
+        .history
+        .list_intent_predictions("thread-intent-update", 10)
+        .await
+        .expect("list updated intent predictions");
+    let unresolved = predictions
+        .iter()
+        .filter(|row| row.was_correct.is_none() && row.actual_action.is_none())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        unresolved.len(), 1,
+        "confidence changes for the same unresolved intent prediction should update the active prediction instead of duplicating it"
+    );
+    assert!(
+        unresolved[0].confidence >= initial_confidence,
+        "updated unresolved intent prediction should retain or improve confidence after stronger evidence"
+    );
+}
+
+#[tokio::test]
+async fn system_outcome_foresight_does_not_persist_duplicate_unresolved_predictions() {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-foresight-dedupe");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn broken() {}\n").unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-foresight-dedupe"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-foresight-dedupe".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-foresight-dedupe".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+    engine
+        .history
+        .insert_health_log(
+            "health-foresight-dedupe-degraded",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis(),
+        )
+        .await
+        .expect("save degraded health log");
+
+    engine.run_anticipatory_tick().await;
+    engine.run_anticipatory_tick().await;
+
+    let predictions = engine
+        .history
+        .list_system_outcome_predictions("thread-foresight-dedupe", 10)
+        .await
+        .expect("list persisted system outcome predictions after duplicate ticks");
+    let unresolved = predictions
+        .iter()
+        .filter(|row| row.was_correct.is_none() && row.actual_outcome.is_none())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        unresolved.len(),
+        1,
+        "repeated identical foresight ticks should not persist duplicate unresolved predictions"
+    );
+}
+
+#[tokio::test]
+async fn system_outcome_foresight_updates_active_prediction_instead_of_duplicating_when_confidence_changes(
+) {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-foresight-update");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn broken() {}\n").unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-foresight-update"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-foresight-update".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-foresight-update".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+    engine
+        .history
+        .insert_health_log(
+            "health-foresight-update-1",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis() - 2_000,
+        )
+        .await
+        .expect("save first degraded health log");
+
+    engine.run_anticipatory_tick().await;
+
+    let before = engine
+        .history
+        .list_system_outcome_predictions("thread-foresight-update", 10)
+        .await
+        .expect("list initial system outcome predictions");
+    assert_eq!(before.len(), 1);
+    let initial_confidence = before[0].confidence;
+
+    engine
+        .history
+        .insert_health_log(
+            "health-foresight-update-2",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis() - 1_000,
+        )
+        .await
+        .expect("save second degraded health log");
+
+    engine.run_anticipatory_tick().await;
+
+    let predictions = engine
+        .history
+        .list_system_outcome_predictions("thread-foresight-update", 10)
+        .await
+        .expect("list updated system outcome predictions");
+    let unresolved = predictions
+        .iter()
+        .filter(|row| row.was_correct.is_none() && row.actual_outcome.is_none())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        unresolved.len(), 1,
+        "confidence changes for the same unresolved foresight should update the active prediction instead of duplicating it"
+    );
+    assert!(
+        unresolved[0].confidence >= initial_confidence,
+        "updated unresolved prediction should retain or improve confidence after stronger evidence"
+    );
+}
+
+#[tokio::test]
 async fn system_outcome_foresight_persists_and_resolves_when_health_feedback_arrives() {
     let root = tempdir().unwrap();
     let repo_root = root.path().join("repo-foresight-persist");
@@ -1460,4 +1866,106 @@ async fn anticipatory_tick_surfaces_stale_context_foresight_when_hydration_lags_
         .bullets
         .iter()
         .any(|bullet| bullet.contains("semantic alignment degraded")));
+}
+
+#[tokio::test]
+async fn event_trigger_defaults_can_be_seeded_and_listed() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let seeded = engine
+        .ensure_default_event_triggers()
+        .await
+        .expect("default event triggers should seed");
+    assert!(seeded >= 2);
+
+    let payload = engine
+        .list_event_triggers_json()
+        .await
+        .expect("list_event_triggers should succeed");
+    let rows = payload.as_array().expect("payload should be an array");
+    assert!(rows.iter().any(|row| row["event_kind"] == "weles_health"));
+    assert!(rows
+        .iter()
+        .any(|row| row["event_kind"] == "subagent_health"));
+}
+
+#[tokio::test]
+async fn event_trigger_fire_respects_cooldown_and_emits_notice() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let mut events = engine.event_tx.subscribe();
+
+    let payload = engine
+        .add_event_trigger_from_args(&serde_json::json!({
+            "id": "trigger-health-test",
+            "event_family": "health",
+            "event_kind": "subagent_health",
+            "target_state": "stuck",
+            "notification_kind": "subagent_health_stuck",
+            "title_template": "Subagent {task_id} stuck",
+            "body_template": "Task {task_id} entered {state} because {reason}",
+            "cooldown_secs": 3600,
+            "risk_label": "medium"
+        }))
+        .await
+        .expect("add trigger should succeed");
+    assert_eq!(payload["status"], "created");
+
+    let fired = engine
+        .maybe_fire_event_trigger(
+            "health",
+            "subagent_health",
+            Some("stuck"),
+            Some("thread-health-trigger"),
+            serde_json::json!({
+                "task_id": "task-77",
+                "reason": "timeout"
+            }),
+        )
+        .await
+        .expect("trigger firing should succeed");
+    assert_eq!(fired, 1);
+
+    let notice = timeout(Duration::from_millis(250), async {
+        loop {
+            match events.recv().await {
+                Ok(AgentEvent::WorkflowNotice {
+                    kind,
+                    thread_id,
+                    message,
+                    details,
+                }) => break (kind, thread_id, message, details),
+                Ok(_) => continue,
+                Err(error) => panic!("expected workflow notice, got event error: {error}"),
+            }
+        }
+    })
+    .await
+    .expect("trigger notice should be emitted");
+
+    assert_eq!(notice.0, "subagent_health_stuck");
+    assert_eq!(notice.1, "thread-health-trigger");
+    assert!(notice.2.contains("task-77"));
+    assert!(notice
+        .3
+        .as_deref()
+        .is_some_and(|details| details.contains("timeout")));
+
+    let second = engine
+        .maybe_fire_event_trigger(
+            "health",
+            "subagent_health",
+            Some("stuck"),
+            Some("thread-health-trigger"),
+            serde_json::json!({
+                "task_id": "task-77",
+                "reason": "timeout"
+            }),
+        )
+        .await
+        .expect("cooldown evaluation should succeed");
+    assert_eq!(second, 0, "cooldown should suppress immediate refire");
 }

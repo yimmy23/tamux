@@ -362,7 +362,19 @@ pub(crate) fn detect_cli_wrapper_synthesis_proposal_from_command(
         return None;
     }
 
-    if tokens.iter().skip(2).any(|token| !token.starts_with('-')) {
+    let mut awaiting_flag_value = false;
+    for token in tokens.iter().skip(2) {
+        if token == &"--" {
+            return None;
+        }
+        if token.starts_with('-') {
+            awaiting_flag_value = true;
+            continue;
+        }
+        if awaiting_flag_value {
+            awaiting_flag_value = false;
+            continue;
+        }
         return None;
     }
 

@@ -29,7 +29,11 @@ impl SubAgentEditorField {
             .iter()
             .position(|field| *field == self)
             .unwrap_or(0);
-        Self::ALL[index.saturating_sub(1)]
+        Self::ALL[if index == 0 {
+            Self::ALL.len().saturating_sub(1)
+        } else {
+            index - 1
+        }]
     }
 
     pub fn next(self) -> Self {
@@ -37,7 +41,7 @@ impl SubAgentEditorField {
             .iter()
             .position(|field| *field == self)
             .unwrap_or(0);
-        Self::ALL[(index + 1).min(Self::ALL.len().saturating_sub(1))]
+        Self::ALL[(index + 1) % Self::ALL.len()]
     }
 }
 

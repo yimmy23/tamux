@@ -43,6 +43,24 @@ async fn execute_setup_web_browsing(
             Ok(report.join("\n"))
         }
         "install" => {
+            let provider = args
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("lightpanda");
+
+            if matches!(provider, "chrome" | "chromium") {
+                anyhow::bail!(
+                    "Chrome/Chromium auto-install is not supported by setup_web_browsing. \
+                     Install a headless Chrome/Chromium binary manually and ensure it is on PATH."
+                );
+            }
+            if !matches!(provider, "lightpanda" | "auto") {
+                anyhow::bail!(
+                    "Invalid install provider: '{}'. Supported install providers are lightpanda, auto, chrome, or chromium.",
+                    provider
+                );
+            }
+
             // Install Lightpanda via npm
             if detect_lightpanda().is_some() {
                 return Ok("Lightpanda is already installed.".to_string());
@@ -66,16 +84,22 @@ async fn execute_setup_web_browsing(
             let stderr = String::from_utf8_lossy(&output.stderr);
 
             if !output.status.success() {
-                return Ok(format!(
+                anyhow::bail!(
                     "npm install failed (exit {}):\n{}\n{}",
                     output.status,
                     stdout.chars().take(500).collect::<String>(),
                     stderr.chars().take(500).collect::<String>(),
-                ));
+                );
             }
 
             // Verify
             let installed = detect_lightpanda().is_some();
+            if !installed {
+                anyhow::bail!(
+                    "npm install completed but Lightpanda is still unavailable on PATH.\n{}",
+                    stdout.chars().take(300).collect::<String>()
+                );
+            }
             Ok(format!(
                 "npm install completed.\nLightpanda available: {}{}",
                 installed,
@@ -100,15 +124,6 @@ async fn execute_setup_web_browsing(
                 );
             }
 
-            // Write to config
-            {
-                let mut config = agent.config.write().await;
-                config.extra.insert(
-                    "browse_provider".to_string(),
-                    serde_json::Value::String(provider.to_string()),
-                );
-            }
-
             // Verify the chosen provider works
             let works = match provider {
                 "lightpanda" => detect_lightpanda().is_some(),
@@ -116,6 +131,22 @@ async fn execute_setup_web_browsing(
                 "auto" => detect_lightpanda().or_else(detect_chrome).is_some(),
                 _ => true, // "none" always works
             };
+
+            if !works && provider == "chrome" {
+                anyhow::bail!(
+                    "browse_provider '{}' could not be configured because Chrome/Chromium was not found on PATH.",
+                    provider
+                );
+            }
+
+            // Write to config after validation so a missing browser does not persist a broken choice.
+            {
+                let mut config = agent.config.write().await;
+                config.extra.insert(
+                    "browse_provider".to_string(),
+                    serde_json::Value::String(provider.to_string()),
+                );
+            }
 
             Ok(format!(
                 "browse_provider set to '{}'.\nBrowser available: {}{}",
@@ -138,4 +169,3 @@ async fn execute_setup_web_browsing(
 // ---------------------------------------------------------------------------
 // Terminal/session tools — daemon owns sessions directly
 // ---------------------------------------------------------------------------
-

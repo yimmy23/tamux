@@ -108,9 +108,30 @@ fn add_available_tools_part_d(
     tools.push(tool_def("list_tasks", "List daemon-managed background tasks and their status, dependencies, schedule, and recent execution metadata.", serde_json::json!({
         "type": "object",
         "properties": {
-            "status": { "type": "string", "enum": ["queued", "in_progress", "awaiting_approval", "blocked", "failed_analyzing", "completed", "failed", "cancelled"] },
+            "status": { "type": "string", "enum": ["queued", "in_progress", "awaiting_approval", "blocked", "failed_analyzing", "budget_exceeded", "completed", "failed", "cancelled"] },
             "limit": { "type": "integer", "description": "Maximum number of tasks to return" }
         }
+    })));
+    tools.push(tool_def("list_triggers", "List configured event triggers with status, cooldown, and last-fired metadata.", serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })));
+    tools.push(tool_def("add_trigger", "Create a new runtime event trigger, validate it, and persist it to the trigger registry.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "Optional explicit trigger id" },
+            "event_family": { "type": "string", "description": "High-level event family, e.g. health or repo" },
+            "event_kind": { "type": "string", "description": "Specific event kind within the family" },
+            "target_state": { "type": "string", "description": "Optional state filter, e.g. degraded or stuck" },
+            "thread_id": { "type": "string", "description": "Optional thread scope filter" },
+            "enabled": { "type": "boolean", "description": "Whether the trigger starts enabled (default: true)" },
+            "cooldown_secs": { "type": "integer", "description": "Per-trigger cooldown in seconds" },
+            "risk_label": { "type": "string", "enum": ["low", "medium", "high"], "description": "Risk label used for routing/approval posture" },
+            "notification_kind": { "type": "string", "description": "WorkflowNotice kind emitted when the trigger fires" },
+            "title_template": { "type": "string", "description": "Rendered notice title template" },
+            "body_template": { "type": "string", "description": "Rendered notice body/details template" }
+        },
+        "required": ["event_family", "event_kind", "notification_kind", "title_template", "body_template"]
     })));
     tools.push(tool_def(
         "cancel_task",

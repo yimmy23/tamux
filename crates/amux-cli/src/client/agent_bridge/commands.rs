@@ -80,7 +80,12 @@ where
                 .await?;
         }
         AgentBridgeCommand::ListThreads => {
-            framed.send(ClientMessage::AgentListThreads).await?;
+            framed
+                .send(ClientMessage::AgentListThreads {
+                    limit: None,
+                    offset: None,
+                })
+                .await?;
         }
         AgentBridgeCommand::GetThread { thread_id } => {
             framed
@@ -176,7 +181,12 @@ where
                 .await?;
         }
         AgentBridgeCommand::ListGoalRuns => {
-            framed.send(ClientMessage::AgentListGoalRuns).await?;
+            framed
+                .send(ClientMessage::AgentListGoalRuns {
+                    limit: None,
+                    offset: None,
+                })
+                .await?;
         }
         AgentBridgeCommand::GetGoalRun { goal_run_id } => {
             framed
@@ -242,6 +252,19 @@ where
         AgentBridgeCommand::SetProviderModel { provider_id, model } => {
             framed
                 .send(ClientMessage::AgentSetProviderModel { provider_id, model })
+                .await?;
+        }
+        AgentBridgeCommand::FetchModels {
+            provider_id,
+            base_url,
+            api_key,
+        } => {
+            framed
+                .send(ClientMessage::AgentFetchModels {
+                    provider_id,
+                    base_url,
+                    api_key,
+                })
                 .await?;
         }
         AgentBridgeCommand::SetTargetAgentProviderModel {

@@ -141,6 +141,9 @@ pub(super) fn convert_task(t: crate::wire::AgentTask) -> task::AgentTask {
         title: t.title,
         description: t.description,
         thread_id: t.thread_id,
+        parent_task_id: t.parent_task_id,
+        parent_thread_id: t.parent_thread_id,
+        created_at: t.created_at,
         status: t.status.map(|s| match s {
             crate::wire::TaskStatus::Queued => task::TaskStatus::Queued,
             crate::wire::TaskStatus::InProgress => task::TaskStatus::InProgress,
@@ -168,11 +171,11 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
         thread_id: r.thread_id,
         session_id: r.session_id,
         status: r.status.map(|s| match s {
-            crate::wire::GoalRunStatus::Queued => task::GoalRunStatus::Pending,
-            crate::wire::GoalRunStatus::Planning => task::GoalRunStatus::Pending,
+            crate::wire::GoalRunStatus::Queued => task::GoalRunStatus::Queued,
+            crate::wire::GoalRunStatus::Planning => task::GoalRunStatus::Planning,
             crate::wire::GoalRunStatus::Running => task::GoalRunStatus::Running,
-            crate::wire::GoalRunStatus::AwaitingApproval => task::GoalRunStatus::Pending,
-            crate::wire::GoalRunStatus::Paused => task::GoalRunStatus::Pending,
+            crate::wire::GoalRunStatus::AwaitingApproval => task::GoalRunStatus::AwaitingApproval,
+            crate::wire::GoalRunStatus::Paused => task::GoalRunStatus::Paused,
             crate::wire::GoalRunStatus::Completed => task::GoalRunStatus::Completed,
             crate::wire::GoalRunStatus::Failed => task::GoalRunStatus::Failed,
             crate::wire::GoalRunStatus::Cancelled => task::GoalRunStatus::Cancelled,
@@ -184,7 +187,7 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
                 id: step.id,
                 title: step.title,
                 status: step.status.map(|s| match s {
-                    crate::wire::GoalRunStepStatus::Pending => task::GoalRunStatus::Pending,
+                    crate::wire::GoalRunStepStatus::Pending => task::GoalRunStatus::Queued,
                     crate::wire::GoalRunStepStatus::InProgress => task::GoalRunStatus::Running,
                     crate::wire::GoalRunStepStatus::Completed => task::GoalRunStatus::Completed,
                     crate::wire::GoalRunStepStatus::Failed => task::GoalRunStatus::Failed,
@@ -208,6 +211,12 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
         memory_updates: r.memory_updates,
         generated_skill_path: r.generated_skill_path,
         child_task_ids: r.child_task_ids,
+        loaded_step_start: r.loaded_step_start,
+        loaded_step_end: r.loaded_step_end,
+        total_step_count: r.total_step_count,
+        loaded_event_start: r.loaded_event_start,
+        loaded_event_end: r.loaded_event_end,
+        total_event_count: r.total_event_count,
         events: r
             .events
             .into_iter()
@@ -223,6 +232,8 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
             .collect(),
         created_at: 0,
         updated_at: 0,
+        older_page_pending: false,
+        older_page_request_cooldown_until_tick: None,
     }
 }
 

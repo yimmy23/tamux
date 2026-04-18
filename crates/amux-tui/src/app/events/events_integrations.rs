@@ -250,23 +250,26 @@ impl TuiModel {
         self.chat.reduce(chat::ChatAction::ClearThread {
             thread_id: concierge_thread_id.clone(),
         });
-        self.chat.reduce(chat::ChatAction::AppendMessage {
-            thread_id: concierge_thread_id.clone(),
-            message: chat::AgentMessage {
-                role: chat::MessageRole::Assistant,
-                content,
-                actions: actions
-                    .iter()
-                    .map(|action| chat::MessageAction {
-                        label: action.label.clone(),
-                        action_type: action.action_type.clone(),
-                        thread_id: action.thread_id.clone(),
-                    })
-                    .collect(),
-                is_concierge_welcome: true,
-                ..Default::default()
+        self.reduce_chat_for_thread(
+            Some(concierge_thread_id.as_str()),
+            chat::ChatAction::AppendMessage {
+                thread_id: concierge_thread_id.clone(),
+                message: chat::AgentMessage {
+                    role: chat::MessageRole::Assistant,
+                    content,
+                    actions: actions
+                        .iter()
+                        .map(|action| chat::MessageAction {
+                            label: action.label.clone(),
+                            action_type: action.action_type.clone(),
+                            thread_id: action.thread_id.clone(),
+                        })
+                        .collect(),
+                    is_concierge_welcome: true,
+                    ..Default::default()
+                },
             },
-        });
+        );
         if let Some(thread) = self.chat.active_thread() {
             if thread.id == concierge_thread_id {
                 let welcome_index = thread.messages.len().saturating_sub(1);

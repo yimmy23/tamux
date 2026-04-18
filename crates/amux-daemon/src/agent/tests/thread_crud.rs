@@ -95,6 +95,64 @@ async fn list_threads_omits_message_history_from_thread_summaries() {
 }
 
 #[tokio::test]
+async fn delete_thread_removes_persisted_thread_after_hydrate() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-delete-persisted";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Persisted Thread",
+            false,
+            10,
+            20,
+            vec![
+                AgentMessage::user("hello", 10),
+                assistant_message("world", 20),
+            ],
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    assert!(engine.delete_thread(thread_id).await);
+    assert!(
+        engine
+            .history
+            .get_thread(thread_id)
+            .await
+            .expect("read deleted thread from history")
+            .is_none(),
+        "deleted thread should be removed from persisted thread rows"
+    );
+    assert!(
+        engine
+            .history
+            .list_messages(thread_id, None)
+            .await
+            .expect("read deleted thread messages from history")
+            .is_empty(),
+        "deleted thread should remove persisted messages via cascade"
+    );
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    assert!(
+        rehydrated.get_thread(thread_id).await.is_none(),
+        "deleted thread should not come back after hydrate"
+    );
+}
+
+#[tokio::test]
 async fn list_threads_filters_visible_threads_by_default() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

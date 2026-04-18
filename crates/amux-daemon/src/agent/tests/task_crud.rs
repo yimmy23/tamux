@@ -730,17 +730,18 @@ async fn get_goal_run_capped_for_ipc_truncates_oversized_detail_payload() {
     });
     engine.goal_runs.lock().await.push_back(goal_run);
 
-    let (goal_run, truncated) = engine
+    let (goal_run_json, truncated) = engine
         .get_goal_run_capped_for_ipc(goal_run_id)
         .await
         .expect("goal should exist");
     assert!(truncated, "oversized goal detail should be truncated");
+    let goal_run: Option<GoalRun> =
+        serde_json::from_str(&goal_run_json).expect("parse capped goal run detail json");
+    let goal_run = goal_run.expect("goal run detail should still exist");
     assert!(
         goal_run.events.is_empty(),
         "huge event should be dropped to fit the IPC cap"
     );
-    let goal_run_json =
-        serde_json::to_string(&Some(goal_run)).expect("serialize goal run detail json");
     let mut frame = BytesMut::new();
     amux_protocol::DaemonCodec::default()
         .encode(
@@ -787,6 +788,44 @@ async fn list_goal_runs_payload_stays_below_ipc_frame_cap() {
     assert!(
         frame.len().saturating_sub(4) <= amux_protocol::MAX_IPC_FRAME_SIZE_BYTES,
         "goal run list should stay below the IPC frame cap"
+    );
+}
+
+#[tokio::test]
+async fn list_goal_runs_pagination_obeys_newest_first_limit_and_offset() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut goals = engine.goal_runs.lock().await;
+    for (id, updated_at) in [("goal-one", 30), ("goal-two", 20), ("goal-three", 10)] {
+        let mut goal =
+            sample_supervised_goal_run(id, &format!("task-{id}"), &format!("approval-{id}"));
+        goal.updated_at = updated_at;
+        goals.push_back(goal);
+    }
+    drop(goals);
+
+    let (first_page, _) = engine
+        .list_goal_runs_paginated_capped_for_ipc(Some(2), Some(0))
+        .await;
+    let (second_page, _) = engine
+        .list_goal_runs_paginated_capped_for_ipc(Some(2), Some(2))
+        .await;
+
+    assert_eq!(
+        first_page
+            .iter()
+            .map(|goal| goal.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["goal-one", "goal-two"]
+    );
+    assert_eq!(
+        second_page
+            .iter()
+            .map(|goal| goal.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["goal-three"]
     );
 }
 
@@ -1278,4 +1317,152 @@ async fn strained_satisfaction_clamps_goal_task_retries_but_not_regular_tasks() 
         regular_task.max_retries, 4,
         "non-goal tasks should keep the configured retry budget"
     );
+}
+
+#[tokio::test]
+async fn delete_goal_run_removes_goal_and_related_tasks() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut goal_run = sample_supervised_goal_run("goal-delete", "task-delete", "approval-delete");
+    goal_run.child_task_ids = vec!["task-delete".to_string()];
+    engine.goal_runs.lock().await.push_back(goal_run.clone());
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "task-delete".to_string(),
+        goal_run_id: Some("goal-delete".to_string()),
+        title: "Child task".to_string(),
+        description: "goal-linked task".to_string(),
+        status: TaskStatus::Queued,
+        priority: TaskPriority::Normal,
+        progress: 0,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: None,
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_title: Some("supervised goal".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 3,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+    engine
+        .history
+        .upsert_goal_run(&goal_run)
+        .await
+        .expect("persist goal run");
+    engine
+        .history
+        .upsert_agent_task(&AgentTask {
+            id: "task-delete".to_string(),
+            goal_run_id: Some("goal-delete".to_string()),
+            title: "Child task".to_string(),
+            description: "goal-linked task".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: now_millis(),
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: None,
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_title: Some("supervised goal".to_string()),
+            goal_step_id: Some("step-1".to_string()),
+            goal_step_title: Some("step-1".to_string()),
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 3,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        })
+        .await
+        .expect("persist child task");
+
+    let deleted = engine.delete_goal_run("goal-delete").await;
+
+    assert!(deleted);
+    assert!(engine
+        .goal_runs
+        .lock()
+        .await
+        .iter()
+        .all(|goal_run| goal_run.id != "goal-delete"));
+    assert!(engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .all(|task| task.goal_run_id.as_deref() != Some("goal-delete")));
+    assert!(engine
+        .history
+        .get_goal_run("goal-delete")
+        .await
+        .expect("read goal run")
+        .is_none());
 }

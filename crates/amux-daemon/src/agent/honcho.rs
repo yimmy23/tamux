@@ -382,4 +382,24 @@ mod tests {
         config.honcho_api_key = "hc_test".to_string();
         assert!(honcho_client_config(&config).is_some());
     }
+
+    #[test]
+    fn agent_config_defaults_enable_chat_capabilities_except_honcho() {
+        let config = AgentConfig::default();
+
+        assert!(!config.enable_honcho_memory);
+        assert!(config.anticipatory.enabled);
+        assert!(config.anticipatory.morning_brief);
+        assert!(config.anticipatory.predictive_hydration);
+        assert!(config.anticipatory.stuck_detection);
+        assert!(config.operator_model.enabled);
+        assert!(config.operator_model.allow_message_statistics);
+        assert!(config.operator_model.allow_approval_learning);
+        assert!(config.operator_model.allow_attention_tracking);
+        assert!(config.operator_model.allow_implicit_feedback);
+        assert!(config.collaboration.enabled);
+        assert!(config.compliance.sign_all_events);
+        assert!(config.tool_synthesis.enabled);
+        assert!(config.tool_synthesis.require_activation);
+    }
 }

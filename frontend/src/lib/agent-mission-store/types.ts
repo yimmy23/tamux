@@ -198,7 +198,7 @@ export const MAX_OPERATIONAL_EVENTS = 400;
 export const MAX_COGNITIVE_EVENTS = 200;
 export const MAX_CONTEXT_SNAPSHOTS = 120;
 export const MAX_APPROVALS = 120;
-export const MEMORY_MAX_CHARS = 2200;
-export const USER_MAX_CHARS = 1375;
+export const MEMORY_MAX_CHARS = 3600;
+export const USER_MAX_CHARS = 1800;
 
 export type SecurityLevel = AmuxSettings["securityLevel"];

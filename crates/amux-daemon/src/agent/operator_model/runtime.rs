@@ -1039,24 +1039,6 @@ impl AgentEngine {
             .max_by_key(|state| state.updated_at)
             .cloned();
         let active_skill_gate = if let Some(state) = active_skill_gate_state {
-            let discovery = if state.is_discovery_pending() {
-                None
-            } else {
-                self.discover_skill_recommendations_public(&state.query, None, 1, None)
-                    .await
-                    .ok()
-            };
-            let rationale = discovery
-                .as_ref()
-                .map(|value| value.rationale.clone())
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| {
-                    if state.query.trim().is_empty() {
-                        Vec::new()
-                    } else {
-                        vec![format!("matched {}", state.query.trim())]
-                    }
-                });
             let capability_family = fallback_skill_gate_family(state.recommended_skill.as_deref());
             serde_json::json!({
                 "recommended_skill": state.recommended_skill,
@@ -1064,7 +1046,7 @@ impl AgentEngine {
                 "requires_approval": state.mesh_requires_approval,
                 "skill_read_completed": state.skill_read_completed,
                 "mesh_next_step": state.mesh_next_step,
-                "rationale": rationale,
+                "rationale": cached_skill_gate_rationale(&state),
                 "capability_family": capability_family,
             })
             .into()
@@ -1433,6 +1415,26 @@ impl AgentEngine {
                 "active_gate": active_skill_gate,
             },
         })
+    }
+}
+
+fn cached_skill_gate_rationale(
+    state: &crate::agent::types::LatestSkillDiscoveryState,
+) -> Vec<String> {
+    if let Some(rationale) = state
+        .skip_rationale
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return vec![rationale.to_string()];
+    }
+
+    let query = state.query.trim();
+    if query.is_empty() {
+        Vec::new()
+    } else {
+        vec![format!("matched {query}")]
     }
 }
 

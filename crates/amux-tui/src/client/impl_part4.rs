@@ -278,6 +278,9 @@ impl DaemonClient {
                             .unwrap_or_else(|| "Task update".to_string()),
                         description: String::new(),
                         thread_id: None,
+                        parent_task_id: None,
+                        parent_thread_id: None,
+                        created_at: 0,
                         status: event
                             .get("status")
                             .cloned()
@@ -472,13 +475,19 @@ impl DaemonClient {
     }
 
     pub fn refresh(&self) -> Result<()> {
-        self.send(ClientMessage::AgentListThreads)
+        self.send(ClientMessage::AgentListThreads {
+            limit: None,
+            offset: None,
+        })
     }
 
     pub fn refresh_services(&self) -> Result<()> {
         for request in [
             ClientMessage::AgentListTasks,
-            ClientMessage::AgentListGoalRuns,
+            ClientMessage::AgentListGoalRuns {
+                limit: None,
+                offset: None,
+            },
             ClientMessage::AgentGetConfig,
             ClientMessage::AgentHeartbeatGetItems,
         ] {
@@ -490,6 +499,23 @@ impl DaemonClient {
     pub fn request_goal_run(&self, goal_run_id: impl Into<String>) -> Result<()> {
         self.send(ClientMessage::AgentGetGoalRun {
             goal_run_id: goal_run_id.into(),
+        })
+    }
+
+    pub fn request_goal_run_page(
+        &self,
+        goal_run_id: impl Into<String>,
+        step_offset: Option<usize>,
+        step_limit: Option<usize>,
+        event_offset: Option<usize>,
+        event_limit: Option<usize>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentGetGoalRunPage {
+            goal_run_id: goal_run_id.into(),
+            step_offset,
+            step_limit,
+            event_offset,
+            event_limit,
         })
     }
 

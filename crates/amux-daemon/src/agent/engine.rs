@@ -20,6 +20,7 @@ pub(in crate::agent) use helpers::{
 pub(super) struct SendMessageOutcome {
     pub thread_id: String,
     pub interrupted_for_approval: bool,
+    pub terminated_for_budget: bool,
     pub upstream_message: Option<CompletionUpstreamMessage>,
     pub provider_final_result: Option<CompletionProviderFinalResult>,
     pub fresh_runner_retry: Option<FreshRunnerRetryRequest>,
@@ -128,6 +129,8 @@ pub struct AgentEngine {
         RwLock<HashMap<String, crate::agent::context::structural_memory::ThreadStructuralMemory>>,
     pub thread_todos: RwLock<HashMap<String, Vec<TodoItem>>>,
     pub thread_work_contexts: RwLock<HashMap<String, ThreadWorkContext>>,
+    pub(super) resonance_context_cache:
+        RwLock<HashMap<String, super::resonance::ResonanceContextSnapshot>>,
     pub tasks: Mutex<VecDeque<AgentTask>>,
     pub goal_runs: Mutex<VecDeque<GoalRun>>,
     pub goal_run_client_surfaces: RwLock<HashMap<String, amux_protocol::ClientSurface>>,
@@ -332,6 +335,7 @@ impl AgentEngine {
             thread_structural_memories: RwLock::new(HashMap::new()),
             thread_todos: RwLock::new(HashMap::new()),
             thread_work_contexts: RwLock::new(HashMap::new()),
+            resonance_context_cache: RwLock::new(HashMap::new()),
             tasks: Mutex::new(VecDeque::new()),
             goal_runs: Mutex::new(VecDeque::new()),
             goal_run_client_surfaces: RwLock::new(HashMap::new()),

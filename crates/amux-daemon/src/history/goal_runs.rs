@@ -253,4 +253,26 @@ impl HistoryStore {
             .into_iter()
             .find(|goal_run| goal_run.id == goal_run_id))
     }
+
+    pub async fn delete_goal_run(&self, goal_run_id: &str) -> Result<()> {
+        let goal_run_id = goal_run_id.to_string();
+        self.conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+                transaction.execute(
+                    "DELETE FROM goal_run_events WHERE goal_run_id = ?1",
+                    params![&goal_run_id],
+                )?;
+                transaction.execute(
+                    "DELETE FROM goal_run_steps WHERE goal_run_id = ?1",
+                    params![&goal_run_id],
+                )?;
+                transaction
+                    .execute("DELETE FROM goal_runs WHERE id = ?1", params![&goal_run_id])?;
+                transaction.commit()?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
 }

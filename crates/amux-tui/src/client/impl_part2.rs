@@ -90,6 +90,17 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse goal run detail: {}", err),
                 }
             }
+            DaemonMessage::AgentGoalRunDeleted {
+                goal_run_id,
+                deleted,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::GoalRunDeleted {
+                        goal_run_id,
+                        deleted,
+                    })
+                    .await;
+            }
             DaemonMessage::AgentCheckpointList { checkpoints_json } => {
                 match serde_json::from_str::<Vec<CheckpointSummary>>(&checkpoints_json) {
                     Ok(checkpoints) => {
@@ -188,6 +199,11 @@ impl DaemonClient {
                     }
                     Err(err) => warn!("Failed to parse agent config response: {}", err),
                 }
+            }
+            DaemonMessage::AgentThreadDeleted { thread_id, deleted } => {
+                let _ = event_tx
+                    .send(ClientEvent::ThreadDeleted { thread_id, deleted })
+                    .await;
             }
             DaemonMessage::AgentModelsResponse {
                 operation_id: _,

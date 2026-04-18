@@ -128,6 +128,11 @@ pub(super) enum AgentBridgeCommand {
         provider_id: String,
         model: String,
     },
+    FetchModels {
+        provider_id: String,
+        base_url: String,
+        api_key: String,
+    },
     SetTargetAgentProviderModel {
         target_agent_id: String,
         provider_id: String,

@@ -1,7 +1,7 @@
 {
   "name": "tamux",
   "private": true,
-  "version": "0.5.7",
+  "version": "0.5.8",
   "description": "Agentic terminal multiplexer with AI-native workflows",
   "homepage": "https://tamux.app",
   "author": {
@@ -12,7 +12,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "dev:electron": "vite build && electron .",
+    "dev:electron": "npm run build && node scripts/dev-electron.cjs",
     "build": "tsc -b && vite build",
     "build:electron": "tsc -b && vite build && electron-builder --win --linux",
     "build:electron:linux": "tsc -b && vite build && electron-builder --linux AppImage deb",

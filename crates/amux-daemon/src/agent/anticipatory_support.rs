@@ -252,10 +252,93 @@ fn latest_task_error(task: &AgentTask) -> Option<&str> {
 impl AgentEngine {
     pub async fn emit_anticipatory_snapshot(&self) {
         let items = self.anticipatory.read().await.items.clone();
-        self.emit_anticipatory_update(items);
+        self.emit_anticipatory_update(items).await;
     }
 
-    pub(super) fn emit_anticipatory_update(&self, items: Vec<AnticipatoryItem>) {
+    async fn sync_anticipatory_notifications(&self, items: &[AnticipatoryItem]) {
+        let now = now_millis() as i64;
+        let existing = match self.history.list_notifications(true, Some(500)).await {
+            Ok(existing) => existing,
+            Err(_) => return,
+        };
+        let existing_by_id: HashMap<String, amux_protocol::InboxNotification> = existing
+            .iter()
+            .cloned()
+            .map(|notification| (notification.id.clone(), notification))
+            .collect();
+
+        let active_notifications = items
+            .iter()
+            .map(|item| {
+                let id = anticipatory_notification_id(item);
+                let existing = existing_by_id.get(&id);
+                amux_protocol::InboxNotification {
+                    id,
+                    source: "anticipatory".to_string(),
+                    kind: item.kind.clone(),
+                    title: item.title.clone(),
+                    body: anticipatory_notification_body(item),
+                    subtitle: Some(format!("{:.0}% confidence", item.confidence * 100.0)),
+                    severity: anticipatory_notification_severity(item).to_string(),
+                    created_at: existing
+                        .map(|notification| notification.created_at)
+                        .unwrap_or_else(|| {
+                            if item.created_at > 0 {
+                                item.created_at as i64
+                            } else {
+                                now
+                            }
+                        }),
+                    updated_at: if item.updated_at > 0 {
+                        item.updated_at as i64
+                    } else {
+                        now
+                    },
+                    read_at: existing.and_then(|notification| notification.read_at),
+                    archived_at: None,
+                    deleted_at: None,
+                    actions: anticipatory_notification_actions(item),
+                    metadata_json: Some(
+                        serde_json::json!({
+                            "anticipatory_id": item.id.as_str(),
+                            "kind": item.kind.as_str(),
+                            "confidence": item.confidence,
+                            "thread_id": item.thread_id.as_deref(),
+                            "goal_run_id": item.goal_run_id.as_deref(),
+                            "preferred_client_surface": item.preferred_client_surface.as_deref(),
+                            "preferred_attention_surface": item.preferred_attention_surface.as_deref(),
+                            "summary": item.summary.as_str(),
+                            "bullets": &item.bullets,
+                        })
+                        .to_string(),
+                    ),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for notification in &active_notifications {
+            let _ = self.upsert_inbox_notification(notification.clone()).await;
+        }
+
+        let active_ids: HashSet<&str> = active_notifications
+            .iter()
+            .map(|notification| notification.id.as_str())
+            .collect();
+
+        for mut notification in existing.into_iter().filter(|notification| {
+            notification.source == "anticipatory"
+                && notification.archived_at.is_none()
+                && notification.deleted_at.is_none()
+                && !active_ids.contains(notification.id.as_str())
+        }) {
+            notification.archived_at = Some(now);
+            notification.updated_at = now;
+            let _ = self.upsert_inbox_notification(notification).await;
+        }
+    }
+
+    pub(super) async fn emit_anticipatory_update(&self, items: Vec<AnticipatoryItem>) {
+        self.sync_anticipatory_notifications(&items).await;
         if let Some(item) = items
             .iter()
             .filter(|item| {
@@ -294,4 +377,41 @@ impl AgentEngine {
             _ => 0.72,
         }
     }
+}
+
+fn anticipatory_notification_id(item: &AnticipatoryItem) -> String {
+    format!("anticipatory:{}", item.id)
+}
+
+fn anticipatory_notification_body(item: &AnticipatoryItem) -> String {
+    let mut parts = Vec::new();
+    if !item.summary.trim().is_empty() {
+        parts.push(item.summary.trim().to_string());
+    }
+    parts.extend(
+        item.bullets
+            .iter()
+            .map(|bullet| bullet.trim())
+            .filter(|bullet| !bullet.is_empty())
+            .map(ToOwned::to_owned),
+    );
+    parts.join(" ")
+}
+
+fn anticipatory_notification_severity(item: &AnticipatoryItem) -> &'static str {
+    match item.kind.as_str() {
+        "stuck_hint" => "warning",
+        _ => "info",
+    }
+}
+
+fn anticipatory_notification_actions(
+    item: &AnticipatoryItem,
+) -> Vec<amux_protocol::InboxNotificationAction> {
+    item.thread_id
+        .as_deref()
+        .filter(|thread_id| !thread_id.trim().is_empty())
+        .map(crate::notifications::open_thread_action)
+        .into_iter()
+        .collect()
 }

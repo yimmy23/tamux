@@ -121,6 +121,10 @@ impl DaemonClient {
         })
     }
 
+    pub fn delete_thread(&self, thread_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentDeleteThread { thread_id })
+    }
+
     pub fn pin_thread_message_for_compaction(
         &self,
         thread_id: String,
@@ -166,6 +170,10 @@ impl DaemonClient {
             action,
             step_index: None,
         })
+    }
+
+    pub fn delete_goal_run(&self, goal_run_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentDeleteGoalRun { goal_run_id })
     }
 
     pub fn fetch_models(

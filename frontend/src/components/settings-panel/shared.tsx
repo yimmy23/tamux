@@ -4,6 +4,11 @@ import { BUILTIN_THEMES } from "../../lib/themes";
 import type { AmuxSettings } from "../../lib/types";
 import type { AgentProviderId, AuthSource, ModelDefinition } from "../../lib/agentStore";
 import { getProviderDefinition, getProviderModels } from "../../lib/agentStore";
+import {
+    formatRemoteModelPricingSubtitle,
+    normalizeFetchedRemoteModel,
+    type FetchedRemoteModel,
+} from "../../lib/providerModels";
 
 export type SettingsUpdater = <K extends keyof AmuxSettings>(key: K, value: AmuxSettings[K]) => void;
 
@@ -271,7 +276,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     const [useCustom, setUseCustom] = useState(false);
     const [customModelId, setCustomModelId] = useState(value);
     const [custom_model_name, setCustomModelName] = useState(customName || "");
-    const [fetchedModels, setFetchedModels] = useState<ModelDefinition[]>([]);
+    const [fetchedModels, setFetchedModels] = useState<FetchedRemoteModel[]>([]);
     const [isFetching, setIsFetching] = useState(false);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -283,7 +288,13 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
         && !(providerId === "openai" && auth_source === "chatgpt_subscription");
     
     const allModels = useMemo(() => {
-        const merged = [...predefinedModels];
+        const merged: FetchedRemoteModel[] = predefinedModels.map((model: ModelDefinition) => ({
+            id: model.id,
+            name: model.name,
+            contextWindow: model.contextWindow,
+            pricing: null,
+            metadata: null,
+        }));
         for (const fm of fetchedModels) {
             if (!merged.some(m => m.id === fm.id)) {
                 merged.push(fm);
@@ -294,6 +305,8 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
                 id: value.trim(),
                 name: customName?.trim() || value.trim(),
                 contextWindow: 0,
+                pricing: null,
+                metadata: null,
             });
         }
         return merged;
@@ -331,11 +344,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
 
             if (result && typeof result === "object") {
                 if ("models" in result && Array.isArray(result.models)) {
-                    setFetchedModels(result.models.map((m: any) => ({
-                        id: m.id,
-                        name: m.name || m.id,
-                        contextWindow: m.context_window || m.contextWindow || 0,
-                    })));
+                    setFetchedModels(result.models.map((model: unknown) => normalizeFetchedRemoteModel(model)));
                 } else if ("error" in result && typeof result.error === "string") {
                     setFetchError(result.error);
                 }
@@ -484,7 +493,9 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
                     )}
 
                     {filteredModels.length > 0 ? (
-                        filteredModels.map((model) => (
+                        filteredModels.map((model) => {
+                            const pricingSubtitle = formatRemoteModelPricingSubtitle(model);
+                            return (
                             <div
                                 key={model.id}
                                 onClick={() => {
@@ -514,6 +525,11 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
                                     <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                                         {model.id}
                                     </div>
+                                    {pricingSubtitle ? (
+                                        <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>
+                                            {pricingSubtitle}
+                                        </div>
+                                    ) : null}
                                 </div>
                                 {model.contextWindow > 0 && (
                                     <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>
@@ -521,7 +537,8 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
                                     </div>
                                 )}
                             </div>
-                        ))
+                            );
+                        })
                     ) : null}
 
                     {!exactMatch && (

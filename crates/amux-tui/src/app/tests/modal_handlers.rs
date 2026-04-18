@@ -2,7 +2,9 @@ use super::*;
 use amux_shared::providers::{
     PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_QWEN,
 };
+use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
+use ratatui::Terminal;
 use tokio::sync::mpsc::unbounded_channel;
 
 fn make_model() -> (
@@ -12,6 +14,37 @@ fn make_model() -> (
     let (_event_tx, event_rx) = std::sync::mpsc::channel();
     let (daemon_tx, daemon_rx) = unbounded_channel();
     (TuiModel::new(event_rx, daemon_tx), daemon_rx)
+}
+
+fn make_goal_run(
+    id: &str,
+    title: &str,
+    status: crate::state::task::GoalRunStatus,
+) -> crate::state::task::GoalRun {
+    crate::state::task::GoalRun {
+        id: id.to_string(),
+        title: title.to_string(),
+        status: Some(status),
+        goal: format!("Goal for {title}"),
+        ..Default::default()
+    }
+}
+
+fn render_screen(model: &mut TuiModel) -> Vec<String> {
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("render should succeed");
+
+    let buffer = terminal.backend().buffer();
+    (0..model.height)
+        .map(|y| {
+            (0..model.width)
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .collect::<String>()
+        })
+        .collect()
 }
 
 #[test]
@@ -120,6 +153,72 @@ fn command_palette_tools_opens_settings_tools_tab() {
         daemon_rx.try_recv().expect("expected rarog refresh"),
         DaemonCommand::GetConciergeConfig
     ));
+}
+
+#[test]
+fn clicking_rendered_settings_tab_switches_tabs() {
+    let (mut model, _daemon_rx) = make_model();
+    model.width = 100;
+    model.height = 40;
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+
+    let (_, overlay_area) = model
+        .current_modal_area()
+        .expect("settings modal should expose its overlay area");
+    let screen = render_screen(&mut model);
+    let tab_row = overlay_area.y.saturating_add(1) as usize;
+    let chat_col = screen[tab_row]
+        .find("Chat")
+        .map(|idx| idx as u16)
+        .expect("rendered settings tabs should include Chat");
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: chat_col,
+        row: overlay_area.y.saturating_add(1),
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(model.settings.active_tab(), SettingsTab::Chat);
+}
+
+#[test]
+fn settings_modal_mouse_wheel_scrolls_overflowing_content() {
+    let (mut model, _daemon_rx) = make_model();
+    model.width = 100;
+    model.height = 16;
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+
+    let (_, overlay_area) = model
+        .current_modal_area()
+        .expect("settings modal should expose its overlay area");
+    let before = render_screen(&mut model).join("\n");
+    assert!(
+        !before.contains("Inspect Generated Tools"),
+        "expected overflowing settings content to be clipped before scrolling"
+    );
+
+    for _ in 0..8 {
+        model.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: overlay_area.x.saturating_add(2),
+            row: overlay_area.y.saturating_add(4),
+            modifiers: KeyModifiers::NONE,
+        });
+    }
+
+    let after = render_screen(&mut model).join("\n");
+    assert!(
+        after.contains("Inspect Generated Tools"),
+        "expected mouse wheel scrolling to reveal lower settings rows"
+    );
 }
 
 #[test]
@@ -1154,6 +1253,55 @@ fn provider_picker_skips_remote_fetch_for_static_provider_catalogs() {
 }
 
 #[test]
+fn provider_picker_uses_chatgpt_subscription_auth_without_remote_model_fetch() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: PROVIDER_ID_OPENAI.to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: true,
+        auth_source: "chatgpt_subscription".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+    model.config.chatgpt_auth_available = true;
+    model.config.chatgpt_auth_source = Some("tamux-daemon".to_string());
+
+    let openai_index = widgets::provider_picker::available_provider_defs(&model.auth)
+        .iter()
+        .position(|provider| provider.id == PROVIDER_ID_OPENAI)
+        .expect("openai to exist");
+
+    model.settings_picker_target = Some(SettingsPickerTarget::Provider);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+    model.modal.set_picker_item_count(
+        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+    );
+    if openai_index > 0 {
+        model
+            .modal
+            .reduce(modal::ModalAction::Navigate(openai_index as i32));
+    }
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ProviderPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.config.provider, PROVIDER_ID_OPENAI);
+    assert_eq!(model.config.auth_source, "chatgpt_subscription");
+    assert_eq!(model.config.api_transport, "responses");
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::FetchModels { .. } = command {
+            panic!("chatgpt subscription auth should not trigger remote model fetches");
+        }
+    }
+}
+
+#[test]
 fn selecting_compaction_weles_provider_updates_provider_and_opens_model_picker() {
     let (mut model, mut daemon_rx) = make_model();
     model.auth.entries = vec![
@@ -1439,6 +1587,333 @@ fn protected_weles_editor_can_open_provider_model_and_effort_pickers() {
 }
 
 #[test]
+fn enter_on_honcho_memory_opens_inline_editor() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
+    model
+        .settings
+        .navigate_field(2, model.settings_field_count());
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert!(model.config.honcho_editor.is_some());
+}
+
+#[test]
+fn honcho_editor_save_updates_config() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.enable_honcho_memory = false;
+    model.config.honcho_workspace_id = "tamux".to_string();
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
+    model
+        .settings
+        .navigate_field(2, model.settings_field_count());
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    let _ = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    let editor = model
+        .config
+        .honcho_editor
+        .as_mut()
+        .expect("honcho editor should be open");
+    editor.enabled = true;
+    editor.api_key = "hc_test".to_string();
+    editor.base_url = "https://honcho.example".to_string();
+    editor.workspace_id = "tamux-lab".to_string();
+    editor.field = crate::state::config::HonchoEditorField::Save;
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert!(model.config.honcho_editor.is_none());
+    assert!(model.config.enable_honcho_memory);
+    assert_eq!(model.config.honcho_api_key, "hc_test");
+    assert_eq!(model.config.honcho_base_url, "https://honcho.example");
+    assert_eq!(model.config.honcho_workspace_id, "tamux-lab");
+}
+
+#[test]
+fn honcho_editor_cancel_discards_staged_values() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.enable_honcho_memory = false;
+    model.config.honcho_api_key = "persisted".to_string();
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
+    model
+        .settings
+        .navigate_field(2, model.settings_field_count());
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    let _ = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    let editor = model
+        .config
+        .honcho_editor
+        .as_mut()
+        .expect("honcho editor should be open");
+    editor.enabled = true;
+    editor.api_key = "staged".to_string();
+
+    let quit = model.handle_key_modal(KeyCode::Esc, KeyModifiers::NONE, modal::ModalKind::Settings);
+
+    assert!(!quit);
+    assert!(model.config.honcho_editor.is_none());
+    assert!(!model.config.enable_honcho_memory);
+    assert_eq!(model.config.honcho_api_key, "persisted");
+}
+
+#[test]
+fn honcho_editor_space_toggles_staged_enabled_only() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.enable_honcho_memory = false;
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
+    model
+        .settings
+        .navigate_field(2, model.settings_field_count());
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    let _ = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char(' '),
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert!(!model.config.enable_honcho_memory);
+    assert!(model
+        .config
+        .honcho_editor
+        .as_ref()
+        .is_some_and(|editor| editor.enabled));
+}
+
+#[test]
+fn subagent_model_picker_uses_subagent_current_model_instead_of_primary_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.model = "gpt-5.4".to_string();
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        Some("weles_builtin".to_string()),
+        1,
+        PROVIDER_ID_OPENAI.to_string(),
+        "claude-sonnet-4-5".to_string(),
+    );
+    editor.name = "WELES".to_string();
+    editor.builtin = true;
+    editor.immutable_identity = true;
+    model.subagents.editor = Some(editor);
+    model.settings_picker_target = Some(SettingsPickerTarget::SubAgentModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model
+            .subagents
+            .editor
+            .as_ref()
+            .map(|editor| editor.model.as_str()),
+        Some("claude-sonnet-4-5")
+    );
+    assert_eq!(model.config.model, "gpt-5.4");
+}
+
+#[test]
+fn subagent_custom_model_entry_does_not_mutate_primary_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.model = "gpt-5.4".to_string();
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        Some("weles_builtin".to_string()),
+        1,
+        PROVIDER_ID_OPENAI.to_string(),
+        "gpt-5.4-mini".to_string(),
+    );
+    editor.name = "WELES".to_string();
+    editor.builtin = true;
+    editor.immutable_identity = true;
+    editor.field = crate::state::subagents::SubAgentEditorField::Model;
+    model.subagents.editor = Some(editor);
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model.settings_picker_target = Some(SettingsPickerTarget::SubAgentModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.settings.editing_field(), Some("subagent_model"));
+    model.settings.reduce(SettingsAction::InsertChar('x'));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model
+            .subagents
+            .editor
+            .as_ref()
+            .map(|editor| editor.model.as_str()),
+        Some("gpt-5.4-minix")
+    );
+    assert_eq!(model.config.model, "gpt-5.4");
+}
+
+#[test]
+fn concierge_model_picker_uses_rarog_current_model_instead_of_primary_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.model = "gpt-5.4".to_string();
+    model.concierge.model = Some("claude-sonnet-4-5".to_string());
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::ConciergeModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.concierge.model.as_deref(), Some("claude-sonnet-4-5"));
+    assert_eq!(model.config.model, "gpt-5.4");
+}
+
+#[test]
+fn concierge_custom_model_entry_does_not_mutate_primary_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.model = "gpt-5.4".to_string();
+    model.concierge.model = Some("gpt-5.4-mini".to_string());
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::ConciergeModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.settings.editing_field(), Some("concierge_model"));
+    model.settings.reduce(SettingsAction::InsertChar('x'));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.concierge.model.as_deref(), Some("gpt-5.4-minix"));
+    assert_eq!(model.config.model, "gpt-5.4");
+}
+
+#[test]
 fn thread_picker_right_arrow_switches_to_rarog_tab() {
     let (mut model, _daemon_rx) = make_model();
     model
@@ -1561,7 +2036,10 @@ fn thread_picker_enter_selects_filtered_rarog_thread() {
             message_offset,
         }) => {
             assert_eq!(thread_id, "heartbeat-1");
-            assert_eq!(message_limit, Some(50));
+            assert_eq!(
+                message_limit,
+                Some(model.config.tui_chat_history_page_size as usize)
+            );
             assert_eq!(message_offset, Some(0));
         }
         other => panic!("expected thread request, got {:?}", other),
@@ -1606,6 +2084,264 @@ fn thread_picker_new_conversation_uses_selected_agent_for_first_prompt() {
             other => panic!("expected send-message command, got {:?}", other),
         }
     }
+}
+
+#[test]
+fn thread_picker_delete_requires_confirmation_before_sending_delete_thread() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
+        chat::AgentThread {
+            id: "thread-1".into(),
+            title: "Thread One".into(),
+            ..Default::default()
+        },
+    ]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model.sync_thread_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Delete,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert!(
+        daemon_rx.try_recv().is_err(),
+        "delete should wait for confirmation"
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+
+    assert!(!quit);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected delete-thread command"),
+        DaemonCommand::DeleteThread { thread_id } if thread_id == "thread-1"
+    ));
+}
+
+#[test]
+fn thread_picker_ctrl_s_busy_thread_requires_confirmation_before_stop() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
+        chat::AgentThread {
+            id: "thread-1".into(),
+            title: "Thread One".into(),
+            ..Default::default()
+        },
+    ]));
+    model.open_thread_conversation("thread-1".into());
+    loop {
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::RequestThread { .. }) => break,
+            Ok(_) => continue,
+            Err(_) => panic!("expected thread request when opening conversation"),
+        }
+    }
+    model.handle_delta_event("thread-1".into(), "streaming".into());
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model.sync_thread_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('s'),
+        KeyModifiers::CONTROL,
+        modal::ModalKind::ThreadPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+
+    assert!(!quit);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected stop-stream command"),
+        DaemonCommand::StopStream { thread_id } if thread_id == "thread-1"
+    ));
+}
+
+#[test]
+fn thread_picker_ctrl_s_on_stopped_thread_requires_confirmation_before_resume() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
+        chat::AgentThread {
+            id: "thread-1".into(),
+            title: "Thread One".into(),
+            messages: vec![chat::AgentMessage {
+                role: chat::MessageRole::Assistant,
+                content: "partial answer [stopped]".into(),
+                ..Default::default()
+            }],
+            total_message_count: 1,
+            loaded_message_end: 1,
+            ..Default::default()
+        },
+    ]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model.sync_thread_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('s'),
+        KeyModifiers::CONTROL,
+        modal::ModalKind::ThreadPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+
+    assert!(!quit);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected send-message resume command"),
+        DaemonCommand::SendMessage {
+            thread_id,
+            content,
+            ..
+        } if thread_id.as_deref() == Some("thread-1") && content == "continue"
+    ));
+}
+
+#[test]
+fn goal_picker_delete_requires_confirmation_before_sending_delete_goal() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunListReceived(vec![make_goal_run(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Cancelled,
+        )]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Delete,
+        KeyModifiers::NONE,
+        modal::ModalKind::GoalPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert!(
+        daemon_rx.try_recv().is_err(),
+        "delete should wait for confirmation"
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+
+    assert!(!quit);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected delete-goal command"),
+        DaemonCommand::DeleteGoalRun { goal_run_id } if goal_run_id == "goal-1"
+    ));
+}
+
+#[test]
+fn goal_picker_ctrl_s_running_goal_requires_confirmation_before_pause() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunListReceived(vec![make_goal_run(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Running,
+        )]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('s'),
+        KeyModifiers::CONTROL,
+        modal::ModalKind::GoalPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+
+    assert!(!quit);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected control-goal command"),
+        DaemonCommand::ControlGoalRun { goal_run_id, action }
+            if goal_run_id == "goal-1" && action == "pause"
+    ));
+}
+
+#[test]
+fn goal_picker_ctrl_s_paused_goal_requires_confirmation_before_resume() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunListReceived(vec![make_goal_run(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Paused,
+        )]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('s'),
+        KeyModifiers::CONTROL,
+        modal::ModalKind::GoalPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+
+    assert!(!quit);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected control-goal command"),
+        DaemonCommand::ControlGoalRun { goal_run_id, action }
+            if goal_run_id == "goal-1" && action == "resume"
+    ));
 }
 
 #[test]
@@ -2158,6 +2894,91 @@ fn settings_textarea_ctrl_s_confirms_whatsapp_allowlist_edit() {
     assert!(!quit);
     assert_eq!(model.settings.editing_field(), None);
     assert_eq!(model.config.whatsapp_allowed_contacts, "123123123123\n6");
+}
+
+#[test]
+fn subagent_system_prompt_textarea_supports_arrow_keys() {
+    let (mut model, _daemon_rx) = make_model();
+    let editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        1,
+        "openai".to_string(),
+        "gpt-5.4".to_string(),
+    );
+    model.subagents.editor = Some(editor);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
+    model
+        .settings
+        .start_editing("subagent_system_prompt", "abc\ndef");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Left,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.settings.edit_cursor_line_col(), (1, 2));
+
+    let quit = model.handle_key_modal(KeyCode::Up, KeyModifiers::NONE, modal::ModalKind::Settings);
+    assert!(!quit);
+    assert_eq!(model.settings.edit_cursor_line_col(), (0, 2));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.settings.edit_cursor_line_col(), (0, 3));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.settings.edit_cursor_line_col(), (1, 3));
+}
+
+#[test]
+fn subagent_editor_navigation_wraps_between_first_and_last_fields() {
+    let (mut model, _daemon_rx) = make_model();
+    let editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        1,
+        "openai".to_string(),
+        "gpt-5.4".to_string(),
+    );
+    model.subagents.editor = Some(editor);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
+
+    let quit = model.handle_key_modal(KeyCode::Up, KeyModifiers::NONE, modal::ModalKind::Settings);
+    assert!(!quit);
+    assert_eq!(
+        model.subagents.editor.as_ref().map(|editor| editor.field),
+        Some(crate::state::subagents::SubAgentEditorField::Cancel)
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.subagents.editor.as_ref().map(|editor| editor.field),
+        Some(crate::state::subagents::SubAgentEditorField::Name)
+    );
 }
 
 fn sample_notification(read_at: Option<i64>) -> amux_protocol::InboxNotification {

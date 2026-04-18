@@ -77,6 +77,38 @@ impl TuiModel {
         );
     }
 
+    fn maybe_request_older_goal_run_history(&mut self) {
+        let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
+            &self.main_pane_view
+        else {
+            return;
+        };
+        if self.task_view_scroll > 3 {
+            return;
+        }
+
+        let Some((step_offset, step_limit, event_offset, event_limit)) = self
+            .tasks
+            .goal_run_next_page_request(goal_run_id, self.tick_counter)
+        else {
+            return;
+        };
+
+        self.tasks.mark_goal_run_older_page_pending(
+            goal_run_id,
+            true,
+            self.tick_counter,
+            task::GOAL_RUN_HISTORY_FETCH_DEBOUNCE_TICKS,
+        );
+        self.send_daemon_command(DaemonCommand::RequestGoalRunDetailPage {
+            goal_run_id: goal_run_id.clone(),
+            step_offset,
+            step_limit,
+            event_offset,
+            event_limit,
+        });
+    }
+
     fn maybe_schedule_chat_history_collapse(&mut self) {
         if self.chat.scroll_offset() != 0 {
             return;
@@ -120,7 +152,7 @@ impl TuiModel {
             let thread_id = "concierge".to_string();
             self.cancelled_thread_id = Some(thread_id.clone());
             self.chat.reduce(chat::ChatAction::ForceStopStreaming);
-            self.agent_activity = None;
+            self.clear_agent_activity_for(Some(thread_id.as_str()));
             self.send_daemon_command(DaemonCommand::StopStream { thread_id });
         }
 
@@ -132,7 +164,6 @@ impl TuiModel {
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
         self.pending_new_thread_target_agent = None;
-        self.agent_activity = None;
         self.chat
             .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
         self.request_latest_thread_page(thread_id, true);
@@ -149,7 +180,6 @@ impl TuiModel {
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
         self.pending_new_thread_target_agent = target_agent_id.map(str::to_string);
-        self.agent_activity = None;
         self.thread_loading_id = None;
         self.chat.reduce(chat::ChatAction::NewThread);
         self.main_pane_view = MainPaneView::Conversation;
@@ -204,17 +234,18 @@ impl TuiModel {
         }
 
         match self.sidebar.active_tab() {
-            SidebarTab::Files => widgets::sidebar::selected_file_path(
-                &self.tasks,
-                &self.sidebar,
-                Some(thread_id),
-            )
-            .is_some_and(|path| self.tasks.selected_work_path(thread_id) == Some(path.as_str())),
+            SidebarTab::Files => {
+                widgets::sidebar::selected_file_path(&self.tasks, &self.sidebar, Some(thread_id))
+                    .is_some_and(|path| {
+                        self.tasks.selected_work_path(thread_id) == Some(path.as_str())
+                    })
+            }
             SidebarTab::Todos => self
                 .tasks
                 .todos_for_thread(thread_id)
                 .get(self.sidebar.selected_item())
                 .is_some(),
+            SidebarTab::Spawned => false,
             SidebarTab::Pinned => false,
         }
     }
@@ -410,11 +441,8 @@ impl TuiModel {
         }
     }
 
-    fn open_chat_action_confirm(&mut self, message_index: usize, action: PendingChatActionKind) {
-        self.pending_chat_action_confirm = Some(PendingChatActionConfirm {
-            message_index,
-            action,
-        });
+    fn open_pending_action_confirm(&mut self, action: PendingConfirmAction) {
+        self.pending_chat_action_confirm = Some(action);
         self.chat_action_confirm_accept_selected = true;
         if self.modal.top() != Some(modal::ModalKind::ChatActionConfirm) {
             self.modal.reduce(modal::ModalAction::Push(
@@ -432,11 +460,15 @@ impl TuiModel {
     }
 
     fn request_regenerate_message(&mut self, index: usize) {
-        self.open_chat_action_confirm(index, PendingChatActionKind::Regenerate);
+        self.open_pending_action_confirm(PendingConfirmAction::RegenerateMessage {
+            message_index: index,
+        });
     }
 
     fn request_delete_message(&mut self, index: usize) {
-        self.open_chat_action_confirm(index, PendingChatActionKind::Delete);
+        self.open_pending_action_confirm(PendingConfirmAction::DeleteMessage {
+            message_index: index,
+        });
     }
 
     fn confirm_pending_chat_action(&mut self) {
@@ -447,11 +479,55 @@ impl TuiModel {
             self.close_top_modal();
         }
         self.chat_action_confirm_accept_selected = true;
-        match pending.action {
-            PendingChatActionKind::Regenerate => {
-                self.regenerate_from_message(pending.message_index)
+        match pending {
+            PendingConfirmAction::RegenerateMessage { message_index } => {
+                self.regenerate_from_message(message_index)
             }
-            PendingChatActionKind::Delete => self.delete_message(pending.message_index),
+            PendingConfirmAction::DeleteMessage { message_index } => {
+                self.delete_message(message_index)
+            }
+            PendingConfirmAction::DeleteThread { thread_id, .. } => {
+                self.send_daemon_command(DaemonCommand::DeleteThread {
+                    thread_id: thread_id.clone(),
+                });
+                self.status_line = "Deleting thread...".to_string();
+            }
+            PendingConfirmAction::StopThread { thread_id, .. } => {
+                if self.chat.active_thread_id() == Some(thread_id.as_str()) {
+                    self.cancelled_thread_id = Some(thread_id.clone());
+                    self.chat.reduce(chat::ChatAction::ForceStopStreaming);
+                    self.clear_active_thread_activity();
+                }
+                self.send_daemon_command(DaemonCommand::StopStream { thread_id });
+                self.status_line = "Stopping thread...".to_string();
+            }
+            PendingConfirmAction::ResumeThread { thread_id, .. } => {
+                self.send_daemon_command(DaemonCommand::SendMessage {
+                    thread_id: Some(thread_id),
+                    content: "continue".to_string(),
+                    session_id: self.default_session_id.clone(),
+                    target_agent_id: None,
+                });
+                self.status_line = "Resuming thread...".to_string();
+            }
+            PendingConfirmAction::DeleteGoalRun { goal_run_id, .. } => {
+                self.send_daemon_command(DaemonCommand::DeleteGoalRun { goal_run_id });
+                self.status_line = "Deleting goal run...".to_string();
+            }
+            PendingConfirmAction::PauseGoalRun { goal_run_id, .. } => {
+                self.send_daemon_command(DaemonCommand::ControlGoalRun {
+                    goal_run_id,
+                    action: "pause".to_string(),
+                });
+                self.status_line = "Pausing goal run...".to_string();
+            }
+            PendingConfirmAction::ResumeGoalRun { goal_run_id, .. } => {
+                self.send_daemon_command(DaemonCommand::ControlGoalRun {
+                    goal_run_id,
+                    action: "resume".to_string(),
+                });
+                self.status_line = "Resuming goal run...".to_string();
+            }
         }
     }
 
@@ -824,6 +900,13 @@ impl TuiModel {
         };
         self.mark_notification_read(notification_id);
         match action.action_type.as_str() {
+            "open_thread" => {
+                if let Some(thread_id) = action.target.as_deref() {
+                    self.close_top_modal();
+                    self.open_thread_conversation(thread_id.to_string());
+                    self.status_line = format!("Opened thread {}", thread_id);
+                }
+            }
             "open_plugin_settings" => {
                 self.open_settings_tab(SettingsTab::Plugins);
                 if let Some(plugin_name) = action.target.as_deref() {

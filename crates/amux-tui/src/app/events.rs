@@ -39,6 +39,7 @@ impl TuiModel {
         self.tick_counter = self.tick_counter.saturating_add(1);
         self.chat.clear_expired_copy_feedback(self.tick_counter);
         self.maybe_request_older_chat_history();
+        self.maybe_request_older_goal_run_history();
         self.maybe_schedule_chat_history_collapse();
         self.chat.maybe_collapse_history(self.tick_counter);
         self.clear_expired_queued_prompt_copy_feedback();
@@ -139,6 +140,19 @@ impl TuiModel {
             } => {
                 self.handle_thread_created_event(thread_id, title, agent_name);
             }
+            ClientEvent::ThreadDeleted { thread_id, deleted } => {
+                if deleted {
+                    self.chat.reduce(chat::ChatAction::ThreadDeleted {
+                        thread_id: thread_id.clone(),
+                    });
+                    if self.modal.top() == Some(modal::ModalKind::ThreadPicker) {
+                        self.sync_thread_picker_item_count();
+                    }
+                    self.status_line = "Thread deleted".to_string();
+                } else {
+                    self.status_line = "Thread delete failed".to_string();
+                }
+            }
             ClientEvent::ThreadMessagePinResult(result) => {
                 self.handle_thread_message_pin_result_event(result);
             }
@@ -199,6 +213,31 @@ impl TuiModel {
             ClientEvent::GoalRunDetail(None) => {}
             ClientEvent::GoalRunUpdate(run) => {
                 self.handle_goal_run_update_event(run);
+            }
+            ClientEvent::GoalRunDeleted {
+                goal_run_id,
+                deleted,
+            } => {
+                if deleted {
+                    let viewing_deleted_goal = if let MainPaneView::Task(target) =
+                        &self.main_pane_view
+                    {
+                        target_goal_run_id(self, target).as_deref() == Some(goal_run_id.as_str())
+                    } else {
+                        false
+                    };
+                    self.tasks
+                        .reduce(task::TaskAction::GoalRunDeleted { goal_run_id });
+                    if self.modal.top() == Some(modal::ModalKind::GoalPicker) {
+                        self.sync_goal_picker_item_count();
+                    }
+                    if viewing_deleted_goal {
+                        self.main_pane_view = MainPaneView::Conversation;
+                    }
+                    self.status_line = "Goal run deleted".to_string();
+                } else {
+                    self.status_line = "Goal run delete failed".to_string();
+                }
             }
             ClientEvent::GoalRunCheckpoints {
                 goal_run_id,

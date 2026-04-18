@@ -62,6 +62,7 @@ export interface AgentSettings {
   featherless: AgentProviderConfig;
   anthropic: AgentProviderConfig;
   openai: AgentProviderConfig;
+  "azure-openai": AgentProviderConfig;
   "github-copilot": AgentProviderConfig;
   qwen: AgentProviderConfig;
   "qwen-deepinfra": AgentProviderConfig;
@@ -164,6 +165,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   featherless: { base_url: "https://api.featherless.ai/v1", model: "meta-llama/Llama-3.3-70B-Instruct", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   anthropic: { base_url: "https://api.anthropic.com", model: "claude-opus-4-7", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   openai: { base_url: "https://api.openai.com/v1", model: "gpt-5.4", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
+  "azure-openai": { base_url: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1", model: "", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
   "github-copilot": { base_url: "https://api.githubcopilot.com", model: "gpt-4.1", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "github_copilot", context_window_tokens: null },
   qwen: { base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-max", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "native_assistant", auth_source: "api_key", context_window_tokens: null },
   "qwen-deepinfra": { base_url: "https://api.deepinfra.com/v1/openai", model: "Qwen/Qwen2.5-72B-Instruct", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
@@ -205,20 +207,20 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   honcho_api_key: "",
   honcho_base_url: "",
   honcho_workspace_id: "tamux",
-  anticipatory_enabled: false,
-  anticipatory_morning_brief: false,
-  anticipatory_predictive_hydration: false,
-  anticipatory_stuck_detection: false,
-  operator_model_enabled: false,
-  operator_model_allow_message_statistics: false,
-  operator_model_allow_approval_learning: false,
-  operator_model_allow_attention_tracking: false,
-  operator_model_allow_implicit_feedback: false,
-  collaboration_enabled: false,
+  anticipatory_enabled: true,
+  anticipatory_morning_brief: true,
+  anticipatory_predictive_hydration: true,
+  anticipatory_stuck_detection: true,
+  operator_model_enabled: true,
+  operator_model_allow_message_statistics: true,
+  operator_model_allow_approval_learning: true,
+  operator_model_allow_attention_tracking: true,
+  operator_model_allow_implicit_feedback: true,
+  collaboration_enabled: true,
   compliance_mode: "standard",
   compliance_retention_days: 30,
-  compliance_sign_all_events: false,
-  tool_synthesis_enabled: false,
+  compliance_sign_all_events: true,
+  tool_synthesis_enabled: true,
   tool_synthesis_require_activation: true,
   tool_synthesis_max_generated_tools: 24,
   gateway_enabled: false,
@@ -428,6 +430,7 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     featherless: providerConfigFromRaw("featherless", source),
     anthropic: providerConfigFromRaw("anthropic", source),
     openai: providerConfigFromRaw("openai", source),
+    "azure-openai": providerConfigFromRaw("azure-openai", source),
     "github-copilot": providerConfigFromRaw("github-copilot", source),
     qwen: providerConfigFromRaw("qwen", source),
     "qwen-deepinfra": providerConfigFromRaw("qwen-deepinfra", source),

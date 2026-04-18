@@ -73,6 +73,7 @@ impl AgentEngine {
                     return Ok(SendMessageOutcome {
                         thread_id: crate::agent::concierge::CONCIERGE_THREAD_ID.to_string(),
                         interrupted_for_approval: false,
+                        terminated_for_budget: false,
                         upstream_message: None,
                         provider_final_result: None,
                         fresh_runner_retry: None,
@@ -101,6 +102,7 @@ impl AgentEngine {
                             .map(|thread_id| SendMessageOutcome {
                                 thread_id,
                                 interrupted_for_approval: false,
+                                terminated_for_budget: false,
                                 upstream_message: None,
                                 provider_final_result: None,
                                 fresh_runner_retry: None,

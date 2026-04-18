@@ -207,6 +207,40 @@
     }
 
     #[test]
+    fn web_and_terminal_tool_descriptions_distinguish_text_reads_from_binary_downloads() {
+        let mut config = AgentConfig::default();
+        config.tools.web_browse = true;
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+
+        let fetch_url = tools
+            .iter()
+            .find(|tool| tool.function.name == "fetch_url")
+            .expect("fetch_url tool should be available");
+        let run_terminal_command = tools
+            .iter()
+            .find(|tool| tool.function.name == "run_terminal_command")
+            .expect("run_terminal_command tool should be available");
+        let execute_managed_command = tools
+            .iter()
+            .find(|tool| tool.function.name == "execute_managed_command")
+            .expect("execute_managed_command tool should be available");
+
+        assert!(fetch_url
+            .function
+            .description
+            .contains("text content"));
+        assert!(run_terminal_command
+            .function
+            .description
+            .contains("large or binary downloads"));
+        assert!(execute_managed_command
+            .function
+            .description
+            .contains("large or binary downloads"));
+    }
+
+    #[test]
     fn search_files_tool_schema_exposes_timeout_seconds() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();

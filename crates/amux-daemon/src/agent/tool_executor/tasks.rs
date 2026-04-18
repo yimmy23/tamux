@@ -551,6 +551,16 @@ async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Re
     Ok(serde_json::to_string_pretty(&tasks).unwrap_or_else(|_| "[]".to_string()))
 }
 
+async fn execute_list_triggers(_args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let payload = agent.list_event_triggers_json().await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_add_trigger(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let payload = agent.add_event_trigger_from_args(args).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
 async fn execute_get_todos(
     args: &serde_json::Value,
     agent: &AgentEngine,

@@ -1,7 +1,33 @@
 use clap::{Parser, Subcommand};
 
+fn parse_page(value: &str) -> Result<usize, String> {
+    let page = value
+        .parse::<usize>()
+        .map_err(|_| "page must be a positive integer".to_string())?;
+    if page == 0 {
+        return Err("page must be at least 1".to_string());
+    }
+    Ok(page)
+}
+
+fn parse_list_limit(value: &str) -> Result<usize, String> {
+    let limit = value
+        .parse::<usize>()
+        .map_err(|_| "limit must be a positive integer".to_string())?;
+    if limit == 0 {
+        return Err("limit must be at least 1".to_string());
+    }
+    if limit > 20 {
+        return Err("limit must be 20 or less".to_string());
+    }
+    Ok(limit)
+}
+
 #[derive(Parser)]
-#[command(name = "tamux", about = "tamux terminal multiplexer CLI")]
+#[command(
+    name = "tamux",
+    about = "Tamux Agent and Terminal Agentic Multiplexer CLI"
+)]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Option<Commands>,
@@ -18,7 +44,7 @@ pub(crate) enum Commands {
     /// Show agent statistics (alias for status).
     Stats,
 
-    /// List all running sessions.
+    /// List all running daemon-owned terminal sessions.
     #[command(alias = "ls")]
     List,
 
@@ -62,7 +88,7 @@ pub(crate) enum Commands {
         cwd: Option<String>,
     },
 
-    /// Kill a session.
+    /// Kill a daemon-owned terminal session.
     Kill {
         /// Session ID.
         id: String,
@@ -152,6 +178,12 @@ pub(crate) enum Commands {
     Thread {
         #[command(subcommand)]
         action: ThreadAction,
+    },
+
+    /// Inspect and manage agent goals.
+    Goal {
+        #[command(subcommand)]
+        action: GoalAction,
     },
 
     /// Send a direct message to svarog or Rarog from the CLI.
@@ -413,6 +445,12 @@ pub(crate) enum ThreadAction {
     /// List recent agent threads.
     #[command(alias = "ls")]
     List {
+        /// 1-based page number.
+        #[arg(long, default_value_t = 1, value_parser = parse_page)]
+        page: usize,
+        /// Maximum items per page (capped at 20).
+        #[arg(long, default_value_t = 20, value_parser = parse_list_limit)]
+        limit: usize,
         /// Emit raw JSON instead of human-readable output.
         #[arg(long)]
         json: bool,
@@ -425,6 +463,16 @@ pub(crate) enum ThreadAction {
         #[arg(long)]
         json: bool,
     },
+    /// Stop the active stream for one agent thread.
+    Stop {
+        /// Thread ID to stop.
+        thread_id: String,
+    },
+    /// Resume one agent thread by retrying execution now.
+    Resume {
+        /// Thread ID to resume.
+        thread_id: String,
+    },
     /// Delete one agent thread.
     Delete {
         /// Thread ID to delete.
@@ -435,9 +483,52 @@ pub(crate) enum ThreadAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+pub(crate) enum GoalAction {
+    /// List recent goal runs.
+    #[command(alias = "ls")]
+    List {
+        /// 1-based page number.
+        #[arg(long, default_value_t = 1, value_parser = parse_page)]
+        page: usize,
+        /// Maximum items per page (capped at 20).
+        #[arg(long, default_value_t = 20, value_parser = parse_list_limit)]
+        limit: usize,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one goal run and its current state.
+    Get {
+        /// Goal run ID to fetch.
+        goal_run_id: String,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop one goal run by pausing it.
+    Stop {
+        /// Goal run ID to stop.
+        goal_run_id: String,
+    },
+    /// Resume one paused goal run.
+    Resume {
+        /// Goal run ID to resume.
+        goal_run_id: String,
+    },
+    /// Delete one goal run.
+    Delete {
+        /// Goal run ID to delete.
+        goal_run_id: String,
+        /// Skip the confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, SkillAction, ThreadAction, ToolAction};
+    use super::{Cli, Commands, GoalAction, SkillAction, ThreadAction, ToolAction};
     use clap::{CommandFactory, Parser};
 
     #[test]
@@ -464,12 +555,16 @@ mod tests {
 
     #[test]
     fn thread_list_subcommand_parses() {
-        let cli = Cli::try_parse_from(["tamux", "thread", "list", "--json"])
-            .expect("thread list subcommand should parse");
+        let cli = Cli::try_parse_from([
+            "tamux", "thread", "list", "--page", "2", "--limit", "15", "--json",
+        ])
+        .expect("thread list subcommand should parse");
         match cli.command {
             Some(Commands::Thread {
-                action: ThreadAction::List { json },
+                action: ThreadAction::List { page, limit, json },
             }) => {
+                assert_eq!(page, 2);
+                assert_eq!(limit, 15);
                 assert!(json);
             }
             other => panic!("expected thread list command, got {other:?}"),
@@ -547,6 +642,139 @@ mod tests {
                 assert!(yes);
             }
             other => panic!("expected thread delete command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn thread_stop_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "thread", "stop", "thread-123"])
+            .expect("thread stop subcommand should parse");
+        match cli.command {
+            Some(Commands::Thread {
+                action: ThreadAction::Stop { thread_id },
+            }) => {
+                assert_eq!(thread_id, "thread-123");
+            }
+            other => panic!("expected thread stop command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn thread_resume_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "thread", "resume", "thread-123"])
+            .expect("thread resume subcommand should parse");
+        match cli.command {
+            Some(Commands::Thread {
+                action: ThreadAction::Resume { thread_id },
+            }) => {
+                assert_eq!(thread_id, "thread-123");
+            }
+            other => panic!("expected thread resume command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn goal_list_subcommand_parses() {
+        let cli = Cli::try_parse_from([
+            "tamux", "goal", "list", "--page", "3", "--limit", "10", "--json",
+        ])
+        .expect("goal list subcommand should parse");
+        match cli.command {
+            Some(Commands::Goal {
+                action: GoalAction::List { page, limit, json },
+            }) => {
+                assert_eq!(page, 3);
+                assert_eq!(limit, 10);
+                assert!(json);
+            }
+            other => panic!("expected goal list command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn list_subcommands_default_to_first_page_with_limit_20() {
+        let thread_cli =
+            Cli::try_parse_from(["tamux", "thread", "list"]).expect("thread list should parse");
+        match thread_cli.command {
+            Some(Commands::Thread {
+                action: ThreadAction::List { page, limit, json },
+            }) => {
+                assert_eq!(page, 1);
+                assert_eq!(limit, 20);
+                assert!(!json);
+            }
+            other => panic!("expected thread list command, got {other:?}"),
+        }
+
+        let goal_cli =
+            Cli::try_parse_from(["tamux", "goal", "list"]).expect("goal list should parse");
+        match goal_cli.command {
+            Some(Commands::Goal {
+                action: GoalAction::List { page, limit, json },
+            }) => {
+                assert_eq!(page, 1);
+                assert_eq!(limit, 20);
+                assert!(!json);
+            }
+            other => panic!("expected goal list command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn goal_get_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "goal", "get", "goal-123"])
+            .expect("goal get subcommand should parse");
+        match cli.command {
+            Some(Commands::Goal {
+                action: GoalAction::Get { goal_run_id, json },
+            }) => {
+                assert_eq!(goal_run_id, "goal-123");
+                assert!(!json);
+            }
+            other => panic!("expected goal get command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn goal_stop_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "goal", "stop", "goal-123"])
+            .expect("goal stop subcommand should parse");
+        match cli.command {
+            Some(Commands::Goal {
+                action: GoalAction::Stop { goal_run_id },
+            }) => {
+                assert_eq!(goal_run_id, "goal-123");
+            }
+            other => panic!("expected goal stop command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn goal_resume_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "goal", "resume", "goal-123"])
+            .expect("goal resume subcommand should parse");
+        match cli.command {
+            Some(Commands::Goal {
+                action: GoalAction::Resume { goal_run_id },
+            }) => {
+                assert_eq!(goal_run_id, "goal-123");
+            }
+            other => panic!("expected goal resume command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn goal_delete_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "goal", "delete", "goal-123", "--yes"])
+            .expect("goal delete subcommand should parse");
+        match cli.command {
+            Some(Commands::Goal {
+                action: GoalAction::Delete { goal_run_id, yes },
+            }) => {
+                assert_eq!(goal_run_id, "goal-123");
+                assert!(yes);
+            }
+            other => panic!("expected goal delete command, got {other:?}"),
         }
     }
 

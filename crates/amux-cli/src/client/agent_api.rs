@@ -27,6 +27,150 @@ pub struct AgentThreadRecord {
     pub total_output_tokens: u64,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalRunStepRecord {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub position: usize,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub instructions: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub success_criteria: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<u64>,
+    #[serde(default)]
+    pub completed_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalRunEventRecord {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub timestamp: u64,
+    #[serde(default)]
+    pub phase: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub details: Option<String>,
+    #[serde(default)]
+    pub step_index: Option<usize>,
+    #[serde(default)]
+    pub todo_snapshot: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalRunRecord {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
+    pub client_request_id: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub priority: String,
+    #[serde(default)]
+    pub created_at: u64,
+    #[serde(default)]
+    pub updated_at: u64,
+    #[serde(default)]
+    pub started_at: Option<u64>,
+    #[serde(default)]
+    pub completed_at: Option<u64>,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub current_step_index: usize,
+    #[serde(default)]
+    pub current_step_title: Option<String>,
+    #[serde(default)]
+    pub current_step_kind: Option<String>,
+    #[serde(default)]
+    pub replan_count: u32,
+    #[serde(default)]
+    pub max_replans: u32,
+    #[serde(default)]
+    pub plan_summary: Option<String>,
+    #[serde(default)]
+    pub reflection_summary: Option<String>,
+    #[serde(default)]
+    pub memory_updates: Vec<String>,
+    #[serde(default)]
+    pub generated_skill_path: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub failure_cause: Option<String>,
+    #[serde(default)]
+    pub child_task_ids: Vec<String>,
+    #[serde(default)]
+    pub child_task_count: u32,
+    #[serde(default)]
+    pub approval_count: u32,
+    #[serde(default)]
+    pub awaiting_approval_id: Option<String>,
+    #[serde(default)]
+    pub policy_fingerprint: Option<String>,
+    #[serde(default)]
+    pub approval_expires_at: Option<u64>,
+    #[serde(default)]
+    pub containment_scope: Option<String>,
+    #[serde(default)]
+    pub compensation_status: Option<String>,
+    #[serde(default)]
+    pub compensation_summary: Option<String>,
+    #[serde(default)]
+    pub active_task_id: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub steps: Vec<AgentGoalRunStepRecord>,
+    #[serde(default)]
+    pub events: Vec<AgentGoalRunEventRecord>,
+    #[serde(default)]
+    pub total_prompt_tokens: u64,
+    #[serde(default)]
+    pub total_completion_tokens: u64,
+    #[serde(default)]
+    pub estimated_cost_usd: Option<f64>,
+    #[serde(default)]
+    pub autonomy_level: String,
+    #[serde(default)]
+    pub loaded_step_start: usize,
+    #[serde(default)]
+    pub loaded_step_end: usize,
+    #[serde(default)]
+    pub total_step_count: usize,
+    #[serde(default)]
+    pub loaded_event_start: usize,
+    #[serde(default)]
+    pub loaded_event_end: usize,
+    #[serde(default)]
+    pub total_event_count: usize,
+}
+
 /// Status response fields from the daemon.
 pub struct AgentStatusSnapshot {
     pub tier: String,
@@ -50,6 +194,23 @@ pub struct DirectMessageResponse {
 
 pub struct DeleteThreadResponse {
     pub thread_id: String,
+    pub deleted: bool,
+}
+
+pub struct ThreadControlResponse {
+    pub thread_id: String,
+    pub action: String,
+    pub ok: bool,
+}
+
+pub struct GoalControlResponse {
+    pub goal_run_id: String,
+    pub action: String,
+    pub ok: bool,
+}
+
+pub struct DeleteGoalRunResponse {
+    pub goal_run_id: String,
     pub deleted: bool,
 }
 
@@ -129,8 +290,13 @@ pub async fn send_status_query() -> Result<AgentStatusSnapshot> {
     }
 }
 
-pub async fn send_thread_list_query() -> Result<Vec<AgentThreadRecord>> {
-    match roundtrip(ClientMessage::AgentListThreads).await? {
+pub async fn send_thread_list_query(limit: usize, offset: usize) -> Result<Vec<AgentThreadRecord>> {
+    match roundtrip(ClientMessage::AgentListThreads {
+        limit: Some(limit),
+        offset: Some(offset),
+    })
+    .await?
+    {
         DaemonMessage::AgentThreadList { threads_json } => Ok(serde_json::from_str(&threads_json)?),
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected response: {other:?}"),
@@ -198,6 +364,109 @@ pub async fn send_thread_delete(thread_id: String) -> Result<DeleteThreadRespons
             Ok(DeleteThreadResponse { thread_id, deleted })
         }
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_thread_control(thread_id: String, action: &str) -> Result<ThreadControlResponse> {
+    let request = match action {
+        "stop" => ClientMessage::AgentStopStream {
+            thread_id: thread_id.clone(),
+        },
+        "resume" => ClientMessage::AgentRetryStreamNow {
+            thread_id: thread_id.clone(),
+        },
+        other => anyhow::bail!("unsupported thread action: {other}"),
+    };
+
+    match roundtrip(request).await? {
+        DaemonMessage::AgentThreadControlled {
+            thread_id,
+            action,
+            ok,
+        } => Ok(ThreadControlResponse {
+            thread_id,
+            action,
+            ok,
+        }),
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_goal_list_query(limit: usize, offset: usize) -> Result<Vec<AgentGoalRunRecord>> {
+    match roundtrip(ClientMessage::AgentListGoalRuns {
+        limit: Some(limit),
+        offset: Some(offset),
+    })
+    .await?
+    {
+        DaemonMessage::AgentGoalRunList { goal_runs_json } => {
+            Ok(serde_json::from_str(&goal_runs_json)?)
+        }
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_goal_get_query(goal_run_id: String) -> Result<Option<AgentGoalRunRecord>> {
+    match roundtrip(ClientMessage::AgentGetGoalRun { goal_run_id }).await? {
+        DaemonMessage::AgentGoalRunDetail { goal_run_json } => {
+            Ok(serde_json::from_str(&goal_run_json)?)
+        }
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_goal_control(goal_run_id: String, action: &str) -> Result<GoalControlResponse> {
+    let daemon_action = match action {
+        "stop" => "pause",
+        "resume" => "resume",
+        other => anyhow::bail!("unsupported goal action: {other}"),
+    };
+
+    match roundtrip(ClientMessage::AgentControlGoalRun {
+        goal_run_id: goal_run_id.clone(),
+        action: daemon_action.to_string(),
+        step_index: None,
+    })
+    .await?
+    {
+        DaemonMessage::AgentGoalRunControlled { goal_run_id, ok } => Ok(GoalControlResponse {
+            goal_run_id,
+            action: action.to_string(),
+            ok,
+        }),
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_goal_delete(goal_run_id: String) -> Result<DeleteGoalRunResponse> {
+    match roundtrip(ClientMessage::AgentDeleteGoalRun {
+        goal_run_id: goal_run_id.clone(),
+    })
+    .await?
+    {
+        DaemonMessage::AgentGoalRunDeleted {
+            goal_run_id,
+            deleted,
+        } => Ok(DeleteGoalRunResponse {
+            goal_run_id,
+            deleted,
+        }),
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
         other => anyhow::bail!("unexpected response: {other:?}"),
     }
 }

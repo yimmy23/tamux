@@ -395,10 +395,10 @@ pub struct AnticipatoryConfig {
 impl Default for AnticipatoryConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            morning_brief: false,
-            predictive_hydration: false,
-            stuck_detection: false,
+            enabled: true,
+            morning_brief: true,
+            predictive_hydration: true,
+            stuck_detection: true,
             morning_brief_window_minutes: default_morning_brief_window_minutes(),
             stuck_detection_delay_seconds: default_stuck_detection_delay_seconds(),
             surfacing_min_confidence: default_surfacing_min_confidence(),
@@ -424,19 +424,25 @@ pub struct OperatorModelConfig {
 impl Default for OperatorModelConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            allow_message_statistics: false,
-            allow_approval_learning: false,
-            allow_attention_tracking: false,
-            allow_implicit_feedback: false,
+            enabled: true,
+            allow_message_statistics: true,
+            allow_approval_learning: true,
+            allow_attention_tracking: true,
+            allow_implicit_feedback: true,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollaborationConfig {
     #[serde(default)]
     pub enabled: bool,
+}
+
+impl Default for CollaborationConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -534,7 +540,7 @@ impl Default for ComplianceConfig {
         Self {
             mode: ComplianceMode::default(),
             retention_days: default_compliance_retention_days(),
-            sign_all_events: false,
+            sign_all_events: true,
         }
     }
 }
@@ -556,7 +562,7 @@ pub struct ToolSynthesisConfig {
 impl Default for ToolSynthesisConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             require_activation: true,
             max_generated_tools: default_generated_tool_limit(),
             auto_promote_threshold: default_generated_tool_auto_promote_threshold(),

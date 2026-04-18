@@ -13,6 +13,7 @@ pub mod modal;
 pub mod notifications;
 pub mod settings;
 pub mod sidebar;
+pub mod spawned_tree;
 pub mod statistics;
 pub mod subagents;
 pub mod task;
@@ -50,6 +51,13 @@ pub enum DaemonCommand {
     RequestThreadTodos(String),
     RequestThreadWorkContext(String),
     RequestGoalRunDetail(String),
+    RequestGoalRunDetailPage {
+        goal_run_id: String,
+        step_offset: Option<usize>,
+        step_limit: Option<usize>,
+        event_offset: Option<usize>,
+        event_limit: Option<usize>,
+    },
     RequestGoalRunCheckpoints(String),
     StartGoalRun {
         goal: String,
@@ -141,6 +149,9 @@ pub enum DaemonCommand {
         goal_run_id: String,
         action: String,
     },
+    DeleteGoalRun {
+        goal_run_id: String,
+    },
     ListTaskApprovalRules,
     CreateTaskApprovalRule {
         approval_id: String,
@@ -226,6 +237,9 @@ pub enum DaemonCommand {
     DeleteMessages {
         thread_id: String,
         message_ids: Vec<String>,
+    },
+    DeleteThread {
+        thread_id: String,
     },
     RecordAttention {
         surface: String,

@@ -22,6 +22,17 @@ fn content_inner(area: Rect) -> Rect {
     area
 }
 
+const SCROLLBAR_WIDTH: u16 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaskViewScrollbarLayout {
+    pub content: Rect,
+    pub scrollbar: Rect,
+    pub thumb: Rect,
+    pub scroll: usize,
+    pub max_scroll: usize,
+}
+
 #[derive(Clone)]
 struct RenderRow {
     line: Line<'static>,
@@ -36,11 +47,15 @@ pub enum TaskViewHitTarget {
 
 fn goal_status_label(status: Option<GoalRunStatus>) -> &'static str {
     match status {
+        Some(GoalRunStatus::Queued) => "queued",
+        Some(GoalRunStatus::Planning) => "planning",
         Some(GoalRunStatus::Running) => "running",
+        Some(GoalRunStatus::AwaitingApproval) => "awaiting approval",
+        Some(GoalRunStatus::Paused) => "paused",
         Some(GoalRunStatus::Completed) => "done",
         Some(GoalRunStatus::Failed) => "failed",
         Some(GoalRunStatus::Cancelled) => "cancelled",
-        _ => "pending",
+        _ => "queued",
     }
 }
 
@@ -424,6 +439,76 @@ fn build_rows(
     }
 }
 
+fn rows_for_width(
+    tasks: &TaskState,
+    target: &SidebarItemTarget,
+    theme: &ThemeTokens,
+    width: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
+) -> Vec<RenderRow> {
+    let (_, rows) = build_rows(
+        tasks,
+        target,
+        theme,
+        width,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    );
+    rows
+}
+
+fn scrollbar_layout_from_metrics(
+    area: Rect,
+    total_rows: usize,
+    scroll: usize,
+) -> Option<TaskViewScrollbarLayout> {
+    if area.width <= SCROLLBAR_WIDTH || area.height == 0 || total_rows <= area.height as usize {
+        return None;
+    }
+
+    let viewport = area.height as usize;
+    let max_scroll = total_rows.saturating_sub(viewport);
+    let scroll = scroll.min(max_scroll);
+    let content = Rect::new(
+        area.x,
+        area.y,
+        area.width.saturating_sub(SCROLLBAR_WIDTH),
+        area.height,
+    );
+    let scrollbar = Rect::new(
+        area.x
+            .saturating_add(area.width)
+            .saturating_sub(SCROLLBAR_WIDTH),
+        area.y,
+        SCROLLBAR_WIDTH,
+        area.height,
+    );
+    let thumb_height = ((viewport * viewport) / total_rows).max(1).min(viewport) as u16;
+    let track_span = scrollbar.height.saturating_sub(thumb_height);
+    let thumb_offset = if max_scroll == 0 || track_span == 0 {
+        0
+    } else {
+        ((scroll * track_span as usize) + (max_scroll / 2)) / max_scroll
+    } as u16;
+    let thumb = Rect::new(
+        scrollbar.x,
+        scrollbar.y.saturating_add(thumb_offset),
+        scrollbar.width,
+        thumb_height,
+    );
+
+    Some(TaskViewScrollbarLayout {
+        content,
+        scrollbar,
+        thumb,
+        scroll,
+        max_scroll,
+    })
+}
+
 pub fn hit_test(
     area: Rect,
     tasks: &TaskState,
@@ -436,20 +521,32 @@ pub fn hit_test(
     position: Position,
 ) -> Option<TaskViewHitTarget> {
     let inner = content_inner(area);
-    if !inner.contains(position) {
-        return None;
-    }
-
-    let (_, rows) = build_rows(
+    let layout = scrollbar_layout(
+        area,
         tasks,
         target,
         theme,
-        inner.width as usize,
+        scroll,
         show_live_todos,
         show_timeline,
         show_files,
     );
-    let row_index = scroll + position.y.saturating_sub(inner.y) as usize;
+    let content = layout.map(|layout| layout.content).unwrap_or(inner);
+    if !content.contains(position) {
+        return None;
+    }
+
+    let rows = rows_for_width(
+        tasks,
+        target,
+        theme,
+        content.width as usize,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    );
+    let resolved_scroll = layout.map(|layout| layout.scroll).unwrap_or(scroll);
+    let row_index = resolved_scroll + position.y.saturating_sub(content.y) as usize;
     rows.get(row_index).and_then(|row| {
         if row.close_preview {
             Some(TaskViewHitTarget::ClosePreview)
@@ -471,23 +568,147 @@ pub fn render(
     show_timeline: bool,
     show_files: bool,
 ) {
-    let (_, rows) = build_rows(
-        tasks,
-        target,
-        theme,
-        area.width as usize,
-        show_live_todos,
-        show_timeline,
-        show_files,
-    );
     let inner = content_inner(area);
 
     if inner.width == 0 || inner.height == 0 {
         return;
     }
 
-    let lines = rows.into_iter().map(|row| row.line).collect::<Vec<_>>();
+    if let Some(layout) = scrollbar_layout(
+        area,
+        tasks,
+        target,
+        theme,
+        scroll,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    ) {
+        let lines = rows_for_width(
+            tasks,
+            target,
+            theme,
+            layout.content.width as usize,
+            show_live_todos,
+            show_timeline,
+            show_files,
+        )
+        .into_iter()
+        .map(|row| row.line)
+        .collect::<Vec<_>>();
+        let paragraph = Paragraph::new(lines).scroll((layout.scroll as u16, 0));
+        frame.render_widget(paragraph, layout.content);
+
+        let scrollbar_lines = (0..layout.scrollbar.height)
+            .map(|offset| {
+                let y = layout.scrollbar.y.saturating_add(offset);
+                let (glyph, style) = if y >= layout.thumb.y
+                    && y < layout.thumb.y.saturating_add(layout.thumb.height)
+                {
+                    ("█", theme.accent_primary)
+                } else {
+                    ("│", theme.fg_dim)
+                };
+                Line::from(Span::styled(glyph, style))
+            })
+            .collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(scrollbar_lines), layout.scrollbar);
+        return;
+    }
+
+    let lines = rows_for_width(
+        tasks,
+        target,
+        theme,
+        inner.width as usize,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    )
+    .into_iter()
+    .map(|row| row.line)
+    .collect::<Vec<_>>();
     let max_scroll = lines.len().saturating_sub(inner.height as usize);
     let paragraph = Paragraph::new(lines).scroll((scroll.min(max_scroll) as u16, 0));
     frame.render_widget(paragraph, inner);
+}
+
+pub fn max_scroll(
+    area: Rect,
+    tasks: &TaskState,
+    target: &SidebarItemTarget,
+    theme: &ThemeTokens,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
+) -> usize {
+    let inner = content_inner(area);
+    if inner.width == 0 || inner.height == 0 {
+        return 0;
+    }
+
+    scrollbar_layout(
+        area,
+        tasks,
+        target,
+        theme,
+        0,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    )
+    .map(|layout| layout.max_scroll)
+    .unwrap_or_else(|| {
+        let rows = rows_for_width(
+            tasks,
+            target,
+            theme,
+            inner.width as usize,
+            show_live_todos,
+            show_timeline,
+            show_files,
+        );
+        rows.len().saturating_sub(inner.height as usize)
+    })
+}
+
+pub fn scrollbar_layout(
+    area: Rect,
+    tasks: &TaskState,
+    target: &SidebarItemTarget,
+    theme: &ThemeTokens,
+    scroll: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
+) -> Option<TaskViewScrollbarLayout> {
+    let inner = content_inner(area);
+    if inner.width <= SCROLLBAR_WIDTH || inner.height == 0 {
+        return None;
+    }
+
+    let full_rows = rows_for_width(
+        tasks,
+        target,
+        theme,
+        inner.width as usize,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    );
+    if full_rows.len() <= inner.height as usize {
+        return None;
+    }
+
+    let content_width = inner.width.saturating_sub(SCROLLBAR_WIDTH) as usize;
+    let rows = rows_for_width(
+        tasks,
+        target,
+        theme,
+        content_width,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    );
+    scrollbar_layout_from_metrics(inner, rows.len(), scroll)
 }

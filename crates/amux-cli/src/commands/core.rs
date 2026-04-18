@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 
-use crate::cli::{Cli, Commands, InstallTarget, SettingsAction, ThreadAction};
+use crate::cli::{Cli, Commands, GoalAction, InstallTarget, SettingsAction, ThreadAction};
 use crate::commands::common::{
     find_sibling_binary, handle_post_setup_action, launch_gui, launch_tui, resolve_dm_target,
     LaunchTarget,
@@ -26,6 +26,7 @@ pub(crate) fn should_check_for_updates(command: &Commands) -> bool {
             | Commands::Stats
             | Commands::Settings { .. }
             | Commands::Thread { .. }
+            | Commands::Goal { .. }
             | Commands::Dm { .. }
             | Commands::Setup
             | Commands::Ping
@@ -152,6 +153,158 @@ fn format_thread_delete_output(thread_id: &str, deleted: bool) -> String {
     } else {
         format!("Thread {} was not found.", thread_id)
     }
+}
+
+fn format_thread_control_output(thread_id: &str, action: &str, ok: bool) -> String {
+    match action {
+        "stop" => {
+            if ok {
+                format!("Stopped active stream for thread {}.", thread_id)
+            } else {
+                format!("No active stream for thread {}.", thread_id)
+            }
+        }
+        "resume" => {
+            if ok {
+                format!("Requested resume for thread {}.", thread_id)
+            } else {
+                format!("Thread {} was not resumable.", thread_id)
+            }
+        }
+        _ => {
+            if ok {
+                format!("Updated thread {}.", thread_id)
+            } else {
+                format!("Thread {} update failed.", thread_id)
+            }
+        }
+    }
+}
+
+fn format_goal_list_output(goals: &[client::AgentGoalRunRecord], json: bool) -> Result<String> {
+    if json {
+        return serde_json::to_string_pretty(goals).map_err(Into::into);
+    }
+
+    if goals.is_empty() {
+        return Ok("No goals found.".to_string());
+    }
+
+    let mut rendered = String::new();
+    for goal in goals {
+        let updated = format_timestamp(goal.updated_at as i64);
+        rendered.push_str(&format!(
+            "{} [{}] {} ({})\n",
+            goal.id, updated, goal.title, goal.status
+        ));
+    }
+
+    Ok(rendered.trim_end().to_string())
+}
+
+fn format_goal_detail_output(
+    goal: Option<&client::AgentGoalRunRecord>,
+    json: bool,
+) -> Result<String> {
+    if json {
+        return serde_json::to_string_pretty(&goal).map_err(Into::into);
+    }
+
+    let Some(goal) = goal else {
+        return Ok("Goal not found.".to_string());
+    };
+
+    let mut rendered = String::new();
+    let priority = if goal.priority.is_empty() {
+        "unknown"
+    } else {
+        goal.priority.as_str()
+    };
+    rendered.push_str(&format!("ID:      {}\n", goal.id));
+    rendered.push_str(&format!("Title:   {}\n", goal.title));
+    rendered.push_str(&format!("Goal:    {}\n", goal.goal));
+    rendered.push_str(&format!("Status:  {}\n", goal.status));
+    rendered.push_str(&format!("Priority: {}\n", priority));
+    if let Some(thread_id) = goal.thread_id.as_deref() {
+        rendered.push_str(&format!("Thread:  {}\n", thread_id));
+    }
+    if let Some(session_id) = goal.session_id.as_deref() {
+        rendered.push_str(&format!("Session: {}\n", session_id));
+    }
+    rendered.push_str(&format!(
+        "Updated: {}\n",
+        format_timestamp(goal.updated_at as i64)
+    ));
+    if let Some(step_title) = goal.current_step_title.as_deref() {
+        rendered.push_str(&format!("Current: {}\n", step_title));
+    }
+
+    rendered.push_str("Steps:\n");
+    if goal.steps.is_empty() {
+        rendered.push_str("  (none)\n");
+    } else {
+        for step in &goal.steps {
+            rendered.push_str(&format!(
+                "  - #{} {} [{}]\n",
+                step.position, step.title, step.status
+            ));
+        }
+    }
+
+    rendered.push_str("Events:\n");
+    if goal.events.is_empty() {
+        rendered.push_str("  (none)");
+    } else {
+        for event in &goal.events {
+            rendered.push_str(&format!(
+                "  - {} [{}] {}\n",
+                format_timestamp(event.timestamp as i64),
+                event.phase,
+                event.message.replace('\n', " ")
+            ));
+        }
+        rendered.truncate(rendered.trim_end().len());
+    }
+
+    Ok(rendered)
+}
+
+fn format_goal_control_output(goal_run_id: &str, action: &str, ok: bool) -> String {
+    match action {
+        "stop" => {
+            if ok {
+                format!("Paused goal {}.", goal_run_id)
+            } else {
+                format!("Goal {} was not stoppable.", goal_run_id)
+            }
+        }
+        "resume" => {
+            if ok {
+                format!("Resumed goal {}.", goal_run_id)
+            } else {
+                format!("Goal {} was not resumable.", goal_run_id)
+            }
+        }
+        _ => {
+            if ok {
+                format!("Updated goal {}.", goal_run_id)
+            } else {
+                format!("Goal {} update failed.", goal_run_id)
+            }
+        }
+    }
+}
+
+fn format_goal_delete_output(goal_run_id: &str, deleted: bool) -> String {
+    if deleted {
+        format!("Deleted goal {}.", goal_run_id)
+    } else {
+        format!("Goal {} was not found.", goal_run_id)
+    }
+}
+
+fn pagination_offset(page: usize, limit: usize) -> usize {
+    page.saturating_sub(1).saturating_mul(limit)
 }
 
 fn format_status_output(
@@ -367,13 +520,16 @@ pub(crate) async fn run_default() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        default_startup_action, format_direct_message_output, format_operation_status_output,
-        format_prompt_output, format_status_output, format_thread_delete_output,
-        format_thread_detail_output, format_thread_list_output, DefaultStartupAction,
+        default_startup_action, format_direct_message_output, format_goal_control_output,
+        format_goal_delete_output, format_goal_detail_output, format_goal_list_output,
+        format_operation_status_output, format_prompt_output, format_status_output,
+        format_thread_control_output, format_thread_delete_output, format_thread_detail_output,
+        format_thread_list_output, DefaultStartupAction,
     };
     use crate::client::{
-        AgentPromptInspection, AgentPromptInspectionSection, AgentStatusSnapshot,
-        AgentThreadMessageRecord, AgentThreadRecord, DirectMessageResponse,
+        AgentGoalRunEventRecord, AgentGoalRunRecord, AgentGoalRunStepRecord, AgentPromptInspection,
+        AgentPromptInspectionSection, AgentStatusSnapshot, AgentThreadMessageRecord,
+        AgentThreadRecord, DirectMessageResponse,
     };
     use crate::setup_wizard::SetupProbe;
 
@@ -588,6 +744,132 @@ mod tests {
         assert_eq!(
             format_thread_delete_output("thread-1", false),
             "Thread thread-1 was not found."
+        );
+    }
+
+    #[test]
+    fn thread_control_output_reports_stop_and_resume_state() {
+        assert_eq!(
+            format_thread_control_output("thread-1", "stop", true),
+            "Stopped active stream for thread thread-1."
+        );
+        assert_eq!(
+            format_thread_control_output("thread-1", "resume", false),
+            "Thread thread-1 was not resumable."
+        );
+    }
+
+    #[test]
+    fn goal_list_plain_output_shows_recent_goals() {
+        let rendered = format_goal_list_output(
+            &[
+                AgentGoalRunRecord {
+                    id: "goal-1".to_string(),
+                    title: "Deploy release".to_string(),
+                    goal: "Ship v1.2".to_string(),
+                    status: "running".to_string(),
+                    priority: "urgent".to_string(),
+                    updated_at: 1_712_345_678_000,
+                    current_step_index: 0,
+                    max_replans: 3,
+                    autonomy_level: "autonomous".to_string(),
+                    ..Default::default()
+                },
+                AgentGoalRunRecord {
+                    id: "goal-2".to_string(),
+                    title: "Audit logs".to_string(),
+                    goal: "Review changes".to_string(),
+                    status: "paused".to_string(),
+                    priority: "normal".to_string(),
+                    updated_at: 1_712_345_679_000,
+                    current_step_index: 0,
+                    max_replans: 3,
+                    autonomy_level: "supervised".to_string(),
+                    ..Default::default()
+                },
+            ],
+            false,
+        )
+        .expect("render goal list");
+
+        assert!(rendered.contains("goal-1"));
+        assert!(rendered.contains("Deploy release"));
+        assert!(rendered.contains("running"));
+        assert!(rendered.contains("goal-2"));
+    }
+
+    #[test]
+    fn goal_detail_plain_output_shows_steps_and_events() {
+        let rendered = format_goal_detail_output(
+            Some(&AgentGoalRunRecord {
+                id: "goal-1".to_string(),
+                title: "Deploy release".to_string(),
+                goal: "Ship v1.2".to_string(),
+                status: "running".to_string(),
+                priority: "urgent".to_string(),
+                updated_at: 1_712_345_678_000,
+                thread_id: Some("thread-1".to_string()),
+                session_id: Some("session-1".to_string()),
+                current_step_index: 0,
+                current_step_title: Some("Deploy".to_string()),
+                replan_count: 1,
+                max_replans: 3,
+                steps: vec![AgentGoalRunStepRecord {
+                    id: "step-1".to_string(),
+                    position: 0,
+                    title: "Deploy".to_string(),
+                    instructions: "Run deploy".to_string(),
+                    kind: "command".to_string(),
+                    success_criteria: "Deployment succeeds".to_string(),
+                    session_id: Some("session-1".to_string()),
+                    status: "in_progress".to_string(),
+                    ..Default::default()
+                }],
+                events: vec![AgentGoalRunEventRecord {
+                    id: "event-1".to_string(),
+                    timestamp: 1_712_345_678_000,
+                    phase: "control".to_string(),
+                    message: "goal run resumed".to_string(),
+                    step_index: Some(0),
+                    ..Default::default()
+                }],
+                autonomy_level: "autonomous".to_string(),
+                ..Default::default()
+            }),
+            false,
+        )
+        .expect("render goal detail");
+
+        assert!(rendered.contains("ID:      goal-1"));
+        assert!(rendered.contains("Title:   Deploy release"));
+        assert!(rendered.contains("Goal:    Ship v1.2"));
+        assert!(rendered.contains("Steps:"));
+        assert!(rendered.contains("Deploy"));
+        assert!(rendered.contains("Events:"));
+        assert!(rendered.contains("goal run resumed"));
+    }
+
+    #[test]
+    fn goal_control_output_reports_stop_and_resume_state() {
+        assert_eq!(
+            format_goal_control_output("goal-1", "stop", true),
+            "Paused goal goal-1."
+        );
+        assert_eq!(
+            format_goal_control_output("goal-1", "resume", false),
+            "Goal goal-1 was not resumable."
+        );
+    }
+
+    #[test]
+    fn goal_delete_output_reports_deleted_state() {
+        assert_eq!(
+            format_goal_delete_output("goal-1", true),
+            "Deleted goal goal-1."
+        );
+        assert_eq!(
+            format_goal_delete_output("goal-1", false),
+            "Goal goal-1 was not found."
         );
     }
 
@@ -809,13 +1091,28 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
             }
         },
         Commands::Thread { action } => match action {
-            ThreadAction::List { json } => {
-                let threads = client::send_thread_list_query().await?;
+            ThreadAction::List { page, limit, json } => {
+                let threads =
+                    client::send_thread_list_query(limit, pagination_offset(page, limit)).await?;
                 println!("{}", format_thread_list_output(&threads, json)?);
             }
             ThreadAction::Get { thread_id, json } => {
                 let thread = client::send_thread_get_query(thread_id).await?;
                 println!("{}", format_thread_detail_output(thread.as_ref(), json)?);
+            }
+            ThreadAction::Stop { thread_id } => {
+                let result = client::send_thread_control(thread_id, "stop").await?;
+                println!(
+                    "{}",
+                    format_thread_control_output(&result.thread_id, &result.action, result.ok)
+                );
+            }
+            ThreadAction::Resume { thread_id } => {
+                let result = client::send_thread_control(thread_id, "resume").await?;
+                println!(
+                    "{}",
+                    format_thread_control_output(&result.thread_id, &result.action, result.ok)
+                );
             }
             ThreadAction::Delete { thread_id, yes } => {
                 if !yes {
@@ -834,6 +1131,50 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
                 println!(
                     "{}",
                     format_thread_delete_output(&result.thread_id, result.deleted)
+                );
+            }
+        },
+        Commands::Goal { action } => match action {
+            GoalAction::List { page, limit, json } => {
+                let goals =
+                    client::send_goal_list_query(limit, pagination_offset(page, limit)).await?;
+                println!("{}", format_goal_list_output(&goals, json)?);
+            }
+            GoalAction::Get { goal_run_id, json } => {
+                let goal = client::send_goal_get_query(goal_run_id).await?;
+                println!("{}", format_goal_detail_output(goal.as_ref(), json)?);
+            }
+            GoalAction::Stop { goal_run_id } => {
+                let result = client::send_goal_control(goal_run_id, "stop").await?;
+                println!(
+                    "{}",
+                    format_goal_control_output(&result.goal_run_id, &result.action, result.ok)
+                );
+            }
+            GoalAction::Resume { goal_run_id } => {
+                let result = client::send_goal_control(goal_run_id, "resume").await?;
+                println!(
+                    "{}",
+                    format_goal_control_output(&result.goal_run_id, &result.action, result.ok)
+                );
+            }
+            GoalAction::Delete { goal_run_id, yes } => {
+                if !yes {
+                    use std::io::{self, Write};
+                    print!("Delete goal {goal_run_id}? [y/N] ");
+                    io::stdout().flush()?;
+                    let mut answer = String::new();
+                    io::stdin().read_line(&mut answer)?;
+                    let normalized = answer.trim().to_ascii_lowercase();
+                    if normalized != "y" && normalized != "yes" {
+                        println!("Aborted.");
+                        return Ok(());
+                    }
+                }
+                let result = client::send_goal_delete(goal_run_id).await?;
+                println!(
+                    "{}",
+                    format_goal_delete_output(&result.goal_run_id, result.deleted)
                 );
             }
         },

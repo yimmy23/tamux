@@ -772,7 +772,7 @@ impl TuiModel {
                 self.focus == FocusArea::Sidebar,
                 &self.gateway_statuses,
                 &self.tier,
-                self.agent_activity.as_deref(),
+                self.current_thread_agent_activity(),
                 self.weles_health.as_ref(),
                 &self.recent_actions,
             );
@@ -964,17 +964,14 @@ impl TuiModel {
                     );
                 }
                 modal::ModalKind::ChatActionConfirm => {
-                    let pending = self.pending_chat_action_confirm.as_ref().map(|pending| {
-                        let action = match pending.action {
-                            PendingChatActionKind::Regenerate => "regenerate",
-                            PendingChatActionKind::Delete => "delete",
-                        };
-                        (action, pending.message_index + 1)
-                    });
+                    let pending = self
+                        .pending_chat_action_confirm
+                        .as_ref()
+                        .map(|pending| pending.modal_body());
                     render_helpers::render_chat_action_confirm_modal(
                         frame,
                         overlay_area,
-                        pending,
+                        pending.as_deref(),
                         self.chat_action_confirm_accept_selected,
                         &self.theme,
                     );
@@ -1003,6 +1000,7 @@ impl TuiModel {
                         &self.concierge,
                         &self.tier,
                         &self.plugin_settings,
+                        self.settings_modal_scroll,
                         &self.theme,
                     );
                 }
@@ -1017,11 +1015,14 @@ impl TuiModel {
                     );
                 }
                 modal::ModalKind::ModelPicker => {
-                    widgets::model_picker::render(
+                    let (current_model, custom_model_name) = self.model_picker_current_selection();
+                    widgets::model_picker::render_for(
                         frame,
                         overlay_area,
                         &self.modal,
                         &self.config,
+                        &current_model,
+                        custom_model_name.as_deref(),
                         &self.theme,
                     );
                 }

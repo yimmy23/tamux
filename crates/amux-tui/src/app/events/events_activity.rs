@@ -227,8 +227,8 @@ impl TuiModel {
     }
 
     pub(crate) fn footer_activity_text(&self) -> Option<String> {
-        self.agent_activity
-            .clone()
+        self.current_thread_agent_activity()
+            .map(str::to_string)
             .or_else(|| self.participant_footer_activity())
     }
 
@@ -242,7 +242,7 @@ impl TuiModel {
     fn should_accept_retry_status_event(&self, thread_id: &str) -> bool {
         if self.chat.is_streaming()
             || self.chat.retry_status().is_some()
-            || self.agent_activity.is_some()
+            || self.current_thread_agent_activity().is_some()
         {
             return true;
         }
@@ -277,8 +277,8 @@ impl TuiModel {
         {
             return;
         }
+        self.set_agent_activity_for(Some(thread_id.clone()), "writing");
         if self.should_surface_thread_activity(&thread_id) {
-            self.agent_activity = Some("writing".to_string());
             self.anticipatory
                 .reduce(crate::state::AnticipatoryAction::Clear);
         }
@@ -295,13 +295,16 @@ impl TuiModel {
         {
             return;
         }
+        self.set_agent_activity_for(Some(thread_id.clone()), "reasoning");
         if self.should_surface_thread_activity(&thread_id) {
-            self.agent_activity = Some("reasoning".to_string());
             self.anticipatory
                 .reduce(crate::state::AnticipatoryAction::Clear);
         }
-        self.chat
-            .reduce(chat::ChatAction::Reasoning { thread_id, content });
+        let active_thread_id = thread_id.clone();
+        self.reduce_chat_for_thread(
+            Some(active_thread_id.as_str()),
+            chat::ChatAction::Reasoning { thread_id, content },
+        );
     }
 
     pub(in crate::app) fn handle_tool_call_event(
@@ -320,18 +323,22 @@ impl TuiModel {
         {
             return;
         }
+        self.set_agent_activity_for(Some(thread_id.clone()), format!("⚙  {}", name));
         if self.should_surface_thread_activity(&thread_id) {
-            self.agent_activity = Some(format!("⚙  {}", name));
             self.anticipatory
                 .reduce(crate::state::AnticipatoryAction::Clear);
         }
-        self.chat.reduce(chat::ChatAction::ToolCall {
-            thread_id,
-            call_id,
-            name,
-            args: arguments,
-            weles_review,
-        });
+        let active_thread_id = thread_id.clone();
+        self.reduce_chat_for_thread(
+            Some(active_thread_id.as_str()),
+            chat::ChatAction::ToolCall {
+                thread_id,
+                call_id,
+                name,
+                args: arguments,
+                weles_review,
+            },
+        );
     }
 
     pub(in crate::app) fn handle_tool_result_event(
@@ -351,19 +358,23 @@ impl TuiModel {
         {
             return;
         }
+        self.set_agent_activity_for(Some(thread_id.clone()), format!("⚙  {} ✓", name));
         if self.should_surface_thread_activity(&thread_id) {
-            self.agent_activity = Some(format!("⚙  {} ✓", name));
             self.anticipatory
                 .reduce(crate::state::AnticipatoryAction::Clear);
         }
-        self.chat.reduce(chat::ChatAction::ToolResult {
-            thread_id,
-            call_id,
-            name,
-            content,
-            is_error,
-            weles_review,
-        });
+        let active_thread_id = thread_id.clone();
+        self.reduce_chat_for_thread(
+            Some(active_thread_id.as_str()),
+            chat::ChatAction::ToolResult {
+                thread_id,
+                call_id,
+                name,
+                content,
+                is_error,
+                weles_review,
+            },
+        );
         self.dispatch_next_queued_prompt_if_ready();
     }
 
@@ -392,8 +403,8 @@ impl TuiModel {
         {
             return;
         }
+        self.clear_agent_activity_for(Some(thread_id.as_str()));
         if self.should_surface_thread_activity(&thread_id) {
-            self.agent_activity = None;
             self.pending_stop = false;
             self.anticipatory
                 .reduce(crate::state::AnticipatoryAction::Clear);
@@ -405,18 +416,21 @@ impl TuiModel {
                 self.input_notice = None;
             }
         }
-        self.chat.reduce(chat::ChatAction::TurnDone {
-            thread_id: thread_id.clone(),
-            input_tokens,
-            output_tokens,
-            cost,
-            provider,
-            model,
-            tps,
-            generation_ms,
-            reasoning,
-            provider_final_result_json,
-        });
+        self.reduce_chat_for_thread(
+            Some(thread_id.as_str()),
+            chat::ChatAction::TurnDone {
+                thread_id: thread_id.clone(),
+                input_tokens,
+                output_tokens,
+                cost,
+                provider,
+                model,
+                tps,
+                generation_ms,
+                reasoning,
+                provider_final_result_json,
+            },
+        );
 
         let _ = self.maybe_request_auto_response_for_open_thread(&thread_id);
         let _ = self.maybe_auto_send_always_auto_response();
@@ -512,24 +526,27 @@ impl TuiModel {
             return;
         };
 
-        self.chat.reduce(chat::ChatAction::AppendMessage {
-            thread_id: target_thread_id.clone(),
-            message: chat::AgentMessage {
-                role: chat::MessageRole::Assistant,
-                content,
-                is_operator_question: true,
-                operator_question_id: Some(question_id.clone()),
-                actions: options
-                    .into_iter()
-                    .map(|option| chat::MessageAction {
-                        label: option.clone(),
-                        action_type: format!("operator_question_answer:{question_id}:{option}"),
-                        thread_id: Some(target_thread_id.clone()),
-                    })
-                    .collect(),
-                ..Default::default()
+        self.reduce_chat_for_thread(
+            Some(target_thread_id.as_str()),
+            chat::ChatAction::AppendMessage {
+                thread_id: target_thread_id.clone(),
+                message: chat::AgentMessage {
+                    role: chat::MessageRole::Assistant,
+                    content,
+                    is_operator_question: true,
+                    operator_question_id: Some(question_id.clone()),
+                    actions: options
+                        .into_iter()
+                        .map(|option| chat::MessageAction {
+                            label: option.clone(),
+                            action_type: format!("operator_question_answer:{question_id}:{option}"),
+                            thread_id: Some(target_thread_id.clone()),
+                        })
+                        .collect(),
+                    ..Default::default()
+                },
             },
-        });
+        );
         self.status_line = "Operator question ready".to_string();
     }
 
@@ -709,7 +726,7 @@ impl TuiModel {
         if busy {
             self.chat.reduce(chat::ChatAction::ForceStopStreaming);
         }
-        self.agent_activity = None;
+        self.clear_active_thread_activity();
         self.clear_pending_stop();
         self.concierge
             .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
@@ -718,14 +735,18 @@ impl TuiModel {
         self.error_tick = self.tick_counter;
         if busy && self.modal.top().is_none() {
             if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) {
-                self.chat.reduce(chat::ChatAction::AppendMessage {
-                    thread_id,
-                    message: chat::AgentMessage {
-                        role: chat::MessageRole::System,
-                        content: format!("Error: {}", message),
-                        ..Default::default()
+                let active_thread_id = thread_id.clone();
+                self.reduce_chat_for_thread(
+                    Some(active_thread_id.as_str()),
+                    chat::ChatAction::AppendMessage {
+                        thread_id,
+                        message: chat::AgentMessage {
+                            role: chat::MessageRole::System,
+                            content: format!("Error: {}", message),
+                            ..Default::default()
+                        },
                     },
-                });
+                );
             }
         } else {
             self.status_line = "Error recorded. Press Ctrl+E for details".to_string();
@@ -774,36 +795,45 @@ impl TuiModel {
         message: String,
     ) {
         if phase == "cleared" {
-            self.chat
-                .reduce(chat::ChatAction::ClearRetryStatus { thread_id });
+            self.reduce_chat_for_thread(
+                Some(thread_id.as_str()),
+                chat::ChatAction::ClearRetryStatus {
+                    thread_id: thread_id.clone(),
+                },
+            );
             self.retry_wait_start_selected = false;
-            if !self.chat.is_streaming() {
-                self.agent_activity = None;
-            }
+            self.clear_agent_activity_for(Some(thread_id.as_str()));
             return;
         }
         if phase != "waiting" && !self.should_accept_retry_status_event(thread_id.as_str()) {
             return;
         }
         self.retry_wait_start_selected = false;
-        self.agent_activity = Some(match phase.as_str() {
-            "waiting" => "retry wait".to_string(),
-            _ => "retrying".to_string(),
-        });
-        self.chat.reduce(chat::ChatAction::SetRetryStatus {
-            thread_id,
-            phase: if phase == "waiting" {
-                chat::RetryPhase::Waiting
-            } else {
-                chat::RetryPhase::Retrying
+        self.set_agent_activity_for(
+            Some(thread_id.clone()),
+            match phase.as_str() {
+                "waiting" => "retry wait",
+                _ => "retrying",
             },
-            attempt,
-            max_retries,
-            delay_ms,
-            failure_class,
-            message,
-            received_at_tick: self.tick_counter,
-        });
+        );
+        let active_thread_id = thread_id.clone();
+        self.reduce_chat_for_thread(
+            Some(active_thread_id.as_str()),
+            chat::ChatAction::SetRetryStatus {
+                thread_id,
+                phase: if phase == "waiting" {
+                    chat::RetryPhase::Waiting
+                } else {
+                    chat::RetryPhase::Retrying
+                },
+                attempt,
+                max_retries,
+                delay_ms,
+                failure_class,
+                message,
+                received_at_tick: self.tick_counter,
+            },
+        );
     }
 
     pub(in crate::app) fn handle_workflow_notice_event(
@@ -828,7 +858,7 @@ impl TuiModel {
         {
             self.status_line = status_line;
             if let Some(agent_activity) = agent_activity {
-                self.agent_activity = Some(agent_activity);
+                self.set_agent_activity_for(thread_id.clone(), agent_activity);
             }
         } else {
             self.status_line = if let Some(details) = details_ref {
@@ -904,14 +934,18 @@ impl TuiModel {
                 .active_thread_id()
                 .map(str::to_string)
                 .unwrap_or_else(|| "local-weles-health".to_string());
-            self.chat.reduce(chat::ChatAction::AppendMessage {
-                thread_id,
-                message: chat::AgentMessage {
-                    role: chat::MessageRole::System,
-                    content: format!("WELES degraded\n\n{detail}"),
-                    ..Default::default()
+            let active_thread_id = thread_id.clone();
+            self.reduce_chat_for_thread(
+                Some(active_thread_id.as_str()),
+                chat::ChatAction::AppendMessage {
+                    thread_id,
+                    message: chat::AgentMessage {
+                        role: chat::MessageRole::System,
+                        content: format!("WELES degraded\n\n{detail}"),
+                        ..Default::default()
+                    },
                 },
-            });
+            );
         }
     }
 
@@ -966,14 +1000,18 @@ impl TuiModel {
             .unwrap_or_else(|| "local-explain".to_string());
         let content =
             serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
-        self.chat.reduce(chat::ChatAction::AppendMessage {
-            thread_id,
-            message: chat::AgentMessage {
-                role: chat::MessageRole::System,
-                content: format!("Explainability\n\n{}", content),
-                ..Default::default()
+        let active_thread_id = thread_id.clone();
+        self.reduce_chat_for_thread(
+            Some(active_thread_id.as_str()),
+            chat::ChatAction::AppendMessage {
+                thread_id,
+                message: chat::AgentMessage {
+                    role: chat::MessageRole::System,
+                    content: format!("Explainability\n\n{}", content),
+                    ..Default::default()
+                },
             },
-        });
+        );
         self.status_line = "Explainability result received".to_string();
     }
 
@@ -990,21 +1028,25 @@ impl TuiModel {
             .active_thread_id()
             .map(str::to_string)
             .unwrap_or_else(|| "local-divergent".to_string());
-        self.chat.reduce(chat::ChatAction::AppendMessage {
-            thread_id,
-            message: chat::AgentMessage {
-                role: chat::MessageRole::System,
-                content: if session_id.is_empty() {
-                    "Divergent session started".to_string()
-                } else {
-                    format!(
-                        "Divergent session started: `{}`\nUse `/diverge-get {}` to fetch results.",
-                        session_id, session_id
-                    )
+        let active_thread_id = thread_id.clone();
+        self.reduce_chat_for_thread(
+            Some(active_thread_id.as_str()),
+            chat::ChatAction::AppendMessage {
+                thread_id,
+                message: chat::AgentMessage {
+                    role: chat::MessageRole::System,
+                    content: if session_id.is_empty() {
+                        "Divergent session started".to_string()
+                    } else {
+                        format!(
+                            "Divergent session started: `{}`\nUse `/diverge-get {}` to fetch results.",
+                            session_id, session_id
+                        )
+                    },
+                    ..Default::default()
                 },
-                ..Default::default()
             },
-        });
+        );
         self.status_line = "Divergent session started".to_string();
     }
 
@@ -1016,14 +1058,18 @@ impl TuiModel {
             .unwrap_or_else(|| "local-divergent".to_string());
         let content =
             serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
-        self.chat.reduce(chat::ChatAction::AppendMessage {
-            thread_id,
-            message: chat::AgentMessage {
-                role: chat::MessageRole::System,
-                content: format!("Divergent session payload\n\n{}", content),
-                ..Default::default()
+        let active_thread_id = thread_id.clone();
+        self.reduce_chat_for_thread(
+            Some(active_thread_id.as_str()),
+            chat::ChatAction::AppendMessage {
+                thread_id,
+                message: chat::AgentMessage {
+                    role: chat::MessageRole::System,
+                    content: format!("Divergent session payload\n\n{}", content),
+                    ..Default::default()
+                },
             },
-        });
+        );
         self.status_line = "Divergent session payload received".to_string();
     }
 }

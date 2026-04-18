@@ -510,6 +510,25 @@ fn start_daemon_bridge(
                                     client.request_goal_run(goal_run_id),
                                 );
                             }
+                            DaemonCommand::RequestGoalRunDetailPage {
+                                goal_run_id,
+                                step_offset,
+                                step_limit,
+                                event_offset,
+                                event_limit,
+                            } => {
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "request goal run detail page",
+                                    client.request_goal_run_page(
+                                        goal_run_id,
+                                        step_offset,
+                                        step_limit,
+                                        event_offset,
+                                        event_limit,
+                                    ),
+                                );
+                            }
                             DaemonCommand::RequestGoalRunCheckpoints(goal_run_id) => {
                                 forward_bridge_command_result(
                                     &daemon_event_tx,
@@ -644,6 +663,9 @@ fn start_daemon_bridge(
                             DaemonCommand::DeleteMessages { thread_id, message_ids } => {
                                 let _ = client.delete_messages(thread_id, message_ids);
                             }
+                            DaemonCommand::DeleteThread { thread_id } => {
+                                let _ = client.delete_thread(thread_id);
+                            }
                             DaemonCommand::FetchModels {
                                 provider_id,
                                 base_url,
@@ -670,6 +692,9 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::ControlGoalRun { goal_run_id, action } => {
                                 let _ = client.control_goal_run(goal_run_id, action);
+                            }
+                            DaemonCommand::DeleteGoalRun { goal_run_id } => {
+                                let _ = client.delete_goal_run(goal_run_id);
                             }
                             DaemonCommand::ListTaskApprovalRules => {
                                 let _ = client.list_task_approval_rules();

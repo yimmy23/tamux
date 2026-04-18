@@ -525,6 +525,31 @@ fn operation_status_response_extracts_snapshot() {
     assert_eq!(snapshot.revision, 2);
 }
 
+#[test]
+fn thread_control_result_round_trips_through_codec() {
+    let bytes = serde_json::to_vec(&DaemonMessage::AgentThreadControlled {
+        thread_id: "thread-1".to_string(),
+        action: "stop".to_string(),
+        ok: true,
+    })
+    .expect("serialize thread control result");
+
+    let decoded: DaemonMessage =
+        serde_json::from_slice(&bytes).expect("deserialize thread control result");
+    match decoded {
+        DaemonMessage::AgentThreadControlled {
+            thread_id,
+            action,
+            ok,
+        } => {
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(action, "stop");
+            assert!(ok);
+        }
+        other => panic!("unexpected daemon message: {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn agent_bridge_ignores_operation_acceptance_messages() {
     let (client_side, server_side) = tokio::io::duplex(1024);

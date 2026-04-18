@@ -291,6 +291,7 @@ const bridgeApi = {
     agentHeartbeatGetItems: () => ipcRenderer.invoke('agent-heartbeat-get-items'),
     agentHeartbeatSetItems: (items) => ipcRenderer.invoke('agent-heartbeat-set-items', items),
     agentResolveTaskApproval: (approvalId, decision) => ipcRenderer.invoke('agent-resolve-task-approval', approvalId, decision),
+    agentFetchModels: (providerId, baseUrl, apiKey) => ipcRenderer.invoke('agent-fetch-models', providerId, baseUrl, apiKey),
     agentGetProviderAuthStates: () => ipcRenderer.invoke('agent-get-provider-auth-states'),
     agentLoginProvider: (providerId, apiKey, baseUrl) => ipcRenderer.invoke('agent-login-provider', providerId, apiKey, baseUrl),
     agentLogoutProvider: (providerId) => ipcRenderer.invoke('agent-logout-provider', providerId),

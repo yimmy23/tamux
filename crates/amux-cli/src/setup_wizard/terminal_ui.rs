@@ -1,5 +1,12 @@
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RichSelectItem {
+    pub label: String,
+    pub detail: Option<String>,
+    pub subtitle: Option<String>,
+}
+
 pub(super) fn is_submit_key(code: KeyCode, modifiers: KeyModifiers) -> bool {
     matches!(
         code,
@@ -107,6 +114,130 @@ pub(super) fn select_list(
             }
 
             let lines_to_clear = items.len() + 2;
+            execute!(
+                stdout,
+                cursor::MoveUp(lines_to_clear as u16),
+                terminal::Clear(terminal::ClearType::FromCursorDown),
+            )?;
+        }
+    })()
+}
+
+pub(super) fn select_rich_list(
+    title: &str,
+    items: &[RichSelectItem],
+    allow_esc: bool,
+    default_index: usize,
+) -> Result<Option<usize>> {
+    use crossterm::{cursor, execute, queue};
+
+    let mut stdout = io::stdout();
+    let mut selected: usize = default_index.min(items.len().saturating_sub(1));
+    let _raw_mode = RawModeGuard::new()?;
+
+    (|| -> Result<Option<usize>> {
+        loop {
+            queue!(
+                stdout,
+                style::SetForegroundColor(style::Color::White),
+                style::SetAttribute(style::Attribute::Bold),
+                style::Print(title),
+                style::SetAttribute(style::Attribute::Reset),
+                style::SetForegroundColor(style::Color::Reset),
+                style::Print("\r\n\r\n"),
+            )?;
+
+            for (i, item) in items.iter().enumerate() {
+                let mut line = if i == selected {
+                    format!("  > {}", item.label)
+                } else {
+                    format!("    {}", item.label)
+                };
+                if let Some(detail) = item.detail.as_deref().filter(|detail| !detail.is_empty()) {
+                    line.push_str(&format!(" ({detail})"));
+                }
+
+                if i == selected {
+                    queue!(
+                        stdout,
+                        style::SetForegroundColor(style::Color::Green),
+                        style::SetAttribute(style::Attribute::Bold),
+                        style::Print(&line),
+                        style::SetAttribute(style::Attribute::Reset),
+                        style::SetForegroundColor(style::Color::Reset),
+                        style::Print("\r\n"),
+                    )?;
+                } else {
+                    queue!(
+                        stdout,
+                        style::SetForegroundColor(style::Color::Grey),
+                        style::Print(&line),
+                        style::SetForegroundColor(style::Color::Reset),
+                        style::Print("\r\n"),
+                    )?;
+                }
+
+                if let Some(subtitle) = item
+                    .subtitle
+                    .as_deref()
+                    .filter(|subtitle| !subtitle.is_empty())
+                {
+                    queue!(
+                        stdout,
+                        style::SetForegroundColor(style::Color::DarkGrey),
+                        style::Print(format!("      {subtitle}")),
+                        style::SetForegroundColor(style::Color::Reset),
+                        style::Print("\r\n"),
+                    )?;
+                }
+            }
+
+            stdout.flush()?;
+
+            if let Event::Key(KeyEvent {
+                code,
+                modifiers,
+                kind,
+                ..
+            }) = event::read()?
+            {
+                if is_actionable_key_event_kind(kind) {
+                    match code {
+                        KeyCode::Up => {
+                            if selected == 0 {
+                                selected = items.len().saturating_sub(1);
+                            } else {
+                                selected -= 1;
+                            }
+                        }
+                        KeyCode::Down => {
+                            selected += 1;
+                            if selected >= items.len() {
+                                selected = 0;
+                            }
+                        }
+                        _ if is_submit_key(code, modifiers) => {
+                            execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
+                            return Ok(Some(selected));
+                        }
+                        KeyCode::Esc if allow_esc => {
+                            execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
+                            return Ok(None);
+                        }
+                        KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                            anyhow::bail!("Setup cancelled by user");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let lines_to_clear = title.lines().count()
+                + 1
+                + items
+                    .iter()
+                    .map(|item| 1 + usize::from(item.subtitle.is_some()))
+                    .sum::<usize>();
             execute!(
                 stdout,
                 cursor::MoveUp(lines_to_clear as u16),

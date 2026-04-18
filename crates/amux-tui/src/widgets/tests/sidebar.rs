@@ -21,22 +21,22 @@ fn sidebar_handles_empty_state() {
 #[test]
 fn tab_hit_test_uses_rendered_label_positions() {
     let area = Rect::new(10, 1, 30, 1);
-    let cells = tab_cells(area, false);
+    let cells = tab_cells(area, false, false);
     assert_eq!(
-        tab_hit_test(area, cells[0].1.x + 1, false),
+        tab_hit_test(area, cells[0].1.x + 1, false, false),
         Some(SidebarTab::Todos)
     );
     assert_eq!(
-        tab_hit_test(area, cells[1].1.x + 1, false),
+        tab_hit_test(area, cells[1].1.x + 1, false, false),
         Some(SidebarTab::Files)
     );
     let boundary = cells[0].1.x.saturating_add(cells[0].1.width);
     assert_eq!(
-        tab_hit_test(area, boundary.saturating_sub(1), false),
+        tab_hit_test(area, boundary.saturating_sub(1), false, false),
         Some(SidebarTab::Todos)
     );
     assert_eq!(
-        tab_hit_test(area, boundary.saturating_add(1), false),
+        tab_hit_test(area, boundary.saturating_add(1), false, false),
         Some(SidebarTab::Files)
     );
 }
@@ -399,4 +399,248 @@ fn pinned_sidebar_renders_footer_hints() {
         plain.contains("Ctrl+C copy"),
         "expected copy hint, got: {plain}"
     );
+}
+
+fn spawned_sidebar_task(
+    id: &str,
+    title: &str,
+    created_at: u64,
+    thread_id: Option<&str>,
+    parent_task_id: Option<&str>,
+    parent_thread_id: Option<&str>,
+    status: Option<crate::state::task::TaskStatus>,
+) -> crate::state::task::AgentTask {
+    crate::state::task::AgentTask {
+        id: id.to_string(),
+        title: title.to_string(),
+        created_at,
+        thread_id: thread_id.map(str::to_string),
+        parent_task_id: parent_task_id.map(str::to_string),
+        parent_thread_id: parent_thread_id.map(str::to_string),
+        status,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn spawned_sidebar_tabs_include_spawned() {
+    let sidebar = SidebarState::new();
+    let mut tasks = TaskState::new();
+    tasks.reduce(TaskAction::TaskListReceived(vec![
+        spawned_sidebar_task(
+            "root-task",
+            "Root worker",
+            10,
+            Some("thread-root"),
+            None,
+            None,
+            Some(crate::state::task::TaskStatus::InProgress),
+        ),
+        spawned_sidebar_task(
+            "child-task",
+            "Child worker",
+            20,
+            Some("thread-child"),
+            Some("root-task"),
+            Some("thread-root"),
+            Some(crate::state::task::TaskStatus::InProgress),
+        ),
+    ]));
+    let mut chat = ChatState::new();
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "thread-root".to_string(),
+        title: "Root".to_string(),
+    });
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "thread-child".to_string(),
+        title: "Child".to_string(),
+    });
+    chat.reduce(ChatAction::SelectThread("thread-root".to_string()));
+
+    let area = Rect::new(0, 0, 40, 8);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| {
+            render(
+                frame,
+                area,
+                &chat,
+                &sidebar,
+                &tasks,
+                Some("thread-root"),
+                &ThemeTokens::default(),
+                true,
+                &[],
+                &crate::state::tier::TierState::default(),
+                None,
+                None,
+                &[],
+            );
+        })
+        .expect("sidebar render should succeed");
+
+    let buffer = terminal.backend().buffer();
+    let plain = (area.y..area.y.saturating_add(area.height))
+        .map(|y| {
+            (area.x..area.x.saturating_add(area.width))
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        plain.contains("Spawned"),
+        "expected spawned tab in sidebar, got: {plain}"
+    );
+}
+
+#[test]
+fn spawned_sidebar_renders_nested_rows_under_active_thread() {
+    let mut sidebar = SidebarState::new();
+    sidebar.reduce(crate::state::sidebar::SidebarAction::SwitchTab(
+        crate::state::sidebar::SidebarTab::Spawned,
+    ));
+    let mut tasks = TaskState::new();
+    tasks.reduce(TaskAction::TaskListReceived(vec![
+        spawned_sidebar_task(
+            "root-task",
+            "Root worker",
+            10,
+            Some("thread-root"),
+            None,
+            None,
+            Some(crate::state::task::TaskStatus::InProgress),
+        ),
+        spawned_sidebar_task(
+            "child-task",
+            "Child worker",
+            20,
+            Some("thread-child"),
+            Some("root-task"),
+            Some("thread-root"),
+            Some(crate::state::task::TaskStatus::InProgress),
+        ),
+        spawned_sidebar_task(
+            "grandchild-task",
+            "Grandchild worker",
+            30,
+            Some("thread-grandchild"),
+            Some("child-task"),
+            Some("thread-child"),
+            Some(crate::state::task::TaskStatus::Completed),
+        ),
+    ]));
+    let mut chat = ChatState::new();
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "thread-root".to_string(),
+        title: "Root".to_string(),
+    });
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "thread-child".to_string(),
+        title: "Child".to_string(),
+    });
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "thread-grandchild".to_string(),
+        title: "Grandchild".to_string(),
+    });
+    chat.reduce(ChatAction::SelectThread("thread-root".to_string()));
+
+    let area = Rect::new(0, 0, 44, 10);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| {
+            render(
+                frame,
+                area,
+                &chat,
+                &sidebar,
+                &tasks,
+                Some("thread-root"),
+                &ThemeTokens::default(),
+                true,
+                &[],
+                &crate::state::tier::TierState::default(),
+                None,
+                None,
+                &[],
+            );
+        })
+        .expect("sidebar render should succeed");
+
+    let buffer = terminal.backend().buffer();
+    let plain = (area.y..area.y.saturating_add(area.height))
+        .map(|y| {
+            (area.x..area.x.saturating_add(area.width))
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        plain.contains("Root worker"),
+        "expected anchor row in spawned sidebar, got: {plain}"
+    );
+    assert!(
+        plain.contains("Child worker"),
+        "expected child row in spawned sidebar, got: {plain}"
+    );
+    assert!(
+        plain.contains("Grandchild worker"),
+        "expected grandchild row in spawned sidebar, got: {plain}"
+    );
+}
+
+#[test]
+fn spawned_sidebar_hit_test_returns_spawned_target_for_child_row() {
+    let mut sidebar = SidebarState::new();
+    sidebar.reduce(crate::state::sidebar::SidebarAction::SwitchTab(
+        crate::state::sidebar::SidebarTab::Spawned,
+    ));
+    let mut tasks = TaskState::new();
+    tasks.reduce(TaskAction::TaskListReceived(vec![
+        spawned_sidebar_task(
+            "root-task",
+            "Root worker",
+            10,
+            Some("thread-root"),
+            None,
+            None,
+            Some(crate::state::task::TaskStatus::InProgress),
+        ),
+        spawned_sidebar_task(
+            "child-task",
+            "Child worker",
+            20,
+            Some("thread-child"),
+            Some("root-task"),
+            Some("thread-root"),
+            Some(crate::state::task::TaskStatus::InProgress),
+        ),
+    ]));
+    let mut chat = ChatState::new();
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "thread-root".to_string(),
+        title: "Root".to_string(),
+    });
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "thread-child".to_string(),
+        title: "Child".to_string(),
+    });
+    chat.reduce(ChatAction::SelectThread("thread-root".to_string()));
+
+    let area = Rect::new(0, 0, 44, 10);
+    let target = hit_test(
+        area,
+        &chat,
+        &sidebar,
+        &tasks,
+        Some("thread-root"),
+        Position::new(2, 2),
+    );
+
+    assert_eq!(target, Some(SidebarHitTarget::Spawned(1)));
 }

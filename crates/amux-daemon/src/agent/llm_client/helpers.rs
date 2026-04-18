@@ -47,11 +47,71 @@ fn drain_tool_calls(map: &mut HashMap<u32, PendingToolCall>) -> Vec<ToolCall> {
 // Model fetching
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FetchedModelPricing {
+    pub prompt: Option<String>,
+    pub completion: Option<String>,
+    pub image: Option<String>,
+    pub request: Option<String>,
+    pub web_search: Option<String>,
+    pub internal_reasoning: Option<String>,
+    pub input_cache_read: Option<String>,
+    pub input_cache_write: Option<String>,
+    pub audio: Option<String>,
+}
+
+impl FetchedModelPricing {
+    fn is_empty(&self) -> bool {
+        self.prompt.is_none()
+            && self.completion.is_none()
+            && self.image.is_none()
+            && self.request.is_none()
+            && self.web_search.is_none()
+            && self.internal_reasoning.is_none()
+            && self.input_cache_read.is_none()
+            && self.input_cache_write.is_none()
+            && self.audio.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FetchedModel {
     pub id: String,
     pub name: Option<String>,
     pub context_window: Option<u32>,
+    pub pricing: Option<FetchedModelPricing>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+fn json_string_field(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
+fn parse_model_pricing(model: &serde_json::Value) -> Option<FetchedModelPricing> {
+    let pricing = model.get("pricing")?.as_object()?;
+    let pricing = FetchedModelPricing {
+        prompt: json_string_field(pricing.get("prompt")),
+        completion: json_string_field(pricing.get("completion")),
+        image: json_string_field(pricing.get("image")),
+        request: json_string_field(pricing.get("request")),
+        web_search: json_string_field(pricing.get("web_search")),
+        internal_reasoning: json_string_field(pricing.get("internal_reasoning")),
+        input_cache_read: json_string_field(pricing.get("input_cache_read")),
+        input_cache_write: json_string_field(pricing.get("input_cache_write")),
+        audio: json_string_field(pricing.get("audio")),
+    };
+    (!pricing.is_empty()).then_some(pricing)
 }
 
 pub async fn fetch_models(
@@ -69,6 +129,8 @@ pub async fn fetch_models(
                         id: model.id.to_string(),
                         name: Some(model.name.to_string()),
                         context_window: Some(model.context_window),
+                        pricing: None,
+                        metadata: None,
                     })
                     .collect()
             })
@@ -128,6 +190,8 @@ pub async fn fetch_models(
                         id,
                         name,
                         context_window,
+                        pricing: parse_model_pricing(m),
+                        metadata: Some(m.clone()),
                     })
                 })
                 .collect()
@@ -151,6 +215,11 @@ pub async fn validate_provider_connection(
         base_url.trim().to_string()
     };
 
+    if provider_id == amux_shared::providers::PROVIDER_ID_AZURE_OPENAI {
+        let models = fetch_models(provider_id, &resolved_base_url, api_key).await?;
+        return Ok(Some(models));
+    }
+
     if provider_id == amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT {
         let models = super::copilot_auth::list_github_copilot_models(api_key, auth_source)?
             .into_iter()
@@ -158,6 +227,8 @@ pub async fn validate_provider_connection(
                 id: model.id,
                 name: model.name,
                 context_window: model.context_window,
+                pricing: None,
+                metadata: None,
             })
             .collect::<Vec<_>>();
         if models.is_empty() {

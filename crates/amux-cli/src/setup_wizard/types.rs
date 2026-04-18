@@ -15,6 +15,34 @@ pub(super) struct ProviderAuthState {
     pub base_url: String,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(super) struct RemoteModelPricing {
+    pub prompt: Option<String>,
+    pub completion: Option<String>,
+    pub image: Option<String>,
+    pub request: Option<String>,
+    pub web_search: Option<String>,
+    pub internal_reasoning: Option<String>,
+    pub input_cache_read: Option<String>,
+    pub input_cache_write: Option<String>,
+    pub audio: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(super) struct RemoteModelOption {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub context_window: Option<u32>,
+    #[serde(default)]
+    pub pricing: Option<RemoteModelPricing>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum WhatsAppAllowlistPromptOutcome {
     Submitted(String),

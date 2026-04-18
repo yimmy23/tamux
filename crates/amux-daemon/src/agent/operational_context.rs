@@ -12,7 +12,10 @@ impl AgentEngine {
                 .filter(|task| {
                     !matches!(
                         task.status,
-                        TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
+                        TaskStatus::Completed
+                            | TaskStatus::BudgetExceeded
+                            | TaskStatus::Failed
+                            | TaskStatus::Cancelled
                     )
                 })
                 .take(4)
@@ -111,6 +114,7 @@ fn task_status_label(status: TaskStatus) -> &'static str {
         TaskStatus::Queued => "queued",
         TaskStatus::InProgress => "running",
         TaskStatus::AwaitingApproval => "awaiting-approval",
+        TaskStatus::BudgetExceeded => "budget-exceeded",
         TaskStatus::Completed => "completed",
         TaskStatus::Failed => "failed",
         TaskStatus::Blocked => "blocked",
