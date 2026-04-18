@@ -868,7 +868,9 @@ impl AgentEngine {
     }
 
     pub async fn list_goal_runs(&self) -> Vec<GoalRun> {
-        self.list_goal_runs_paginated_capped_for_ipc(None, None).await.0
+        self.list_goal_runs_paginated_capped_for_ipc(None, None)
+            .await
+            .0
     }
 
     pub(crate) async fn list_goal_runs_paginated_capped_for_ipc(

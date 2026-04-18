@@ -555,9 +555,10 @@ mod tests {
 
     #[test]
     fn thread_list_subcommand_parses() {
-        let cli =
-            Cli::try_parse_from(["tamux", "thread", "list", "--page", "2", "--limit", "15", "--json"])
-            .expect("thread list subcommand should parse");
+        let cli = Cli::try_parse_from([
+            "tamux", "thread", "list", "--page", "2", "--limit", "15", "--json",
+        ])
+        .expect("thread list subcommand should parse");
         match cli.command {
             Some(Commands::Thread {
                 action: ThreadAction::List { page, limit, json },
@@ -674,9 +675,10 @@ mod tests {
 
     #[test]
     fn goal_list_subcommand_parses() {
-        let cli =
-            Cli::try_parse_from(["tamux", "goal", "list", "--page", "3", "--limit", "10", "--json"])
-            .expect("goal list subcommand should parse");
+        let cli = Cli::try_parse_from([
+            "tamux", "goal", "list", "--page", "3", "--limit", "10", "--json",
+        ])
+        .expect("goal list subcommand should parse");
         match cli.command {
             Some(Commands::Goal {
                 action: GoalAction::List { page, limit, json },

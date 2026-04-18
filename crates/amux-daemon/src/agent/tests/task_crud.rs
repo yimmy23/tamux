@@ -799,7 +799,8 @@ async fn list_goal_runs_pagination_obeys_newest_first_limit_and_offset() {
 
     let mut goals = engine.goal_runs.lock().await;
     for (id, updated_at) in [("goal-one", 30), ("goal-two", 20), ("goal-three", 10)] {
-        let mut goal = sample_supervised_goal_run(id, &format!("task-{id}"), &format!("approval-{id}"));
+        let mut goal =
+            sample_supervised_goal_run(id, &format!("task-{id}"), &format!("approval-{id}"));
         goal.updated_at = updated_at;
         goals.push_back(goal);
     }
@@ -813,11 +814,17 @@ async fn list_goal_runs_pagination_obeys_newest_first_limit_and_offset() {
         .await;
 
     assert_eq!(
-        first_page.iter().map(|goal| goal.id.as_str()).collect::<Vec<_>>(),
+        first_page
+            .iter()
+            .map(|goal| goal.id.as_str())
+            .collect::<Vec<_>>(),
         vec!["goal-one", "goal-two"]
     );
     assert_eq!(
-        second_page.iter().map(|goal| goal.id.as_str()).collect::<Vec<_>>(),
+        second_page
+            .iter()
+            .map(|goal| goal.id.as_str())
+            .collect::<Vec<_>>(),
         vec!["goal-three"]
     );
 }

@@ -165,7 +165,7 @@ pub(super) fn build_system_prompt(
          - When you learn durable operator preferences, stable project facts, or reusable strategy hints, call `update_memory` with a concise update so future sessions start with that context.\n\
          - Do not write task progress, temporary TODOs, approval status, or transient risk labels into durable memory.\n\
          - Memory is provenance-backed and operator-auditable. Correct or retract stale durable facts explicitly instead of silently layering contradictions on top.\n\
-         - Memory files have hard limits: SOUL.md 1500 chars, MEMORY.md 2200 chars, USER.md 1375 chars.\n",
+         - Memory files have hard limits: SOUL.md 2000 chars, MEMORY.md 3600 chars, USER.md 1800 chars.\n",
     );
     prompt.push_str(&format!(
         "         - {} is your concierge peer in tamux. Use `message_agent` only for private cross-agent coordination or quick checks. It does not switch the active responder for the operator thread and future operator turns do not route to the message target.\n",

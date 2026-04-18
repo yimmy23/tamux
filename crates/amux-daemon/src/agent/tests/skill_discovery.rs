@@ -34,6 +34,24 @@ fn seq(items: &[&str]) -> Vec<String> {
 // -----------------------------------------------------------------------
 
 #[test]
+fn skill_drafting_prompt_uses_agentskills_schema_and_tamux_context_tags() {
+    let prompt = build_skill_drafting_prompt(
+        &seq(&["read_file", "cargo_test", "apply_patch"]),
+        "coding",
+        &["rust".to_string(), "async".to_string()],
+    );
+
+    assert!(prompt.contains("Use agentskills.io-compatible YAML frontmatter."));
+    assert!(prompt.contains("name: coding-read-file-cargo-test-apply-patch"));
+    assert!(prompt.contains("tamux:"));
+    assert!(prompt.contains("context_tags:"));
+    assert!(prompt.contains("- rust"));
+    assert!(prompt.contains("- async"));
+    assert!(!prompt.contains("name: <concise snake_case skill name>"));
+    assert!(!prompt.contains("context_tags: [<relevant tags>]"));
+}
+
+#[test]
 fn skill_discovery_complexity_returns_false_when_outcome_not_success() {
     let cfg = default_config();
     assert!(!meets_complexity_threshold(

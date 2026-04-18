@@ -1092,7 +1092,8 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
         },
         Commands::Thread { action } => match action {
             ThreadAction::List { page, limit, json } => {
-                let threads = client::send_thread_list_query(limit, pagination_offset(page, limit)).await?;
+                let threads =
+                    client::send_thread_list_query(limit, pagination_offset(page, limit)).await?;
                 println!("{}", format_thread_list_output(&threads, json)?);
             }
             ThreadAction::Get { thread_id, json } => {
@@ -1135,7 +1136,8 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
         },
         Commands::Goal { action } => match action {
             GoalAction::List { page, limit, json } => {
-                let goals = client::send_goal_list_query(limit, pagination_offset(page, limit)).await?;
+                let goals =
+                    client::send_goal_list_query(limit, pagination_offset(page, limit)).await?;
                 println!("{}", format_goal_list_output(&goals, json)?);
             }
             GoalAction::Get { goal_run_id, json } => {

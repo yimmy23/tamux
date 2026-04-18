@@ -15,8 +15,19 @@ fn test_write_context() -> MemoryWriteContext<'static> {
 
 #[test]
 fn validate_memory_size_rejects_over_limit() {
-    let err = validate_memory_size(MemoryTarget::Soul, &"x".repeat(1_501)).unwrap_err();
+    let err = validate_memory_size(
+        MemoryTarget::Soul,
+        &"x".repeat(MemoryTarget::Soul.limit_chars() + 1),
+    )
+    .unwrap_err();
     assert!(err.to_string().contains("SOUL.md would exceed its limit"));
+}
+
+#[test]
+fn memory_target_limits_match_policy_contract() {
+    assert_eq!(MemoryTarget::Soul.limit_chars(), 2_000);
+    assert_eq!(MemoryTarget::Memory.limit_chars(), 3_600);
+    assert_eq!(MemoryTarget::User.limit_chars(), 1_800);
 }
 
 #[test]

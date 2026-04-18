@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getBridge } from "@/lib/bridge";
 import { resolveCompactionTargetTokens } from "../../lib/agentCompactionTarget";
+import { MEMORY_MAX_CHARS, USER_MAX_CHARS } from "../../lib/agent-mission-store/types";
 import { fetchThreadWorkContext, type ThreadWorkContext } from "../../lib/agentWorkContext";
 import { shortenHomePath } from "../../lib/workspaceStore";
 import { ActionButton, ContextCard, MetricRibbon, SectionTitle, inputStyle, memoryAreaStyle } from "./shared";
@@ -112,20 +113,20 @@ export function ContextView(props: ContextViewProps) {
                 <ContextCard label="Snapshot Age" value={props.latestContextSnapshot ? new Date(props.latestContextSnapshot.timestamp).toLocaleTimeString() : "n/a"} />
             </div>
 
-            <SectionTitle title="Frozen Snapshot" subtitle={`${props.memory.frozenSnapshot.length}/2200 chars`} />
+            <SectionTitle title="Frozen Snapshot" subtitle={`${props.memory.frozenSnapshot.length}/${MEMORY_MAX_CHARS} chars`} />
             <textarea
                 value={props.memory.frozenSnapshot}
                 onChange={(e) => props.updateMemory("frozenSnapshot", e.target.value)}
                 style={memoryAreaStyle}
-                maxLength={2200}
+                maxLength={MEMORY_MAX_CHARS}
             />
 
-            <SectionTitle title="User Profile" subtitle={`${props.memory.userProfile.length}/1375 chars`} />
+            <SectionTitle title="User Profile" subtitle={`${props.memory.userProfile.length}/${USER_MAX_CHARS} chars`} />
             <textarea
                 value={props.memory.userProfile}
                 onChange={(e) => props.updateMemory("userProfile", e.target.value)}
                 style={{ ...memoryAreaStyle, minHeight: 120 }}
-                maxLength={1375}
+                maxLength={USER_MAX_CHARS}
             />
 
             <SectionTitle title="History Recall" subtitle="Search across managed executions" />

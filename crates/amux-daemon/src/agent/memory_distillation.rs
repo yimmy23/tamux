@@ -519,20 +519,16 @@ async fn apply_distilled_candidate(
         MemoryTarget::Memory => paths.memory_path,
         MemoryTarget::User => paths.user_path,
     };
-    let mut existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
-    if target == MemoryTarget::User && config.max_entries_per_file > 0 {
-        let retained_existing_distilled = config.max_entries_per_file.saturating_sub(1);
-        let trimmed_existing =
-            trim_distilled_entries_to_capacity(&existing, retained_existing_distilled);
-        if trimmed_existing != existing {
-            tokio::fs::write(&path, &trimmed_existing).await?;
-            existing = trimmed_existing;
-        }
-    }
+    let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
     if content_contains_equivalent_fact(&existing, &candidate.distilled_fact) {
         return Ok(false);
     }
     let note = format_distilled_note(&candidate.distilled_fact, now_millis());
+    let prepared_existing =
+        prepare_distilled_target_for_append(&existing, &note, target, config.max_entries_per_file);
+    if prepared_existing != existing {
+        tokio::fs::write(&path, &prepared_existing).await?;
+    }
 
     let applied = apply_memory_update(
         agent_data_dir,
@@ -783,6 +779,54 @@ fn trim_distilled_entries_to_capacity(content: &str, max_entries: usize) -> Stri
         format!("{kept}\n")
     } else {
         kept
+    }
+}
+
+fn prepare_distilled_target_for_append(
+    content: &str,
+    note: &str,
+    target: MemoryTarget,
+    max_entries: usize,
+) -> String {
+    let mut prepared = if max_entries > 0 {
+        trim_distilled_entries_to_capacity(content, max_entries.saturating_sub(1))
+    } else {
+        content.to_string()
+    };
+
+    while append_distilled_content(&prepared, note).chars().count() > target.limit_chars() {
+        let Some(trimmed) = trim_oldest_distilled_entry(&prepared) else {
+            break;
+        };
+        prepared = trimmed;
+    }
+
+    prepared
+}
+
+fn trim_oldest_distilled_entry(content: &str) -> Option<String> {
+    let lines = content.lines().collect::<Vec<_>>();
+    let remove_idx = lines.iter().position(|line| is_distilled_entry(line))?;
+    let kept = lines
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, line)| (idx != remove_idx).then_some(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Some(if content.ends_with('\n') && !kept.is_empty() {
+        format!("{kept}\n")
+    } else {
+        kept
+    })
+}
+
+fn append_distilled_content(existing: &str, addition: &str) -> String {
+    let existing = existing.trim_end();
+    if existing.is_empty() {
+        addition.to_string()
+    } else {
+        format!("{existing}\n\n{addition}")
     }
 }
 
@@ -1069,6 +1113,76 @@ mod tests {
 
         let final_content = tokio::fs::read_to_string(&memory_path).await?;
         assert_eq!(final_content.matches(fact).count(), 1);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn apply_distilled_candidate_trims_memory_to_fit_char_limit() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("tamux-distill-test-{}", Uuid::new_v4()));
+        let history = HistoryStore::new_test_store(&root).await?;
+        ensure_memory_files(&root).await?;
+
+        let paths = memory_paths_for_scope(&root, &current_agent_scope_id());
+        let fact = "Prefer memory distillation to evict oldest distilled notes before rejecting a valid append.";
+        let new_note = format_distilled_note(fact, 0);
+        let limit = MemoryTarget::Memory.limit_chars();
+        let marker = "old fact 0";
+        let base_content = "# Memory\n\n- durable memory fact stays in place.\n";
+        let mut content = None;
+
+        for size in 1..=limit {
+            let old_note = format_distilled_note(&format!("{marker} {}", "x".repeat(size)), 0);
+            let candidate_content = append_distilled_content(base_content, &old_note);
+            if candidate_content.chars().count() <= limit
+                && append_distilled_content(&candidate_content, &new_note)
+                    .chars()
+                    .count()
+                    > limit
+            {
+                content = Some(candidate_content);
+                break;
+            }
+        }
+
+        let content =
+            content.expect("fixture should find a note that fits now but blocks the append");
+
+        assert!(
+            append_distilled_content(&content, &new_note)
+                .chars()
+                .count()
+                > limit,
+            "fixture should require pre-trimming before append"
+        );
+        tokio::fs::write(&paths.memory_path, &content).await?;
+
+        let candidate = DistillationCandidate {
+            source_thread_id: "thread-memory-trim".into(),
+            source_message_range: Some("msg#1".into()),
+            source_message_span: None,
+            last_processed_cursor: None,
+            distilled_fact: fact.into(),
+            target_file: "MEMORY.md".into(),
+            category: MemoryCategory::Convention,
+            confidence: 0.91,
+            reasoning: "limit-aware append".into(),
+        };
+
+        assert!(
+            apply_distilled_candidate(&history, &root, &DistillationConfig::default(), &candidate)
+                .await?
+        );
+
+        let final_content = tokio::fs::read_to_string(&paths.memory_path).await?;
+        assert!(final_content.contains("durable memory fact stays in place."));
+        assert!(final_content.contains(fact));
+        assert!(final_content.chars().count() <= limit);
+        assert!(
+            !final_content.contains(marker),
+            "oldest distilled entry should be evicted first"
+        );
 
         fs::remove_dir_all(root)?;
         Ok(())
