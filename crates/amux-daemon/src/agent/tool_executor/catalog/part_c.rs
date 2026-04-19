@@ -178,7 +178,7 @@ fn add_available_tools_part_c(
 
     tools.push(tool_def(
         "text_to_speech",
-        "Synthesize speech through an OpenAI-compatible speech endpoint and return JSON with the saved audio artifact path.",
+        "Synthesize speech through an OpenAI-compatible speech endpoint and return JSON with the saved audio artifact path. Use this when the operator asks you to say something aloud or read text out loud. After success, do not send a follow-up message that only repeats the temporary file path.",
         serde_json::json!({
             "type": "object",
             "properties": {

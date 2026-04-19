@@ -1257,7 +1257,7 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
         self.input.set_mode(input::InputMode::Insert);
         self.status_line = "Prompt sent".to_string();
-        self.set_agent_activity_for(thread_id.clone(), "thinking");
+        self.set_agent_activity_for(self.chat.active_thread_id().map(str::to_string), "thinking");
         self.error_active = false;
     }
 

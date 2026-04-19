@@ -1,6 +1,7 @@
 use super::*;
 
 mod events_activity;
+mod events_audio;
 mod events_connection;
 mod events_integrations;
 mod events_status;

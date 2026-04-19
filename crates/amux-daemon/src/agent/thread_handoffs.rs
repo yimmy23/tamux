@@ -106,12 +106,17 @@ pub(super) fn initial_thread_handoff_state(
     entered_at: u64,
 ) -> ThreadHandoffState {
     let agent_id = default_agent_id_for_thread(thread_id, persisted_agent_name);
+    let agent_name = persisted_agent_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| canonical_agent_name(&agent_id).to_string());
     ThreadHandoffState {
         origin_agent_id: agent_id.clone(),
         active_agent_id: agent_id.clone(),
         responder_stack: vec![ThreadResponderFrame {
             agent_id: agent_id.clone(),
-            agent_name: canonical_agent_name(&agent_id).to_string(),
+            agent_name,
             entered_at,
             entered_via_handoff_event_id: None,
             linked_thread_id: None,
@@ -137,9 +142,14 @@ pub(super) fn normalized_thread_handoff_state(
         state.active_agent_id = state.origin_agent_id.clone();
     }
     if state.responder_stack.is_empty() {
+        let fallback_name = persisted_agent_name
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| canonical_agent_name(&state.active_agent_id).to_string());
         state.responder_stack.push(ThreadResponderFrame {
             agent_id: state.active_agent_id.clone(),
-            agent_name: canonical_agent_name(&state.active_agent_id).to_string(),
+            agent_name: fallback_name,
             entered_at: created_at,
             entered_via_handoff_event_id: None,
             linked_thread_id: None,
@@ -161,6 +171,14 @@ pub(super) fn active_agent_name_for_thread(
         return value.to_string();
     }
     if let Some(state) = state {
+        if let Some(frame_name) = state
+            .responder_stack
+            .last()
+            .map(|frame| frame.agent_name.trim())
+            .filter(|value| !value.is_empty())
+        {
+            return frame_name.to_string();
+        }
         return canonical_agent_name(&state.active_agent_id).to_string();
     }
     if thread.id == crate::agent::concierge::CONCIERGE_THREAD_ID {

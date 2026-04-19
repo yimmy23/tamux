@@ -209,6 +209,62 @@ async fn hydrate_keeps_persisted_thread_messages_lazy_until_thread_detail_is_req
 }
 
 #[tokio::test]
+async fn hydrate_restores_user_defined_subagent_thread_identity() {
+    let mut config = AgentConfig::default();
+    config.sub_agents.push(SubAgentDefinition {
+        id: "dola".to_string(),
+        name: "Dola".to_string(),
+        provider: PROVIDER_ID_OPENAI.to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("review specialist".to_string()),
+        system_prompt: Some("Review code carefully.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        created_at: 1,
+    });
+    let (engine, temp_dir) = make_test_engine(config.clone()).await;
+    let thread_id = "thread-hydrate-dola";
+
+    let (created_thread_id, _created) = engine
+        .get_or_create_thread_with_target(Some(thread_id), "Review this", Some("dola"))
+        .await;
+    assert_eq!(created_thread_id, thread_id);
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(temp_dir.path()).await,
+        config,
+        temp_dir.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let thread = rehydrated
+        .get_thread(thread_id)
+        .await
+        .expect("thread should be restored after hydrate");
+    assert_eq!(thread.agent_name.as_deref(), Some("Dola"));
+
+    let listed = rehydrated.list_threads().await;
+    assert!(
+        listed
+            .iter()
+            .any(|thread| thread.id == thread_id && thread.agent_name.as_deref() == Some("Dola")),
+        "thread list should preserve user-defined subagent identity after hydrate"
+    );
+}
+
+#[tokio::test]
 async fn persist_thread_by_id_preserves_lazy_hydrated_thread_history() {
     let (engine, temp_dir) = make_test_engine(AgentConfig::default()).await;
     let thread_id = "thread-lazy-persist-safe";

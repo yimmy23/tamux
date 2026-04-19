@@ -10,10 +10,11 @@ const LOCAL_SKILL_WORKFLOW_PROMPT: &str = "## Local Skills Workflow\n\
      - When you call `discover_skills`, send a very short intent query first: usually 3-6 words, not the full task transcript.\n\
      - If the top match is strong, call `read_skill` for the recommended skill before other substantial tools.\n\
     - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
-    - When you need clarification or the operator must choose among options, call `ask_questions`. Do not ask clarifying questions in plain text when this tool fits.\n\
-    - For `ask_questions`, put the full question and answer text in `content`; buttons must stay compact and ordered via tokens like `A`, `B`, `C`, `D` or `1`, `2`, `3`.\n\
+     - When you need clarification or the operator must choose among options, call `ask_questions`. Do not ask clarifying questions in plain text when this tool fits.\n\
+     - For `ask_questions`, put the full question and answer text in `content`; buttons must stay compact and ordered via tokens like `A`, `B`, `C`, `D` or `1`, `2`, `3`.\n\
      - Use `onecontext_search` or `session_search` when historical decisions, prior fixes, or existing implementations matter.\n\
-     - Use `semantic_query` when you need codebase-wide structure or dependency context before editing.\n";
+     - Use `semantic_query` when you need codebase-wide structure or dependency context before editing.\n\
+     - When a tool already performs the operator's requested side effect, avoid a redundant follow-up that only repeats a temp path or generic success. For `text_to_speech`, use it when asked to say something aloud or read text out loud, and only add extra text if playback failed, clarification is needed, or the operator asked for more detail.\n";
 
 fn build_time_context_prompt() -> String {
     let local_now = chrono::Local::now();

@@ -1,3 +1,4 @@
+use super::events_audio::text_to_speech_result_path;
 use super::*;
 
 fn parse_workflow_notice_details(details: Option<&str>) -> Option<serde_json::Value> {
@@ -363,6 +364,7 @@ impl TuiModel {
             self.anticipatory
                 .reduce(crate::state::AnticipatoryAction::Clear);
         }
+        let maybe_tts_path = text_to_speech_result_path(&name, &content, is_error);
         let active_thread_id = thread_id.clone();
         self.reduce_chat_for_thread(
             Some(active_thread_id.as_str()),
@@ -375,6 +377,9 @@ impl TuiModel {
                 weles_review,
             },
         );
+        if let Some(path) = maybe_tts_path {
+            self.play_audio_path(&path);
+        }
         self.dispatch_next_queued_prompt_if_ready();
     }
 

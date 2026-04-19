@@ -228,9 +228,20 @@ impl AgentEngine {
                         thread_id.clone(),
                         AgentThread {
                             id: thread_id.clone(),
-                            agent_name: Some(
-                                canonical_agent_name(&handoff_state.active_agent_id).to_string(),
-                            ),
+                            agent_name: thread_row
+                                .agent_name
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .map(str::to_string)
+                                .or_else(|| {
+                                    handoff_state
+                                        .responder_stack
+                                        .last()
+                                        .map(|frame| frame.agent_name.trim())
+                                        .filter(|value| !value.is_empty())
+                                        .map(str::to_string)
+                                }),
                             title: thread_title,
                             messages: Vec::new(),
                             pinned: false,

@@ -502,6 +502,20 @@
             .iter()
             .find(|tool| tool.function.name == "text_to_speech")
             .expect("text_to_speech tool should be available");
+        assert!(
+            text_to_speech
+                .function
+                .description
+                .contains("say something aloud"),
+            "text_to_speech description should guide read-aloud requests"
+        );
+        assert!(
+            text_to_speech
+                .function
+                .description
+                .contains("temporary file path"),
+            "text_to_speech description should discourage path-only follow-up replies"
+        );
         let tts_required = text_to_speech
             .function
             .parameters

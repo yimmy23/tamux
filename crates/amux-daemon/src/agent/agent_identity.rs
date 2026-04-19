@@ -11,7 +11,7 @@ use amux_protocol::{
     AGENT_HANDLE_SVAROG, AGENT_ID_RAROG, AGENT_ID_SWAROG, AGENT_NAME_RAROG, AGENT_NAME_SWAROG,
 };
 
-use super::types::{AgentConfig, AgentTask, BuiltinPersonaOverrides};
+use super::types::{AgentConfig, AgentTask, BuiltinPersonaOverrides, SubAgentDefinition};
 
 pub(super) const MAIN_AGENT_ID: &str = AGENT_ID_SWAROG;
 pub(crate) const MAIN_AGENT_NAME: &str = AGENT_NAME_SWAROG;
@@ -54,6 +54,13 @@ struct PersonaSeed {
     id: &'static str,
     name: &'static str,
     guidance: &'static str,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ResolvedAgentTarget {
+    pub(super) scope_id: String,
+    pub(super) agent_name: String,
+    pub(super) matched_sub_agent: Option<SubAgentDefinition>,
 }
 
 const SPAWNED_PERSONAS: [PersonaSeed; 9] = [
@@ -120,6 +127,81 @@ fn persona_by_alias(alias: &str) -> Option<&'static PersonaSeed> {
     SPAWNED_PERSONAS
         .iter()
         .find(|persona| normalized == persona.id || normalized == persona.name.to_ascii_lowercase())
+}
+
+fn sub_agent_by_alias<'a>(
+    alias: &str,
+    sub_agents: &'a [SubAgentDefinition],
+) -> Option<&'a SubAgentDefinition> {
+    sub_agents.iter().find(|def| {
+        def.id.eq_ignore_ascii_case(alias)
+            || def.name.eq_ignore_ascii_case(alias)
+            || def
+                .id
+                .strip_suffix("_builtin")
+                .is_some_and(|value| value.eq_ignore_ascii_case(alias))
+    })
+}
+
+pub(super) fn resolve_agent_target(
+    alias: &str,
+    sub_agents: &[SubAgentDefinition],
+) -> ResolvedAgentTarget {
+    let normalized = alias.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        MAIN_AGENT_ID
+        | MAIN_AGENT_PUBLIC_ALIAS
+        | MAIN_AGENT_ALIAS
+        | MAIN_AGENT_LEGACY_ALIAS
+        | MAIN_AGENT_FALLBACK_ALIAS => ResolvedAgentTarget {
+            scope_id: MAIN_AGENT_ID.to_string(),
+            agent_name: MAIN_AGENT_NAME.to_string(),
+            matched_sub_agent: None,
+        },
+        CONCIERGE_AGENT_ID | CONCIERGE_AGENT_ALIAS | CONCIERGE_AGENT_LEGACY_ALIAS => {
+            ResolvedAgentTarget {
+                scope_id: CONCIERGE_AGENT_ID.to_string(),
+                agent_name: CONCIERGE_AGENT_NAME.to_string(),
+                matched_sub_agent: None,
+            }
+        }
+        "veles" | WELES_AGENT_ID => ResolvedAgentTarget {
+            scope_id: WELES_AGENT_ID.to_string(),
+            agent_name: WELES_AGENT_NAME.to_string(),
+            matched_sub_agent: sub_agent_by_alias(WELES_BUILTIN_SUBAGENT_ID, sub_agents).cloned(),
+        },
+        _ => {
+            if let Some(persona) = persona_by_alias(alias) {
+                return ResolvedAgentTarget {
+                    scope_id: persona.id.to_string(),
+                    agent_name: persona.name.to_string(),
+                    matched_sub_agent: None,
+                };
+            }
+            if let Some(def) = sub_agent_by_alias(alias, sub_agents) {
+                let scope_id = def
+                    .id
+                    .strip_suffix("_builtin")
+                    .unwrap_or(&def.id)
+                    .to_string();
+                let agent_name = if scope_id == WELES_AGENT_ID {
+                    WELES_AGENT_NAME.to_string()
+                } else {
+                    def.name.clone()
+                };
+                return ResolvedAgentTarget {
+                    scope_id,
+                    agent_name,
+                    matched_sub_agent: Some(def.clone()),
+                };
+            }
+            ResolvedAgentTarget {
+                scope_id: MAIN_AGENT_ID.to_string(),
+                agent_name: MAIN_AGENT_NAME.to_string(),
+                matched_sub_agent: None,
+            }
+        }
+    }
 }
 
 pub(super) fn canonical_agent_id(alias: &str) -> &'static str {
@@ -308,6 +390,27 @@ pub(super) fn build_spawned_persona_prompt(seed: &str) -> String {
         persona.name,
         persona.id,
         persona.guidance,
+        MAIN_AGENT_NAME,
+        CONCIERGE_AGENT_NAME,
+        MAIN_AGENT_NAME,
+    )
+}
+
+pub(super) fn build_user_subagent_persona_prompt(def: &SubAgentDefinition) -> String {
+    let role_sentence = def
+        .role
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("Your configured role is: {value}.\n"))
+        .unwrap_or_default();
+    format!(
+        "{PERSONA_MARKER} {}\n{PERSONA_ID_MARKER} {}\nYou are {} ({}) operating as a user-defined tamux subagent for this thread.\n{}{} is the main agent. {} is {}'s concierge. Know who they are, do not impersonate them, and coordinate with them when that helps move the task forward.\nKeep your behavior aligned with your configured role and system prompt, and stay concise, pragmatic, and production-focused.",
+        def.name,
+        def.id,
+        def.name,
+        def.id,
+        role_sentence,
         MAIN_AGENT_NAME,
         CONCIERGE_AGENT_NAME,
         MAIN_AGENT_NAME,

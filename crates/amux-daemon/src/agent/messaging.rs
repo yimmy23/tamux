@@ -367,6 +367,14 @@ impl AgentEngine {
         let id = given_id.unwrap_or_else(|| format!("thread_{}", Uuid::new_v4()));
         let title = content.chars().take(50).collect::<String>();
         let mut created = false;
+        let resolved_target = if let Some(target_agent_id) = target_agent_id {
+            Some(crate::agent::agent_identity::resolve_agent_target(
+                target_agent_id,
+                &self.list_sub_agents().await,
+            ))
+        } else {
+            None
+        };
 
         let mut threads = self.threads.write().await;
         if !threads.contains_key(&id) {
@@ -377,15 +385,19 @@ impl AgentEngine {
             } else {
                 created = true;
                 let created_at = now_millis();
-                let active_agent_id = match target_agent_id {
-                    Some(target_agent_id) => canonical_agent_id(target_agent_id).to_string(),
-                    None => current_agent_scope_id(),
-                };
+                let active_agent_id = resolved_target
+                    .as_ref()
+                    .map(|target| target.scope_id.clone())
+                    .unwrap_or_else(current_agent_scope_id);
+                let active_agent_name = resolved_target
+                    .as_ref()
+                    .map(|target| target.agent_name.clone())
+                    .unwrap_or_else(|| canonical_agent_name(&active_agent_id).to_string());
                 threads.insert(
                     id.clone(),
                     AgentThread {
                         id: id.clone(),
-                        agent_name: Some(canonical_agent_name(&active_agent_id).to_string()),
+                        agent_name: Some(active_agent_name.clone()),
                         title: title.clone(),
                         messages: Vec::new(),
                         pinned: false,
@@ -402,16 +414,24 @@ impl AgentEngine {
                 );
                 self.thread_handoff_states.write().await.insert(
                     id.clone(),
-                    initial_thread_handoff_state(
-                        &id,
-                        Some(canonical_agent_name(&active_agent_id)),
-                        created_at,
-                    ),
+                    ThreadHandoffState {
+                        origin_agent_id: active_agent_id.clone(),
+                        active_agent_id: active_agent_id.clone(),
+                        responder_stack: vec![ThreadResponderFrame {
+                            agent_id: active_agent_id.clone(),
+                            agent_name: active_agent_name.clone(),
+                            entered_at: created_at,
+                            entered_via_handoff_event_id: None,
+                            linked_thread_id: None,
+                        }],
+                        events: Vec::new(),
+                        pending_approval_id: None,
+                    },
                 );
                 let _ = self.event_tx.send(AgentEvent::ThreadCreated {
                     thread_id: id.clone(),
                     title,
-                    agent_name: Some(canonical_agent_name(&active_agent_id).to_string()),
+                    agent_name: Some(active_agent_name),
                 });
             }
         }

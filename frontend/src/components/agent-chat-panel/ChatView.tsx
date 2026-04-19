@@ -8,6 +8,10 @@ import {
   filterDisplayItems,
   summarizeSessionUsage,
 } from "./chat-view/helpers";
+import {
+  findLatestAgentToolTextToSpeechPlayback,
+  resolveAudioPlaybackSource,
+} from "./chat-view/audioPlayback";
 import { compactionArtifactDisplayText, MessageBubble } from "./chat-view/MessageBubble";
 import { TodoPanel } from "./chat-view/TodoPanel";
 import { ToolEventRow } from "./chat-view/ToolEventRow";
@@ -81,6 +85,7 @@ export function ChatView({
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastAutoSpokenMessageIdRef = useRef<string | null>(null);
+  const lastPlayedToolTtsCallIdRef = useRef<string | null>(null);
 
   const handleSendClick = () => {
     const text = input.trim();
@@ -107,6 +112,29 @@ export function ChatView({
     }
     setIsSynthesizingSpeech(false);
     setSpeakingMessageId(null);
+  };
+
+  const startAudioPlayback = async (source: string, playbackId: string | null = null) => {
+    stopAudioPlayback();
+    if (playbackId) {
+      setSpeakingMessageId(playbackId);
+    }
+    setIsSynthesizingSpeech(false);
+    const audio = new Audio(source);
+    activeAudioRef.current = audio;
+    audio.onended = () => {
+      if (activeAudioRef.current === audio) {
+        activeAudioRef.current = null;
+        setSpeakingMessageId(null);
+      }
+    };
+    audio.onerror = () => {
+      if (activeAudioRef.current === audio) {
+        activeAudioRef.current = null;
+        setSpeakingMessageId(null);
+      }
+    };
+    await audio.play();
   };
 
   const speakMessage = async (message: AgentMessage) => {
@@ -136,37 +164,12 @@ export function ChatView({
         provider: agentSettings.audio_tts_provider,
         model: agentSettings.audio_tts_model,
       });
-      const source = typeof result === "string"
-        ? result
-        : result && typeof result === "object"
-          ? (typeof (result as { file_url?: unknown }).file_url === "string"
-              ? (result as { file_url: string }).file_url
-              : typeof (result as { url?: unknown }).url === "string"
-                ? (result as { url: string }).url
-                : typeof (result as { path?: unknown }).path === "string"
-                  ? (result as { path: string }).path
-                  : "")
-          : "";
+      const source = resolveAudioPlaybackSource(result);
       if (!source) {
         stopAudioPlayback();
         return;
       }
-      setIsSynthesizingSpeech(false);
-      const audio = new Audio(source);
-      activeAudioRef.current = audio;
-      audio.onended = () => {
-        if (activeAudioRef.current === audio) {
-          activeAudioRef.current = null;
-          setSpeakingMessageId(null);
-        }
-      };
-      audio.onerror = () => {
-        if (activeAudioRef.current === audio) {
-          activeAudioRef.current = null;
-          setSpeakingMessageId(null);
-        }
-      };
-      await audio.play();
+      await startAudioPlayback(source, messageId);
     } catch (error) {
       console.error("text-to-speech failed", error);
       stopAudioPlayback();
@@ -199,6 +202,26 @@ export function ChatView({
     lastAutoSpokenMessageIdRef.current = latestAssistantMessage.id;
     void speakMessage(latestAssistantMessage);
   }, [autoSpeakReplies, messages]);
+
+  useEffect(() => {
+    if (!agentSettings.audio_tts_enabled || messages.length === 0) {
+      return;
+    }
+
+    const playback = findLatestAgentToolTextToSpeechPlayback(
+      messages,
+      lastPlayedToolTtsCallIdRef.current,
+    );
+    if (!playback) {
+      return;
+    }
+
+    lastPlayedToolTtsCallIdRef.current = playback.toolCallId;
+    void startAudioPlayback(playback.source).catch((error) => {
+      console.error("agent tool text-to-speech playback failed", error);
+      stopAudioPlayback();
+    });
+  }, [agentSettings.audio_tts_enabled, messages]);
 
   const displayItems = useMemo(() => buildDisplayItems(messages), [messages]);
   const filteredDisplayItems = useMemo(

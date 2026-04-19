@@ -264,6 +264,57 @@ async fn list_threads_include_internal_reveals_hidden_threads() {
 }
 
 #[tokio::test]
+async fn list_threads_filtered_matches_user_defined_subagent_agent_name() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.sub_agents.push(SubAgentDefinition {
+        id: "dola".to_string(),
+        name: "Dola".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("review specialist".to_string()),
+        system_prompt: Some("Review code carefully.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        created_at: 1,
+    });
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine.threads.write().await.insert(
+        "thread-dola".to_string(),
+        make_thread(
+            "thread-dola",
+            Some("Dola"),
+            "Dola thread",
+            false,
+            10,
+            20,
+            vec![AgentMessage::user("hello", 10)],
+        ),
+    );
+
+    let listed = engine
+        .list_threads_filtered(&ThreadListFilter {
+            agent_name: Some("Dola".to_string()),
+            ..ThreadListFilter::default()
+        })
+        .await;
+
+    assert_eq!(list_ids(&listed), vec!["thread-dola"]);
+}
+
+#[tokio::test]
 async fn pin_rejected_when_budget_would_be_exceeded() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

@@ -1,6 +1,10 @@
 #[cfg(test)]
 use super::*;
 use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::sync::{LazyLock, Mutex};
 use tokio::sync::mpsc::unbounded_channel;
 
 fn make_model() -> TuiModel {
@@ -32,6 +36,41 @@ fn next_thread_request(
         }
     }
     None
+}
+
+#[cfg(unix)]
+fn with_fake_mpv_in_path<F: FnOnce()>(test: F) {
+    static PATH_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    let _guard = PATH_LOCK.lock().expect("path lock should not be poisoned");
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_nanos();
+    let temp_dir =
+        std::env::temp_dir().join(format!("tamux-test-mpv-{}-{unique}", std::process::id()));
+    std::fs::create_dir_all(&temp_dir).expect("fake mpv dir should be created");
+
+    let fake_mpv = temp_dir.join("mpv");
+    std::fs::write(&fake_mpv, "#!/bin/sh\nsleep 5\n").expect("fake mpv should be written");
+    let mut permissions = std::fs::metadata(&fake_mpv)
+        .expect("fake mpv metadata should exist")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake_mpv, permissions).expect("fake mpv should be executable");
+
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    std::env::set_var("PATH", format!("{}:{old_path}", temp_dir.display()));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(test));
+
+    std::env::set_var("PATH", old_path);
+    let _ = std::fs::remove_file(&fake_mpv);
+    let _ = std::fs::remove_dir(&temp_dir);
+
+    if let Err(payload) = result {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 fn next_goal_run_page_request(
@@ -225,6 +264,45 @@ fn tts_request_surfaces_pending_footer_activity_until_audio_starts() {
         model.footer_activity_text().is_none(),
         "pending TTS activity should clear once audio is ready to play"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn text_to_speech_tool_result_autoplays_audio_in_chat_threads() {
+    with_fake_mpv_in_path(|| {
+        let mut model = make_model();
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+        let audio_path =
+            std::env::temp_dir().join(format!("tamux-test-speech-{}.mp3", std::process::id()));
+        std::fs::write(&audio_path, b"fake mp3 bytes").expect("fake audio file should exist");
+
+        model.handle_client_event(ClientEvent::ToolResult {
+            thread_id: "thread-1".to_string(),
+            call_id: "call-1".to_string(),
+            name: "text_to_speech".to_string(),
+            content: serde_json::json!({
+                "path": audio_path.display().to_string(),
+            })
+            .to_string(),
+            is_error: false,
+            weles_review: None,
+        });
+
+        assert_eq!(model.status_line, "Playing synthesized speech...");
+
+        if let Some(mut child) = model.voice_player.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let _ = std::fs::remove_file(audio_path);
+    });
 }
 
 #[test]
@@ -3996,6 +4074,64 @@ fn new_subagent_conversation_keeps_header_after_thread_created_without_agent_nam
     assert_eq!(after_created.agent_label, "Domowoj");
     assert_eq!(after_created.provider, "openai");
     assert_eq!(after_created.model, "gpt-5.4-mini");
+}
+
+#[test]
+fn new_subagent_conversation_done_clears_footer_activity_after_thread_creation() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.subagents.entries.push(crate::state::SubAgentEntry {
+        id: "domowoj".to_string(),
+        name: "Domowoj".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("testing".to_string()),
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        raw_json: None,
+    });
+
+    model.start_new_thread_view_for_agent(Some("domowoj"));
+    model.submit_prompt("inspect this".to_string());
+    assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-domowoj".to_string(),
+        title: "inspect this".to_string(),
+        agent_name: Some("Domowoj".to_string()),
+    });
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-domowoj".to_string(),
+        content: "done".to_string(),
+    });
+    assert_eq!(model.footer_activity_text().as_deref(), Some("writing"));
+
+    model.handle_client_event(ClientEvent::Done {
+        thread_id: "thread-domowoj".to_string(),
+        input_tokens: 0,
+        output_tokens: 0,
+        cost: None,
+        provider: None,
+        model: None,
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+        provider_final_result_json: None,
+    });
+
+    assert!(
+        model.footer_activity_text().is_none(),
+        "completed subagent reply should clear footer activity"
+    );
+    assert!(
+        !model.assistant_busy(),
+        "completed subagent reply should not leave the thread busy"
+    );
 }
 
 #[test]

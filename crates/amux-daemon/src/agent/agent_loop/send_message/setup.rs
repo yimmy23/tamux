@@ -26,11 +26,13 @@ fn build_direct_thread_responder_config(
     agent_scope_id: &str,
     sub_agents: &[SubAgentDefinition],
 ) -> Result<Option<DirectThreadResponderConfig>> {
-    let canonical_scope = canonical_agent_id(agent_scope_id);
-    if canonical_scope == MAIN_AGENT_ID {
+    let resolved_target =
+        crate::agent::agent_identity::resolve_agent_target(agent_scope_id, sub_agents);
+    let resolved_scope = resolved_target.scope_id.as_str();
+    if resolved_scope == MAIN_AGENT_ID {
         return Ok(None);
     }
-    if canonical_scope == CONCIERGE_AGENT_ID {
+    if resolved_scope == CONCIERGE_AGENT_ID {
         let provider_id = config
             .concierge
             .provider
@@ -52,29 +54,24 @@ fn build_direct_thread_responder_config(
             tool_filter: None,
         }));
     }
-    let matched_def = if canonical_scope == crate::agent::agent_identity::WELES_AGENT_ID {
-        sub_agents
-            .iter()
-            .find(|def| def.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
-            .cloned()
-    } else {
-        None
-    };
-    let builtin_persona_overrides = builtin_persona_overrides(config, canonical_scope);
-    if is_explicit_builtin_persona_scope(canonical_scope)
-        && builtin_persona_requires_setup(config, canonical_scope)
+    let matched_def = resolved_target.matched_sub_agent.clone();
+    let builtin_persona_overrides = builtin_persona_overrides(config, resolved_scope);
+    if is_explicit_builtin_persona_scope(resolved_scope)
+        && builtin_persona_requires_setup(config, resolved_scope)
     {
-        return Err(builtin_persona_setup_error(canonical_scope));
+        return Err(builtin_persona_setup_error(resolved_scope));
     }
-    let persona_prompt = if canonical_scope == crate::agent::agent_identity::WELES_AGENT_ID {
+    let persona_prompt = if resolved_scope == crate::agent::agent_identity::WELES_AGENT_ID {
         crate::agent::agent_identity::build_weles_persona_prompt(
             crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
         )
+    } else if let Some(def) = matched_def.as_ref().filter(|def| !def.builtin) {
+        crate::agent::agent_identity::build_user_subagent_persona_prompt(def)
     } else {
-        build_spawned_persona_prompt(canonical_scope)
+        build_spawned_persona_prompt(resolved_scope)
     };
     Ok(Some(DirectThreadResponderConfig {
-        agent_name: canonical_agent_name(canonical_scope).to_string(),
+        agent_name: resolved_target.agent_name,
         provider_id: matched_def
             .as_ref()
             .map(|def| def.provider.clone())
@@ -959,6 +956,47 @@ mod tests {
         assert!(
             tool_names.contains(&"handoff_thread_agent"),
             "active participant responder should still see handoff_thread_agent"
+        );
+    }
+
+    #[test]
+    fn direct_thread_responder_config_preserves_user_defined_subagent() {
+        let mut config = AgentConfig::default();
+        config.system_prompt = "Main system prompt".to_string();
+        let sub_agents = vec![SubAgentDefinition {
+            id: "dola".to_string(),
+            name: "Dola".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            role: Some("specialist".to_string()),
+            system_prompt: Some("Handle delegated work.".to_string()),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: false,
+            immutable_identity: false,
+            disable_allowed: true,
+            delete_allowed: true,
+            protected_reason: None,
+            reasoning_effort: Some("medium".to_string()),
+            created_at: 1,
+        }];
+
+        let responder = build_direct_thread_responder_config(&config, "dola", &sub_agents)
+            .expect("config build should succeed")
+            .expect("custom subagent should produce a direct responder config");
+
+        assert_eq!(responder.agent_name, "Dola");
+        assert_eq!(responder.provider_id, "openai");
+        assert_eq!(responder.model.as_deref(), Some("gpt-5.4-mini"));
+        assert_eq!(responder.reasoning_effort.as_deref(), Some("medium"));
+        assert_eq!(responder.system_prompt, "Handle delegated work.");
+        assert!(
+            responder.persona_prompt.contains("Dola"),
+            "persona prompt should identify the targeted subagent"
         );
     }
 
