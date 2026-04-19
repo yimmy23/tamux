@@ -711,6 +711,38 @@ impl TuiModel {
                                     raw["audio"]["tts"]["voice"] = serde_json::Value::String(value);
                                 }
                             }
+                            "feat_image_generation_provider" => {
+                                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                    key_path: "/image/generation/provider".to_string(),
+                                    value_json: format!("\"{}\"", value),
+                                });
+                                if let Some(ref mut raw) = self.config.agent_config_raw {
+                                    if raw.get("image").is_none() {
+                                        raw["image"] = serde_json::json!({});
+                                    }
+                                    if raw["image"].get("generation").is_none() {
+                                        raw["image"]["generation"] = serde_json::json!({});
+                                    }
+                                    raw["image"]["generation"]["provider"] =
+                                        serde_json::Value::String(value);
+                                }
+                            }
+                            "feat_image_generation_model" => {
+                                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                    key_path: "/image/generation/model".to_string(),
+                                    value_json: format!("\"{}\"", value),
+                                });
+                                if let Some(ref mut raw) = self.config.agent_config_raw {
+                                    if raw.get("image").is_none() {
+                                        raw["image"] = serde_json::json!({});
+                                    }
+                                    if raw["image"].get("generation").is_none() {
+                                        raw["image"]["generation"] = serde_json::json!({});
+                                    }
+                                    raw["image"]["generation"]["model"] =
+                                        serde_json::Value::String(value);
+                                }
+                            }
                             _ => {}
                         }
                         self.settings.reduce(SettingsAction::ConfirmEdit);

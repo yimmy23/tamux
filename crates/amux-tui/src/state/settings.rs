@@ -389,6 +389,8 @@ impl SettingsState {
                 20 => "feat_audio_tts_provider",
                 21 => "feat_audio_tts_model",
                 22 => "feat_audio_tts_voice",
+                23 => "feat_image_generation_provider",
+                24 => "feat_image_generation_model",
                 _ => "",
             },
             SettingsTab::Advanced => match self.field_cursor {
@@ -447,7 +449,7 @@ impl SettingsState {
             SettingsTab::Agent => 10,
             SettingsTab::SubAgents => 1,
             SettingsTab::Concierge => 5,
-            SettingsTab::Features => 23,
+            SettingsTab::Features => 25,
             SettingsTab::Advanced => 22,
             SettingsTab::Plugins => 1,
             SettingsTab::About => 0,

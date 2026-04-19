@@ -50,4 +50,34 @@ describe("daemon agent config audio wiring", () => {
       model: "fallback-audio-model",
     });
   });
+
+  it("serializes canonical nested image generation settings and referenced image providers", () => {
+    const daemonConfig = buildDaemonAgentConfig({
+      ...DEFAULT_AGENT_SETTINGS,
+      active_provider: "openai",
+      openai: {
+        ...DEFAULT_AGENT_SETTINGS.openai,
+        api_key: "sk-active",
+      },
+      image_generation_provider: "xai",
+      image_generation_model: "grok-4-image",
+      xai: {
+        ...DEFAULT_AGENT_SETTINGS.xai,
+        api_key: "sk-image",
+        model: "grok-4-image",
+      },
+    } as any);
+
+    expect(daemonConfig.image).toEqual({
+      generation: {
+        provider: "xai",
+        model: "grok-4-image",
+      },
+    });
+
+    expect(daemonConfig.providers?.xai).toMatchObject({
+      base_url: DEFAULT_AGENT_SETTINGS.xai.base_url,
+      model: "grok-4-image",
+    });
+  });
 });

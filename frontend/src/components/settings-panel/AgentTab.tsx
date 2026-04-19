@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getDaemonOwnedAuthCapability, getProviderAuthSupportOptions } from "@/lib/agentDaemonConfig";
 import { getBridge } from "@/lib/bridge";
 import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
-import { filterFetchedModelsForAudio } from "@/lib/providerModels";
+import { filterFetchedModelsForAudio, filterFetchedModelsForImageGeneration } from "@/lib/providerModels";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
 import { DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW, getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, modelUsesContextWindowOverride, normalizeAuthSource, providerUsesConfigurableBaseUrl, resolveProviderModelDefinition } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
@@ -11,7 +11,10 @@ import { applySttReuseDecision, getModelSelectionEffects } from "./modelSelectio
 import {
     audioModelOptions,
     filterAudioProviderOptions,
+    filterImageGenerationProviderOptions,
+    imageGenerationModelOptions,
     normalizeAudioModelForProviderChange,
+    normalizeImageGenerationModelForProviderChange,
     normalizeLlmStreamTimeoutInput,
     type ProviderOption,
 } from "./agentTabHelpers";
@@ -90,10 +93,12 @@ export function AgentTab({
         ),
     );
     const audioProviderOptions = filterAudioProviderOptions(providerOptions);
+    const imageGenerationProviderOptions = filterImageGenerationProviderOptions(providerOptions);
 
     const providerConfig = settings[settings.active_provider] as AgentProviderConfig;
     const audioSttProviderConfig = settings[settings.audio_stt_provider] as AgentProviderConfig;
     const audioTtsProviderConfig = settings[settings.audio_tts_provider] as AgentProviderConfig;
+    const imageGenerationProviderConfig = settings[settings.image_generation_provider] as AgentProviderConfig;
     const authCapability = getDaemonOwnedAuthCapability(settings.agent_backend);
     const authSupportOptions = getProviderAuthSupportOptions(settings.agent_backend);
     const providerDef = getProviderDefinition(settings.active_provider);
@@ -418,6 +423,39 @@ export function AgentTab({
                     </SettingRow>
                 </Section>
             ) : null}
+
+            <Section title="Image Generation">
+                <SettingRow label="Image Provider">
+                    <SelectInput
+                        value={settings.image_generation_provider}
+                        options={imageGenerationProviderOptions.map((provider) => provider.id)}
+                        onChange={(value) => {
+                            const providerId = value as AgentProviderId;
+                            updateSetting("image_generation_provider", providerId);
+                            updateSetting(
+                                "image_generation_model",
+                                normalizeImageGenerationModelForProviderChange(
+                                    providerId,
+                                    settings.image_generation_model,
+                                ),
+                            );
+                        }}
+                    />
+                </SettingRow>
+                <SettingRow label="Image Model">
+                    <ModelSelector
+                        providerId={settings.image_generation_provider}
+                        value={settings.image_generation_model}
+                        customName={imageGenerationProviderConfig.custom_model_name}
+                        onChange={(value) => updateSetting("image_generation_model", value)}
+                        base_url={imageGenerationProviderConfig.base_url}
+                        api_key={imageGenerationProviderConfig.api_key}
+                        auth_source={imageGenerationProviderConfig.auth_source}
+                        modelOptions={imageGenerationModelOptions(settings.image_generation_provider)}
+                        remoteModelFilter={(model) => filterFetchedModelsForImageGeneration([model]).length > 0}
+                    />
+                </SettingRow>
+            </Section>
 
             <PromptPreviewSection
                 backend={settings.agent_backend}

@@ -1,3 +1,22 @@
+fn configured_image_generation_model(config: &AgentConfig) -> Option<&str> {
+    config
+        .extra
+        .get("image")
+        .and_then(|value| value.get("generation"))
+        .and_then(|value| value.get("model"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            config
+                .extra
+                .get("image_generation_model")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+}
+
 fn add_available_tools_part_c(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
@@ -124,6 +143,17 @@ fn add_available_tools_part_c(
             None,
             false,
         );
+        let image_generation_enabled = configured_image_generation_model(config)
+            .map(|model| {
+                amux_shared::providers::derive_model_feature_capabilities(
+                    &config.provider,
+                    model,
+                    None,
+                    false,
+                )
+                .image_generation
+            })
+            .unwrap_or(active_model_features.image_generation);
         tools.push(tool_def(
             "analyze_image",
             "Analyze an image with the active or specified multimodal model. Accepts exactly one of `path`, `url`, `base64`, or `data_url`, then returns a textual analysis.",
@@ -144,7 +174,7 @@ fn add_available_tools_part_c(
             }),
         ));
 
-        if active_model_features.image_generation {
+        if image_generation_enabled {
             tools.push(tool_def(
                 "generate_image",
                 "Generate an image through an OpenAI-compatible image generation endpoint and return JSON with the saved artifact path or upstream URL.",

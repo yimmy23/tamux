@@ -337,6 +337,44 @@ fn render_features_tab<'a>(
         theme,
     );
 
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled("  Images", theme.fg_active)));
+    lines.push(Line::from(Span::styled(
+        "  Image generation provider and model configuration",
+        theme.fg_dim,
+    )));
+    lines.push(Line::raw(""));
+
+    let image_provider = config.image_generation_provider();
+    render_feature_field_line(
+        &mut lines,
+        settings,
+        23,
+        "Image Provider",
+        if image_provider.is_empty() {
+            "openai"
+        } else {
+            &image_provider
+        },
+        "  [Enter: edit]",
+        theme,
+    );
+
+    let image_model = config.image_generation_model();
+    render_feature_field_line(
+        &mut lines,
+        settings,
+        24,
+        "Image Model",
+        if image_model.is_empty() {
+            "gpt-image-1"
+        } else {
+            &image_model
+        },
+        "  [Enter: edit]",
+        theme,
+    );
+
     // Hotkey hint row (non-editable)
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![

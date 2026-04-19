@@ -1,5 +1,6 @@
 import {
   filterFetchedModelsForAudio,
+  filterFetchedModelsForImageGeneration,
   formatRemoteModelPricingSubtitle,
   normalizeFetchedRemoteModel,
 } from "./providerModels";
@@ -161,5 +162,29 @@ test("filterFetchedModelsForAudio keeps coarse audio pricing from leaking stt-on
   ]);
   expect(filterFetchedModelsForAudio(models, "tts").map((model) => model.id)).toEqual([
     "xai/grok-tts",
+  ]);
+});
+
+test("filterFetchedModelsForImageGeneration keeps image-capable models only", () => {
+  const models = [
+    normalizeFetchedRemoteModel({
+      id: "openai/gpt-image-1",
+      pricing: { image: "0.00004" },
+      architecture: {
+        input_modalities: ["text"],
+        output_modalities: ["image"],
+      },
+    }),
+    normalizeFetchedRemoteModel({
+      id: "openai/gpt-text-1",
+      architecture: {
+        input_modalities: ["text"],
+        output_modalities: ["text"],
+      },
+    }),
+  ];
+
+  expect(filterFetchedModelsForImageGeneration(models).map((model) => model.id)).toEqual([
+    "openai/gpt-image-1",
   ]);
 });

@@ -117,6 +117,11 @@ function jsonArrayContainsAudio(value: unknown): boolean {
     && value.some((entry) => typeof entry === "string" && entry.trim().toLowerCase() === "audio");
 }
 
+function jsonArrayContainsModality(value: unknown, modality: string): boolean {
+  return Array.isArray(value)
+    && value.some((entry) => typeof entry === "string" && entry.trim().toLowerCase() === modality);
+}
+
 function modalitySideHasAudio(modality: string, side: "input" | "output"): boolean {
   const trimmed = modality.trim().toLowerCase();
   if (!trimmed) {
@@ -139,6 +144,15 @@ function jsonStringHasDirectionalAudio(
   side: "input" | "output",
 ): boolean {
   return typeof value === "string" && modalitySideHasAudio(value, side);
+}
+
+function jsonStringContainsModality(value: unknown, modality: string): boolean {
+  return typeof value === "string"
+    && value
+      .trim()
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .some((token) => token === modality);
 }
 
 function fetchedModelAudioDirectionOverride(
@@ -218,4 +232,29 @@ export function filterFetchedModelsForAudio(
   endpoint: "stt" | "tts",
 ): FetchedRemoteModel[] {
   return models.filter((model) => modelMetadataContainsAudio(model, endpoint));
+}
+
+function modelMetadataContainsImage(model: FetchedRemoteModel): boolean {
+  const value = model.metadata;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const architecture = record.architecture && typeof record.architecture === "object" && !Array.isArray(record.architecture)
+    ? record.architecture as Record<string, unknown>
+    : null;
+
+  return Boolean(
+    jsonArrayContainsModality(architecture?.input_modalities ?? record.input_modalities, "image")
+    || jsonArrayContainsModality(architecture?.output_modalities ?? record.output_modalities, "image")
+    || jsonArrayContainsModality(architecture?.modalities ?? record.modalities, "image")
+    || jsonStringContainsModality(architecture?.modality ?? record.modality, "image")
+    || model.pricing?.image
+  );
+}
+
+export function filterFetchedModelsForImageGeneration(
+  models: FetchedRemoteModel[],
+): FetchedRemoteModel[] {
+  return models.filter((model) => modelMetadataContainsImage(model));
 }

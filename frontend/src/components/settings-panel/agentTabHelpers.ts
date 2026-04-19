@@ -20,6 +20,14 @@ const XAI_AUDIO_MODELS: ModelDefinition[] = [
   { id: "grok-4", name: "Grok 4", contextWindow: 262144, modalities: ["audio"] },
 ];
 
+const OPENAI_IMAGE_MODELS: ModelDefinition[] = [
+  { id: "gpt-image-1", name: "GPT Image 1", contextWindow: 0, modalities: ["image"] },
+];
+
+const OPENROUTER_IMAGE_MODELS: ModelDefinition[] = [
+  { id: "openai/gpt-image-1", name: "OpenAI GPT Image 1", contextWindow: 0, modalities: ["image"] },
+];
+
 export type ProviderOption = {
   id: AgentProviderId;
   label: string;
@@ -46,7 +54,7 @@ export function normalizeAudioModelForProviderChange(
   const normalizedCurrentModel = currentModel.trim();
   const knownAudioModels = audioModelOptions(providerId, kind) ?? [];
   if (knownAudioModels.length > 0 && normalizedCurrentModel.length === 0) {
-    return knownAudioModels[0]?.id ?? getDefaultModelForProvider(providerId);
+    return knownAudioModels[0]?.id ?? "";
   }
   if (knownAudioModels.length > 0) {
     return knownAudioModels.some((model) => model.id === normalizedCurrentModel)
@@ -61,6 +69,41 @@ export function normalizeAudioModelForProviderChange(
 
 export function filterAudioProviderOptions(providerOptions: ProviderOption[]): ProviderOption[] {
   return providerOptions.filter((provider) => providerSupportsAudioTool(provider.id, "stt"));
+}
+
+export function imageGenerationModelOptions(providerId: AgentProviderId): ModelDefinition[] {
+  if (providerId === "openai" || providerId === "azure-openai" || providerId === "custom") {
+    return OPENAI_IMAGE_MODELS;
+  }
+  if (providerId === "openrouter") {
+    return OPENROUTER_IMAGE_MODELS;
+  }
+  return [];
+}
+
+export function normalizeImageGenerationModelForProviderChange(
+  providerId: AgentProviderId,
+  currentModel: string,
+): string {
+  const normalizedCurrentModel = currentModel.trim();
+  const knownImageModels = imageGenerationModelOptions(providerId);
+  if (knownImageModels.length > 0 && normalizedCurrentModel.length === 0) {
+    return knownImageModels[0]?.id ?? "";
+  }
+  if (knownImageModels.length > 0) {
+    return knownImageModels.some((model) => model.id === normalizedCurrentModel)
+      ? normalizedCurrentModel
+      : knownImageModels[0]?.id ?? "";
+  }
+  if (providerId === "custom") {
+    return normalizedCurrentModel || "gpt-image-1";
+  }
+  return "";
+}
+
+export function filterImageGenerationProviderOptions(providerOptions: ProviderOption[]): ProviderOption[] {
+  return providerOptions.filter((provider) =>
+    provider.id === "custom" || imageGenerationModelOptions(provider.id).length > 0);
 }
 
 export function normalizeLlmStreamTimeoutInput(value: string): number | null {

@@ -57,3 +57,19 @@ test("xAI settings normalize and serialize for audio flows", () => {
     model: "grok-4-voice",
   });
 });
+
+test("image generation settings prefer nested daemon config over legacy flat keys", () => {
+  const normalized = normalizeAgentSettingsFromSource({
+    image: {
+      generation: {
+        provider: "openai",
+        model: "gpt-image-1",
+      },
+    },
+    image_generation_provider: "xai",
+    image_generation_model: "grok-4-image",
+  } as any);
+
+  expect(normalized.image_generation_provider).toBe("openai");
+  expect(normalized.image_generation_model).toBe("gpt-image-1");
+});

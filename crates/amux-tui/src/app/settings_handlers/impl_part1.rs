@@ -4,6 +4,14 @@ use amux_shared::providers::{
 };
 
 impl TuiModel {
+    fn image_remote_model_fetch_output_modalities(provider_id: &str) -> Option<String> {
+        if provider_id == PROVIDER_ID_OPENROUTER {
+            Some("image".to_string())
+        } else {
+            None
+        }
+    }
+
     fn audio_remote_model_fetch_output_modalities(
         endpoint: &str,
         provider_id: &str,
@@ -82,6 +90,37 @@ impl TuiModel {
             .unwrap_or_default()
     }
 
+    pub(super) fn image_generation_catalog_models(
+        provider_id: &str,
+    ) -> Vec<crate::state::config::FetchedModel> {
+        let model = |id: &str, name: &str, context_window: Option<u32>| {
+            crate::state::config::FetchedModel {
+                id: id.to_string(),
+                name: Some(name.to_string()),
+                context_window,
+                pricing: None,
+                metadata: None,
+            }
+        };
+        match provider_id {
+            PROVIDER_ID_OPENAI | PROVIDER_ID_AZURE_OPENAI | PROVIDER_ID_CUSTOM => {
+                vec![model("gpt-image-1", "GPT Image 1", None)]
+            }
+            PROVIDER_ID_OPENROUTER => {
+                vec![model("openai/gpt-image-1", "OpenAI GPT Image 1", None)]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    pub(super) fn default_image_generation_model_for(provider_id: &str) -> String {
+        Self::image_generation_catalog_models(provider_id)
+            .into_iter()
+            .next()
+            .map(|model| model.id)
+            .unwrap_or_default()
+    }
+
     pub(super) fn set_audio_config_string(&mut self, endpoint: &str, field: &str, value: String) {
         self.send_daemon_command(DaemonCommand::SetConfigItem {
             key_path: format!("/audio/{endpoint}/{field}"),
@@ -95,6 +134,22 @@ impl TuiModel {
                 raw["audio"][endpoint] = serde_json::json!({});
             }
             raw["audio"][endpoint][field] = serde_json::Value::String(value);
+        }
+    }
+
+    pub(super) fn set_image_generation_config_string(&mut self, field: &str, value: String) {
+        self.send_daemon_command(DaemonCommand::SetConfigItem {
+            key_path: format!("/image/generation/{field}"),
+            value_json: serde_json::Value::String(value.clone()).to_string(),
+        });
+        if let Some(ref mut raw) = self.config.agent_config_raw {
+            if raw.get("image").is_none() {
+                raw["image"] = serde_json::json!({});
+            }
+            if raw["image"].get("generation").is_none() {
+                raw["image"]["generation"] = serde_json::json!({});
+            }
+            raw["image"]["generation"][field] = serde_json::Value::String(value);
         }
     }
 
@@ -137,6 +192,35 @@ impl TuiModel {
             "tts" => SettingsPickerTarget::AudioTtsModel,
             _ => return,
         });
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+        self.sync_model_picker_item_count();
+    }
+
+    pub(super) fn open_image_generation_model_picker(&mut self) {
+        let provider_id = {
+            let provider = self.config.image_generation_provider();
+            if provider.trim().is_empty() {
+                "openai".to_string()
+            } else {
+                provider
+            }
+        };
+        let (base_url, api_key, auth_source) = self.provider_auth_snapshot(&provider_id);
+        let models = Self::image_generation_catalog_models(&provider_id);
+        self.config
+            .reduce(config::ConfigAction::ModelsFetched(models));
+        if self.should_fetch_remote_models(&provider_id, &auth_source) {
+            let output_modalities =
+                Self::image_remote_model_fetch_output_modalities(&provider_id);
+            self.send_daemon_command(DaemonCommand::FetchModels {
+                provider_id,
+                base_url,
+                api_key,
+                output_modalities,
+            });
+        }
+        self.settings_picker_target = Some(SettingsPickerTarget::ImageGenerationModel);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
         self.sync_model_picker_item_count();
@@ -394,6 +478,9 @@ impl TuiModel {
                 )
                 .len()
             }
+            SettingsPickerTarget::ImageGenerationProvider => {
+                widgets::provider_picker::available_provider_defs(&self.auth).len()
+            }
             _ => widgets::provider_picker::available_provider_defs(&self.auth).len(),
         };
         self.modal.set_picker_item_count(item_count);
@@ -429,6 +516,9 @@ impl TuiModel {
         {
             SettingsPickerTarget::AudioSttModel => (self.config.audio_stt_model(), None),
             SettingsPickerTarget::AudioTtsModel => (self.config.audio_tts_model(), None),
+            SettingsPickerTarget::ImageGenerationModel => {
+                (self.config.image_generation_model(), None)
+            }
             SettingsPickerTarget::CompactionWelesModel => {
                 (self.config.compaction_weles_model.clone(), None)
             }
@@ -457,7 +547,9 @@ impl TuiModel {
             .settings_picker_target
             .unwrap_or(SettingsPickerTarget::Model)
         {
-            SettingsPickerTarget::AudioSttModel | SettingsPickerTarget::AudioTtsModel => {
+            SettingsPickerTarget::AudioSttModel
+            | SettingsPickerTarget::AudioTtsModel
+            | SettingsPickerTarget::ImageGenerationModel => {
                 let (endpoint, provider_id) = match self
                     .settings_picker_target
                     .unwrap_or(SettingsPickerTarget::Model)
@@ -468,11 +560,34 @@ impl TuiModel {
                     SettingsPickerTarget::AudioTtsModel => {
                         ("tts", self.config.audio_tts_provider())
                     }
+                    SettingsPickerTarget::ImageGenerationModel => {
+                        ("image_generation", self.config.image_generation_provider())
+                    }
                     _ => unreachable!(),
                 };
-                let mut models = Self::audio_catalog_models(endpoint, &provider_id);
+                let mut models = match endpoint {
+                    "image_generation" => Self::image_generation_catalog_models(&provider_id),
+                    _ => Self::audio_catalog_models(endpoint, &provider_id),
+                };
                 for model in self.config.fetched_models() {
-                    if Self::fetched_model_supports_audio_endpoint(model, endpoint)
+                    let include = match endpoint {
+                        "image_generation" => {
+                            let pricing_image = model
+                                .pricing
+                                .as_ref()
+                                .and_then(|pricing| pricing.image.as_deref())
+                                .is_some();
+                            amux_shared::providers::derive_model_feature_capabilities(
+                                &provider_id,
+                                &model.id,
+                                model.metadata.as_ref(),
+                                pricing_image,
+                            )
+                            .image_generation
+                        }
+                        _ => Self::fetched_model_supports_audio_endpoint(model, endpoint),
+                    };
+                    if include
                         && !models.iter().any(|existing| existing.id == model.id)
                     {
                         models.push(model.clone());
@@ -525,6 +640,20 @@ impl TuiModel {
                 self.settings
                     .start_editing("feat_audio_tts_model", &self.config.audio_tts_model());
                 self.status_line = "Enter TTS model ID".to_string();
+            }
+            SettingsPickerTarget::ImageGenerationModel => {
+                if self.modal.top() != Some(modal::ModalKind::Settings) {
+                    self.modal
+                        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+                }
+                self.settings
+                    .reduce(SettingsAction::SwitchTab(SettingsTab::Features));
+                self.settings_navigate_to(24);
+                self.settings.start_editing(
+                    "feat_image_generation_model",
+                    &self.config.image_generation_model(),
+                );
+                self.status_line = "Enter image generation model ID".to_string();
             }
             SettingsPickerTarget::BuiltinPersonaModel => {
                 self.status_line =

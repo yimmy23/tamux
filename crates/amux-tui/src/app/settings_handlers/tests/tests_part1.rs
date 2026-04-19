@@ -481,6 +481,50 @@ fn activating_openrouter_audio_tts_model_requests_audio_output_filter() {
 }
 
 #[test]
+fn activating_openrouter_image_generation_model_requests_image_output_filter() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "providers": {
+            PROVIDER_ID_OPENROUTER: {
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "router-key",
+                "auth_source": "api_key"
+            }
+        },
+        "image": {
+            "generation": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-image-1"
+            }
+        }
+    }));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_image_generation_model");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::FetchModels {
+            provider_id,
+            base_url,
+            api_key,
+            output_modalities,
+        }) => {
+            assert_eq!(provider_id, PROVIDER_ID_OPENROUTER);
+            assert_eq!(base_url, "https://openrouter.ai/api/v1");
+            assert_eq!(api_key, "router-key");
+            assert_eq!(output_modalities.as_deref(), Some("image"));
+        }
+        other => panic!(
+            "expected filtered FetchModels for OpenRouter image picker, got {other:?}"
+        ),
+    }
+}
+
+#[test]
 fn activating_subagent_model_fetches_remote_models_for_fetchable_provider() {
     let (mut model, mut daemon_rx) = make_model();
     model.config.agent_config_raw = Some(serde_json::json!({
@@ -1439,6 +1483,20 @@ fn feat_skill_recommendation_numeric_fields_write_new_daemon_paths() {
             "alloy",
             "/audio/tts/voice",
             "\"alloy\"",
+        ),
+        (
+            "feat_image_generation_provider",
+            serde_json::json!({"image": {"generation": {"provider": "openrouter"}}}),
+            "openrouter",
+            "/image/generation/provider",
+            "\"openrouter\"",
+        ),
+        (
+            "feat_image_generation_model",
+            serde_json::json!({"image": {"generation": {"model": "openai/gpt-image-1"}}}),
+            "openai/gpt-image-1",
+            "/image/generation/model",
+            "\"openai/gpt-image-1\"",
         ),
     ];
 

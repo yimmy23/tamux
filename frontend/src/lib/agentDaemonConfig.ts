@@ -116,6 +116,7 @@ export function buildDaemonAgentConfig(
     providerKey,
     agentSettings.audio_stt_provider,
     agentSettings.audio_tts_provider,
+    agentSettings.image_generation_provider,
   ]));
   const providerConfigs = Object.fromEntries(
     referencedProviderIds.flatMap((referencedProviderId) => {
@@ -220,6 +221,12 @@ export function buildDaemonAgentConfig(
         model: agentSettings.audio_tts_model,
         voice: agentSettings.audio_tts_voice,
         auto_speak: agentSettings.audio_tts_auto_speak,
+      },
+    },
+    image: {
+      generation: {
+        provider: agentSettings.image_generation_provider,
+        model: agentSettings.image_generation_model,
       },
     },
     tools: {

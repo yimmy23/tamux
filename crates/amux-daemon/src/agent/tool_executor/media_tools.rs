@@ -52,6 +52,46 @@ enum MediaInputSource {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MediaEndpoint {
+    ImageGeneration,
+    SpeechToText,
+    TextToSpeech,
+}
+
+impl MediaEndpoint {
+    fn default_model(self) -> &'static str {
+        match self {
+            Self::ImageGeneration => DEFAULT_IMAGE_GENERATION_MODEL,
+            Self::SpeechToText => DEFAULT_STT_MODEL,
+            Self::TextToSpeech => DEFAULT_TTS_MODEL,
+        }
+    }
+
+    fn nested_root(self) -> &'static str {
+        match self {
+            Self::ImageGeneration => "image",
+            Self::SpeechToText | Self::TextToSpeech => "audio",
+        }
+    }
+
+    fn nested_group(self) -> &'static [&'static str] {
+        match self {
+            Self::ImageGeneration => &["generation"],
+            Self::SpeechToText => &["stt"],
+            Self::TextToSpeech => &["tts"],
+        }
+    }
+
+    fn legacy_prefix(self) -> &'static str {
+        match self {
+            Self::ImageGeneration => "image_generation",
+            Self::SpeechToText => "audio_stt",
+            Self::TextToSpeech => "audio_tts",
+        }
+    }
+}
+
 fn media_input_source_arg_count(args: &serde_json::Value) -> usize {
     ["path", "url", "base64", "data_url"]
         .iter()
@@ -276,12 +316,13 @@ fn select_media_provider_config(
 
 fn media_setting_string(
     config: &AgentConfig,
+    nested_root: &str,
     nested_path: &[&str],
     legacy_flat_key: &str,
 ) -> Option<String> {
     config
         .extra
-        .get("audio")
+        .get(nested_root)
         .and_then(|value| {
             nested_path
                 .iter()
@@ -304,17 +345,34 @@ fn media_setting_string(
 
 fn media_persisted_provider_model(
     config: &AgentConfig,
-    endpoint: &str,
+    endpoint: MediaEndpoint,
 ) -> (Option<String>, Option<String>) {
-    let provider = media_setting_string(config, &[endpoint, "provider"], &format!("audio_{endpoint}_provider"));
-    let model = media_setting_string(config, &[endpoint, "model"], &format!("audio_{endpoint}_model"));
+    let nested_root = endpoint.nested_root();
+    let nested_group = endpoint.nested_group();
+    let legacy_prefix = endpoint.legacy_prefix();
+    let mut provider_path = nested_group.to_vec();
+    provider_path.push("provider");
+    let mut model_path = nested_group.to_vec();
+    model_path.push("model");
+    let provider = media_setting_string(
+        config,
+        nested_root,
+        &provider_path,
+        &format!("{legacy_prefix}_provider"),
+    );
+    let model = media_setting_string(
+        config,
+        nested_root,
+        &model_path,
+        &format!("{legacy_prefix}_model"),
+    );
     (provider, model)
 }
 
 async fn resolve_media_provider_config(
     agent: &AgentEngine,
     args: &serde_json::Value,
-    default_model: Option<&str>,
+    endpoint: Option<MediaEndpoint>,
 ) -> Result<(String, crate::agent::types::ProviderConfig)> {
     let config = agent.get_config().await;
     let explicit_provider = args
@@ -327,16 +385,12 @@ async fn resolve_media_provider_config(
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let endpoint = match default_model {
-        Some(model) if model == DEFAULT_STT_MODEL => Some("stt"),
-        Some(model) if model == DEFAULT_TTS_MODEL => Some("tts"),
-        _ => None,
-    };
     let (persisted_provider, persisted_model) = endpoint
         .map(|endpoint| media_persisted_provider_model(&config, endpoint))
         .unwrap_or((None, None));
     let selected_provider = explicit_provider.or(persisted_provider.as_deref());
     let selected_model = explicit_model.or(persisted_model.as_deref());
+    let default_model = endpoint.map(MediaEndpoint::default_model);
 
     if let Some(provider_id) = selected_provider {
         let provider_config = agent.resolve_sub_agent_provider_config(&config, provider_id)?;
@@ -966,7 +1020,8 @@ async fn execute_analyze_image(
     agent: &AgentEngine,
     http_client: &reqwest::Client,
 ) -> Result<String> {
-    let (provider_id, provider_config) = resolve_media_provider_config(agent, args, None).await?;
+    let (provider_id, provider_config) =
+        resolve_media_provider_config(agent, args, None).await?;
     if !crate::agent::types::model_supports(
         &provider_id,
         &provider_config.model,
@@ -1048,7 +1103,7 @@ async fn execute_generate_image(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("missing 'prompt' argument"))?;
     let (provider_id, provider_config) =
-        resolve_media_provider_config(agent, args, Some(DEFAULT_IMAGE_GENERATION_MODEL)).await?;
+        resolve_media_provider_config(agent, args, Some(MediaEndpoint::ImageGeneration)).await?;
     ensure_openai_like_media_endpoint(&provider_id, &provider_config)?;
 
     let output_format = args
@@ -1180,8 +1235,12 @@ async fn execute_speech_to_text(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| infer_media_mime(&resolved, MediaKind::Audio).to_string());
-    let (provider_id, provider_config) =
-        resolve_media_provider_config(agent, args, Some(DEFAULT_STT_MODEL)).await?;
+    let (provider_id, provider_config) = resolve_media_provider_config(
+        agent,
+        args,
+        Some(MediaEndpoint::SpeechToText),
+    )
+    .await?;
     let route = resolve_audio_tool_route(
         &provider_id,
         &provider_config,
@@ -1265,8 +1324,12 @@ async fn execute_text_to_speech(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("missing 'input' argument"))?;
-    let (provider_id, provider_config) =
-        resolve_media_provider_config(agent, args, Some(DEFAULT_TTS_MODEL)).await?;
+    let (provider_id, provider_config) = resolve_media_provider_config(
+        agent,
+        args,
+        Some(MediaEndpoint::TextToSpeech),
+    )
+    .await?;
     let route = resolve_audio_tool_route(
         &provider_id,
         &provider_config,
@@ -1620,9 +1683,13 @@ mod media_tools_tests {
 
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
         let (provider_id, provider_config) =
-            resolve_media_provider_config(&engine, &serde_json::json!({}), Some(DEFAULT_TTS_MODEL))
-                .await
-                .expect("audio TTS settings should resolve");
+            resolve_media_provider_config(
+                &engine,
+                &serde_json::json!({}),
+                Some(MediaEndpoint::TextToSpeech),
+            )
+            .await
+            .expect("audio TTS settings should resolve");
 
         assert_eq!(provider_id, "custom");
         assert_eq!(provider_config.model, "sonic-voice");
@@ -1674,12 +1741,74 @@ mod media_tools_tests {
 
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
         let (provider_id, provider_config) =
-            resolve_media_provider_config(&engine, &serde_json::json!({}), Some(DEFAULT_STT_MODEL))
-                .await
-                .expect("legacy STT settings should resolve");
+            resolve_media_provider_config(
+                &engine,
+                &serde_json::json!({}),
+                Some(MediaEndpoint::SpeechToText),
+            )
+            .await
+            .expect("legacy STT settings should resolve");
 
         assert_eq!(provider_id, "custom");
         assert_eq!(provider_config.model, "whisper-legacy");
         assert_eq!(provider_config.base_url, "https://audio.example/v1");
+    }
+
+    #[tokio::test]
+    async fn resolve_media_provider_config_uses_nested_image_generation_settings() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4".to_string();
+        config.api_key = "sk-active".to_string();
+        config.extra.insert(
+            "image".to_string(),
+            serde_json::json!({
+                "generation": {
+                    "provider": "custom",
+                    "model": "flux-pro"
+                }
+            }),
+        );
+        config.providers.insert(
+            "custom".to_string(),
+            crate::agent::types::ProviderConfig {
+                base_url: "https://images.example/v1".to_string(),
+                model: "fallback-model".to_string(),
+                api_key: "sk-image".to_string(),
+                assistant_id: String::new(),
+                auth_source: crate::agent::types::AuthSource::ApiKey,
+                api_transport: crate::agent::types::ApiTransport::Responses,
+                reasoning_effort: "medium".to_string(),
+                context_window_tokens: 128_000,
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+            },
+        );
+
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let (provider_id, provider_config) = resolve_media_provider_config(
+            &engine,
+            &serde_json::json!({}),
+            Some(MediaEndpoint::ImageGeneration),
+        )
+        .await
+        .expect("image generation settings should resolve");
+
+        assert_eq!(provider_id, "custom");
+        assert_eq!(provider_config.model, "flux-pro");
+        assert_eq!(provider_config.base_url, "https://images.example/v1");
     }
 }

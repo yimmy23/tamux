@@ -144,6 +144,8 @@ export interface AgentSettings {
   audio_tts_model: string;
   audio_tts_voice: string;
   audio_tts_auto_speak: boolean;
+  image_generation_provider: AgentProviderId;
+  image_generation_model: string;
   reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
   auto_compact_context: boolean;
   max_context_messages: number;
@@ -257,6 +259,8 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   audio_tts_model: "gpt-4o-mini-tts",
   audio_tts_voice: "alloy",
   audio_tts_auto_speak: false,
+  image_generation_provider: "openai",
+  image_generation_model: "gpt-image-1",
   reasoning_effort: "high",
   auto_compact_context: true,
   max_context_messages: 100,
@@ -338,6 +342,14 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
       auto_speak?: boolean;
     };
   };
+  image?: {
+    generation?: {
+      provider?: AgentProviderId | string;
+      model?: string;
+    };
+  };
+  image_generation_provider?: AgentProviderId | string;
+  image_generation_model?: string;
   system_prompt?: string;
   auto_compact_context?: boolean;
   max_context_messages?: number;
@@ -500,6 +512,15 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     audio_tts_model: source.audio?.tts?.model ?? source.audio_tts_model ?? DEFAULT_AGENT_SETTINGS.audio_tts_model,
     audio_tts_voice: source.audio?.tts?.voice ?? source.audio_tts_voice ?? DEFAULT_AGENT_SETTINGS.audio_tts_voice,
     audio_tts_auto_speak: source.audio?.tts?.auto_speak ?? source.audio_tts_auto_speak ?? DEFAULT_AGENT_SETTINGS.audio_tts_auto_speak,
+    image_generation_provider: normalizeAgentProviderId(
+      source.image?.generation?.provider
+        ?? source.image_generation_provider
+        ?? DEFAULT_AGENT_SETTINGS.image_generation_provider,
+    ),
+    image_generation_model:
+      source.image?.generation?.model
+      ?? source.image_generation_model
+      ?? DEFAULT_AGENT_SETTINGS.image_generation_model,
     reasoning_effort: (source.reasoning_effort ?? DEFAULT_AGENT_SETTINGS.reasoning_effort) as AgentSettings["reasoning_effort"],
     auto_compact_context: source.auto_compact_context ?? DEFAULT_AGENT_SETTINGS.auto_compact_context,
     max_context_messages: source.max_context_messages ?? DEFAULT_AGENT_SETTINGS.max_context_messages,
@@ -646,6 +667,8 @@ export function looksLikeDaemonAgentConfig(value: unknown): value is DiskAgentSe
     typeof record.provider === "string"
     || typeof record.active_provider === "string"
     || (record.providers && typeof record.providers === "object" && !Array.isArray(record.providers))
+    || (record.image && typeof record.image === "object" && !Array.isArray(record.image))
+    || typeof record.image_generation_provider === "string"
     || typeof record.agent_backend === "string",
   );
 }

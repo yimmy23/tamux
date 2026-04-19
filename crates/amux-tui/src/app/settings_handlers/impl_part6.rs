@@ -169,6 +169,14 @@ impl TuiModel {
                 self.settings.start_editing("feat_audio_tts_voice", &current);
                 true
             }
+            "feat_image_generation_provider" => {
+                self.open_provider_picker(SettingsPickerTarget::ImageGenerationProvider);
+                true
+            }
+            "feat_image_generation_model" => {
+                self.open_image_generation_model_picker();
+                true
+            }
             _ => false,
         }
     }

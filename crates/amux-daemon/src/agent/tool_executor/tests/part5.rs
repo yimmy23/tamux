@@ -461,6 +461,32 @@
     }
 
     #[test]
+    fn configured_image_generation_model_keeps_generate_image_available() {
+        let temp_dir = std::env::temp_dir();
+        let mut config = AgentConfig::default();
+        config.provider = amux_shared::providers::PROVIDER_ID_XAI.to_string();
+        config.model = "grok-code-fast-1".to_string();
+        config.tools.vision = true;
+        config.extra.insert(
+            "image".to_string(),
+            serde_json::json!({
+                "generation": {
+                    "provider": amux_shared::providers::PROVIDER_ID_OPENROUTER,
+                    "model": "openai/gpt-image-1"
+                }
+            }),
+        );
+
+        let tools = get_available_tools(&config, &temp_dir, false);
+        assert!(tools
+            .iter()
+            .any(|tool| tool.function.name == "analyze_image"));
+        assert!(tools
+            .iter()
+            .any(|tool| tool.function.name == "generate_image"));
+    }
+
+    #[test]
     fn media_tools_expose_expected_core_parameters() {
         let mut config = AgentConfig::default();
         config.tools.vision = true;

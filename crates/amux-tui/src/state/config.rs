@@ -451,6 +451,33 @@ impl ConfigState {
             })
     }
 
+    fn get_image_generation_nested_field(&self, field: &str) -> Option<&serde_json::Value> {
+        self.agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("image"))
+            .and_then(|image| image.get("generation"))
+            .and_then(|generation| generation.get(field))
+    }
+
+    fn get_image_generation_field(
+        &self,
+        field: &str,
+        legacy_flat_key: &str,
+    ) -> Option<&serde_json::Value> {
+        self.get_image_generation_nested_field(field)
+            .or_else(|| {
+                self.agent_config_raw
+                    .as_ref()
+                    .and_then(|raw| raw.get(legacy_flat_key))
+            })
+            .or_else(|| {
+                self.agent_config_raw
+                    .as_ref()
+                    .and_then(|raw| raw.get("extra"))
+                    .and_then(|extra| extra.get(legacy_flat_key))
+            })
+    }
+
     fn get_audio_bool(&self, group: &str, nested_field: &str, legacy_flat_key: &str) -> bool {
         self.get_audio_field(group, nested_field, legacy_flat_key)
             .and_then(|v| v.as_bool())
@@ -490,6 +517,20 @@ impl ConfigState {
 
     pub fn audio_tts_voice(&self) -> String {
         self.get_audio_string("tts", "voice", "audio_tts_voice")
+    }
+
+    pub fn image_generation_provider(&self) -> String {
+        self.get_image_generation_field("provider", "image_generation_provider")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    pub fn image_generation_model(&self) -> String {
+        self.get_image_generation_field("model", "image_generation_model")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string()
     }
 }
 
