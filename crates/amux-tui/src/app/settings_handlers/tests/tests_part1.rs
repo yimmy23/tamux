@@ -388,10 +388,12 @@ fn activating_audio_stt_model_fetches_remote_models_for_audio_provider() {
             provider_id,
             base_url,
             api_key,
+            output_modalities,
         }) => {
             assert_eq!(provider_id, PROVIDER_ID_OPENROUTER);
             assert_eq!(base_url, "https://openrouter.ai/api/v1");
             assert_eq!(api_key, "router-key");
+            assert_eq!(output_modalities, None);
         }
         other => panic!("expected FetchModels for audio STT picker, got {other:?}"),
     }
@@ -425,12 +427,56 @@ fn activating_audio_tts_model_fetches_remote_models_for_audio_provider() {
             provider_id,
             base_url,
             api_key,
+            output_modalities,
         }) => {
             assert_eq!(provider_id, PROVIDER_ID_OPENAI);
             assert_eq!(base_url, "https://api.openai.com/v1");
             assert_eq!(api_key, "openai-key");
+            assert_eq!(output_modalities, None);
         }
         other => panic!("expected FetchModels for audio TTS picker, got {other:?}"),
+    }
+}
+
+#[test]
+fn activating_openrouter_audio_tts_model_requests_audio_output_filter() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "providers": {
+            PROVIDER_ID_OPENROUTER: {
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "router-key",
+                "auth_source": "api_key"
+            }
+        },
+        "audio": {
+            "tts": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-4o-mini-tts"
+            }
+        }
+    }));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_audio_tts_model");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::FetchModels {
+            provider_id,
+            base_url,
+            api_key,
+            output_modalities,
+        }) => {
+            assert_eq!(provider_id, PROVIDER_ID_OPENROUTER);
+            assert_eq!(base_url, "https://openrouter.ai/api/v1");
+            assert_eq!(api_key, "router-key");
+            assert_eq!(output_modalities.as_deref(), Some("audio"));
+        }
+        other => panic!("expected filtered FetchModels for OpenRouter audio TTS picker, got {other:?}"),
     }
 }
 
@@ -474,10 +520,12 @@ fn activating_subagent_model_fetches_remote_models_for_fetchable_provider() {
             provider_id,
             base_url,
             api_key,
+            output_modalities,
         }) => {
             assert_eq!(provider_id, PROVIDER_ID_CHUTES);
             assert_eq!(base_url, "https://llm.chutes.ai/v1");
             assert_eq!(api_key, "chutes-key");
+            assert_eq!(output_modalities, None);
         }
         other => panic!("expected FetchModels for sub-agent model picker, got {other:?}"),
     }
@@ -554,10 +602,12 @@ fn activating_audio_stt_model_prefills_groq_static_models_and_fetches_remote_cat
             provider_id,
             base_url,
             api_key,
+            output_modalities,
         }) => {
             assert_eq!(provider_id, PROVIDER_ID_GROQ);
             assert_eq!(base_url, "https://api.groq.com/openai/v1");
             assert_eq!(api_key, "groq-key");
+            assert_eq!(output_modalities, None);
         }
         other => panic!("expected FetchModels for Groq audio STT picker, got {other:?}"),
     }
@@ -1534,10 +1584,12 @@ fn concierge_settings_fields_dispatch_expected_actions() {
             provider_id,
             base_url,
             api_key,
+            output_modalities,
         }) => {
             assert_eq!(provider_id, PROVIDER_ID_CHUTES);
             assert_eq!(base_url, "https://llm.chutes.ai/v1");
             assert_eq!(api_key, "chutes-key");
+            assert_eq!(output_modalities, None);
         }
         other => panic!("expected concierge model fetch command, got {other:?}"),
     }

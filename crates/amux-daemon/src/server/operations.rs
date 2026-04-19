@@ -64,9 +64,11 @@ pub(super) fn provider_validation_dedup_key(
 pub(super) fn fetch_models_dedup_key(
     agent: &Arc<crate::agent::AgentEngine>,
     provider_id: &str,
+    output_modalities: Option<&str>,
 ) -> String {
     format!(
-        "{OPERATION_KIND_FETCH_MODELS}:{provider_id}:{:p}",
+        "{OPERATION_KIND_FETCH_MODELS}:{provider_id}:{}:{:p}",
+        output_modalities.unwrap_or_default(),
         Arc::as_ptr(agent)
     )
 }

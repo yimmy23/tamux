@@ -66,6 +66,7 @@ async fn concierge_welcome_does_not_delay_fetch_models_acceptance() {
             provider_id: "openai".to_string(),
             base_url: format!("http://{models_addr}"),
             api_key: "test-key".to_string(),
+            output_modalities: None,
         })
         .await
         .expect("request fetch-models while concierge is active");
@@ -359,6 +360,7 @@ async fn fetch_models_async_request_does_not_block_ping() {
             provider_id: "openai".to_string(),
             base_url: format!("http://{addr}"),
             api_key: "test-key".to_string(),
+            output_modalities: None,
         })
         .await
         .expect("request models fetch");
@@ -451,6 +453,7 @@ async fn fetch_models_async_request_returns_correlated_terminal_result() {
             provider_id: "openai".to_string(),
             base_url: format!("http://{addr}"),
             api_key: "test-key".to_string(),
+            output_modalities: None,
         })
         .await
         .expect("request models fetch");
@@ -510,6 +513,7 @@ async fn fetch_models_request_without_declared_capability_still_returns_operatio
             provider_id: "openai".to_string(),
             base_url: format!("http://{addr}"),
             api_key: "test-key".to_string(),
+            output_modalities: None,
         })
         .await
         .expect("request models fetch");
@@ -567,6 +571,7 @@ async fn unsupported_provider_fetch_models_returns_empty_response_instead_of_err
             provider_id: "featherless".to_string(),
             base_url: "http://127.0.0.1:9".to_string(),
             api_key: String::new(),
+            output_modalities: None,
         })
         .await
         .expect("request unsupported provider models fetch");

@@ -570,6 +570,7 @@ async fn execute_fetch_provider_models(
         provider_id,
         &provider_config.base_url,
         &provider_config.api_key,
+        None,
     )
     .await
     .map_err(|error| {
@@ -779,6 +780,7 @@ async fn validate_spawn_provider_override(
         provider_id,
         &provider_config.base_url,
         &provider_config.api_key,
+        None,
     )
     .await
     .map_err(|error| {

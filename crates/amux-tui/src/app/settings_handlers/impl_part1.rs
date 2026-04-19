@@ -4,6 +4,20 @@ use amux_shared::providers::{
 };
 
 impl TuiModel {
+    fn audio_remote_model_fetch_output_modalities(
+        endpoint: &str,
+        provider_id: &str,
+    ) -> Option<String> {
+        if provider_id != PROVIDER_ID_OPENROUTER {
+            return None;
+        }
+
+        match endpoint {
+            "tts" => Some("audio".to_string()),
+            _ => None,
+        }
+    }
+
     pub(super) fn audio_catalog_models(
         endpoint: &str,
         provider_id: &str,
@@ -109,10 +123,13 @@ impl TuiModel {
         self.config
             .reduce(config::ConfigAction::ModelsFetched(models));
         if self.should_fetch_remote_models(&provider_id, &auth_source) {
+            let output_modalities =
+                Self::audio_remote_model_fetch_output_modalities(endpoint, &provider_id);
             self.send_daemon_command(DaemonCommand::FetchModels {
                 provider_id,
                 base_url,
                 api_key,
+                output_modalities,
             });
         }
         self.settings_picker_target = Some(match endpoint {
@@ -140,6 +157,7 @@ impl TuiModel {
                 provider_id,
                 base_url,
                 api_key,
+                output_modalities: None,
             });
         }
         self.settings_picker_target = Some(target);

@@ -349,6 +349,32 @@ fn daemon_message_roundtrips_agent_semantic_query_result() {
 }
 
 #[test]
+fn client_message_roundtrips_agent_fetch_models_with_output_filter() {
+    let msg = ClientMessage::AgentFetchModels {
+        provider_id: "openrouter".to_string(),
+        base_url: "https://openrouter.ai/api/v1".to_string(),
+        api_key: "router-key".to_string(),
+        output_modalities: Some("image".to_string()),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentFetchModels {
+            provider_id,
+            base_url,
+            api_key,
+            output_modalities,
+        } => {
+            assert_eq!(provider_id, "openrouter");
+            assert_eq!(base_url, "https://openrouter.ai/api/v1");
+            assert_eq!(api_key, "router-key");
+            assert_eq!(output_modalities.as_deref(), Some("image"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn client_message_roundtrips_agent_execute_memory_tool() {
     let msg = ClientMessage::AgentExecuteMemoryTool {
         tool_name: "search_memory".to_string(),

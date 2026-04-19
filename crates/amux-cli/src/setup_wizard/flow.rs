@@ -498,6 +498,7 @@ async fn configure_model(
                 provider_id: provider.provider_id.clone(),
                 base_url: provider.base_url.clone(),
                 api_key: api_key_saved.to_string(),
+                output_modalities: None,
             },
         )
         .await

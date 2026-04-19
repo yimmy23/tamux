@@ -364,7 +364,7 @@
 
     #[tokio::test]
     async fn unsupported_provider_model_fetch_returns_empty_catalog() {
-        let models = fetch_models("featherless", "http://127.0.0.1:9", "")
+        let models = fetch_models("featherless", "http://127.0.0.1:9", "", None)
             .await
             .expect("unsupported providers should not surface a fetch error");
 
@@ -422,6 +422,7 @@
             amux_shared::providers::PROVIDER_ID_OPENROUTER,
             &format!("http://{addr}"),
             "",
+            None,
         )
         .await
         .expect("fetch models should succeed");
@@ -446,14 +447,21 @@
     }
 
     #[tokio::test]
-    async fn openrouter_fetch_models_targets_image_modalities_without_losing_metadata() {
+    async fn openrouter_filtered_model_fetch_requests_output_modality_query_and_preserves_metadata() {
+        let request_lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
-            .expect("bind model fetch listener");
-        let addr = listener.local_addr().expect("model fetch listener addr");
+            .expect("bind openrouter model fetch listener");
+        let addr = listener
+            .local_addr()
+            .expect("openrouter model fetch listener addr");
+        let request_lines_for_server = std::sync::Arc::clone(&request_lines);
 
         let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept model fetch request");
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("accept model fetch request");
             let mut buf = [0_u8; 4096];
             let size = tokio::time::timeout(
                 std::time::Duration::from_secs(1),
@@ -463,30 +471,24 @@
             .expect("read model fetch request timed out")
             .expect("read model fetch request");
             let request = String::from_utf8_lossy(&buf[..size]).to_string();
-            assert!(
-                request
-                    .lines()
-                    .next()
-                    .expect("request line")
-                    .contains("GET /models?output_modalities=image "),
-                "OpenRouter fetch should request image-targeted models"
-            );
+            let request_line = request.lines().next().unwrap_or_default().to_string();
+            request_lines_for_server
+                .lock()
+                .expect("lock openrouter request lines")
+                .push(request_line);
 
             let body = serde_json::json!({
                 "data": [
                     {
                         "id": "openai/gpt-image",
-                        "name": "OpenAI: GPT Image",
-                        "description": "Image model",
+                        "name": "GPT Image",
                         "context_length": 128000,
                         "pricing": {
-                            "prompt": "0.0000025",
-                            "image": "0.012"
+                            "image": "0.00001"
                         },
                         "architecture": {
-                            "modality": "text+image->text+image",
-                            "input_modalities": ["text", "image"],
-                            "output_modalities": ["text", "image"]
+                            "input_modalities": ["text"],
+                            "output_modalities": ["image"]
                         }
                     }
                 ]
@@ -506,21 +508,28 @@
             amux_shared::providers::PROVIDER_ID_OPENROUTER,
             &format!("http://{addr}"),
             "",
+            Some("image"),
         )
         .await
         .expect("fetch models should succeed");
 
-        server.await.expect("model fetch server task");
+        server.await.expect("openrouter model fetch server task");
 
+        let request_line = request_lines
+            .lock()
+            .expect("lock request lines")
+            .first()
+            .cloned()
+            .expect("request line should be recorded");
+        assert!(
+            request_line.contains("/models?output_modalities=image"),
+            "expected OpenRouter model fetch to request image output modality filter, got {request_line}"
+        );
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "openai/gpt-image");
         assert_eq!(
-            models[0].pricing.as_ref().and_then(|pricing| pricing.prompt.as_deref()),
-            Some("0.0000025")
-        );
-        assert_eq!(
             models[0].pricing.as_ref().and_then(|pricing| pricing.image.as_deref()),
-            Some("0.012")
+            Some("0.00001")
         );
         assert_eq!(
             models[0]
@@ -529,9 +538,13 @@
                 .and_then(|metadata| metadata.get("architecture"))
                 .and_then(|architecture| architecture.get("output_modalities"))
                 .and_then(|value| value.as_array())
-                .and_then(|items| items.first())
-                .and_then(|value| value.as_str()),
-            Some("text")
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec!["image"])
         );
     }
 
@@ -598,6 +611,7 @@
             amux_shared::providers::PROVIDER_ID_CHUTES,
             &format!("http://{addr}"),
             "bad-key",
+            None,
         )
         .await
         .expect("chutes fetch should fall back to unauthenticated catalog");

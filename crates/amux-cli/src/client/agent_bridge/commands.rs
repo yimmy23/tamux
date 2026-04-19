@@ -260,12 +260,14 @@ where
             provider_id,
             base_url,
             api_key,
+            output_modalities,
         } => {
             framed
                 .send(ClientMessage::AgentFetchModels {
                     provider_id,
                     base_url,
                     api_key,
+                    output_modalities,
                 })
                 .await?;
         }

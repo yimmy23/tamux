@@ -6990,6 +6990,9 @@ dependencies = [
 [[package]]
 name = "tamux-shared"
 version = "0.5.11"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "tamux-tui"

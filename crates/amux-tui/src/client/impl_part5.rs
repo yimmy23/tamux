@@ -183,11 +183,13 @@ impl DaemonClient {
         provider_id: String,
         base_url: String,
         api_key: String,
+        output_modalities: Option<String>,
     ) -> Result<()> {
         self.send(ClientMessage::AgentFetchModels {
             provider_id,
             base_url,
             api_key,
+            output_modalities,
         })
     }
 

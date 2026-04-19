@@ -93,7 +93,7 @@ pub enum ClientMessage {
     AgentSetConfigItem { key_path: String, value_json: String },
     AgentSetProviderModel { provider_id: String, model: String },
     AgentSetTargetAgentProviderModel { target_agent_id: String, provider_id: String, model: String },
-    AgentFetchModels { provider_id: String, base_url: String, api_key: String },
+    AgentFetchModels { provider_id: String, base_url: String, api_key: String, #[serde(default)] output_modalities: Option<String> },
     AgentHeartbeatGetItems,
     AgentHeartbeatSetItems { items_json: String },
     AgentResolveTaskApproval { approval_id: String, decision: String },

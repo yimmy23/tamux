@@ -1477,10 +1477,12 @@ fn provider_picker_fetches_remote_models_for_chutes() {
             provider_id,
             base_url,
             api_key,
+            output_modalities,
         }) => {
             assert_eq!(provider_id, PROVIDER_ID_CHUTES);
             assert_eq!(base_url, "https://llm.chutes.ai/v1");
             assert_eq!(api_key, "chutes-key");
+            assert_eq!(output_modalities, None);
         }
         other => panic!("expected FetchModels for Chutes provider picker, got {other:?}"),
     }

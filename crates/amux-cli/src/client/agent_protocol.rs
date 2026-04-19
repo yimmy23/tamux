@@ -132,6 +132,7 @@ pub(super) enum AgentBridgeCommand {
         provider_id: String,
         base_url: String,
         api_key: String,
+        output_modalities: Option<String>,
     },
     SetTargetAgentProviderModel {
         target_agent_id: String,

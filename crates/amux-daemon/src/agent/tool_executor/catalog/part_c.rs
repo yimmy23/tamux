@@ -118,6 +118,12 @@ fn add_available_tools_part_c(
     ));
 
     if config.tools.vision {
+        let active_model_features = amux_shared::providers::derive_model_feature_capabilities(
+            &config.provider,
+            &config.model,
+            None,
+            false,
+        );
         tools.push(tool_def(
             "analyze_image",
             "Analyze an image with the active or specified multimodal model. Accepts exactly one of `path`, `url`, `base64`, or `data_url`, then returns a textual analysis.",
@@ -138,24 +144,26 @@ fn add_available_tools_part_c(
             }),
         ));
 
-        tools.push(tool_def(
-            "generate_image",
-            "Generate an image through an OpenAI-compatible image generation endpoint and return JSON with the saved artifact path or upstream URL.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "prompt": { "type": "string", "description": "Image generation prompt" },
-                    "provider": { "type": "string", "description": "Optional provider override" },
-                    "model": { "type": "string", "description": "Optional model override" },
-                    "size": { "type": "string", "description": "Optional output size such as 1024x1024" },
-                    "quality": { "type": "string", "description": "Optional quality hint supported by the provider" },
-                    "style": { "type": "string", "description": "Optional style hint supported by the provider" },
-                    "background": { "type": "string", "description": "Optional background hint supported by the provider" },
-                    "output_format": { "type": "string", "description": "Desired image format for saved bytes, e.g. png, jpg, webp" }
-                },
-                "required": ["prompt"]
-            }),
-        ));
+        if active_model_features.image_generation {
+            tools.push(tool_def(
+                "generate_image",
+                "Generate an image through an OpenAI-compatible image generation endpoint and return JSON with the saved artifact path or upstream URL.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "prompt": { "type": "string", "description": "Image generation prompt" },
+                        "provider": { "type": "string", "description": "Optional provider override" },
+                        "model": { "type": "string", "description": "Optional model override" },
+                        "size": { "type": "string", "description": "Optional output size such as 1024x1024" },
+                        "quality": { "type": "string", "description": "Optional quality hint supported by the provider" },
+                        "style": { "type": "string", "description": "Optional style hint supported by the provider" },
+                        "background": { "type": "string", "description": "Optional background hint supported by the provider" },
+                        "output_format": { "type": "string", "description": "Desired image format for saved bytes, e.g. png, jpg, webp" }
+                    },
+                    "required": ["prompt"]
+                }),
+            ));
+        }
     }
 
     tools.push(tool_def(

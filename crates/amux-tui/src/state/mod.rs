@@ -132,6 +132,7 @@ pub enum DaemonCommand {
         provider_id: String,
         base_url: String,
         api_key: String,
+        output_modalities: Option<String>,
     },
     SetConfigItem {
         key_path: String,

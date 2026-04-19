@@ -438,8 +438,7 @@
     }
 
     #[test]
-    fn generate_image_is_hidden_for_non_image_generation_capable_models_even_when_vision_is_enabled(
-    ) {
+    fn generate_image_is_hidden_when_active_model_context_lacks_image_generation_capability() {
         let temp_dir = std::env::temp_dir();
         let mut config = AgentConfig::default();
         config.provider = amux_shared::providers::PROVIDER_ID_XAI.to_string();

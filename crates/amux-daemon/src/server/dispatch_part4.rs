@@ -657,6 +657,7 @@ if matches!(
                     provider_id,
                     base_url,
                     api_key,
+                    output_modalities,
                 } => {
                     if !background_daemon_pending.has_capacity(BackgroundSubsystem::ProviderIo) {
                         background_daemon_pending.note_rejection(BackgroundSubsystem::ProviderIo);
@@ -670,7 +671,11 @@ if matches!(
 
                     let operation = operation_registry().accept_operation(
                         OPERATION_KIND_FETCH_MODELS,
-                        Some(fetch_models_dedup_key(&agent, &provider_id)),
+                        Some(fetch_models_dedup_key(
+                            &agent,
+                            &provider_id,
+                            output_modalities.as_deref(),
+                        )),
                     );
 
                     framed
@@ -696,6 +701,7 @@ if matches!(
                                 &provider_id,
                                 &base_url,
                                 &api_key,
+                                output_modalities.as_deref(),
                             )
                             .await;
 

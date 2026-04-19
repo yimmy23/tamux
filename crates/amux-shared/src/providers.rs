@@ -9,6 +9,14 @@ pub enum AudioToolKind {
     TextToSpeech,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModelFeatureCapabilities {
+    pub vision: bool,
+    pub stt: bool,
+    pub tts: bool,
+    pub image_generation: bool,
+}
+
 pub const PROVIDER_ID_ALIBABA_CODING_PLAN: &str = "alibaba-coding-plan";
 pub const PROVIDER_ID_ANTHROPIC: &str = "anthropic";
 pub const PROVIDER_ID_ARCEE: &str = "arcee";
@@ -83,6 +91,94 @@ pub const XIAOMI_MIMO_TOKEN_PLAN_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
 };
 
+fn metadata_pointer<'a>(
+    metadata: Option<&'a serde_json::Value>,
+    pointer: &str,
+) -> Option<&'a serde_json::Value> {
+    metadata
+        .and_then(|value| value.pointer(&format!("/architecture{pointer}")))
+        .or_else(|| metadata.and_then(|value| value.pointer(pointer)))
+}
+
+fn json_array_contains(value: Option<&serde_json::Value>, needle: &str) -> bool {
+    value
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items.iter().any(|item| {
+                item.as_str()
+                    .map(str::trim)
+                    .map(|value| value.eq_ignore_ascii_case(needle))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn modality_side_has_term(value: Option<&serde_json::Value>, side: &str, needle: &str) -> bool {
+    let Some(value) = value.and_then(|value| value.as_str()) else {
+        return false;
+    };
+    let normalized = value.trim().to_ascii_lowercase();
+    let Some((input, output)) = normalized.split_once("->") else {
+        return false;
+    };
+    let directional = match side {
+        "input" => input,
+        "output" => output,
+        _ => return false,
+    };
+
+    directional
+        .split('+')
+        .map(str::trim)
+        .any(|token| token == needle)
+}
+
+fn model_id_has_image_generation_heuristic(model_id: &str) -> bool {
+    let normalized = model_id.trim().to_ascii_lowercase();
+    !normalized.is_empty()
+        && [
+            "gpt-image",
+            "dall-e",
+            "imagen",
+            "recraft",
+            "stable-diffusion",
+            "sdxl",
+            "flux",
+        ]
+        .iter()
+        .any(|needle| normalized.contains(needle))
+}
+
+pub fn derive_model_feature_capabilities(
+    _provider_id: &str,
+    model_id: &str,
+    metadata: Option<&serde_json::Value>,
+    pricing_image: bool,
+) -> ModelFeatureCapabilities {
+    let input_modalities = metadata_pointer(metadata, "/input_modalities");
+    let output_modalities = metadata_pointer(metadata, "/output_modalities");
+    let modality = metadata_pointer(metadata, "/modality");
+
+    let vision = json_array_contains(input_modalities, "image")
+        || modality_side_has_term(modality, "input", "image");
+    let stt = json_array_contains(input_modalities, "audio")
+        || modality_side_has_term(modality, "input", "audio");
+    let tts = json_array_contains(output_modalities, "audio")
+        || modality_side_has_term(modality, "output", "audio");
+    let image_generation = json_array_contains(output_modalities, "image")
+        || modality_side_has_term(modality, "output", "image")
+        || pricing_image
+        || model_id_has_image_generation_heuristic(model_id);
+
+    ModelFeatureCapabilities {
+        vision,
+        stt,
+        tts,
+        image_generation,
+    }
+}
+
 pub fn provider_supports_audio_tool(provider_id: &str, _kind: AudioToolKind) -> bool {
     matches!(
         provider_id,
@@ -133,5 +229,48 @@ mod tests {
             PROVIDER_ID_XAI,
             AudioToolKind::TextToSpeech,
         ));
+    }
+
+    #[test]
+    fn derive_model_feature_capabilities_preserves_directional_audio_semantics() {
+        let metadata = serde_json::json!({
+            "architecture": {
+                "input_modalities": ["text", "audio"],
+                "output_modalities": ["text"],
+                "modality": "text+audio->text",
+            }
+        });
+
+        let features = derive_model_feature_capabilities(
+            PROVIDER_ID_OPENROUTER,
+            "openai/gpt-audio",
+            Some(&metadata),
+            false,
+        );
+
+        assert!(features.stt);
+        assert!(!features.tts);
+        assert!(!features.image_generation);
+    }
+
+    #[test]
+    fn derive_model_feature_capabilities_detects_image_generation_from_output_or_pricing() {
+        let metadata = serde_json::json!({
+            "architecture": {
+                "input_modalities": ["text"],
+                "output_modalities": ["image"],
+            }
+        });
+
+        let features = derive_model_feature_capabilities(
+            PROVIDER_ID_OPENROUTER,
+            "openai/gpt-image",
+            Some(&metadata),
+            true,
+        );
+
+        assert!(features.image_generation);
+        assert!(!features.stt);
+        assert!(!features.tts);
     }
 }

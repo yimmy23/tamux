@@ -672,8 +672,14 @@ fn start_daemon_bridge(
                                 provider_id,
                                 base_url,
                                 api_key,
+                                output_modalities,
                             } => {
-                                let _ = client.fetch_models(provider_id, base_url, api_key);
+                                let _ = client.fetch_models(
+                                    provider_id,
+                                    base_url,
+                                    api_key,
+                                    output_modalities,
+                                );
                             }
                             DaemonCommand::SetConfigItem { key_path, value_json } => {
                                 let _ = client.set_config_item_json(key_path, value_json);
@@ -970,6 +976,7 @@ mod tests {
                 provider_id: amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string(),
                 base_url: format!("http://{addr}"),
                 api_key: "test-key".to_string(),
+                output_modalities: None,
             })
             .expect("queue fetch models command");
 
