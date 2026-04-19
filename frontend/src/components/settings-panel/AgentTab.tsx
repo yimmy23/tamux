@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { getDaemonOwnedAuthCapability, getProviderAuthSupportOptions } from "@/lib/agentDaemonConfig";
 import { getBridge } from "@/lib/bridge";
 import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
-import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
+import { filterFetchedModelsForAudio } from "@/lib/providerModels";
+import type { AgentProviderConfig, AgentProviderId, AgentSettings, ModelDefinition } from "../../lib/agentStore";
 import { DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW, getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, modelUsesContextWindowOverride, normalizeAuthSource, providerUsesConfigurableBaseUrl, resolveProviderModelDefinition } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
@@ -18,6 +19,25 @@ import {
     normalizeTuiChatHistoryPageSize,
 } from "../../lib/chatHistoryPageSize";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
+
+const OPENAI_STT_MODELS: ModelDefinition[] = [
+    { id: "gpt-4o-transcribe", name: "GPT-4o Transcribe", contextWindow: 128000, modalities: ["audio"] },
+    { id: "gpt-4o-mini-transcribe", name: "GPT-4o Mini Transcribe", contextWindow: 128000, modalities: ["audio"] },
+    { id: "whisper-1", name: "Whisper 1", contextWindow: 0, modalities: ["audio"] },
+];
+
+const OPENAI_TTS_MODELS: ModelDefinition[] = [
+    { id: "gpt-4o-mini-tts", name: "GPT-4o Mini TTS", contextWindow: 128000, modalities: ["audio"] },
+    { id: "tts-1", name: "TTS 1", contextWindow: 0, modalities: ["audio"] },
+    { id: "tts-1-hd", name: "TTS 1 HD", contextWindow: 0, modalities: ["audio"] },
+];
+
+function audioModelOptions(providerId: AgentProviderId, kind: "stt" | "tts"): ModelDefinition[] | undefined {
+    if (providerId === "openai" || providerId === "azure-openai") {
+        return kind === "stt" ? OPENAI_STT_MODELS : OPENAI_TTS_MODELS;
+    }
+    return undefined;
+}
 
 export function normalizeLlmStreamTimeoutInput(value: string): number | null {
     const parsed = Number.parseInt(value, 10);
@@ -326,7 +346,7 @@ export function AgentTab({
                             onChange={(value) => updateSetting("audio_stt_provider", value as AgentProviderId)}
                         />
                     </SettingRow>
-                    <SettingRow label="STT Model">
+                        <SettingRow label="STT Model">
                         <ModelSelector
                             providerId={settings.audio_stt_provider}
                             value={settings.audio_stt_model}
@@ -335,6 +355,8 @@ export function AgentTab({
                             base_url={audioSttProviderConfig.base_url}
                             api_key={audioSttProviderConfig.api_key}
                             auth_source={audioSttProviderConfig.auth_source}
+                            modelOptions={audioModelOptions(settings.audio_stt_provider, "stt")}
+                            remoteModelFilter={(model) => filterFetchedModelsForAudio([model], "stt").length > 0}
                             disabled={!settings.audio_stt_enabled}
                         />
                     </SettingRow>
@@ -366,6 +388,8 @@ export function AgentTab({
                             base_url={audioTtsProviderConfig.base_url}
                             api_key={audioTtsProviderConfig.api_key}
                             auth_source={audioTtsProviderConfig.auth_source}
+                            modelOptions={audioModelOptions(settings.audio_tts_provider, "tts")}
+                            remoteModelFilter={(model) => filterFetchedModelsForAudio([model], "tts").length > 0}
                             disabled={!settings.audio_tts_enabled}
                         />
                     </SettingRow>

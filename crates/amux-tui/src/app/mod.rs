@@ -85,6 +85,10 @@ enum MainPaneView {
 enum SettingsPickerTarget {
     Provider,
     Model,
+    AudioSttProvider,
+    AudioSttModel,
+    AudioTtsProvider,
+    AudioTtsModel,
     BuiltinPersonaProvider,
     BuiltinPersonaModel,
     CompactionWelesProvider,

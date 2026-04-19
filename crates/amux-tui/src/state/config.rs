@@ -5,10 +5,25 @@ use crate::providers;
 use amux_shared::providers::PROVIDER_ID_OPENAI;
 
 #[derive(Debug, Clone, Default)]
+pub struct FetchedModelPricing {
+    pub prompt: Option<String>,
+    pub completion: Option<String>,
+    pub image: Option<String>,
+    pub request: Option<String>,
+    pub web_search: Option<String>,
+    pub internal_reasoning: Option<String>,
+    pub input_cache_read: Option<String>,
+    pub input_cache_write: Option<String>,
+    pub audio: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct FetchedModel {
     pub id: String,
     pub name: Option<String>,
     pub context_window: Option<u32>,
+    pub pricing: Option<FetchedModelPricing>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -406,53 +421,75 @@ impl ConfigState {
         }
     }
 
-    // Audio configuration getters - parse from agent_config_raw.extra
-    fn get_audio_field(&self, field: &str) -> Option<&serde_json::Value> {
+    fn get_audio_nested_field(&self, group: &str, field: &str) -> Option<&serde_json::Value> {
         self.agent_config_raw
             .as_ref()
-            .and_then(|raw| raw.get("extra"))
-            .and_then(|extra| extra.get(field))
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get(group))
+            .and_then(|group| group.get(field))
     }
 
-    fn get_audio_bool(&self, field: &str) -> bool {
-        self.get_audio_field(field)
+    // Audio configuration getters support canonical nested audio settings and
+    // flattened legacy keys from the daemon's extra config bag.
+    fn get_audio_field(
+        &self,
+        group: &str,
+        nested_field: &str,
+        legacy_flat_key: &str,
+    ) -> Option<&serde_json::Value> {
+        self.get_audio_nested_field(group, nested_field)
+            .or_else(|| {
+                self.agent_config_raw
+                    .as_ref()
+                    .and_then(|raw| raw.get(legacy_flat_key))
+            })
+            .or_else(|| {
+                self.agent_config_raw
+                    .as_ref()
+                    .and_then(|raw| raw.get("extra"))
+                    .and_then(|extra| extra.get(legacy_flat_key))
+            })
+    }
+
+    fn get_audio_bool(&self, group: &str, nested_field: &str, legacy_flat_key: &str) -> bool {
+        self.get_audio_field(group, nested_field, legacy_flat_key)
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
     }
 
-    fn get_audio_string(&self, field: &str) -> String {
-        self.get_audio_field(field)
+    fn get_audio_string(&self, group: &str, nested_field: &str, legacy_flat_key: &str) -> String {
+        self.get_audio_field(group, nested_field, legacy_flat_key)
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string()
     }
 
     pub fn audio_stt_enabled(&self) -> bool {
-        self.get_audio_bool("audio_stt_enabled")
+        self.get_audio_bool("stt", "enabled", "audio_stt_enabled")
     }
 
     pub fn audio_stt_provider(&self) -> String {
-        self.get_audio_string("audio_stt_provider")
+        self.get_audio_string("stt", "provider", "audio_stt_provider")
     }
 
     pub fn audio_stt_model(&self) -> String {
-        self.get_audio_string("audio_stt_model")
+        self.get_audio_string("stt", "model", "audio_stt_model")
     }
 
     pub fn audio_tts_enabled(&self) -> bool {
-        self.get_audio_bool("audio_tts_enabled")
+        self.get_audio_bool("tts", "enabled", "audio_tts_enabled")
     }
 
     pub fn audio_tts_provider(&self) -> String {
-        self.get_audio_string("audio_tts_provider")
+        self.get_audio_string("tts", "provider", "audio_tts_provider")
     }
 
     pub fn audio_tts_model(&self) -> String {
-        self.get_audio_string("audio_tts_model")
+        self.get_audio_string("tts", "model", "audio_tts_model")
     }
 
     pub fn audio_tts_voice(&self) -> String {
-        self.get_audio_string("audio_tts_voice")
+        self.get_audio_string("tts", "voice", "audio_tts_voice")
     }
 }
 
@@ -506,11 +543,15 @@ mod tests {
                 id: "m1".into(),
                 name: Some("Model One".into()),
                 context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
             },
             FetchedModel {
                 id: "m2".into(),
                 name: None,
                 context_window: None,
+                pricing: None,
+                metadata: None,
             },
         ]));
         assert_eq!(state.fetched_models().len(), 2);

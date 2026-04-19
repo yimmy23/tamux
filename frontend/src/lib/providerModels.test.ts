@@ -1,4 +1,5 @@
 import {
+  filterFetchedModelsForAudio,
   formatRemoteModelPricingSubtitle,
   normalizeFetchedRemoteModel,
 } from "./providerModels";
@@ -45,4 +46,50 @@ test("formatRemoteModelPricingSubtitle returns free for zero prompt and completi
   });
 
   expect(formatRemoteModelPricingSubtitle(model)).toBe("free");
+});
+
+test("filterFetchedModelsForAudio keeps multimodal and audio-priced models for stt", () => {
+  const models = [
+    normalizeFetchedRemoteModel({
+      id: "openai/gpt-audio",
+      pricing: { audio: "0.000032" },
+      architecture: {
+        input_modalities: ["text", "audio"],
+        output_modalities: ["text"],
+      },
+    }),
+    normalizeFetchedRemoteModel({
+      id: "openai/gpt-text",
+      pricing: { prompt: "0.0000025" },
+      architecture: {
+        input_modalities: ["text"],
+        output_modalities: ["text"],
+      },
+    }),
+  ];
+
+  expect(filterFetchedModelsForAudio(models, "stt").map((model) => model.id)).toEqual([
+    "openai/gpt-audio",
+  ]);
+});
+
+test("filterFetchedModelsForAudio keeps audio-output models for tts", () => {
+  const models = [
+    normalizeFetchedRemoteModel({
+      id: "openai/gpt-audio",
+      architecture: {
+        modality: "text+audio->text+audio",
+      },
+    }),
+    normalizeFetchedRemoteModel({
+      id: "openai/gpt-text",
+      architecture: {
+        modality: "text->text",
+      },
+    }),
+  ];
+
+  expect(filterFetchedModelsForAudio(models, "tts").map((model) => model.id)).toEqual([
+    "openai/gpt-audio",
+  ]);
 });

@@ -570,6 +570,28 @@ pub struct AgentConfigSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FetchedModelPricing {
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub completion: Option<String>,
+    #[serde(default)]
+    pub image: Option<String>,
+    #[serde(default)]
+    pub request: Option<String>,
+    #[serde(default)]
+    pub web_search: Option<String>,
+    #[serde(default)]
+    pub internal_reasoning: Option<String>,
+    #[serde(default)]
+    pub input_cache_read: Option<String>,
+    #[serde(default)]
+    pub input_cache_write: Option<String>,
+    #[serde(default)]
+    pub audio: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FetchedModel {
     #[serde(default)]
     pub id: String,
@@ -577,6 +599,10 @@ pub struct FetchedModel {
     pub name: Option<String>,
     #[serde(default)]
     pub context_window: Option<u32>,
+    #[serde(default)]
+    pub pricing: Option<FetchedModelPricing>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -112,19 +112,36 @@ export function buildDaemonAgentConfig(
   const authSource = providerConfig
     ? normalizeAuthSource(providerKey, providerConfig.auth_source, authSupportOptions)
     : getDefaultAuthSource(providerKey, authSupportOptions);
-  const providerConfigs = providerConfig
-    ? {
-      [providerKey]: {
-        base_url: providerConfig.base_url || "",
-        model: providerConfig.model || "",
-        assistant_id: providerConfig.assistant_id || "",
-        api_transport: providerConfig.api_transport || "chat_completions",
-        auth_source: authSource,
-        context_window_tokens: getEffectiveContextWindow(providerKey, providerConfig),
-        reasoning_effort: agentSettings.reasoning_effort || "high",
-      },
-    }
-    : {};
+  const referencedProviderIds = Array.from(new Set([
+    providerKey,
+    agentSettings.audio_stt_provider,
+    agentSettings.audio_tts_provider,
+  ]));
+  const providerConfigs = Object.fromEntries(
+    referencedProviderIds.flatMap((referencedProviderId) => {
+      const referencedConfig = agentSettings[referencedProviderId] as AgentProviderConfig | undefined;
+      if (!referencedConfig) {
+        return [];
+      }
+      const referencedAuthSource = normalizeAuthSource(
+        referencedProviderId,
+        referencedConfig.auth_source,
+        authSupportOptions,
+      );
+      return [[
+        referencedProviderId,
+        {
+          base_url: referencedConfig.base_url || "",
+          model: referencedConfig.model || "",
+          assistant_id: referencedConfig.assistant_id || "",
+          api_transport: referencedConfig.api_transport || "chat_completions",
+          auth_source: referencedAuthSource,
+          context_window_tokens: getEffectiveContextWindow(referencedProviderId, referencedConfig),
+          reasoning_effort: agentSettings.reasoning_effort || "high",
+        },
+      ]];
+    }),
+  );
 
   return {
     enabled: agentSettings.enabled,
@@ -190,6 +207,21 @@ export function buildDaemonAgentConfig(
     honcho_base_url: agentSettings.honcho_base_url,
     honcho_workspace_id: agentSettings.honcho_workspace_id,
     providers: providerConfigs,
+    audio: {
+      stt: {
+        enabled: agentSettings.audio_stt_enabled,
+        provider: agentSettings.audio_stt_provider,
+        model: agentSettings.audio_stt_model,
+        language: agentSettings.audio_stt_language,
+      },
+      tts: {
+        enabled: agentSettings.audio_tts_enabled,
+        provider: agentSettings.audio_tts_provider,
+        model: agentSettings.audio_tts_model,
+        voice: agentSettings.audio_tts_voice,
+        auto_speak: agentSettings.audio_tts_auto_speak,
+      },
+    },
     tools: {
       bash: agentSettings.enable_bash_tool,
       web_search: agentSettings.enable_web_search_tool,

@@ -112,6 +112,18 @@ impl TuiModel {
                 id: model.id,
                 name: model.name,
                 context_window: model.context_window,
+                pricing: model.pricing.map(|pricing| config::FetchedModelPricing {
+                    prompt: pricing.prompt,
+                    completion: pricing.completion,
+                    image: pricing.image,
+                    request: pricing.request,
+                    web_search: pricing.web_search,
+                    internal_reasoning: pricing.internal_reasoning,
+                    input_cache_read: pricing.input_cache_read,
+                    input_cache_write: pricing.input_cache_write,
+                    audio: pricing.audio,
+                }),
+                metadata: model.metadata,
             })
             .collect();
         self.config

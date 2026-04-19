@@ -160,6 +160,46 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         }
                         return;
                     }
+                    SettingsPickerTarget::AudioSttProvider => {
+                        let current_model = model.config.audio_stt_model();
+                        let known_models = TuiModel::audio_catalog_models("stt", def.id);
+                        let next_model = if current_model.trim().is_empty()
+                            || (!known_models.is_empty()
+                                && !known_models.iter().any(|entry| entry.id == current_model))
+                        {
+                            TuiModel::default_audio_model_for("stt", def.id)
+                        } else {
+                            current_model
+                        };
+                        model.set_audio_config_string("stt", "provider", def.id.to_string());
+                        if !next_model.trim().is_empty() {
+                            model.set_audio_config_string("stt", "model", next_model);
+                        }
+                        model.close_top_modal();
+                        model.open_audio_model_picker("stt");
+                        model.status_line = format!("STT provider: {}", def.name);
+                        return;
+                    }
+                    SettingsPickerTarget::AudioTtsProvider => {
+                        let current_model = model.config.audio_tts_model();
+                        let known_models = TuiModel::audio_catalog_models("tts", def.id);
+                        let next_model = if current_model.trim().is_empty()
+                            || (!known_models.is_empty()
+                                && !known_models.iter().any(|entry| entry.id == current_model))
+                        {
+                            TuiModel::default_audio_model_for("tts", def.id)
+                        } else {
+                            current_model
+                        };
+                        model.set_audio_config_string("tts", "provider", def.id.to_string());
+                        if !next_model.trim().is_empty() {
+                            model.set_audio_config_string("tts", "model", next_model);
+                        }
+                        model.close_top_modal();
+                        model.open_audio_model_picker("tts");
+                        model.status_line = format!("TTS provider: {}", def.name);
+                        return;
+                    }
                     SettingsPickerTarget::BuiltinPersonaProvider => {
                         model.apply_provider_selection_without_sync(def.id);
                         model.close_top_modal();
@@ -260,6 +300,8 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.status_line = format!("Rarog provider: {}", def.name);
                     }
                     SettingsPickerTarget::Model
+                    | SettingsPickerTarget::AudioSttModel
+                    | SettingsPickerTarget::AudioTtsModel
                     | SettingsPickerTarget::BuiltinPersonaModel
                     | SettingsPickerTarget::CompactionWelesModel
                     | SettingsPickerTarget::CompactionCustomModel
@@ -340,6 +382,14 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         }
                         model.save_settings();
                     }
+                    SettingsPickerTarget::AudioSttModel => {
+                        model.set_audio_config_string("stt", "model", model_id.clone());
+                        model.status_line = format!("STT model: {}", model_id);
+                    }
+                    SettingsPickerTarget::AudioTtsModel => {
+                        model.set_audio_config_string("tts", "model", model_id.clone());
+                        model.status_line = format!("TTS model: {}", model_id);
+                    }
                     SettingsPickerTarget::BuiltinPersonaModel => {
                         let Some(setup) = model.pending_builtin_persona_setup.clone() else {
                             model.status_line = "No builtin persona setup is active".to_string();
@@ -403,6 +453,8 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.status_line = format!("Rarog model: {}", model_id);
                     }
                     SettingsPickerTarget::Provider
+                    | SettingsPickerTarget::AudioSttProvider
+                    | SettingsPickerTarget::AudioTtsProvider
                     | SettingsPickerTarget::BuiltinPersonaProvider
                     | SettingsPickerTarget::CompactionWelesProvider
                     | SettingsPickerTarget::CompactionCustomProvider

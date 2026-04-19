@@ -344,6 +344,8 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
                 assert_eq!(models[0].id, "gpt-5.4-mini");
                 assert_eq!(models[0].name.as_deref(), Some("GPT-5.4 Mini"));
                 assert_eq!(models[0].context_window, None);
+                assert!(models[0].pricing.is_none());
+                assert!(models[0].metadata.is_none());
             }
             other => panic!("expected models fetched event, got {:?}", other),
         }

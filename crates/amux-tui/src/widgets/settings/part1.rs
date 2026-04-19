@@ -434,3 +434,59 @@ pub fn max_scroll(
     .len();
     line_count.saturating_sub(content_area.height as usize)
 }
+
+pub fn scroll_for_selected_field(
+    area: Rect,
+    settings: &SettingsState,
+    config: &ConfigState,
+    modal: &ModalState,
+    auth: &crate::state::auth::AuthState,
+    subagents: &SubAgentsState,
+    concierge: &ConciergeState,
+    tier: &crate::state::tier::TierState,
+    plugin_settings: &PluginSettingsState,
+    current_scroll: usize,
+    theme: &ThemeTokens,
+) -> usize {
+    let Some(content_area) = content_area(area) else {
+        return 0;
+    };
+    let line_count = render_tab_content(
+        content_area.width,
+        settings,
+        config,
+        modal,
+        auth,
+        subagents,
+        concierge,
+        tier,
+        plugin_settings,
+        theme,
+    )
+    .len();
+    let max_scroll = line_count.saturating_sub(content_area.height as usize);
+    let Some(selected_row) = selected_field_row(settings, config, subagents, line_count) else {
+        return current_scroll.min(max_scroll);
+    };
+
+    let mut scroll = current_scroll.min(max_scroll);
+    let viewport_height = content_area.height as usize;
+    if selected_row < scroll {
+        scroll = selected_row;
+    } else if selected_row >= scroll.saturating_add(viewport_height) {
+        scroll = selected_row.saturating_add(1).saturating_sub(viewport_height);
+    }
+    scroll.min(max_scroll)
+}
+
+fn selected_field_row(
+    settings: &SettingsState,
+    config: &ConfigState,
+    subagents: &SubAgentsState,
+    line_count: usize,
+) -> Option<usize> {
+    (0..line_count).find(|row| {
+        settings_row_hit(settings, config, subagents, *row)
+            .is_some_and(|(field, _)| field == settings.field_cursor())
+    })
+}

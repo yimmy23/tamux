@@ -111,3 +111,38 @@ export function formatRemoteModelPricingSubtitle(
 
   return parts.length > 0 ? parts.join(", ") : null;
 }
+
+function modelMetadataContainsAudio(
+  value: unknown,
+  endpoint: "stt" | "tts",
+): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const architecture = record.architecture && typeof record.architecture === "object" && !Array.isArray(record.architecture)
+    ? record.architecture as Record<string, unknown>
+    : null;
+  const hasAudioInArray = (source: unknown): boolean =>
+    Array.isArray(source)
+      && source.some((entry) => typeof entry === "string" && entry.trim().toLowerCase() === "audio");
+  const hasAudioInString = (source: unknown): boolean =>
+    typeof source === "string" && source.toLowerCase().includes("audio");
+
+  const inputAudio = hasAudioInArray(architecture?.input_modalities ?? record.input_modalities ?? record.modalities);
+  const outputAudio = hasAudioInArray(architecture?.output_modalities ?? record.output_modalities ?? record.modalities);
+  const modalityAudio = hasAudioInString(architecture?.modality ?? record.modality);
+
+  return endpoint === "stt"
+    ? inputAudio || modalityAudio
+    : outputAudio || modalityAudio;
+}
+
+export function filterFetchedModelsForAudio(
+  models: FetchedRemoteModel[],
+  endpoint: "stt" | "tts",
+): FetchedRemoteModel[] {
+  return models.filter((model) =>
+    Boolean(model.pricing?.audio)
+    || modelMetadataContainsAudio(model.metadata, endpoint));
+}

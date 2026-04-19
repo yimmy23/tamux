@@ -1,6 +1,7 @@
 use super::*;
 use amux_shared::providers::{
-    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_QWEN,
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM,
+    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN,
 };
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
@@ -218,6 +219,46 @@ fn settings_modal_mouse_wheel_scrolls_overflowing_content() {
     assert!(
         after.contains("Inspect Generated Tools"),
         "expected mouse wheel scrolling to reveal lower settings rows"
+    );
+}
+
+#[test]
+fn settings_modal_keyboard_navigation_scrolls_selected_field_into_view() {
+    let (mut model, _daemon_rx) = make_model();
+    model.width = 100;
+    model.height = 16;
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+
+    let before = render_screen(&mut model).join("\n");
+    assert!(
+        !before.contains("Inspect Generated Tools"),
+        "expected overflowing settings content to be clipped before keyboard navigation"
+    );
+
+    for _ in 0..22 {
+        let quit = model.handle_key_modal(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+        assert!(!quit);
+    }
+
+    assert_eq!(model.settings.field_cursor(), 22);
+    assert!(
+        model.settings_modal_scroll > 0,
+        "expected keyboard navigation to advance the settings scroll offset"
+    );
+
+    let after = render_screen(&mut model).join("\n");
+    assert!(
+        after.contains("Inspect Generated Tools"),
+        "expected keyboard navigation to reveal the selected lower settings row"
     );
 }
 
@@ -1369,11 +1410,15 @@ fn selecting_compaction_weles_model_updates_compaction_model() {
                 id: "gpt-5.4".to_string(),
                 name: Some("GPT-5.4".to_string()),
                 context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
             },
             crate::state::config::FetchedModel {
                 id: "gpt-5.4-mini".to_string(),
                 name: Some("GPT-5.4 Mini".to_string()),
                 context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
             },
         ]));
 
@@ -1497,11 +1542,15 @@ fn selecting_compaction_custom_model_updates_compaction_model() {
                 id: "gpt-5.4".to_string(),
                 name: Some("GPT-5.4".to_string()),
                 context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
             },
             crate::state::config::FetchedModel {
                 id: "gpt-5.4-mini".to_string(),
                 name: Some("GPT-5.4 Mini".to_string()),
                 context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
             },
         ]));
 
@@ -1519,6 +1568,403 @@ fn selecting_compaction_custom_model_updates_compaction_model() {
 
     assert!(!quit);
     assert_eq!(model.config.compaction_custom_model, "gpt-5.4-mini");
+}
+
+#[test]
+fn selecting_audio_stt_provider_updates_audio_provider_and_opens_model_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_AZURE_OPENAI.to_string(),
+            provider_name: "Azure OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-4.1".to_string(),
+        },
+    ];
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "whisper-1"
+            }
+        }
+    }));
+
+    let target_index = widgets::provider_picker::available_provider_defs(&model.auth)
+        .iter()
+        .position(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI)
+        .expect("provider to exist");
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioSttProvider);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+    model.modal.set_picker_item_count(
+        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+    );
+    if target_index > 0 {
+        model
+            .modal
+            .reduce(modal::ModalAction::Navigate(target_index as i32));
+    }
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ProviderPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("provider"))
+            .and_then(|value| value.as_str()),
+        Some(PROVIDER_ID_AZURE_OPENAI)
+    );
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+}
+
+#[test]
+fn selecting_audio_stt_model_updates_audio_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "whisper-1"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-4o-transcribe".to_string(),
+                name: Some("GPT-4o Transcribe".to_string()),
+                context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
+            },
+            crate::state::config::FetchedModel {
+                id: "whisper-1".to_string(),
+                name: Some("Whisper 1".to_string()),
+                context_window: None,
+                pricing: None,
+                metadata: None,
+            },
+        ]));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioSttModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("model"))
+            .and_then(|value| value.as_str()),
+        Some("gpt-4o-transcribe")
+    );
+}
+
+#[test]
+fn selecting_audio_tts_provider_updates_audio_provider_and_opens_model_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_AZURE_OPENAI.to_string(),
+            provider_name: "Azure OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-4.1".to_string(),
+        },
+    ];
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "tts": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "gpt-4o-mini-tts"
+            }
+        }
+    }));
+
+    let target_index = widgets::provider_picker::available_provider_defs(&model.auth)
+        .iter()
+        .position(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI)
+        .expect("provider to exist");
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsProvider);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+    model.modal.set_picker_item_count(
+        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+    );
+    if target_index > 0 {
+        model
+            .modal
+            .reduce(modal::ModalAction::Navigate(target_index as i32));
+    }
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ProviderPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("tts"))
+            .and_then(|tts| tts.get("provider"))
+            .and_then(|value| value.as_str()),
+        Some(PROVIDER_ID_AZURE_OPENAI)
+    );
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+}
+
+#[test]
+fn selecting_audio_tts_model_updates_audio_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "tts": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "gpt-4o-mini-tts"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-4o-mini-tts".to_string(),
+                name: Some("GPT-4o Mini TTS".to_string()),
+                context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
+            },
+            crate::state::config::FetchedModel {
+                id: "tts-1".to_string(),
+                name: Some("TTS 1".to_string()),
+                context_window: None,
+                pricing: None,
+                metadata: None,
+            },
+        ]));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("tts"))
+            .and_then(|tts| tts.get("model"))
+            .and_then(|value| value.as_str()),
+        Some("tts-1")
+    );
+}
+
+#[test]
+fn audio_stt_custom_model_entry_keeps_audio_field_selected() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "whisper-1"
+            }
+        }
+    }));
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Features));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "whisper-1".to_string(),
+                name: Some("Whisper 1".to_string()),
+                context_window: None,
+                pricing: None,
+                metadata: None,
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioSttModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    let custom_row = model.available_model_picker_models().len();
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(custom_row as i32));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.settings.active_tab(), SettingsTab::Features);
+    assert_eq!(model.settings.field_cursor(), 18);
+    assert_eq!(model.settings.editing_field(), Some("feat_audio_stt_model"));
+}
+
+#[test]
+fn audio_tts_custom_model_entry_keeps_audio_field_selected() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "tts": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "gpt-4o-mini-tts"
+            }
+        }
+    }));
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Features));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-4o-mini-tts".to_string(),
+                name: Some("GPT-4o Mini TTS".to_string()),
+                context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    let custom_row = model.available_model_picker_models().len();
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(custom_row as i32));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.settings.active_tab(), SettingsTab::Features);
+    assert_eq!(model.settings.field_cursor(), 21);
+    assert_eq!(model.settings.editing_field(), Some("feat_audio_tts_model"));
+}
+
+#[test]
+fn audio_model_picker_filters_fetched_models_to_audio_capable_entries() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-audio"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "openai/gpt-audio".to_string(),
+                name: Some("GPT Audio".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "input_modalities": ["text", "audio"],
+                        "output_modalities": ["text", "audio"]
+                    }
+                })),
+            },
+            crate::state::config::FetchedModel {
+                id: "openai/gpt-text".to_string(),
+                name: Some("GPT Text".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    prompt: Some("0.000002".to_string()),
+                    completion: Some("0.000008".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "input_modalities": ["text"],
+                        "output_modalities": ["text"]
+                    }
+                })),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioSttModel);
+
+    let models = model.available_model_picker_models();
+
+    assert!(models.iter().any(|model| model.id == "openai/gpt-audio"));
+    assert!(!models.iter().any(|model| model.id == "openai/gpt-text"));
 }
 
 #[test]
@@ -1735,6 +2181,8 @@ fn subagent_model_picker_uses_subagent_current_model_instead_of_primary_model() 
                 id: "gpt-5.4-mini".to_string(),
                 name: Some("GPT-5.4 Mini".to_string()),
                 context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
             },
         ]));
 
@@ -1782,6 +2230,8 @@ fn subagent_custom_model_entry_does_not_mutate_primary_model() {
                 id: "gpt-5.4-mini".to_string(),
                 name: Some("GPT-5.4 Mini".to_string()),
                 context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
             },
         ]));
 
@@ -1848,6 +2298,8 @@ fn concierge_model_picker_uses_rarog_current_model_instead_of_primary_model() {
                 id: "gpt-5.4-mini".to_string(),
                 name: Some("GPT-5.4 Mini".to_string()),
                 context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
             },
         ]));
     model.settings_picker_target = Some(SettingsPickerTarget::ConciergeModel);
@@ -1884,6 +2336,8 @@ fn concierge_custom_model_entry_does_not_mutate_primary_model() {
                 id: "gpt-5.4-mini".to_string(),
                 name: Some("GPT-5.4 Mini".to_string()),
                 context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
             },
         ]));
     model.settings_picker_target = Some(SettingsPickerTarget::ConciergeModel);

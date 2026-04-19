@@ -7,12 +7,12 @@ use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
 
-pub fn available_models_for(
-    config: &ConfigState,
+pub fn merge_models_for_selection(
+    models: &[crate::state::config::FetchedModel],
     current_model: &str,
     custom_model_name: Option<&str>,
 ) -> Vec<crate::state::config::FetchedModel> {
-    let mut models = config.fetched_models().to_vec();
+    let mut models = models.to_vec();
     let current_model = current_model.trim();
     let custom_model_name = custom_model_name.unwrap_or("").trim();
     if !current_model.is_empty() && !models.iter().any(|model| model.id == current_model) {
@@ -26,10 +26,20 @@ pub fn available_models_for(
                     custom_model_name.to_string()
                 }),
                 context_window: None,
+                pricing: None,
+                metadata: None,
             },
         );
     }
     models
+}
+
+pub fn available_models_for(
+    config: &ConfigState,
+    current_model: &str,
+    custom_model_name: Option<&str>,
+) -> Vec<crate::state::config::FetchedModel> {
+    merge_models_for_selection(config.fetched_models(), current_model, custom_model_name)
 }
 
 #[allow(dead_code)]
@@ -181,6 +191,8 @@ mod tests {
             id: "gpt-4o".into(),
             name: Some("GPT-4o".into()),
             context_window: Some(128_000),
+            pricing: None,
+            metadata: None,
         }]));
         assert_eq!(config.fetched_models().len(), 1);
     }

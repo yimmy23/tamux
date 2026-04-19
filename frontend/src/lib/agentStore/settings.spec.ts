@@ -2,6 +2,7 @@ import {
   DEFAULT_AGENT_SETTINGS,
   normalizeAgentSettingsFromSource,
 } from "./settings.ts";
+import { buildDaemonAgentConfig } from "../agentDaemonConfig.ts";
 
 function assert(condition: unknown, message: string): void {
   if (!condition) {
@@ -122,4 +123,56 @@ const normalizedLegacyBudget = normalizeAgentSettingsFromSource({
 assert(
   !("context_budget_tokens" in normalizedLegacyBudget),
   "Settings normalization should ignore legacy context budget settings",
+);
+
+const daemonConfigWithAudio = buildDaemonAgentConfig({
+  ...DEFAULT_AGENT_SETTINGS,
+  active_provider: "openai",
+  openai: {
+    ...DEFAULT_AGENT_SETTINGS.openai,
+    api_key: "sk-active",
+  },
+  audio_stt_provider: "openai",
+  audio_stt_model: "gpt-4o-transcribe",
+  audio_stt_language: "pl",
+  audio_tts_provider: "custom",
+  audio_tts_model: "sonic-voice",
+  audio_tts_voice: "alloy",
+  custom: {
+    ...DEFAULT_AGENT_SETTINGS.custom,
+    base_url: "https://audio.example/v1",
+    model: "fallback-audio-model",
+    api_key: "sk-audio",
+  },
+});
+
+assert(
+  typeof daemonConfigWithAudio.audio === "object" && daemonConfigWithAudio.audio !== null,
+  "Daemon config should include a canonical nested audio section",
+);
+
+assert(
+  daemonConfigWithAudio.audio?.stt?.provider === "openai"
+    && daemonConfigWithAudio.audio?.stt?.model === "gpt-4o-transcribe"
+    && daemonConfigWithAudio.audio?.stt?.language === "pl",
+  "Daemon config should persist nested STT settings",
+);
+
+assert(
+  daemonConfigWithAudio.audio?.tts?.provider === "custom"
+    && daemonConfigWithAudio.audio?.tts?.model === "sonic-voice"
+    && daemonConfigWithAudio.audio?.tts?.voice === "alloy"
+    && daemonConfigWithAudio.audio?.tts?.auto_speak === false,
+  "Daemon config should persist nested TTS settings",
+);
+
+assert(
+  daemonConfigWithAudio.providers?.openai?.base_url === DEFAULT_AGENT_SETTINGS.openai.base_url,
+  "Daemon config should still include the active provider config",
+);
+
+assert(
+  daemonConfigWithAudio.providers?.custom?.base_url === "https://audio.example/v1"
+    && daemonConfigWithAudio.providers?.custom?.model === "fallback-audio-model",
+  "Daemon config should include non-active audio provider configs needed by STT/TTS",
 );

@@ -237,6 +237,43 @@ fn select_media_provider_config(
     (provider_id, provider_config)
 }
 
+fn media_setting_string(
+    config: &AgentConfig,
+    nested_path: &[&str],
+    legacy_flat_key: &str,
+) -> Option<String> {
+    config
+        .extra
+        .get("audio")
+        .and_then(|value| {
+            nested_path
+                .iter()
+                .try_fold(value, |acc, key| acc.get(*key))
+                .and_then(|value| value.as_str())
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            config
+                .extra
+                .get(legacy_flat_key)
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+}
+
+fn media_persisted_provider_model(
+    config: &AgentConfig,
+    endpoint: &str,
+) -> (Option<String>, Option<String>) {
+    let provider = media_setting_string(config, &[endpoint, "provider"], &format!("audio_{endpoint}_provider"));
+    let model = media_setting_string(config, &[endpoint, "model"], &format!("audio_{endpoint}_model"));
+    (provider, model)
+}
+
 async fn resolve_media_provider_config(
     agent: &AgentEngine,
     args: &serde_json::Value,
@@ -253,14 +290,24 @@ async fn resolve_media_provider_config(
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    let endpoint = match default_model {
+        Some(model) if model == DEFAULT_STT_MODEL => Some("stt"),
+        Some(model) if model == DEFAULT_TTS_MODEL => Some("tts"),
+        _ => None,
+    };
+    let (persisted_provider, persisted_model) = endpoint
+        .map(|endpoint| media_persisted_provider_model(&config, endpoint))
+        .unwrap_or((None, None));
+    let selected_provider = explicit_provider.or(persisted_provider.as_deref());
+    let selected_model = explicit_model.or(persisted_model.as_deref());
 
-    if let Some(provider_id) = explicit_provider {
+    if let Some(provider_id) = selected_provider {
         let provider_config = agent.resolve_sub_agent_provider_config(&config, provider_id)?;
         return Ok(select_media_provider_config(
             &config,
             provider_id,
             provider_config,
-            explicit_model,
+            selected_model,
             default_model,
         ));
     }
@@ -270,7 +317,7 @@ async fn resolve_media_provider_config(
         &config,
         &config.provider,
         provider_config,
-        explicit_model,
+        selected_model,
         default_model,
     ))
 }
@@ -899,5 +946,114 @@ mod media_tools_tests {
             openai_like_endpoint("https://api.example.com", "/audio/speech"),
             "https://api.example.com/v1/audio/speech"
         );
+    }
+
+    #[tokio::test]
+    async fn resolve_media_provider_config_uses_nested_audio_tts_settings() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4".to_string();
+        config.api_key = "sk-active".to_string();
+        config.extra.insert(
+            "audio".to_string(),
+            serde_json::json!({
+                "tts": {
+                    "provider": "custom",
+                    "model": "sonic-voice"
+                }
+            }),
+        );
+        config.providers.insert(
+            "custom".to_string(),
+            crate::agent::types::ProviderConfig {
+                base_url: "https://audio.example/v1".to_string(),
+                model: "fallback-model".to_string(),
+                api_key: "sk-audio".to_string(),
+                assistant_id: String::new(),
+                auth_source: crate::agent::types::AuthSource::ApiKey,
+                api_transport: crate::agent::types::ApiTransport::Responses,
+                reasoning_effort: "medium".to_string(),
+                context_window_tokens: 128_000,
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+            },
+        );
+
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let (provider_id, provider_config) =
+            resolve_media_provider_config(&engine, &serde_json::json!({}), Some(DEFAULT_TTS_MODEL))
+                .await
+                .expect("audio TTS settings should resolve");
+
+        assert_eq!(provider_id, "custom");
+        assert_eq!(provider_config.model, "sonic-voice");
+        assert_eq!(provider_config.base_url, "https://audio.example/v1");
+    }
+
+    #[tokio::test]
+    async fn resolve_media_provider_config_falls_back_to_flattened_legacy_audio_keys() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4".to_string();
+        config.api_key = "sk-active".to_string();
+        config.extra.insert(
+            "audio_stt_provider".to_string(),
+            serde_json::Value::String("custom".to_string()),
+        );
+        config.extra.insert(
+            "audio_stt_model".to_string(),
+            serde_json::Value::String("whisper-legacy".to_string()),
+        );
+        config.providers.insert(
+            "custom".to_string(),
+            crate::agent::types::ProviderConfig {
+                base_url: "https://audio.example/v1".to_string(),
+                model: "fallback-model".to_string(),
+                api_key: "sk-audio".to_string(),
+                assistant_id: String::new(),
+                auth_source: crate::agent::types::AuthSource::ApiKey,
+                api_transport: crate::agent::types::ApiTransport::Responses,
+                reasoning_effort: "medium".to_string(),
+                context_window_tokens: 128_000,
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+            },
+        );
+
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let (provider_id, provider_config) =
+            resolve_media_provider_config(&engine, &serde_json::json!({}), Some(DEFAULT_STT_MODEL))
+                .await
+                .expect("legacy STT settings should resolve");
+
+        assert_eq!(provider_id, "custom");
+        assert_eq!(provider_config.model, "whisper-legacy");
+        assert_eq!(provider_config.base_url, "https://audio.example/v1");
     }
 }

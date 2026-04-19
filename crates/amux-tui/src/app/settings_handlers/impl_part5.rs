@@ -203,45 +203,37 @@ impl TuiModel {
                 }
             }
             "feat_audio_stt_enabled" => {
-                let current = self
-                    .config
-                    .agent_config_raw
-                    .as_ref()
-                    .and_then(|r| r.get("extra"))
-                    .and_then(|e| e.get("audio_stt_enabled"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+                let current = self.config.audio_stt_enabled();
                 let next = !current;
                 self.send_daemon_command(DaemonCommand::SetConfigItem {
-                    key_path: "/extra/audio_stt_enabled".to_string(),
+                    key_path: "/audio/stt/enabled".to_string(),
                     value_json: next.to_string(),
                 });
                 if let Some(ref mut raw) = self.config.agent_config_raw {
-                    if raw.get("extra").is_none() {
-                        raw["extra"] = serde_json::json!({});
+                    if raw.get("audio").is_none() {
+                        raw["audio"] = serde_json::json!({});
                     }
-                    raw["extra"]["audio_stt_enabled"] = serde_json::Value::Bool(next);
+                    if raw["audio"].get("stt").is_none() {
+                        raw["audio"]["stt"] = serde_json::json!({});
+                    }
+                    raw["audio"]["stt"]["enabled"] = serde_json::Value::Bool(next);
                 }
             }
             "feat_audio_tts_enabled" => {
-                let current = self
-                    .config
-                    .agent_config_raw
-                    .as_ref()
-                    .and_then(|r| r.get("extra"))
-                    .and_then(|e| e.get("audio_tts_enabled"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+                let current = self.config.audio_tts_enabled();
                 let next = !current;
                 self.send_daemon_command(DaemonCommand::SetConfigItem {
-                    key_path: "/extra/audio_tts_enabled".to_string(),
+                    key_path: "/audio/tts/enabled".to_string(),
                     value_json: next.to_string(),
                 });
                 if let Some(ref mut raw) = self.config.agent_config_raw {
-                    if raw.get("extra").is_none() {
-                        raw["extra"] = serde_json::json!({});
+                    if raw.get("audio").is_none() {
+                        raw["audio"] = serde_json::json!({});
                     }
-                    raw["extra"]["audio_tts_enabled"] = serde_json::Value::Bool(next);
+                    if raw["audio"].get("tts").is_none() {
+                        raw["audio"]["tts"] = serde_json::json!({});
+                    }
+                    raw["audio"]["tts"]["enabled"] = serde_json::Value::Bool(next);
                 }
             }
             "whatsapp_link_device" => {

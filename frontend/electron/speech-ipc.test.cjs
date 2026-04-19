@@ -74,9 +74,13 @@ test("agent IPC handlers route speech APIs through the daemon bridge", async () 
   assert.ok(handlers.has("agent-text-to-speech"));
 
   const sttResult = await handlers.get("agent-speech-to-text")(null, "Zm9v", "audio/webm", {
+    provider: "openai",
+    model: "whisper-1",
     language: "en",
   });
   const ttsResult = await handlers.get("agent-text-to-speech")(null, "Hello", "alloy", {
+    provider: "openai",
+    model: "gpt-4o-mini-tts",
     response_format: "mp3",
   });
 
@@ -88,6 +92,8 @@ test("agent IPC handlers route speech APIs through the daemon bridge", async () 
       {
         type: "speech-to-text",
         args_json: JSON.stringify({
+          provider: "openai",
+          model: "whisper-1",
           language: "en",
           path: "/tmp/capture.webm",
           mime_type: "audio/webm",
@@ -100,6 +106,8 @@ test("agent IPC handlers route speech APIs through the daemon bridge", async () 
       {
         type: "text-to-speech",
         args_json: JSON.stringify({
+          provider: "openai",
+          model: "gpt-4o-mini-tts",
           response_format: "mp3",
           input: "Hello",
           voice: "alloy",

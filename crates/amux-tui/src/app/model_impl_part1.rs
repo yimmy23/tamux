@@ -679,6 +679,29 @@ impl TuiModel {
         self.step_settings_modal_scroll(page * direction);
     }
 
+    pub(crate) fn sync_settings_modal_scroll_to_selection(&mut self) {
+        let Some((kind, area)) = self.current_modal_area() else {
+            return;
+        };
+        if kind != modal::ModalKind::Settings {
+            return;
+        }
+
+        self.settings_modal_scroll = widgets::settings::scroll_for_selected_field(
+            area,
+            &self.settings,
+            &self.config,
+            &self.modal,
+            &self.auth,
+            &self.subagents,
+            &self.concierge,
+            &self.tier,
+            &self.plugin_settings,
+            self.settings_modal_scroll,
+            &self.theme,
+        );
+    }
+
     pub(crate) fn set_thread_participants_modal_scroll(&mut self, scroll: usize) {
         self.thread_participants_modal_scroll =
             scroll.min(self.thread_participants_modal_max_scroll());

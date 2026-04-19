@@ -5,11 +5,7 @@ use std::path::{Path, PathBuf};
 mod goal_targets;
 
 impl TuiModel {
-    fn voice_config_string(
-        raw: Option<&serde_json::Value>,
-        path: &[&str],
-        fallback: &str,
-    ) -> String {
+    fn voice_lookup_string(raw: Option<&serde_json::Value>, path: &[&str]) -> Option<String> {
         raw.and_then(|value| {
             path.iter()
                 .try_fold(value, |acc, key| acc.get(*key))
@@ -17,72 +13,69 @@ impl TuiModel {
         })
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(fallback)
-        .to_string()
+        .map(ToOwned::to_owned)
     }
 
-    fn voice_config_bool(raw: Option<&serde_json::Value>, path: &[&str], fallback: bool) -> bool {
+    fn voice_lookup_bool(raw: Option<&serde_json::Value>, path: &[&str]) -> Option<bool> {
         raw.and_then(|value| {
             path.iter()
                 .try_fold(value, |acc, key| acc.get(*key))
                 .and_then(|value| value.as_bool())
         })
-        .unwrap_or(fallback)
     }
 
-    fn voice_extra_string(
+    fn voice_audio_string(
         raw: Option<&serde_json::Value>,
-        extra_key: &str,
-        legacy_path: &[&str],
+        flat_key: &str,
+        nested_path: &[&str],
         fallback: &str,
     ) -> String {
-        raw.and_then(|value| value.get("extra"))
-            .and_then(|extra| extra.get(extra_key))
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| Self::voice_config_string(raw, legacy_path, fallback))
+        Self::voice_lookup_string(raw, nested_path)
+            .or_else(|| Self::voice_lookup_string(raw, &[flat_key]))
+            .or_else(|| {
+                Self::voice_lookup_string(raw.and_then(|value| value.get("extra")), &[flat_key])
+            })
+            .unwrap_or_else(|| fallback.to_string())
     }
 
-    fn voice_extra_bool(
+    fn voice_audio_bool(
         raw: Option<&serde_json::Value>,
-        extra_key: &str,
-        legacy_path: &[&str],
+        flat_key: &str,
+        nested_path: &[&str],
         fallback: bool,
     ) -> bool {
-        raw.and_then(|value| value.get("extra"))
-            .and_then(|extra| extra.get(extra_key))
-            .and_then(|value| value.as_bool())
-            .unwrap_or_else(|| Self::voice_config_bool(raw, legacy_path, fallback))
+        Self::voice_lookup_bool(raw, nested_path)
+            .or_else(|| Self::voice_lookup_bool(raw, &[flat_key]))
+            .or_else(|| {
+                Self::voice_lookup_bool(raw.and_then(|value| value.get("extra")), &[flat_key])
+            })
+            .unwrap_or(fallback)
     }
 
     pub(super) fn toggle_voice_capture(&mut self) {
         if self.voice_recording {
             if let Some(path) = self.stop_voice_capture() {
                 let raw = self.config.agent_config_raw.as_ref();
-                let provider = Self::voice_extra_string(
+                let provider = Self::voice_audio_string(
                     raw,
                     "audio_stt_provider",
                     &["audio", "stt", "provider"],
                     amux_shared::providers::PROVIDER_ID_OPENAI,
                 );
-                let model = Self::voice_extra_string(
+                let model = Self::voice_audio_string(
                     raw,
                     "audio_stt_model",
                     &["audio", "stt", "model"],
                     "whisper-1",
                 );
-                let language = raw
-                    .and_then(|value| {
-                        ["audio", "stt", "language"]
-                            .iter()
-                            .try_fold(value, |acc, key| acc.get(*key))
-                            .and_then(|value| value.as_str())
-                    })
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned);
+                let language = Self::voice_lookup_string(raw, &["audio", "stt", "language"])
+                    .or_else(|| Self::voice_lookup_string(raw, &["audio_stt_language"]))
+                    .or_else(|| {
+                        Self::voice_lookup_string(
+                            raw.and_then(|value| value.get("extra")),
+                            &["audio_stt_language"],
+                        )
+                    });
                 let args_json = serde_json::json!({
                     "path": path,
                     "mime_type": "audio/wav",
@@ -97,7 +90,7 @@ impl TuiModel {
             return;
         }
 
-        let enabled = Self::voice_extra_bool(
+        let enabled = Self::voice_audio_bool(
             self.config.agent_config_raw.as_ref(),
             "audio_stt_enabled",
             &["audio", "stt", "enabled"],
@@ -145,7 +138,7 @@ impl TuiModel {
             message.content.clone()
         };
 
-        let enabled = Self::voice_extra_bool(
+        let enabled = Self::voice_audio_bool(
             self.config.agent_config_raw.as_ref(),
             "audio_tts_enabled",
             &["audio", "tts", "enabled"],
@@ -162,20 +155,20 @@ impl TuiModel {
         }
 
         let raw = self.config.agent_config_raw.as_ref();
-        let provider = Self::voice_extra_string(
+        let provider = Self::voice_audio_string(
             raw,
             "audio_tts_provider",
             &["audio", "tts", "provider"],
             amux_shared::providers::PROVIDER_ID_OPENAI,
         );
-        let model = Self::voice_extra_string(
+        let model = Self::voice_audio_string(
             raw,
             "audio_tts_model",
             &["audio", "tts", "model"],
             "gpt-4o-mini-tts",
         );
         let voice =
-            Self::voice_extra_string(raw, "audio_tts_voice", &["audio", "tts", "voice"], "alloy");
+            Self::voice_audio_string(raw, "audio_tts_voice", &["audio", "tts", "voice"], "alloy");
         let args_json = serde_json::json!({
             "input": content_to_speak,
             "provider": provider,

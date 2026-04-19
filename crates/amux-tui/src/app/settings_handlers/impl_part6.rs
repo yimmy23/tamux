@@ -144,67 +144,28 @@ impl TuiModel {
                 true
             }
             "feat_audio_stt_provider" => {
-                let current = self
-                    .config
-                    .agent_config_raw
-                    .as_ref()
-                    .and_then(|r| r.get("extra"))
-                    .and_then(|e| e.get("audio_stt_provider"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("openai")
-                    .to_string();
-                self.settings.start_editing("feat_audio_stt_provider", &current);
+                self.open_provider_picker(SettingsPickerTarget::AudioSttProvider);
                 true
             }
             "feat_audio_stt_model" => {
-                let current = self
-                    .config
-                    .agent_config_raw
-                    .as_ref()
-                    .and_then(|r| r.get("extra"))
-                    .and_then(|e| e.get("audio_stt_model"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("whisper-1")
-                    .to_string();
-                self.settings.start_editing("feat_audio_stt_model", &current);
+                self.open_audio_model_picker("stt");
                 true
             }
             "feat_audio_tts_provider" => {
-                let current = self
-                    .config
-                    .agent_config_raw
-                    .as_ref()
-                    .and_then(|r| r.get("extra"))
-                    .and_then(|e| e.get("audio_tts_provider"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("openai")
-                    .to_string();
-                self.settings.start_editing("feat_audio_tts_provider", &current);
+                self.open_provider_picker(SettingsPickerTarget::AudioTtsProvider);
                 true
             }
             "feat_audio_tts_model" => {
-                let current = self
-                    .config
-                    .agent_config_raw
-                    .as_ref()
-                    .and_then(|r| r.get("extra"))
-                    .and_then(|e| e.get("audio_tts_model"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("tts-1")
-                    .to_string();
-                self.settings.start_editing("feat_audio_tts_model", &current);
+                self.open_audio_model_picker("tts");
                 true
             }
             "feat_audio_tts_voice" => {
-                let current = self
-                    .config
-                    .agent_config_raw
-                    .as_ref()
-                    .and_then(|r| r.get("extra"))
-                    .and_then(|e| e.get("audio_tts_voice"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("alloy")
-                    .to_string();
+                let current = self.config.audio_tts_voice();
+                let current = if current.is_empty() {
+                    "alloy".to_string()
+                } else {
+                    current
+                };
                 self.settings.start_editing("feat_audio_tts_voice", &current);
                 true
             }

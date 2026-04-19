@@ -1,6 +1,6 @@
 use amux_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
 };
 
 #[test]
@@ -235,6 +235,128 @@ fn activating_compaction_custom_model_opens_model_picker() {
     model.activate_settings_field();
 
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+}
+
+#[test]
+fn activating_audio_stt_provider_opens_provider_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: PROVIDER_ID_OPENAI.to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_audio_stt_provider");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+}
+
+#[test]
+fn activating_audio_stt_model_opens_model_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "whisper-1"
+            }
+        }
+    }));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_audio_stt_model");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+}
+
+#[test]
+fn activating_audio_tts_provider_opens_provider_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: PROVIDER_ID_OPENAI.to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_audio_tts_provider");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+}
+
+#[test]
+fn activating_audio_tts_model_opens_model_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "tts": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "gpt-4o-mini-tts"
+            }
+        }
+    }));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_audio_tts_model");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+}
+
+#[test]
+fn activating_audio_stt_model_fetches_remote_models_for_audio_provider() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "providers": {
+            PROVIDER_ID_OPENROUTER: {
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "router-key",
+                "auth_source": "api_key"
+            }
+        },
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-audio"
+            }
+        }
+    }));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_audio_stt_model");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::FetchModels {
+            provider_id,
+            base_url,
+            api_key,
+        }) => {
+            assert_eq!(provider_id, PROVIDER_ID_OPENROUTER);
+            assert_eq!(base_url, "https://openrouter.ai/api/v1");
+            assert_eq!(api_key, "router-key");
+        }
+        other => panic!("expected FetchModels for audio STT picker, got {other:?}"),
+    }
 }
 
 #[test]
@@ -738,17 +860,17 @@ fn feature_toggle_fields_emit_expected_config_updates() {
         ),
         (
             "feat_audio_stt_enabled",
-            "/extra/audio_stt_enabled",
+            "/audio/stt/enabled",
             "true",
             None,
-            Some((vec!["extra", "audio_stt_enabled"], true)),
+            Some((vec!["audio", "stt", "enabled"], true)),
         ),
         (
             "feat_audio_tts_enabled",
-            "/extra/audio_tts_enabled",
+            "/audio/tts/enabled",
             "true",
             None,
-            Some((vec!["extra", "audio_tts_enabled"], true)),
+            Some((vec!["audio", "tts", "enabled"], true)),
         ),
     ];
 
@@ -970,37 +1092,37 @@ fn feat_skill_recommendation_numeric_fields_write_new_daemon_paths() {
         ),
         (
             "feat_audio_stt_provider",
-            serde_json::json!({"extra": {"audio_stt_provider": "openai"}}),
+            serde_json::json!({"audio": {"stt": {"provider": "openai"}}}),
             "openai",
-            "/extra/audio_stt_provider",
+            "/audio/stt/provider",
             "\"openai\"",
         ),
         (
             "feat_audio_stt_model",
-            serde_json::json!({"extra": {"audio_stt_model": "whisper-1"}}),
+            serde_json::json!({"audio": {"stt": {"model": "whisper-1"}}}),
             "whisper-1",
-            "/extra/audio_stt_model",
+            "/audio/stt/model",
             "\"whisper-1\"",
         ),
         (
             "feat_audio_tts_provider",
-            serde_json::json!({"extra": {"audio_tts_provider": "openai"}}),
+            serde_json::json!({"audio": {"tts": {"provider": "openai"}}}),
             "openai",
-            "/extra/audio_tts_provider",
+            "/audio/tts/provider",
             "\"openai\"",
         ),
         (
             "feat_audio_tts_model",
-            serde_json::json!({"extra": {"audio_tts_model": "tts-1"}}),
-            "tts-1",
-            "/extra/audio_tts_model",
-            "\"tts-1\"",
+            serde_json::json!({"audio": {"tts": {"model": "gpt-4o-mini-tts"}}}),
+            "gpt-4o-mini-tts",
+            "/audio/tts/model",
+            "\"gpt-4o-mini-tts\"",
         ),
         (
             "feat_audio_tts_voice",
-            serde_json::json!({"extra": {"audio_tts_voice": "alloy"}}),
+            serde_json::json!({"audio": {"tts": {"voice": "alloy"}}}),
             "alloy",
-            "/extra/audio_tts_voice",
+            "/audio/tts/voice",
             "\"alloy\"",
         ),
     ];

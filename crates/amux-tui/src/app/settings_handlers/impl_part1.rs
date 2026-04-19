@@ -1,6 +1,165 @@
 use amux_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
 impl TuiModel {
+    pub(super) fn audio_catalog_models(
+        endpoint: &str,
+        provider_id: &str,
+    ) -> Vec<crate::state::config::FetchedModel> {
+        let model = |id: &str, name: &str, context_window: Option<u32>| crate::state::config::FetchedModel {
+            id: id.to_string(),
+            name: Some(name.to_string()),
+            context_window,
+            pricing: None,
+            metadata: None,
+        };
+        match (provider_id, endpoint) {
+            ("openai" | "azure-openai", "stt") => vec![
+                model("gpt-4o-transcribe", "GPT-4o Transcribe", Some(128_000)),
+                model("gpt-4o-mini-transcribe", "GPT-4o Mini Transcribe", Some(128_000)),
+                model("whisper-1", "Whisper 1", None),
+            ],
+            ("openai" | "azure-openai", "tts") => vec![
+                model("gpt-4o-mini-tts", "GPT-4o Mini TTS", Some(128_000)),
+                model("tts-1", "TTS 1", None),
+                model("tts-1-hd", "TTS 1 HD", None),
+            ],
+            _ => Vec::new(),
+        }
+    }
+
+    pub(super) fn default_audio_model_for(endpoint: &str, provider_id: &str) -> String {
+        Self::audio_catalog_models(endpoint, provider_id)
+            .into_iter()
+            .next()
+            .map(|model| model.id)
+            .unwrap_or_else(|| match endpoint {
+                "stt" => "whisper-1".to_string(),
+                "tts" => "gpt-4o-mini-tts".to_string(),
+                _ => String::new(),
+            })
+    }
+
+    pub(super) fn set_audio_config_string(&mut self, endpoint: &str, field: &str, value: String) {
+        self.send_daemon_command(DaemonCommand::SetConfigItem {
+            key_path: format!("/audio/{endpoint}/{field}"),
+            value_json: serde_json::Value::String(value.clone()).to_string(),
+        });
+        if let Some(ref mut raw) = self.config.agent_config_raw {
+            if raw.get("audio").is_none() {
+                raw["audio"] = serde_json::json!({});
+            }
+            if raw["audio"].get(endpoint).is_none() {
+                raw["audio"][endpoint] = serde_json::json!({});
+            }
+            raw["audio"][endpoint][field] = serde_json::Value::String(value);
+        }
+    }
+
+    pub(super) fn open_audio_model_picker(&mut self, endpoint: &str) {
+        let provider_id = match endpoint {
+            "stt" => {
+                let provider = self.config.audio_stt_provider();
+                if provider.trim().is_empty() {
+                    "openai".to_string()
+                } else {
+                    provider
+                }
+            }
+            "tts" => {
+                let provider = self.config.audio_tts_provider();
+                if provider.trim().is_empty() {
+                    "openai".to_string()
+                } else {
+                    provider
+                }
+            }
+            _ => return,
+        };
+        let (base_url, api_key, auth_source) = self.provider_auth_snapshot(&provider_id);
+        let models = Self::audio_catalog_models(endpoint, &provider_id);
+        self.config
+            .reduce(config::ConfigAction::ModelsFetched(models));
+        if self.should_fetch_remote_models(&provider_id, &auth_source) {
+            self.send_daemon_command(DaemonCommand::FetchModels {
+                provider_id,
+                base_url,
+                api_key,
+            });
+        }
+        self.settings_picker_target = Some(match endpoint {
+            "stt" => SettingsPickerTarget::AudioSttModel,
+            "tts" => SettingsPickerTarget::AudioTtsModel,
+            _ => return,
+        });
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+        self.sync_model_picker_item_count();
+    }
+
+    fn json_string_has_audio(value: Option<&serde_json::Value>) -> bool {
+        value
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase().contains("audio"))
+            .unwrap_or(false)
+    }
+
+    fn json_array_contains_audio(value: Option<&serde_json::Value>) -> bool {
+        value
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items.iter().any(|item| {
+                    item.as_str()
+                        .map(str::trim)
+                        .map(|value| value.eq_ignore_ascii_case("audio"))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    fn fetched_model_supports_audio_endpoint(
+        model: &crate::state::config::FetchedModel,
+        endpoint: &str,
+    ) -> bool {
+        if model
+            .pricing
+            .as_ref()
+            .and_then(|pricing| pricing.audio.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+        {
+            return true;
+        }
+
+        let metadata = model.metadata.as_ref();
+        let input_audio = Self::json_array_contains_audio(
+            metadata
+                .and_then(|value| value.pointer("/architecture/input_modalities"))
+                .or_else(|| metadata.and_then(|value| value.pointer("/input_modalities")))
+                .or_else(|| metadata.and_then(|value| value.pointer("/modalities"))),
+        );
+        let output_audio = Self::json_array_contains_audio(
+            metadata
+                .and_then(|value| value.pointer("/architecture/output_modalities"))
+                .or_else(|| metadata.and_then(|value| value.pointer("/output_modalities")))
+                .or_else(|| metadata.and_then(|value| value.pointer("/modalities"))),
+        );
+        let modality_audio = Self::json_string_has_audio(
+            metadata
+                .and_then(|value| value.pointer("/architecture/modality"))
+                .or_else(|| metadata.and_then(|value| value.pointer("/modality"))),
+        );
+
+        match endpoint {
+            "stt" => input_audio || modality_audio,
+            "tts" => output_audio || modality_audio,
+            _ => false,
+        }
+    }
+
     pub(super) fn current_settings_field_name(&self) -> &str {
         self.settings.current_field_name_with_config(&self.config)
     }
@@ -142,6 +301,8 @@ impl TuiModel {
             .settings_picker_target
             .unwrap_or(SettingsPickerTarget::Model)
         {
+            SettingsPickerTarget::AudioSttModel => (self.config.audio_stt_model(), None),
+            SettingsPickerTarget::AudioTtsModel => (self.config.audio_tts_model(), None),
             SettingsPickerTarget::CompactionWelesModel => {
                 (self.config.compaction_weles_model.clone(), None)
             }
@@ -166,11 +327,39 @@ impl TuiModel {
 
     pub(super) fn available_model_picker_models(&self) -> Vec<crate::state::config::FetchedModel> {
         let (current_model, custom_model_name) = self.model_picker_current_selection();
-        widgets::model_picker::available_models_for(
-            &self.config,
-            &current_model,
-            custom_model_name.as_deref(),
-        )
+        match self
+            .settings_picker_target
+            .unwrap_or(SettingsPickerTarget::Model)
+        {
+            SettingsPickerTarget::AudioSttModel | SettingsPickerTarget::AudioTtsModel => {
+                let (endpoint, provider_id) = match self
+                    .settings_picker_target
+                    .unwrap_or(SettingsPickerTarget::Model)
+                {
+                    SettingsPickerTarget::AudioSttModel => ("stt", self.config.audio_stt_provider()),
+                    SettingsPickerTarget::AudioTtsModel => ("tts", self.config.audio_tts_provider()),
+                    _ => unreachable!(),
+                };
+                let mut models = Self::audio_catalog_models(endpoint, &provider_id);
+                for model in self.config.fetched_models() {
+                    if Self::fetched_model_supports_audio_endpoint(model, endpoint)
+                        && !models.iter().any(|existing| existing.id == model.id)
+                    {
+                        models.push(model.clone());
+                    }
+                }
+                widgets::model_picker::merge_models_for_selection(
+                    &models,
+                    &current_model,
+                    custom_model_name.as_deref(),
+                )
+            }
+            _ => widgets::model_picker::available_models_for(
+                &self.config,
+                &current_model,
+                custom_model_name.as_deref(),
+            ),
+        }
     }
 
     pub(super) fn sync_model_picker_item_count(&mut self) {
@@ -183,6 +372,34 @@ impl TuiModel {
         target: Option<SettingsPickerTarget>,
     ) {
         match target.unwrap_or(SettingsPickerTarget::Model) {
+            SettingsPickerTarget::AudioSttModel => {
+                if self.modal.top() != Some(modal::ModalKind::Settings) {
+                    self.modal
+                        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+                }
+                self.settings
+                    .reduce(SettingsAction::SwitchTab(SettingsTab::Features));
+                self.settings_navigate_to(18);
+                self.settings.start_editing(
+                    "feat_audio_stt_model",
+                    &self.config.audio_stt_model(),
+                );
+                self.status_line = "Enter STT model ID".to_string();
+            }
+            SettingsPickerTarget::AudioTtsModel => {
+                if self.modal.top() != Some(modal::ModalKind::Settings) {
+                    self.modal
+                        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+                }
+                self.settings
+                    .reduce(SettingsAction::SwitchTab(SettingsTab::Features));
+                self.settings_navigate_to(21);
+                self.settings.start_editing(
+                    "feat_audio_tts_model",
+                    &self.config.audio_tts_model(),
+                );
+                self.status_line = "Enter TTS model ID".to_string();
+            }
             SettingsPickerTarget::BuiltinPersonaModel => {
                 self.status_line =
                     "Custom model entry is not available for builtin persona setup".to_string();

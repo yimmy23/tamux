@@ -1084,16 +1084,22 @@ fn models_fetched_updates_picker_count_for_open_model_picker() {
             id: "m1".to_string(),
             name: Some("Model One".to_string()),
             context_window: Some(128_000),
+            pricing: None,
+            metadata: None,
         },
         crate::wire::FetchedModel {
             id: "m2".to_string(),
             name: Some("Model Two".to_string()),
             context_window: Some(128_000),
+            pricing: None,
+            metadata: None,
         },
         crate::wire::FetchedModel {
             id: "m3".to_string(),
             name: Some("Model Three".to_string()),
             context_window: Some(128_000),
+            pricing: None,
+            metadata: None,
         },
     ]));
 

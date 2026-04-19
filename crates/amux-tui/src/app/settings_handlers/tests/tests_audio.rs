@@ -1,7 +1,7 @@
 #[test]
 fn audio_toggle_fields_write_extra_paths() {
     let (mut model, mut daemon_rx) = make_model();
-    model.config.agent_config_raw = Some(serde_json::json!({ "extra": {} }));
+    model.config.agent_config_raw = Some(serde_json::json!({ "audio": { "stt": {} } }));
     model
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
@@ -19,7 +19,7 @@ fn audio_toggle_fields_write_extra_paths() {
             key_path,
             value_json,
         }) => {
-            assert_eq!(key_path, "/extra/audio_stt_enabled");
+            assert_eq!(key_path, "/audio/stt/enabled");
             assert_eq!(value_json, "true");
         }
         other => panic!("expected SetConfigItem for audio toggle, got {other:?}"),
@@ -30,8 +30,10 @@ fn audio_toggle_fields_write_extra_paths() {
 fn audio_text_fields_start_and_commit_edit() {
     let (mut model, mut daemon_rx) = make_model();
     model.config.agent_config_raw = Some(serde_json::json!({
-        "extra": {
-            "audio_tts_voice": "alloy"
+        "audio": {
+            "tts": {
+                "voice": "alloy"
+            }
         }
     }));
     model
@@ -62,7 +64,7 @@ fn audio_text_fields_start_and_commit_edit() {
             key_path,
             value_json,
         }) => {
-            assert_eq!(key_path, "/extra/audio_tts_voice");
+            assert_eq!(key_path, "/audio/tts/voice");
             assert_eq!(value_json, "\"alloy\"");
         }
         other => panic!("expected SetConfigItem for audio voice edit, got {other:?}"),

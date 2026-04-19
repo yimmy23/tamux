@@ -261,7 +261,7 @@ export const smallBtnStyle: CSSProperties = {
     padding: "4px 8px",
 };
 
-export function ModelSelector({ providerId, value, customName, onChange, disabled, base_url, api_key, auth_source }: {
+export function ModelSelector({ providerId, value, customName, onChange, disabled, base_url, api_key, auth_source, modelOptions, remoteModelFilter }: {
     providerId: AgentProviderId;
     value: string;
     customName?: string;
@@ -270,6 +270,8 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     base_url?: string;
     api_key?: string;
     auth_source?: AuthSource;
+    modelOptions?: ModelDefinition[];
+    remoteModelFilter?: (model: FetchedRemoteModel) => boolean;
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -283,7 +285,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     const inputRef = useRef<HTMLInputElement>(null);
 
     const definition = getProviderDefinition(providerId);
-    const predefinedModels = getProviderModels(providerId, auth_source);
+    const predefinedModels = modelOptions ?? getProviderModels(providerId, auth_source);
     const supportsFetch = (definition?.supportsModelFetch ?? false)
         && !(providerId === "openai" && auth_source === "chatgpt_subscription");
     
@@ -295,7 +297,8 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
             pricing: null,
             metadata: null,
         }));
-        for (const fm of fetchedModels) {
+        const visibleFetchedModels = remoteModelFilter ? fetchedModels.filter(remoteModelFilter) : fetchedModels;
+        for (const fm of visibleFetchedModels) {
             if (!merged.some(m => m.id === fm.id)) {
                 merged.push(fm);
             }
@@ -310,7 +313,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
             });
         }
         return merged;
-    }, [predefinedModels, fetchedModels, value, customName]);
+    }, [predefinedModels, fetchedModels, remoteModelFilter, value, customName]);
 
     const filteredModels = useMemo(() => {
         if (!search) return allModels;

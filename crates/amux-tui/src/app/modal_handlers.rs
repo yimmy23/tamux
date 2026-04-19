@@ -636,67 +636,79 @@ impl TuiModel {
                             // ── Audio settings fields ──
                             "feat_audio_stt_provider" => {
                                 self.send_daemon_command(DaemonCommand::SetConfigItem {
-                                    key_path: "/extra/audio_stt_provider".to_string(),
+                                    key_path: "/audio/stt/provider".to_string(),
                                     value_json: format!("\"{}\"", value),
                                 });
                                 if let Some(ref mut raw) = self.config.agent_config_raw {
-                                    if raw.get("extra").is_none() {
-                                        raw["extra"] = serde_json::json!({});
+                                    if raw.get("audio").is_none() {
+                                        raw["audio"] = serde_json::json!({});
                                     }
-                                    raw["extra"]["audio_stt_provider"] =
+                                    if raw["audio"].get("stt").is_none() {
+                                        raw["audio"]["stt"] = serde_json::json!({});
+                                    }
+                                    raw["audio"]["stt"]["provider"] =
                                         serde_json::Value::String(value);
                                 }
                             }
                             "feat_audio_stt_model" => {
                                 self.send_daemon_command(DaemonCommand::SetConfigItem {
-                                    key_path: "/extra/audio_stt_model".to_string(),
+                                    key_path: "/audio/stt/model".to_string(),
                                     value_json: format!("\"{}\"", value),
                                 });
                                 if let Some(ref mut raw) = self.config.agent_config_raw {
-                                    if raw.get("extra").is_none() {
-                                        raw["extra"] = serde_json::json!({});
+                                    if raw.get("audio").is_none() {
+                                        raw["audio"] = serde_json::json!({});
                                     }
-                                    raw["extra"]["audio_stt_model"] =
-                                        serde_json::Value::String(value);
+                                    if raw["audio"].get("stt").is_none() {
+                                        raw["audio"]["stt"] = serde_json::json!({});
+                                    }
+                                    raw["audio"]["stt"]["model"] = serde_json::Value::String(value);
                                 }
                             }
                             "feat_audio_tts_provider" => {
                                 self.send_daemon_command(DaemonCommand::SetConfigItem {
-                                    key_path: "/extra/audio_tts_provider".to_string(),
+                                    key_path: "/audio/tts/provider".to_string(),
                                     value_json: format!("\"{}\"", value),
                                 });
                                 if let Some(ref mut raw) = self.config.agent_config_raw {
-                                    if raw.get("extra").is_none() {
-                                        raw["extra"] = serde_json::json!({});
+                                    if raw.get("audio").is_none() {
+                                        raw["audio"] = serde_json::json!({});
                                     }
-                                    raw["extra"]["audio_tts_provider"] =
+                                    if raw["audio"].get("tts").is_none() {
+                                        raw["audio"]["tts"] = serde_json::json!({});
+                                    }
+                                    raw["audio"]["tts"]["provider"] =
                                         serde_json::Value::String(value);
                                 }
                             }
                             "feat_audio_tts_model" => {
                                 self.send_daemon_command(DaemonCommand::SetConfigItem {
-                                    key_path: "/extra/audio_tts_model".to_string(),
+                                    key_path: "/audio/tts/model".to_string(),
                                     value_json: format!("\"{}\"", value),
                                 });
                                 if let Some(ref mut raw) = self.config.agent_config_raw {
-                                    if raw.get("extra").is_none() {
-                                        raw["extra"] = serde_json::json!({});
+                                    if raw.get("audio").is_none() {
+                                        raw["audio"] = serde_json::json!({});
                                     }
-                                    raw["extra"]["audio_tts_model"] =
-                                        serde_json::Value::String(value);
+                                    if raw["audio"].get("tts").is_none() {
+                                        raw["audio"]["tts"] = serde_json::json!({});
+                                    }
+                                    raw["audio"]["tts"]["model"] = serde_json::Value::String(value);
                                 }
                             }
                             "feat_audio_tts_voice" => {
                                 self.send_daemon_command(DaemonCommand::SetConfigItem {
-                                    key_path: "/extra/audio_tts_voice".to_string(),
+                                    key_path: "/audio/tts/voice".to_string(),
                                     value_json: format!("\"{}\"", value),
                                 });
                                 if let Some(ref mut raw) = self.config.agent_config_raw {
-                                    if raw.get("extra").is_none() {
-                                        raw["extra"] = serde_json::json!({});
+                                    if raw.get("audio").is_none() {
+                                        raw["audio"] = serde_json::json!({});
                                     }
-                                    raw["extra"]["audio_tts_voice"] =
-                                        serde_json::Value::String(value);
+                                    if raw["audio"].get("tts").is_none() {
+                                        raw["audio"]["tts"] = serde_json::json!({});
+                                    }
+                                    raw["audio"]["tts"]["voice"] = serde_json::Value::String(value);
                                 }
                             }
                             _ => {}
@@ -796,11 +808,13 @@ impl TuiModel {
                 }
                 KeyCode::Down => {
                     self.settings.navigate_field(1, self.settings_field_count());
+                    self.sync_settings_modal_scroll_to_selection();
                     return false;
                 }
                 KeyCode::Up => {
                     self.settings
                         .navigate_field(-1, self.settings_field_count());
+                    self.sync_settings_modal_scroll_to_selection();
                     return false;
                 }
                 KeyCode::PageDown => {

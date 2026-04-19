@@ -215,6 +215,8 @@ pub(super) fn known_models_for_provider_auth(
             id: id.to_string(),
             name: Some(name.to_string()),
             context_window: Some(*ctx),
+            pricing: None,
+            metadata: None,
         })
         .collect()
 }
