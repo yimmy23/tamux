@@ -31,6 +31,13 @@ pub(crate) struct ThreadPickerTabSpec {
     pub(crate) label: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ThreadPickerTabCell {
+    tab: ThreadPickerTab,
+    label: String,
+    start: u16,
+}
+
 fn thread_picker_layout(inner: Rect) -> [Rect; 5] {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -346,21 +353,84 @@ pub(crate) fn filtered_threads<'a>(
         .collect()
 }
 
-fn tab_cells(
-    area: Rect,
-    chat: &ChatState,
-    subagents: &SubAgentsState,
-) -> Vec<(ThreadPickerTab, Rect, String)> {
-    let mut x = area.x;
+fn tab_cells(chat: &ChatState, subagents: &SubAgentsState) -> Vec<ThreadPickerTabCell> {
+    let mut x = 0;
     tab_specs(chat, subagents)
         .into_iter()
         .map(|spec| {
             let tab = spec.tab;
             let label = spec.label;
-            let width = label.chars().count() as u16;
-            let rect = Rect::new(x, area.y, width, area.height);
-            x = x.saturating_add(width + TAB_GAP);
-            (tab, rect, label)
+            let cell = ThreadPickerTabCell {
+                tab,
+                label,
+                start: x,
+            };
+            x = x.saturating_add(cell.label.chars().count() as u16 + TAB_GAP);
+            cell
+        })
+        .collect()
+}
+
+fn tab_scroll_offset(
+    area_width: u16,
+    cells: &[ThreadPickerTabCell],
+    selected: &ThreadPickerTab,
+) -> u16 {
+    if area_width == 0 {
+        return 0;
+    }
+
+    let Some(selected_cell) = cells.iter().find(|cell| &cell.tab == selected) else {
+        return 0;
+    };
+    let total_width = cells
+        .last()
+        .map(|cell| cell.start.saturating_add(cell.label.chars().count() as u16))
+        .unwrap_or(0);
+    let max_offset = total_width.saturating_sub(area_width);
+    let selected_width = selected_cell.label.chars().count() as u16;
+    let desired_offset = if selected_width >= area_width {
+        selected_cell.start
+    } else {
+        selected_cell
+            .start
+            .saturating_add(selected_width)
+            .saturating_sub(area_width)
+    };
+
+    desired_offset.min(max_offset)
+}
+
+fn visible_tab_cells(
+    area: Rect,
+    cells: &[ThreadPickerTabCell],
+    scroll: u16,
+) -> Vec<(ThreadPickerTab, Rect, String)> {
+    let viewport_end = scroll.saturating_add(area.width);
+
+    cells
+        .iter()
+        .filter_map(|cell| {
+            let cell_width = cell.label.chars().count() as u16;
+            let cell_end = cell.start.saturating_add(cell_width);
+            let visible_start = cell.start.max(scroll);
+            let visible_end = cell_end.min(viewport_end);
+
+            if visible_start >= visible_end {
+                return None;
+            }
+
+            let skip = visible_start.saturating_sub(cell.start) as usize;
+            let width = visible_end.saturating_sub(visible_start);
+            let label = cell.label.chars().skip(skip).take(width as usize).collect();
+            let rect = Rect::new(
+                area.x.saturating_add(visible_start.saturating_sub(scroll)),
+                area.y,
+                width,
+                area.height,
+            );
+
+            Some((cell.tab.clone(), rect, label))
         })
         .collect()
 }
@@ -413,25 +483,28 @@ pub fn render(
 
     let [tabs_row, search_row, separator_row, list_row, hints_row] = thread_picker_layout(inner);
 
+    let tab_cells = tab_cells(chat, subagents);
+    let selected_tab = modal.thread_picker_tab();
+    let tab_scroll = tab_scroll_offset(tabs_row.width, &tab_cells, &selected_tab);
     let tab_line = Line::from(
-        tab_cells(tabs_row, chat, subagents)
-            .into_iter()
+        tab_cells
+            .iter()
             .enumerate()
-            .flat_map(|(index, (tab, _, label))| {
-                let style = if tab == modal.thread_picker_tab() {
+            .flat_map(|(index, cell)| {
+                let style = if cell.tab == selected_tab {
                     theme.accent_primary
                 } else {
                     theme.fg_dim
                 };
-                let mut spans = vec![Span::styled(label, style)];
-                if index + 1 < tab_specs(chat, subagents).len() {
+                let mut spans = vec![Span::styled(cell.label.clone(), style)];
+                if index + 1 < tab_cells.len() {
                     spans.push(Span::raw(" "));
                 }
                 spans
             })
             .collect::<Vec<_>>(),
     );
-    frame.render_widget(Paragraph::new(tab_line), tabs_row);
+    frame.render_widget(Paragraph::new(tab_line).scroll((0, tab_scroll)), tabs_row);
 
     // Search input
     let query = modal.command_query();
@@ -596,7 +669,10 @@ pub fn hit_test(
     let [tabs_row, _, _, list_row, _] = thread_picker_layout(inner);
 
     if tabs_row.contains(mouse) {
-        for (tab, rect, _) in tab_cells(tabs_row, chat, subagents) {
+        let tab_cells = tab_cells(chat, subagents);
+        let selected_tab = modal.thread_picker_tab();
+        let tab_scroll = tab_scroll_offset(tabs_row.width, &tab_cells, &selected_tab);
+        for (tab, rect, _) in visible_tab_cells(tabs_row, &tab_cells, tab_scroll) {
             if rect.contains(mouse) {
                 return Some(ThreadPickerHitTarget::Tab(tab));
             }
@@ -816,6 +892,64 @@ mod tests {
         let tabs = tab_specs(&chat, &subagents);
 
         assert!(tabs.iter().any(|spec| spec.label == "[Perun]"));
+    }
+
+    #[test]
+    fn thread_picker_tabs_auto_scroll_to_keep_selected_agent_visible() {
+        let chat = make_chat(Vec::new());
+        let subagents = make_subagents(vec![
+            sample_subagent("radogost", "Radogost", false),
+            sample_subagent("rod", "Rod", false),
+            sample_subagent("dola", "dola", false),
+            sample_subagent("swarozyc", "Swarozyc", false),
+            sample_subagent("swietowit", "Swietowit", false),
+        ]);
+        let selected = ThreadPickerTab::Agent("dola".to_string());
+        let tabs_area = Rect::new(0, 0, 24, 1);
+        let cells = tab_cells(&chat, &subagents);
+        let scroll = tab_scroll_offset(tabs_area.width, &cells, &selected);
+
+        let visible_labels = visible_tab_cells(tabs_area, &cells, scroll)
+            .into_iter()
+            .map(|(_, _, label)| label)
+            .collect::<Vec<_>>();
+
+        assert!(scroll > 0, "expected overflow to produce horizontal scroll");
+        assert!(
+            visible_labels.iter().any(|label| label.contains("dola")),
+            "expected selected tab to remain visible after auto-scroll, got {visible_labels:?}"
+        );
+    }
+
+    #[test]
+    fn thread_picker_hit_test_tracks_scrolled_tab_positions() {
+        let chat = make_chat(Vec::new());
+        let subagents = make_subagents(vec![
+            sample_subagent("radogost", "Radogost", false),
+            sample_subagent("rod", "Rod", false),
+            sample_subagent("dola", "dola", false),
+            sample_subagent("swarozyc", "Swarozyc", false),
+        ]);
+        let selected = ThreadPickerTab::Agent("dola".to_string());
+        let mut modal = ModalState::new();
+        modal.set_thread_picker_tab(selected.clone());
+        let area = Rect::new(0, 0, 28, 8);
+        let inner = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Double)
+            .inner(area);
+        let [tabs_row, _, _, _, _] = thread_picker_layout(inner);
+        let cells = tab_cells(&chat, &subagents);
+        let scroll = tab_scroll_offset(tabs_row.width, &cells, &selected);
+        let (_, selected_rect, _) = visible_tab_cells(tabs_row, &cells, scroll)
+            .into_iter()
+            .find(|(tab, _, _)| *tab == selected)
+            .expect("selected tab should stay visible");
+        let mouse = Position::new(selected_rect.x, selected_rect.y);
+
+        let hit = hit_test(area, &chat, &modal, &subagents, mouse);
+
+        assert_eq!(hit, Some(ThreadPickerHitTarget::Tab(selected)));
     }
 
     #[test]
