@@ -67,8 +67,14 @@ if matches!(
                     }
                 }
 
-                ClientMessage::AgentListThreads { limit, offset } => {
-                    let threads = agent.list_threads_paginated(limit, offset.unwrap_or(0)).await;
+                ClientMessage::AgentListThreads {
+                    limit,
+                    offset,
+                    include_internal,
+                } => {
+                    let threads = agent
+                        .list_threads_paginated(limit, offset.unwrap_or(0), include_internal)
+                        .await;
                     let (threads, truncated) = cap_agent_thread_list_for_ipc(threads);
                     client_agent_threads.extend(threads.iter().map(|thread| thread.id.clone()));
                     if truncated {

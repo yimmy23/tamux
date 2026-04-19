@@ -1,8 +1,8 @@
 use super::*;
 use amux_shared::providers::{
-    AudioToolKind, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI,
-    PROVIDER_ID_CHUTES, PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
-    PROVIDER_ID_QWEN, PROVIDER_ID_XAI,
+    AudioToolKind, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CHUTES,
+    PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN,
+    PROVIDER_ID_XAI,
 };
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
@@ -57,6 +57,24 @@ fn collect_daemon_commands(
         commands.push(command);
     }
     commands
+}
+
+fn sample_subagent(id: &str, name: &str, builtin: bool) -> crate::state::SubAgentEntry {
+    crate::state::SubAgentEntry {
+        id: id.to_string(),
+        name: name.to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("testing".to_string()),
+        enabled: true,
+        builtin,
+        immutable_identity: builtin,
+        disable_allowed: !builtin,
+        delete_allowed: !builtin,
+        protected_reason: builtin.then(|| "builtin".to_string()),
+        reasoning_effort: Some("medium".to_string()),
+        raw_json: None,
+    }
 }
 
 fn navigate_model_picker_to(model: &mut TuiModel, model_id: &str) {
@@ -1784,9 +1802,9 @@ fn selecting_audio_stt_provider_updates_audio_provider_and_opens_model_picker() 
         &model.auth,
         AudioToolKind::SpeechToText,
     )
-        .iter()
-        .position(|provider| provider.id == PROVIDER_ID_XAI)
-        .expect("provider to exist");
+    .iter()
+    .position(|provider| provider.id == PROVIDER_ID_XAI)
+    .expect("provider to exist");
 
     model.settings_picker_target = Some(SettingsPickerTarget::AudioSttProvider);
     model
@@ -1931,9 +1949,9 @@ fn selecting_audio_tts_provider_updates_audio_provider_and_opens_model_picker() 
         &model.auth,
         AudioToolKind::TextToSpeech,
     )
-        .iter()
-        .position(|provider| provider.id == PROVIDER_ID_XAI)
-        .expect("provider to exist");
+    .iter()
+    .position(|provider| provider.id == PROVIDER_ID_XAI)
+    .expect("provider to exist");
 
     model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsProvider);
     model
@@ -2006,7 +2024,9 @@ fn authenticated_provider_picker_lists_xai() {
 
     let providers = widgets::provider_picker::available_provider_defs(&model.auth);
 
-    assert!(providers.iter().any(|provider| provider.id == PROVIDER_ID_XAI));
+    assert!(providers
+        .iter()
+        .any(|provider| provider.id == PROVIDER_ID_XAI));
 }
 
 #[test]
@@ -2904,8 +2924,12 @@ fn audio_model_picker_does_not_treat_nondirectional_modality_string_as_direction
         .map(|entry| entry.id)
         .collect::<Vec<_>>();
 
-    assert!(!stt_models.iter().any(|id| id == "openai/plain-modality-audio"));
-    assert!(!tts_models.iter().any(|id| id == "openai/plain-modality-audio"));
+    assert!(!stt_models
+        .iter()
+        .any(|id| id == "openai/plain-modality-audio"));
+    assert!(!tts_models
+        .iter()
+        .any(|id| id == "openai/plain-modality-audio"));
 }
 
 #[test]
@@ -3650,6 +3674,84 @@ fn thread_picker_new_conversation_uses_selected_agent_for_first_prompt() {
 }
 
 #[test]
+fn slash_new_defaults_to_svarog_target_for_first_prompt() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+
+    assert!(model.execute_slash_command_line("/new"));
+    model.submit_prompt("default me".to_string());
+
+    loop {
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => {}
+            Ok(DaemonCommand::SendMessage {
+                thread_id,
+                target_agent_id,
+                content,
+                ..
+            }) => {
+                assert_eq!(thread_id, None);
+                assert_eq!(
+                    target_agent_id.as_deref(),
+                    Some(amux_protocol::AGENT_ID_SWAROG)
+                );
+                assert_eq!(content, "default me");
+                break;
+            }
+            other => panic!("expected send-message command, got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn slash_new_with_custom_subagent_targets_first_prompt() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model
+        .subagents
+        .entries
+        .push(sample_subagent("domowoj", "Domowoj", false));
+
+    assert!(model.execute_slash_command_line("/new domowoj"));
+    model.submit_prompt("inspect the workspace".to_string());
+
+    loop {
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => {}
+            Ok(DaemonCommand::SendMessage {
+                thread_id,
+                target_agent_id,
+                content,
+                ..
+            }) => {
+                assert_eq!(thread_id, None);
+                assert_eq!(target_agent_id.as_deref(), Some("domowoj"));
+                assert_eq!(content, "inspect the workspace");
+                break;
+            }
+            other => panic!("expected send-message command, got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn slash_thread_with_agent_preselects_matching_source() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .subagents
+        .entries
+        .push(sample_subagent("domowoj", "Domowoj", false));
+
+    assert!(model.execute_slash_command_line("/thread domowoj"));
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ThreadPicker));
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Agent("domowoj".to_string())
+    );
+}
+
+#[test]
 fn thread_picker_delete_requires_confirmation_before_sending_delete_thread() {
     let (mut model, mut daemon_rx) = make_model();
     model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
@@ -3938,6 +4040,50 @@ fn thread_picker_playgrounds_new_row_is_browse_only() {
 }
 
 #[test]
+fn thread_picker_new_conversation_uses_dynamic_agent_tab_for_first_prompt() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model
+        .subagents
+        .entries
+        .push(sample_subagent("domowoj", "Domowoj", false));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model
+        .modal
+        .set_thread_picker_tab(modal::ThreadPickerTab::Agent("domowoj".to_string()));
+    model.sync_thread_picker_item_count();
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+    assert!(!quit);
+
+    model.submit_prompt("look around".to_string());
+
+    loop {
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => {}
+            Ok(DaemonCommand::SendMessage {
+                thread_id,
+                target_agent_id,
+                content,
+                ..
+            }) => {
+                assert_eq!(thread_id, None);
+                assert_eq!(target_agent_id.as_deref(), Some("domowoj"));
+                assert_eq!(content, "look around");
+                break;
+            }
+            other => panic!("expected send-message command, got {:?}", other),
+        }
+    }
+}
+
+#[test]
 fn new_weles_conversation_uses_weles_profile_before_first_prompt() {
     let (mut model, _daemon_rx) = make_model();
     model.config.provider = "openai".to_string();
@@ -4020,11 +4166,15 @@ fn thread_picker_mouse_click_switches_to_rarog_tab() {
         .find_map(|row| {
             (overlay_area.x..overlay_area.x.saturating_add(overlay_area.width)).find_map(|column| {
                 let pos = Position::new(column, row);
-                if widgets::thread_picker::hit_test(overlay_area, &model.chat, &model.modal, pos)
-                    == Some(widgets::thread_picker::ThreadPickerHitTarget::Tab(
-                        modal::ThreadPickerTab::Rarog,
-                    ))
-                {
+                if widgets::thread_picker::hit_test(
+                    overlay_area,
+                    &model.chat,
+                    &model.modal,
+                    &model.subagents,
+                    pos,
+                ) == Some(widgets::thread_picker::ThreadPickerHitTarget::Tab(
+                    modal::ThreadPickerTab::Rarog,
+                )) {
                     Some(pos)
                 } else {
                     None

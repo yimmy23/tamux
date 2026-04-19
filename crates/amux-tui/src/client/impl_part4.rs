@@ -478,6 +478,7 @@ impl DaemonClient {
         self.send(ClientMessage::AgentListThreads {
             limit: None,
             offset: None,
+            include_internal: true,
         })
     }
 

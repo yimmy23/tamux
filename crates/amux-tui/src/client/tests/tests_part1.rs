@@ -102,6 +102,24 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     }
 
     #[test]
+    fn refresh_requests_thread_list_with_internal_threads_included() {
+        let (event_tx, _event_rx) = mpsc::channel(8);
+        let client = DaemonClient::new(event_tx);
+        let mut rx = client.request_rx.lock().unwrap().take().unwrap();
+
+        client.refresh().unwrap();
+
+        assert!(matches!(
+            drain_request(&mut rx),
+            ClientMessage::AgentListThreads {
+                limit: None,
+                offset: None,
+                include_internal: true,
+            }
+        ));
+    }
+
+    #[test]
     fn oversized_send_message_is_rejected_before_queueing() {
         let (event_tx, _event_rx) = mpsc::channel(8);
         let client = DaemonClient::new(event_tx);

@@ -446,6 +446,96 @@
     }
 
     #[tokio::test]
+    async fn openrouter_fetch_models_targets_image_modalities_without_losing_metadata() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind model fetch listener");
+        let addr = listener.local_addr().expect("model fetch listener addr");
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept model fetch request");
+            let mut buf = [0_u8; 4096];
+            let size = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                tokio::io::AsyncReadExt::read(&mut stream, &mut buf),
+            )
+            .await
+            .expect("read model fetch request timed out")
+            .expect("read model fetch request");
+            let request = String::from_utf8_lossy(&buf[..size]).to_string();
+            assert!(
+                request
+                    .lines()
+                    .next()
+                    .expect("request line")
+                    .contains("GET /models?output_modalities=image "),
+                "OpenRouter fetch should request image-targeted models"
+            );
+
+            let body = serde_json::json!({
+                "data": [
+                    {
+                        "id": "openai/gpt-image",
+                        "name": "OpenAI: GPT Image",
+                        "description": "Image model",
+                        "context_length": 128000,
+                        "pricing": {
+                            "prompt": "0.0000025",
+                            "image": "0.012"
+                        },
+                        "architecture": {
+                            "modality": "text+image->text+image",
+                            "input_modalities": ["text", "image"],
+                            "output_modalities": ["text", "image"]
+                        }
+                    }
+                ]
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write model fetch response");
+        });
+
+        let models = fetch_models(
+            amux_shared::providers::PROVIDER_ID_OPENROUTER,
+            &format!("http://{addr}"),
+            "",
+        )
+        .await
+        .expect("fetch models should succeed");
+
+        server.await.expect("model fetch server task");
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "openai/gpt-image");
+        assert_eq!(
+            models[0].pricing.as_ref().and_then(|pricing| pricing.prompt.as_deref()),
+            Some("0.0000025")
+        );
+        assert_eq!(
+            models[0].pricing.as_ref().and_then(|pricing| pricing.image.as_deref()),
+            Some("0.012")
+        );
+        assert_eq!(
+            models[0]
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("architecture"))
+                .and_then(|architecture| architecture.get("output_modalities"))
+                .and_then(|value| value.as_array())
+                .and_then(|items| items.first())
+                .and_then(|value| value.as_str()),
+            Some("text")
+        );
+    }
+
+    #[tokio::test]
     async fn chutes_model_fetch_retries_without_auth_after_invalid_token() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await

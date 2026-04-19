@@ -1274,12 +1274,22 @@ impl TuiModel {
                 self.input.reduce(input::InputAction::Clear);
             }
             KeyCode::Left if kind == modal::ModalKind::ThreadPicker => {
-                let previous = self.modal.thread_picker_tab().prev();
+                let previous = widgets::thread_picker::adjacent_thread_picker_tab(
+                    &self.modal.thread_picker_tab(),
+                    &self.chat,
+                    &self.subagents,
+                    -1,
+                );
                 self.modal.set_thread_picker_tab(previous);
                 self.sync_thread_picker_item_count();
             }
             KeyCode::Right if kind == modal::ModalKind::ThreadPicker => {
-                let next = self.modal.thread_picker_tab().next();
+                let next = widgets::thread_picker::adjacent_thread_picker_tab(
+                    &self.modal.thread_picker_tab(),
+                    &self.chat,
+                    &self.subagents,
+                    1,
+                );
                 self.modal.set_thread_picker_tab(next);
                 self.sync_thread_picker_item_count();
             }

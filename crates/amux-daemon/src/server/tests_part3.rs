@@ -811,6 +811,7 @@ async fn thread_list_subscription_registers_threads_for_live_agent_events() {
         .send(ClientMessage::AgentListThreads {
             limit: None,
             offset: None,
+            include_internal: false,
         })
         .await
         .expect("request thread list");
@@ -855,6 +856,50 @@ async fn thread_list_subscription_registers_threads_for_live_agent_events() {
     );
 
     conn.shutdown().await;
+}
+
+#[tokio::test]
+async fn thread_list_include_internal_reveals_playground_threads() {
+    let mut conn = spawn_test_connection().await;
+    let playground_thread_id = "playground:domowoj:thread-user";
+
+    conn.agent.threads.write().await.insert(
+        playground_thread_id.to_string(),
+        AgentThread {
+            id: playground_thread_id.to_string(),
+            agent_name: Some("Domowoj".to_string()),
+            title: "Participant Playground · Domowoj @ thread-user".to_string(),
+            messages: vec![AgentMessage::user("Hidden draft", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+
+    conn.framed
+        .send(ClientMessage::AgentListThreads {
+            limit: None,
+            offset: None,
+            include_internal: true,
+        })
+        .await
+        .expect("request inclusive thread list");
+
+    let DaemonMessage::AgentThreadList { threads_json } = conn.recv().await else {
+        panic!("expected thread list response");
+    };
+
+    assert!(
+        threads_json.contains(playground_thread_id),
+        "include_internal thread list should surface playground summaries"
+    );
 }
 
 #[tokio::test]

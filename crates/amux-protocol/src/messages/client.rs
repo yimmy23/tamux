@@ -58,7 +58,7 @@ pub enum ClientMessage {
     AgentStopStream { thread_id: String },
     AgentForceCompact { thread_id: String },
     AgentRetryStreamNow { thread_id: String },
-    AgentListThreads { #[serde(default)] limit: Option<usize>, #[serde(default)] offset: Option<usize> },
+    AgentListThreads { #[serde(default)] limit: Option<usize>, #[serde(default)] offset: Option<usize>, #[serde(default)] include_internal: bool },
     AgentGetThread { thread_id: String, #[serde(default)] message_limit: Option<usize>, #[serde(default)] message_offset: Option<usize> },
     AgentDeleteThread { thread_id: String },
     AgentAddTask { title: String, description: String, priority: String, command: Option<String>, session_id: Option<String>, scheduled_at: Option<u64>, #[serde(default)] dependencies: Vec<String> },

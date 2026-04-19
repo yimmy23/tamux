@@ -5,6 +5,36 @@ use std::path::{Path, PathBuf};
 mod goal_targets;
 
 impl TuiModel {
+    pub(super) fn resolve_target_agent_id(&self, agent_alias: &str) -> Option<String> {
+        match agent_alias.trim().to_ascii_lowercase().as_str() {
+            "" => None,
+            "svarog" | "swarog" | "main" => Some(amux_protocol::AGENT_ID_SWAROG.to_string()),
+            "rarog" | "concierge" => Some(amux_protocol::AGENT_ID_RAROG.to_string()),
+            "weles" => Some("weles".to_string()),
+            "swarozyc" | "radogost" | "domowoj" | "swietowit" | "perun" | "mokosh" | "dazhbog"
+            | "rod" => Some(agent_alias.trim().to_ascii_lowercase()),
+            _ => self.subagents.entries.iter().find_map(|entry| {
+                if entry.id.eq_ignore_ascii_case(agent_alias)
+                    || entry.name.eq_ignore_ascii_case(agent_alias)
+                    || entry
+                        .id
+                        .strip_suffix("_builtin")
+                        .is_some_and(|alias| alias.eq_ignore_ascii_case(agent_alias))
+                {
+                    Some(
+                        entry
+                            .id
+                            .strip_suffix("_builtin")
+                            .unwrap_or(entry.id.as_str())
+                            .to_ascii_lowercase(),
+                    )
+                } else {
+                    None
+                }
+            }),
+        }
+    }
+
     fn voice_lookup_string(raw: Option<&serde_json::Value>, path: &[&str]) -> Option<String> {
         raw.and_then(|value| {
             path.iter()
@@ -206,7 +236,7 @@ impl TuiModel {
         aliases
     }
 
-    fn participant_display_name(&self, agent_alias: &str) -> String {
+    pub(super) fn participant_display_name(&self, agent_alias: &str) -> String {
         if let Some(display_name) = builtin_participant_display_name(agent_alias) {
             return display_name;
         }
@@ -394,7 +424,7 @@ impl TuiModel {
         if cursor == 0 {
             return None;
         }
-        widgets::thread_picker::filtered_threads(&self.chat, &self.modal)
+        widgets::thread_picker::filtered_threads(&self.chat, &self.modal, &self.subagents)
             .get(cursor - 1)
             .copied()
     }
@@ -606,7 +636,10 @@ impl TuiModel {
     }
 
     pub(super) fn sync_thread_picker_item_count(&mut self) {
-        let count = widgets::thread_picker::filtered_threads(&self.chat, &self.modal).len() + 1;
+        let count =
+            widgets::thread_picker::filtered_threads(&self.chat, &self.modal, &self.subagents)
+                .len()
+                + 1;
         self.modal.set_picker_item_count(count);
     }
 
@@ -890,7 +923,7 @@ impl TuiModel {
                 self.sync_goal_picker_item_count();
             }
             "new" => {
-                self.start_new_thread_view();
+                self.start_new_thread_view_for_agent(Some(amux_protocol::AGENT_ID_SWAROG));
             }
             "tasks" => {
                 self.modal
@@ -1161,20 +1194,13 @@ impl TuiModel {
 
         let thread_id = self.chat.active_thread_id().map(String::from);
         let target_agent_id = if thread_id.is_none() {
-            self.pending_new_thread_target_agent.take()
+            self.pending_new_thread_target_agent.clone()
         } else {
             None
         };
-        let local_target_agent_name =
-            target_agent_id
-                .as_deref()
-                .and_then(|agent_id| match agent_id {
-                    amux_protocol::AGENT_ID_RAROG => {
-                        Some(amux_protocol::AGENT_NAME_RAROG.to_string())
-                    }
-                    "weles" => Some("Weles".to_string()),
-                    _ => None,
-                });
+        let local_target_agent_name = target_agent_id
+            .as_deref()
+            .map(|agent_id| self.participant_display_name(agent_id));
         if thread_id.as_deref() == self.cancelled_thread_id.as_deref() {
             self.cancelled_thread_id = None;
         }
@@ -1639,6 +1665,9 @@ impl TuiModel {
 
 fn builtin_participant_display_name(agent_alias: &str) -> Option<String> {
     let normalized = agent_alias.trim().to_ascii_lowercase();
+    if normalized == amux_protocol::AGENT_ID_SWAROG {
+        return Some("Swarog".to_string());
+    }
     if normalized == amux_protocol::AGENT_ID_RAROG {
         return Some(amux_protocol::AGENT_NAME_RAROG.to_string());
     }

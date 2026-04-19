@@ -968,14 +968,20 @@ fn agent_list_threads_round_trip_preserves_pagination_arguments() {
     let msg = ClientMessage::AgentListThreads {
         limit: Some(20),
         offset: Some(40),
+        include_internal: true,
     };
 
     let bytes = bincode::serialize(&msg).unwrap();
     let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
     match decoded {
-        ClientMessage::AgentListThreads { limit, offset } => {
+        ClientMessage::AgentListThreads {
+            limit,
+            offset,
+            include_internal,
+        } => {
             assert_eq!(limit, Some(20));
             assert_eq!(offset, Some(40));
+            assert!(include_internal);
         }
         other => panic!("unexpected variant: {:?}", other),
     }

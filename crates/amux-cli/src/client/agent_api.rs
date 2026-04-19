@@ -294,6 +294,7 @@ pub async fn send_thread_list_query(limit: usize, offset: usize) -> Result<Vec<A
     match roundtrip(ClientMessage::AgentListThreads {
         limit: Some(limit),
         offset: Some(offset),
+        include_internal: false,
     })
     .await?
     {

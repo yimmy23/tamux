@@ -29,6 +29,12 @@ impl TuiModel {
             && self.chat.active_thread_id() != Some(thread_id)
     }
 
+    fn sync_open_thread_picker(&mut self) {
+        if self.modal.top() == Some(modal::ModalKind::ThreadPicker) {
+            self.sync_thread_picker_item_count();
+        }
+    }
+
     pub fn pump_daemon_events(&mut self) {
         while let Ok(event) = self.daemon_events_rx.try_recv() {
             self.handle_client_event(event);
@@ -165,9 +171,7 @@ impl TuiModel {
                     self.chat.reduce(chat::ChatAction::ThreadDeleted {
                         thread_id: thread_id.clone(),
                     });
-                    if self.modal.top() == Some(modal::ModalKind::ThreadPicker) {
-                        self.sync_thread_picker_item_count();
-                    }
+                    self.sync_open_thread_picker();
                     self.status_line = "Thread deleted".to_string();
                 } else {
                     self.status_line = "Thread delete failed".to_string();

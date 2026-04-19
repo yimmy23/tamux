@@ -338,7 +338,7 @@ impl TuiModel {
 
     fn svarog_profile(&self) -> ConversationAgentProfile {
         ConversationAgentProfile {
-            agent_label: amux_protocol::AGENT_NAME_SWAROG.to_string(),
+            agent_label: "Swarog".to_string(),
             provider: self.config.provider.clone(),
             model: Self::configured_model_label(&self.config.model, &self.config.custom_model_name),
             reasoning_effort: (!self.config.reasoning_effort.trim().is_empty())
@@ -466,6 +466,22 @@ impl TuiModel {
     pub(crate) fn current_conversation_agent_profile(&self) -> ConversationAgentProfile {
         if let Some(profile) = self.active_thread_responder_profile() {
             return profile;
+        }
+        if let Some(agent_id) = self.pending_new_thread_target_agent.as_deref() {
+            if agent_id.eq_ignore_ascii_case(amux_protocol::AGENT_ID_SWAROG) {
+                return self.svarog_profile();
+            }
+            if agent_id.eq_ignore_ascii_case(amux_protocol::AGENT_ID_RAROG) {
+                return self.rarog_profile();
+            }
+            if agent_id.eq_ignore_ascii_case("weles") {
+                return self.weles_profile();
+            }
+            if let Some(profile) =
+                self.subagent_profile_for_identity(Some(agent_id), Some(agent_id))
+            {
+                return profile;
+            }
         }
 
         match self.current_conversation_agent_kind() {
@@ -1093,6 +1109,7 @@ impl TuiModel {
                         overlay_area,
                         &self.chat,
                         &self.modal,
+                        &self.subagents,
                         &self.theme,
                     );
                 }

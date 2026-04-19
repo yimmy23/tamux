@@ -248,6 +248,7 @@ async fn startup_readiness_blocks_history_requests_until_hydrate_finishes() {
         .send(ClientMessage::AgentListThreads {
             limit: None,
             offset: None,
+            include_internal: false,
         })
         .await
         .expect("request thread list before startup is ready");

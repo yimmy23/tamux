@@ -642,6 +642,7 @@ impl TuiModel {
                         overlay_area,
                         &self.chat,
                         &self.modal,
+                        &self.subagents,
                         Position::new(mouse.column, mouse.row),
                     ) {
                         Some(widgets::thread_picker::ThreadPickerHitTarget::Tab(tab)) => {

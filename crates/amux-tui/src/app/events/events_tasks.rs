@@ -157,6 +157,7 @@ impl TuiModel {
             .collect();
         self.chat
             .reduce(chat::ChatAction::ThreadListReceived(threads));
+        self.sync_open_thread_picker();
         self.sync_pending_approvals_from_tasks();
         if let Some(thread_id) = active_thread_id
             .as_ref()
@@ -300,6 +301,7 @@ impl TuiModel {
             }
         }
         self.sync_pending_approvals_from_tasks();
+        self.sync_open_thread_picker();
         self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id.clone()));
         let _ = self.maybe_request_auto_response_for_open_thread(&thread_id);
@@ -325,6 +327,7 @@ impl TuiModel {
                     ..Default::default()
                 },
             ));
+            self.sync_open_thread_picker();
             self.sync_pending_approvals_from_tasks();
             return;
         }
@@ -342,6 +345,7 @@ impl TuiModel {
                 },
             ));
         }
+        self.sync_open_thread_picker();
         self.sync_pending_approvals_from_tasks();
     }
 

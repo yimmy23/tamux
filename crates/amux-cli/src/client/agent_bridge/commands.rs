@@ -85,6 +85,7 @@ where
                 .send(ClientMessage::AgentListThreads {
                     limit: None,
                     offset: None,
+                    include_internal: false,
                 })
                 .await?;
         }

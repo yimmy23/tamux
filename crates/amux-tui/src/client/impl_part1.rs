@@ -242,6 +242,7 @@ impl DaemonClient {
             ClientMessage::AgentListThreads {
                 limit: None,
                 offset: None,
+                include_internal: true,
             },
         ] {
             if let Err(err) = amux_protocol::validate_client_message_size(&request) {

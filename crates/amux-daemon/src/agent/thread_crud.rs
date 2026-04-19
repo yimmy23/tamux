@@ -305,10 +305,12 @@ impl AgentEngine {
         &self,
         limit: Option<usize>,
         offset: usize,
+        include_internal: bool,
     ) -> Vec<AgentThread> {
         self.list_threads_filtered(&ThreadListFilter {
             limit,
             offset,
+            include_internal,
             ..ThreadListFilter::default()
         })
         .await

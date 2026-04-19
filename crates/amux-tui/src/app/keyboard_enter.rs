@@ -75,6 +75,41 @@ impl TuiModel {
             }
             return true;
         }
+        if cmd == "new" {
+            let target_agent_id = if args.trim().is_empty() {
+                Some(amux_protocol::AGENT_ID_SWAROG.to_string())
+            } else {
+                self.resolve_target_agent_id(args.trim())
+            };
+            match target_agent_id {
+                Some(target_agent_id) => {
+                    self.start_new_thread_view_for_agent(Some(target_agent_id.as_str()));
+                    self.status_line = format!(
+                        "New conversation for {}",
+                        self.participant_display_name(&target_agent_id)
+                    );
+                }
+                None => {
+                    self.status_line = format!("Unknown agent: {}", args.trim());
+                }
+            }
+            return true;
+        }
+        if cmd == "thread" && !args.trim().is_empty() {
+            let Some(tab) = widgets::thread_picker::resolve_thread_picker_tab(
+                args.trim(),
+                &self.chat,
+                &self.subagents,
+            ) else {
+                self.status_line = format!("Unknown agent: {}", args.trim());
+                return true;
+            };
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+            self.modal.set_thread_picker_tab(tab);
+            self.sync_thread_picker_item_count();
+            return true;
+        }
         if self.is_builtin_command(cmd) {
             self.execute_command(cmd);
             return true;

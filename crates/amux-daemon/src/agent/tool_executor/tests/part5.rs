@@ -438,6 +438,30 @@
     }
 
     #[test]
+    fn generate_image_is_hidden_for_non_image_generation_capable_models_even_when_vision_is_enabled(
+    ) {
+        let temp_dir = std::env::temp_dir();
+        let mut config = AgentConfig::default();
+        config.provider = amux_shared::providers::PROVIDER_ID_XAI.to_string();
+        config.model = "grok-code-fast-1".to_string();
+        config.tools.vision = true;
+
+        let tools = get_available_tools(&config, &temp_dir, false);
+        assert!(tools
+            .iter()
+            .any(|tool| tool.function.name == "analyze_image"));
+        assert!(tools
+            .iter()
+            .all(|tool| tool.function.name != "generate_image"));
+        assert!(tools
+            .iter()
+            .any(|tool| tool.function.name == "speech_to_text"));
+        assert!(tools
+            .iter()
+            .any(|tool| tool.function.name == "text_to_speech"));
+    }
+
+    #[test]
     fn media_tools_expose_expected_core_parameters() {
         let mut config = AgentConfig::default();
         config.tools.vision = true;

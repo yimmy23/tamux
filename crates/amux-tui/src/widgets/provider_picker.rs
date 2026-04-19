@@ -8,9 +8,7 @@ use crate::state::auth::AuthState;
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
-use amux_shared::providers::{
-    provider_supports_audio_tool, AudioToolKind, PROVIDER_ID_CUSTOM,
-};
+use amux_shared::providers::{provider_supports_audio_tool, AudioToolKind, PROVIDER_ID_CUSTOM};
 
 pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
     PROVIDERS
@@ -239,13 +237,17 @@ mod tests {
         ];
 
         let defs = available_audio_provider_defs(&auth, AudioToolKind::SpeechToText);
-        assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_OPENAI));
+        assert!(defs
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_OPENAI));
         assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_GROQ));
         assert!(defs
             .iter()
             .any(|provider| provider.id == PROVIDER_ID_OPENROUTER));
         assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_XAI));
-        assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_CUSTOM));
+        assert!(defs
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_CUSTOM));
         assert!(!defs
             .iter()
             .any(|provider| provider.id == PROVIDER_ID_ANTHROPIC));

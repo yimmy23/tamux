@@ -67,8 +67,8 @@ Requires a running amux daemon (connects via Unix socket or TCP).
 | /provider | Switch Svarog's provider |
 | /model | Switch Svarog's model |
 | /effort | Set Svarog's reasoning effort |
-| /thread | Pick thread |
-| /new | New conversation |
+| /thread \[agent\] | Pick thread or open the picker on a specific agent/source |
+| /new \[agent\] | New conversation, defaulting to Svarog |
 | /attach \<path\> | Attach file |
 | /view | Cycle transcript mode |
 | /help | Show keyboard shortcuts |

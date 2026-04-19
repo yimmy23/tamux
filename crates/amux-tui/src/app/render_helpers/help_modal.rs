@@ -173,12 +173,12 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Set Svarog's reasoning effort", theme.fg_dim),
         ]),
         Line::from(vec![
-            Span::styled("  /thread          ", theme.fg_active),
-            Span::styled("Pick conversation thread", theme.fg_dim),
+            Span::styled("  /thread [agent]  ", theme.fg_active),
+            Span::styled("Pick a thread or preselect an agent source", theme.fg_dim),
         ]),
         Line::from(vec![
-            Span::styled("  /new             ", theme.fg_active),
-            Span::styled("New conversation", theme.fg_dim),
+            Span::styled("  /new [agent]     ", theme.fg_active),
+            Span::styled("New conversation (defaults to Svarog)", theme.fg_dim),
         ]),
         Line::from(vec![
             Span::styled("  /goals           ", theme.fg_active),

@@ -125,14 +125,8 @@ impl TuiModel {
 
     pub(super) fn thread_picker_target_agent_id(
         tab: modal::ThreadPickerTab,
-    ) -> Option<&'static str> {
-        match tab {
-            modal::ThreadPickerTab::Swarog => Some(amux_protocol::AGENT_ID_SWAROG),
-            modal::ThreadPickerTab::Rarog => Some(amux_protocol::AGENT_ID_RAROG),
-            modal::ThreadPickerTab::Weles => Some("weles"),
-            modal::ThreadPickerTab::Playgrounds => None,
-            modal::ThreadPickerTab::Internal => None,
-        }
+    ) -> Option<String> {
+        tab.agent_id().map(str::to_string)
     }
 
     fn cleanup_concierge_on_navigate(&mut self) {

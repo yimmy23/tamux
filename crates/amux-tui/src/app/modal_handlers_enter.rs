@@ -162,20 +162,21 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 }
                 model.close_top_modal();
                 model.input.reduce(input::InputAction::Clear);
-                model.start_new_thread_view_for_agent(TuiModel::thread_picker_target_agent_id(
-                    thread_picker_tab,
-                ));
+                let target_agent_id = TuiModel::thread_picker_target_agent_id(thread_picker_tab);
+                model.start_new_thread_view_for_agent(target_agent_id.as_deref());
                 model.status_line = "New conversation".to_string();
-            } else if let Some((tid, title)) =
-                widgets::thread_picker::filtered_threads(&model.chat, &model.modal)
-                    .get(cursor - 1)
-                    .map(|thread| {
-                        (
-                            thread.id.clone(),
-                            widgets::thread_picker::thread_display_title(thread),
-                        )
-                    })
-            {
+            } else if let Some((tid, title)) = widgets::thread_picker::filtered_threads(
+                &model.chat,
+                &model.modal,
+                &model.subagents,
+            )
+            .get(cursor - 1)
+            .map(|thread| {
+                (
+                    thread.id.clone(),
+                    widgets::thread_picker::thread_display_title(thread),
+                )
+            }) {
                 model.close_top_modal();
                 model.input.reduce(input::InputAction::Clear);
                 model.open_thread_conversation(tid);

@@ -441,6 +441,38 @@ fn thread_deleted_event_reclamps_open_thread_picker_cursor() {
 }
 
 #[test]
+fn internal_dm_thread_created_refreshes_open_thread_picker() {
+    let mut model = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model
+        .modal
+        .set_thread_picker_tab(modal::ThreadPickerTab::Internal);
+    model.sync_thread_picker_item_count();
+
+    assert!(
+        model.selected_thread_picker_thread().is_none(),
+        "internal picker should start empty in this fixture"
+    );
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "dm:svarog:weles".into(),
+        title: "Internal DM · Swarog ↔ WELES".into(),
+        agent_name: None,
+    });
+
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    assert_eq!(
+        model
+            .selected_thread_picker_thread()
+            .map(|thread| thread.id.as_str()),
+        Some("dm:svarog:weles")
+    );
+}
+
+#[test]
 fn goal_run_deleted_event_removes_goal_from_task_state() {
     let mut model = make_model();
     model
@@ -3926,6 +3958,44 @@ fn participant_suggestion_does_not_auto_flush_as_user_message_after_done() {
         model.queued_prompts[0].suggestion_id.as_deref(),
         Some("sugg-1")
     );
+}
+
+#[test]
+fn new_subagent_conversation_keeps_header_after_thread_created_without_agent_name() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.subagents.entries.push(crate::state::SubAgentEntry {
+        id: "domowoj".to_string(),
+        name: "Domowoj".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("testing".to_string()),
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        raw_json: None,
+    });
+
+    model.start_new_thread_view_for_agent(Some("domowoj"));
+    model.submit_prompt("inspect this".to_string());
+
+    let optimistic = model.current_header_agent_profile();
+    assert_eq!(optimistic.agent_label, "Domowoj");
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-domowoj".to_string(),
+        title: "inspect this".to_string(),
+        agent_name: None,
+    });
+
+    let after_created = model.current_header_agent_profile();
+    assert_eq!(after_created.agent_label, "Domowoj");
+    assert_eq!(after_created.provider, "openai");
+    assert_eq!(after_created.model, "gpt-5.4-mini");
 }
 
 #[test]
