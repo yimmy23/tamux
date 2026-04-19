@@ -178,6 +178,7 @@ impl TuiModel {
         .to_string();
         self.send_daemon_command(DaemonCommand::TextToSpeech { args_json });
         self.status_line = "Synthesizing speech...".to_string();
+        self.set_active_thread_activity("preparing speech");
     }
 
     pub(super) fn known_agent_directive_aliases(&self) -> Vec<String> {

@@ -97,6 +97,7 @@ export function ChatComposer({
   onKeyDown,
   agentSettings,
   isStreamingResponse,
+  isSynthesizingSpeech,
   onStopStreaming,
   onSend,
   canStartGoalRun,
@@ -124,6 +125,7 @@ export function ChatComposer({
     audio_tts_auto_speak: boolean;
   };
   isStreamingResponse: boolean;
+  isSynthesizingSpeech: boolean;
   onStopStreaming: () => void;
   onSend: () => void;
   canStartGoalRun: boolean;
@@ -163,6 +165,11 @@ export function ChatComposer({
     && typeof MediaRecorder !== "undefined"
     && !!navigator.mediaDevices?.getUserMedia
     && !!(window.amux?.agentSpeechToText || window.tamux?.agentSpeechToText);
+  const composerPlaceholder = !agentSettings.enabled
+    ? "Agent disabled — enable in Settings > Agent"
+    : isSynthesizingSpeech
+      ? "Preparing speech..."
+      : "Type a message... (Enter to send, Ctrl+Enter for newline)";
 
   const toggleRecording = async () => {
     if (isRecording) {
@@ -292,7 +299,7 @@ export function ChatComposer({
           }}
           onKeyDown={onKeyDown}
           rows={3}
-          placeholder={agentSettings.enabled ? "Type a message... (Enter to send, Ctrl+Enter for newline)" : "Agent disabled — enable in Settings > Agent"}
+          placeholder={composerPlaceholder}
           disabled={!agentSettings.enabled}
           style={{
             ...inputStyle,

@@ -112,10 +112,73 @@ export function formatRemoteModelPricingSubtitle(
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-function modelMetadataContainsAudio(
+function jsonArrayContainsAudio(value: unknown): boolean {
+  return Array.isArray(value)
+    && value.some((entry) => typeof entry === "string" && entry.trim().toLowerCase() === "audio");
+}
+
+function modalitySideHasAudio(modality: string, side: "input" | "output"): boolean {
+  const trimmed = modality.trim().toLowerCase();
+  if (!trimmed) {
+    return false;
+  }
+
+  const parts = trimmed.split("->");
+  if (parts.length !== 2) {
+    return false;
+  }
+
+  const directional = side === "input" ? parts[0] : parts[1];
+  return directional
+    .split(/[+,|/ ]/)
+    .some((token) => token.trim() === "audio");
+}
+
+function jsonStringHasDirectionalAudio(
   value: unknown,
+  side: "input" | "output",
+): boolean {
+  return typeof value === "string" && modalitySideHasAudio(value, side);
+}
+
+function fetchedModelAudioDirectionOverride(
+  model: FetchedRemoteModel,
+  endpoint: "stt" | "tts",
+): boolean | undefined {
+  const providerPrefixSensitive = model.id.startsWith("xai/")
+    || model.id.startsWith("openai/")
+    || model.id.startsWith("openrouter/");
+  const haystack = `${model.id} ${model.name}`.toLowerCase();
+
+  const looksLikeStt = haystack.includes("transcribe")
+    || haystack.includes("transcription")
+    || haystack.includes("speech-to-text")
+    || haystack.includes("speech to text")
+    || haystack.includes("whisper")
+    || (providerPrefixSensitive && haystack.includes("listen"));
+  const looksLikeTts = haystack.includes("text-to-speech")
+    || haystack.includes("text to speech")
+    || haystack.includes("-tts")
+    || haystack.includes(" tts")
+    || (providerPrefixSensitive && haystack.includes("speak"));
+
+  if (endpoint === "stt") {
+    if (looksLikeStt && !looksLikeTts) return true;
+    if (looksLikeTts && !looksLikeStt) return false;
+  }
+  if (endpoint === "tts") {
+    if (looksLikeTts && !looksLikeStt) return true;
+    if (looksLikeStt && !looksLikeTts) return false;
+  }
+
+  return undefined;
+}
+
+function modelMetadataContainsAudio(
+  model: FetchedRemoteModel,
   endpoint: "stt" | "tts",
 ): boolean {
+  const value = model.metadata;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
@@ -123,26 +186,36 @@ function modelMetadataContainsAudio(
   const architecture = record.architecture && typeof record.architecture === "object" && !Array.isArray(record.architecture)
     ? record.architecture as Record<string, unknown>
     : null;
-  const hasAudioInArray = (source: unknown): boolean =>
-    Array.isArray(source)
-      && source.some((entry) => typeof entry === "string" && entry.trim().toLowerCase() === "audio");
-  const hasAudioInString = (source: unknown): boolean =>
-    typeof source === "string" && source.toLowerCase().includes("audio");
 
-  const inputAudio = hasAudioInArray(architecture?.input_modalities ?? record.input_modalities ?? record.modalities);
-  const outputAudio = hasAudioInArray(architecture?.output_modalities ?? record.output_modalities ?? record.modalities);
-  const modalityAudio = hasAudioInString(architecture?.modality ?? record.modality);
+  const inputAudio = jsonArrayContainsAudio(
+    architecture?.input_modalities ?? record.input_modalities,
+  );
+  const outputAudio = jsonArrayContainsAudio(
+    architecture?.output_modalities ?? record.output_modalities,
+  );
+  const modalityInputAudio = jsonStringHasDirectionalAudio(
+    architecture?.modality ?? record.modality,
+    "input",
+  );
+  const modalityOutputAudio = jsonStringHasDirectionalAudio(
+    architecture?.modality ?? record.modality,
+    "output",
+  );
 
-  return endpoint === "stt"
-    ? inputAudio || modalityAudio
-    : outputAudio || modalityAudio;
+  const directionalMatch = endpoint === "stt"
+    ? inputAudio || modalityInputAudio
+    : outputAudio || modalityOutputAudio;
+  if (directionalMatch) {
+    return true;
+  }
+
+  const override = fetchedModelAudioDirectionOverride(model, endpoint);
+  return override ?? false;
 }
 
 export function filterFetchedModelsForAudio(
   models: FetchedRemoteModel[],
   endpoint: "stt" | "tts",
 ): FetchedRemoteModel[] {
-  return models.filter((model) =>
-    Boolean(model.pricing?.audio)
-    || modelMetadataContainsAudio(model.metadata, endpoint));
+  return models.filter((model) => modelMetadataContainsAudio(model, endpoint));
 }

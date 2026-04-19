@@ -101,6 +101,10 @@ pub(super) fn known_models_for_provider_auth(
             ("llama-3.1-8b-instant", "Llama 3.1 8B", 131_072),
             ("gemma2-9b-it", "Gemma 2 9B", 8_192),
         ],
+        PROVIDER_ID_XAI => &[
+            ("grok-4", "Grok 4", 262_144),
+            ("grok-code-fast-1", "Grok Code Fast 1", 173_000),
+        ],
         PROVIDER_ID_OLLAMA => &[
             ("llama3.3", "Llama 3.3", 128_000),
             ("qwen2.5-coder", "Qwen 2.5 Coder", 32_768),

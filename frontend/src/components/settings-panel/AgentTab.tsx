@@ -3,11 +3,18 @@ import { getDaemonOwnedAuthCapability, getProviderAuthSupportOptions } from "@/l
 import { getBridge } from "@/lib/bridge";
 import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
 import { filterFetchedModelsForAudio } from "@/lib/providerModels";
-import type { AgentProviderConfig, AgentProviderId, AgentSettings, ModelDefinition } from "../../lib/agentStore";
+import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
 import { DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW, getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, modelUsesContextWindowOverride, normalizeAuthSource, providerUsesConfigurableBaseUrl, resolveProviderModelDefinition } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
 import { applySttReuseDecision, getModelSelectionEffects } from "./modelSelectionEffects";
+import {
+    audioModelOptions,
+    filterAudioProviderOptions,
+    normalizeAudioModelForProviderChange,
+    normalizeLlmStreamTimeoutInput,
+    type ProviderOption,
+} from "./agentTabHelpers";
 import { GeneratedToolsPanel } from "../generated-tools/GeneratedToolsPanel";
 import { OperatorModelControls } from "./OperatorModelControls";
 import { PromptPreviewSection } from "./PromptPreviewSection";
@@ -20,33 +27,6 @@ import {
     normalizeTuiChatHistoryPageSize,
 } from "../../lib/chatHistoryPageSize";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
-
-const OPENAI_STT_MODELS: ModelDefinition[] = [
-    { id: "gpt-4o-transcribe", name: "GPT-4o Transcribe", contextWindow: 128000, modalities: ["audio"] },
-    { id: "gpt-4o-mini-transcribe", name: "GPT-4o Mini Transcribe", contextWindow: 128000, modalities: ["audio"] },
-    { id: "whisper-1", name: "Whisper 1", contextWindow: 0, modalities: ["audio"] },
-];
-
-const OPENAI_TTS_MODELS: ModelDefinition[] = [
-    { id: "gpt-4o-mini-tts", name: "GPT-4o Mini TTS", contextWindow: 128000, modalities: ["audio"] },
-    { id: "tts-1", name: "TTS 1", contextWindow: 0, modalities: ["audio"] },
-    { id: "tts-1-hd", name: "TTS 1 HD", contextWindow: 0, modalities: ["audio"] },
-];
-
-function audioModelOptions(providerId: AgentProviderId, kind: "stt" | "tts"): ModelDefinition[] | undefined {
-    if (providerId === "openai" || providerId === "azure-openai") {
-        return kind === "stt" ? OPENAI_STT_MODELS : OPENAI_TTS_MODELS;
-    }
-    return undefined;
-}
-
-export function normalizeLlmStreamTimeoutInput(value: string): number | null {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) {
-        return null;
-    }
-    return Math.min(1800, Math.max(30, parsed));
-}
 
 export function AgentTab({
     settings, updateSetting, resetSettings,
@@ -72,10 +52,11 @@ export function AgentTab({
         }
     };
 
-    const allProviderOptions: { id: AgentProviderId; label: string }[] = [
+    const allProviderOptions: ProviderOption[] = [
         { id: "featherless", label: "Featherless" },
         { id: "anthropic", label: "Anthropic" },
         { id: "openai", label: "OpenAI / ChatGPT" },
+        { id: "xai", label: "xAI" },
         { id: "azure-openai", label: "Azure OpenAI" },
         { id: "github-copilot", label: "GitHub Copilot" },
         { id: "qwen", label: "Qwen" },
@@ -108,6 +89,7 @@ export function AgentTab({
             (state) => state.authenticated && state.provider_id === provider.id,
         ),
     );
+    const audioProviderOptions = filterAudioProviderOptions(providerOptions);
 
     const providerConfig = settings[settings.active_provider] as AgentProviderConfig;
     const audioSttProviderConfig = settings[settings.audio_stt_provider] as AgentProviderConfig;
@@ -350,8 +332,19 @@ export function AgentTab({
                     <SettingRow label="STT Provider">
                         <SelectInput
                             value={settings.audio_stt_provider}
-                            options={allProviderOptions.map((provider) => provider.id)}
-                            onChange={(value) => updateSetting("audio_stt_provider", value as AgentProviderId)}
+                            options={audioProviderOptions.map((provider) => provider.id)}
+                            onChange={(value) => {
+                                const providerId = value as AgentProviderId;
+                                updateSetting("audio_stt_provider", providerId);
+                                updateSetting(
+                                    "audio_stt_model",
+                                    normalizeAudioModelForProviderChange(
+                                        providerId,
+                                        "stt",
+                                        settings.audio_stt_model,
+                                    ),
+                                );
+                            }}
                         />
                     </SettingRow>
                         <SettingRow label="STT Model">
@@ -383,8 +376,19 @@ export function AgentTab({
                     <SettingRow label="TTS Provider">
                         <SelectInput
                             value={settings.audio_tts_provider}
-                            options={allProviderOptions.map((provider) => provider.id)}
-                            onChange={(value) => updateSetting("audio_tts_provider", value as AgentProviderId)}
+                            options={audioProviderOptions.map((provider) => provider.id)}
+                            onChange={(value) => {
+                                const providerId = value as AgentProviderId;
+                                updateSetting("audio_tts_provider", providerId);
+                                updateSetting(
+                                    "audio_tts_model",
+                                    normalizeAudioModelForProviderChange(
+                                        providerId,
+                                        "tts",
+                                        settings.audio_tts_model,
+                                    ),
+                                );
+                            }}
                         />
                     </SettingRow>
                     <SettingRow label="TTS Model">

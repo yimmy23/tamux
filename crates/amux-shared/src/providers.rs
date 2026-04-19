@@ -36,6 +36,7 @@ pub const PROVIDER_ID_QWEN: &str = "qwen";
 pub const PROVIDER_ID_QWEN_DEEPINFRA: &str = "qwen-deepinfra";
 pub const PROVIDER_ID_TOGETHER: &str = "together";
 pub const PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN: &str = "xiaomi-mimo-token-plan";
+pub const PROVIDER_ID_XAI: &str = "xai";
 pub const PROVIDER_ID_Z_AI: &str = "z.ai";
 pub const PROVIDER_ID_Z_AI_CODING_PLAN: &str = "z.ai-coding-plan";
 
@@ -90,6 +91,7 @@ pub fn provider_supports_audio_tool(provider_id: &str, _kind: AudioToolKind) -> 
             | PROVIDER_ID_AZURE_OPENAI
             | PROVIDER_ID_GROQ
             | PROVIDER_ID_OPENROUTER
+            | PROVIDER_ID_XAI
     )
 }
 
@@ -117,6 +119,18 @@ mod tests {
         ));
         assert!(!provider_supports_audio_tool(
             PROVIDER_ID_ANTHROPIC,
+            AudioToolKind::TextToSpeech,
+        ));
+    }
+
+    #[test]
+    fn xai_is_marked_as_audio_capable_for_both_tools() {
+        assert!(provider_supports_audio_tool(
+            PROVIDER_ID_XAI,
+            AudioToolKind::SpeechToText,
+        ));
+        assert!(provider_supports_audio_tool(
+            PROVIDER_ID_XAI,
             AudioToolKind::TextToSpeech,
         ));
     }

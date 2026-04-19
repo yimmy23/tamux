@@ -48,6 +48,28 @@ fn json_string_has_modality(value: Option<&serde_json::Value>, modality: &str) -
         .unwrap_or(false)
 }
 
+fn modality_side_has_term(value: Option<&serde_json::Value>, side: &str, modality: &str) -> bool {
+    value
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let lowered = value.to_ascii_lowercase();
+            let Some((input, output)) = lowered.split_once("->") else {
+                return false;
+            };
+            let directional = match side {
+                "input" => input,
+                "output" => output,
+                _ => return false,
+            };
+            directional
+                .split(|ch: char| matches!(ch, '+' | ',' | '|' | '/' | ' '))
+                .any(|token| token.trim() == modality)
+        })
+        .unwrap_or(false)
+}
+
 fn selected_model_supports_image_input(model: &crate::state::config::FetchedModel) -> bool {
     let metadata = model.metadata.as_ref();
     json_array_contains_modality(
@@ -65,34 +87,17 @@ fn selected_model_supports_image_input(model: &crate::state::config::FetchedMode
 }
 
 fn selected_model_supports_audio(model: &crate::state::config::FetchedModel) -> bool {
-    if model
-        .pricing
-        .as_ref()
-        .and_then(|pricing| pricing.audio.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_some()
-    {
-        return true;
-    }
-
     let metadata = model.metadata.as_ref();
     json_array_contains_modality(
         metadata
             .and_then(|value| value.pointer("/architecture/input_modalities"))
-            .or_else(|| metadata.and_then(|value| value.pointer("/input_modalities")))
-            .or_else(|| metadata.and_then(|value| value.pointer("/modalities"))),
+            .or_else(|| metadata.and_then(|value| value.pointer("/input_modalities"))),
         "audio",
-    ) || json_array_contains_modality(
-        metadata
-            .and_then(|value| value.pointer("/architecture/output_modalities"))
-            .or_else(|| metadata.and_then(|value| value.pointer("/output_modalities")))
-            .or_else(|| metadata.and_then(|value| value.pointer("/modalities"))),
-        "audio",
-    ) || json_string_has_modality(
+    ) || modality_side_has_term(
         metadata
             .and_then(|value| value.pointer("/architecture/modality"))
             .or_else(|| metadata.and_then(|value| value.pointer("/modality"))),
+        "input",
         "audio",
     )
 }

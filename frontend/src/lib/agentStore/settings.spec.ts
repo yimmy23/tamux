@@ -3,6 +3,8 @@ import {
   normalizeAgentSettingsFromSource,
 } from "./settings.ts";
 import { buildDaemonAgentConfig } from "../agentDaemonConfig.ts";
+import { normalizeAudioModelForProviderChange } from "../../components/settings-panel/agentTabHelpers.ts";
+import { expect, test } from "vitest";
 
 function assert(condition: unknown, message: string): void {
   if (!condition) {
@@ -176,3 +178,118 @@ assert(
     && daemonConfigWithAudio.providers?.custom?.model === "fallback-audio-model",
   "Daemon config should include non-active audio provider configs needed by STT/TTS",
 );
+
+assert(
+  DEFAULT_AGENT_SETTINGS.xai.base_url === "https://api.x.ai/v1"
+    && DEFAULT_AGENT_SETTINGS.xai.model === "grok-4"
+    && DEFAULT_AGENT_SETTINGS.xai.api_transport === "responses",
+  "Default xAI settings should use the xAI API defaults",
+);
+
+const normalizedXaiSettings = normalizeAgentSettingsFromSource({
+  active_provider: "xai",
+  xai: {
+    ...DEFAULT_AGENT_SETTINGS.xai,
+    base_url: "https://api.x.ai/v1",
+    model: "grok-4-voice",
+    api_key: "sk-xai",
+    api_transport: "chat_completions",
+  },
+  audio_stt_provider: "xai",
+  audio_stt_model: "grok-4-voice",
+  audio_tts_provider: "xai",
+  audio_tts_model: "grok-4-voice",
+});
+
+assert(
+  normalizedXaiSettings.active_provider === "xai"
+    && normalizedXaiSettings.audio_stt_provider === "xai"
+    && normalizedXaiSettings.audio_tts_provider === "xai",
+  "Settings normalization should accept xAI for active and audio providers",
+);
+
+assert(
+  normalizedXaiSettings.xai.base_url === "https://api.x.ai/v1"
+    && normalizedXaiSettings.xai.model === "grok-4-voice"
+    && normalizedXaiSettings.xai.api_key === "sk-xai"
+    && normalizedXaiSettings.xai.api_transport === "chat_completions",
+  "Settings normalization should preserve xAI provider configuration",
+);
+
+const daemonConfigWithXaiAudio = buildDaemonAgentConfig({
+  ...DEFAULT_AGENT_SETTINGS,
+  active_provider: "xai",
+  xai: {
+    ...DEFAULT_AGENT_SETTINGS.xai,
+    api_key: "sk-xai",
+    model: "grok-4-voice",
+  },
+  audio_stt_provider: "xai",
+  audio_stt_model: "grok-4-voice",
+  audio_tts_provider: "xai",
+  audio_tts_model: "grok-4-voice",
+});
+
+assert(
+  daemonConfigWithXaiAudio.providers?.xai?.base_url === "https://api.x.ai/v1"
+    && daemonConfigWithXaiAudio.providers?.xai?.model === "grok-4-voice",
+  "Daemon config should serialize xAI provider settings",
+);
+
+test("audio provider changes normalize stale STT and TTS models for xAI", () => {
+  expect(normalizeAudioModelForProviderChange("xai", "stt", "whisper-1")).toBe("grok-4");
+  expect(normalizeAudioModelForProviderChange("xai", "tts", "gpt-4o-mini-tts")).toBe("grok-4");
+  expect(normalizeAudioModelForProviderChange("xai", "stt", "grok-4")).toBe("grok-4");
+});
+
+test("xAI settings normalize and serialize in collected Vitest coverage", () => {
+  expect(DEFAULT_AGENT_SETTINGS.xai).toMatchObject({
+    base_url: "https://api.x.ai/v1",
+    model: "grok-4",
+    api_transport: "responses",
+  });
+
+  const normalizedSettings = normalizeAgentSettingsFromSource({
+    active_provider: "xai",
+    xai: {
+      ...DEFAULT_AGENT_SETTINGS.xai,
+      base_url: "https://api.x.ai/v1",
+      model: "grok-4-voice",
+      api_key: "sk-xai",
+      api_transport: "chat_completions",
+    },
+    audio_stt_provider: "xai",
+    audio_stt_model: "grok-4-voice",
+    audio_tts_provider: "xai",
+    audio_tts_model: "grok-4-voice",
+  });
+
+  expect(normalizedSettings.active_provider).toBe("xai");
+  expect(normalizedSettings.audio_stt_provider).toBe("xai");
+  expect(normalizedSettings.audio_tts_provider).toBe("xai");
+  expect(normalizedSettings.xai).toMatchObject({
+    base_url: "https://api.x.ai/v1",
+    model: "grok-4-voice",
+    api_key: "sk-xai",
+    api_transport: "chat_completions",
+  });
+
+  const daemonConfig = buildDaemonAgentConfig({
+    ...DEFAULT_AGENT_SETTINGS,
+    active_provider: "xai",
+    xai: {
+      ...DEFAULT_AGENT_SETTINGS.xai,
+      api_key: "sk-xai",
+      model: "grok-4-voice",
+    },
+    audio_stt_provider: "xai",
+    audio_stt_model: "grok-4-voice",
+    audio_tts_provider: "xai",
+    audio_tts_model: "grok-4-voice",
+  });
+
+  expect(daemonConfig.providers?.xai).toMatchObject({
+    base_url: "https://api.x.ai/v1",
+    model: "grok-4-voice",
+  });
+});

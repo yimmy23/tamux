@@ -1,6 +1,6 @@
 use amux_shared::providers::{
     AudioToolKind, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
 };
 
 impl TuiModel {
@@ -53,6 +53,9 @@ impl TuiModel {
                 model("tts-1", "TTS 1", None),
                 model("tts-1-hd", "TTS 1 HD", None),
             ],
+            (PROVIDER_ID_XAI, "stt" | "tts") => {
+                vec![model("grok-4", "Grok 4", Some(262_144))]
+            }
             _ => Vec::new(),
         }
     }
@@ -122,15 +125,6 @@ impl TuiModel {
         self.sync_model_picker_item_count();
     }
 
-    fn json_string_has_audio(value: Option<&serde_json::Value>) -> bool {
-        value
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|value| value.to_ascii_lowercase().contains("audio"))
-            .unwrap_or(false)
-    }
-
     fn json_array_contains_audio(value: Option<&serde_json::Value>) -> bool {
         value
             .and_then(|value| value.as_array())
@@ -145,45 +139,116 @@ impl TuiModel {
             .unwrap_or(false)
     }
 
+    fn modality_side_has_audio(modality: &str, side: &str) -> bool {
+        let trimmed = modality.trim().to_ascii_lowercase();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        let Some((input, output)) = trimmed.split_once("->") else {
+            return false;
+        };
+        let directional = match side {
+            "input" => input,
+            "output" => output,
+            _ => return false,
+        };
+
+        directional
+            .split(|ch: char| matches!(ch, '+' | ',' | '|' | '/' | ' '))
+            .any(|token| token.trim() == "audio")
+    }
+
+    fn json_string_has_directional_audio(
+        value: Option<&serde_json::Value>,
+        side: &str,
+    ) -> bool {
+        value
+            .and_then(|value| value.as_str())
+            .map(|value| Self::modality_side_has_audio(value, side))
+            .unwrap_or(false)
+    }
+
+    fn fetched_model_audio_direction_override(
+        model: &crate::state::config::FetchedModel,
+        endpoint: &str,
+    ) -> Option<bool> {
+        let provider_prefix_sensitive =
+            model.id.starts_with("xai/") || model.id.starts_with("openai/")
+                || model.id.starts_with(&format!("{PROVIDER_ID_XAI}/"))
+                || model.id.starts_with(&format!("{PROVIDER_ID_OPENROUTER}/"));
+        let name = model
+            .name
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_default();
+        let id = model.id.to_ascii_lowercase();
+        let haystack = format!("{id} {name}");
+
+        let looks_like_stt = haystack.contains("transcribe")
+            || haystack.contains("transcription")
+            || haystack.contains("speech-to-text")
+            || haystack.contains("speech to text")
+            || haystack.contains("whisper")
+            || (provider_prefix_sensitive && haystack.contains("listen"));
+        let looks_like_tts = haystack.contains("text-to-speech")
+            || haystack.contains("text to speech")
+            || haystack.contains("-tts")
+            || haystack.contains(" tts")
+            || (provider_prefix_sensitive && haystack.contains("speak"));
+
+        match endpoint {
+            "stt" if looks_like_stt && !looks_like_tts => Some(true),
+            "stt" if looks_like_tts && !looks_like_stt => Some(false),
+            "tts" if looks_like_tts && !looks_like_stt => Some(true),
+            "tts" if looks_like_stt && !looks_like_tts => Some(false),
+            _ => None,
+        }
+    }
+
     fn fetched_model_supports_audio_endpoint(
         model: &crate::state::config::FetchedModel,
         endpoint: &str,
     ) -> bool {
-        if model
-            .pricing
-            .as_ref()
-            .and_then(|pricing| pricing.audio.as_deref())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_some()
-        {
-            return true;
-        }
-
         let metadata = model.metadata.as_ref();
         let input_audio = Self::json_array_contains_audio(
             metadata
                 .and_then(|value| value.pointer("/architecture/input_modalities"))
-                .or_else(|| metadata.and_then(|value| value.pointer("/input_modalities")))
-                .or_else(|| metadata.and_then(|value| value.pointer("/modalities"))),
+                .or_else(|| metadata.and_then(|value| value.pointer("/input_modalities"))),
         );
         let output_audio = Self::json_array_contains_audio(
             metadata
                 .and_then(|value| value.pointer("/architecture/output_modalities"))
-                .or_else(|| metadata.and_then(|value| value.pointer("/output_modalities")))
-                .or_else(|| metadata.and_then(|value| value.pointer("/modalities"))),
+                .or_else(|| metadata.and_then(|value| value.pointer("/output_modalities"))),
         );
-        let modality_audio = Self::json_string_has_audio(
+        let modality_input_audio = Self::json_string_has_directional_audio(
             metadata
                 .and_then(|value| value.pointer("/architecture/modality"))
                 .or_else(|| metadata.and_then(|value| value.pointer("/modality"))),
+            "input",
+        );
+        let modality_output_audio = Self::json_string_has_directional_audio(
+            metadata
+                .and_then(|value| value.pointer("/architecture/modality"))
+                .or_else(|| metadata.and_then(|value| value.pointer("/modality"))),
+            "output",
         );
 
-        match endpoint {
-            "stt" => input_audio || modality_audio,
-            "tts" => output_audio || modality_audio,
+        let directional_match = match endpoint {
+            "stt" => input_audio || modality_input_audio,
+            "tts" => output_audio || modality_output_audio,
             _ => false,
+        };
+        if directional_match {
+            return true;
         }
+
+        if let Some(override_result) = Self::fetched_model_audio_direction_override(model, endpoint)
+        {
+            return override_result;
+        }
+
+        false
     }
 
     pub(super) fn current_settings_field_name(&self) -> &str {

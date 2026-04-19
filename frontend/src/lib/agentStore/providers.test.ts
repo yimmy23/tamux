@@ -11,7 +11,11 @@ import {
   normalizeApiTransport,
   normalizeAgentProviderId,
   normalizeProviderConfig,
+  providerSupportsAudioTool,
 } from "./providers.ts";
+import { buildDaemonAgentConfig } from "../agentDaemonConfig.ts";
+import { normalizeAudioModelForProviderChange } from "../../components/settings-panel/agentTabHelpers.ts";
+import { DEFAULT_AGENT_SETTINGS, normalizeAgentSettingsFromSource } from "./settings.ts";
 
 describe("frontend NVIDIA provider catalog", () => {
   it("registers NVIDIA with hosted defaults and fetch support", () => {
@@ -26,6 +30,90 @@ describe("frontend NVIDIA provider catalog", () => {
   it("recognizes NVIDIA as a valid provider id", () => {
     expect(normalizeAgentProviderId("nvidia")).toBe("nvidia");
     expect(getDefaultModelForProvider("nvidia")).toBe("minimaxai/minimax-m2.7");
+  });
+});
+
+describe("frontend xAI provider catalog", () => {
+  it("registers xAI with hosted defaults and responses transport", () => {
+    const xai = getProviderDefinition("xai" as any);
+
+    expect(xai).toBeDefined();
+    expect(xai?.defaultBaseUrl).toBe("https://api.x.ai/v1");
+    expect(xai?.defaultModel).toBe("grok-4");
+    expect(xai?.supportsModelFetch).toBe(true);
+    expect(xai?.defaultTransport).toBe("responses");
+  });
+
+  it("recognizes xAI as a valid provider id", () => {
+    expect(normalizeAgentProviderId("xai")).toBe("xai");
+    expect(getDefaultModelForProvider("xai" as any)).toBe("grok-4");
+  });
+});
+
+describe("frontend xAI audio/provider settings coverage", () => {
+  it("flags only supported frontend audio providers as audio-capable", () => {
+    expect(providerSupportsAudioTool("openai", "stt")).toBe(true);
+    expect(providerSupportsAudioTool("openrouter", "tts")).toBe(true);
+    expect(providerSupportsAudioTool("xai", "stt")).toBe(true);
+    expect(providerSupportsAudioTool("anthropic", "stt")).toBe(false);
+    expect(providerSupportsAudioTool("together", "tts")).toBe(false);
+  });
+
+  it("normalizes stale audio models when switching providers to xAI", () => {
+    expect(normalizeAudioModelForProviderChange("xai", "stt", "whisper-1")).toBe("grok-4");
+    expect(normalizeAudioModelForProviderChange("xai", "tts", "gpt-4o-mini-tts")).toBe("grok-4");
+    expect(normalizeAudioModelForProviderChange("xai", "stt", "grok-4")).toBe("grok-4");
+  });
+
+  it("covers xAI settings normalization and daemon serialization in a collected test file", () => {
+    expect(DEFAULT_AGENT_SETTINGS.xai).toMatchObject({
+      base_url: "https://api.x.ai/v1",
+      model: "grok-4",
+      api_transport: "responses",
+    });
+
+    const normalizedSettings = normalizeAgentSettingsFromSource({
+      active_provider: "xai",
+      xai: {
+        base_url: "https://api.x.ai/v1",
+        model: "grok-4-voice",
+        api_key: "sk-xai",
+        api_transport: "chat_completions",
+      },
+      audio_stt_provider: "xai",
+      audio_stt_model: "grok-4-voice",
+      audio_tts_provider: "xai",
+      audio_tts_model: "grok-4-voice",
+    } as any);
+
+    expect(normalizedSettings.active_provider).toBe("xai");
+    expect(normalizedSettings.audio_stt_provider).toBe("xai");
+    expect(normalizedSettings.audio_tts_provider).toBe("xai");
+    expect(normalizedSettings.xai).toMatchObject({
+      base_url: "https://api.x.ai/v1",
+      model: "grok-4-voice",
+      api_key: "sk-xai",
+      api_transport: "chat_completions",
+    });
+
+    const daemonConfig = buildDaemonAgentConfig({
+      ...DEFAULT_AGENT_SETTINGS,
+      active_provider: "xai",
+      xai: {
+        ...DEFAULT_AGENT_SETTINGS.xai,
+        api_key: "sk-xai",
+        model: "grok-4-voice",
+      },
+      audio_stt_provider: "xai",
+      audio_stt_model: "grok-4-voice",
+      audio_tts_provider: "xai",
+      audio_tts_model: "grok-4-voice",
+    });
+
+    expect(daemonConfig.providers?.xai).toMatchObject({
+      base_url: "https://api.x.ai/v1",
+      model: "grok-4-voice",
+    });
   });
 });
 

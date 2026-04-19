@@ -10,6 +10,8 @@ import type {
 } from "./types.ts";
 import { AGENT_PROVIDER_IDS } from "./types.ts";
 
+export type AudioToolEndpoint = "stt" | "tts";
+
 type AuthSourceSupportOptions = {
   daemonOwnedAuthAvailable?: boolean;
 };
@@ -28,26 +30,31 @@ const OPENAI_API_MODELS: ModelDefinition[] = [
   { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.2", name: "GPT-5.2", contextWindow: 400_000, modalities: M_TI },
-  { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", contextWindow: 400_000 },
-  { id: "gpt-5.1-codex", name: "GPT-5.1 Codex", contextWindow: 400_000 },
-  { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", contextWindow: 400_000 },
-  { id: "gpt-5.1", name: "GPT-5.1", contextWindow: 400_000 },
-  { id: "gpt-5-codex", name: "GPT-5 Codex", contextWindow: 400_000 },
-  { id: "gpt-5-codex-mini", name: "GPT-5 Codex Mini", contextWindow: 200_000 },
-  { id: "gpt-5", name: "GPT-5", contextWindow: 400_000 },
-  { id: "codex-mini-latest", name: "Codex Mini Latest", contextWindow: 200_000 },
-  { id: "o3", name: "o3", contextWindow: 200_000 },
-  { id: "o4-mini", name: "o4 Mini", contextWindow: 200_000 },
+  { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.1-codex", name: "GPT-5.1 Codex", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.1", name: "GPT-5.1", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5-codex", name: "GPT-5 Codex", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5-codex-mini", name: "GPT-5 Codex Mini", contextWindow: 200_000, modalities: M_TI },
+  { id: "gpt-5", name: "GPT-5", contextWindow: 400_000, modalities: M_TI },
+  { id: "codex-mini-latest", name: "Codex Mini Latest", contextWindow: 200_000, modalities: M_TI },
+  { id: "o3", name: "o3", contextWindow: 200_000, modalities: M_TI },
+  { id: "o4-mini", name: "o4 Mini", contextWindow: 200_000, modalities: M_TI },
 ];
 
 const OPENAI_CHATGPT_SUBSCRIPTION_MODELS: ModelDefinition[] = [
-  { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000 },
-  { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000 },
-  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000 },
-  { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", contextWindow: 400_000 },
-  { id: "gpt-5.2", name: "GPT-5.2", contextWindow: 400_000 },
-  { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", contextWindow: 400_000 },
-  { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", contextWindow: 400_000 },
+  { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.2", name: "GPT-5.2", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", contextWindow: 400_000, modalities: M_TI },
+];
+
+const XAI_MODELS: ModelDefinition[] = [
+  { id: "grok-4", name: "Grok 4", contextWindow: 262_144, modalities: M_TI },
+  { id: "grok-code-fast-1", name: "Grok Code Fast 1", contextWindow: 173_000 },
 ];
 
 const QWEN_MODELS: ModelDefinition[] = [
@@ -225,6 +232,18 @@ export function normalizeAgentProviderId(value: unknown): AgentProviderId {
   return AGENT_PROVIDER_IDS.includes(normalized) ? normalized : "openai";
 }
 
+export function providerSupportsAudioTool(
+  providerId: AgentProviderId,
+  _kind: AudioToolEndpoint,
+): boolean {
+  return providerId === "custom"
+    || providerId === "openai"
+    || providerId === "azure-openai"
+    || providerId === "groq"
+    || providerId === "openrouter"
+    || providerId === "xai";
+}
+
 export function normalizeApiTransport(
   providerId: AgentProviderId,
   value: unknown,
@@ -233,9 +252,9 @@ export function normalizeApiTransport(
     ? "native_assistant"
     : value === "anthropic_messages"
       ? "anthropic_messages"
-    : value === "chat_completions"
-      ? "chat_completions"
-      : "responses";
+      : value === "chat_completions"
+        ? "chat_completions"
+        : "responses";
   return getSupportedApiTransports(providerId).includes(normalized)
     ? normalized
     : getDefaultApiTransport(providerId);
@@ -305,6 +324,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
   { id: "featherless", name: "Featherless", defaultBaseUrl: "https://api.featherless.ai/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "anthropic", name: "Anthropic", defaultBaseUrl: "https://api.anthropic.com", defaultModel: "claude-opus-4-7", apiType: "anthropic", authMethod: "x-api-key", models: ANTHROPIC_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "openai", name: "OpenAI / ChatGPT", defaultBaseUrl: "https://api.openai.com/v1", defaultModel: "gpt-5.4", apiType: "openai", authMethod: "bearer", models: OPENAI_API_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: OPENAI_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
+  { id: "xai", name: "xAI", defaultBaseUrl: "https://api.x.ai/v1", defaultModel: "grok-4", apiType: "openai", authMethod: "bearer", models: XAI_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
   { id: "azure-openai", name: "Azure OpenAI", defaultBaseUrl: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1", defaultModel: "", apiType: "openai", authMethod: "bearer", models: EMPTY_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
   { id: "github-copilot", name: "GitHub Copilot", defaultBaseUrl: "https://api.githubcopilot.com", defaultModel: "gpt-4.1", apiType: "openai", authMethod: "bearer", models: GITHUB_COPILOT_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: GITHUB_COPILOT_AUTH_SOURCES, defaultAuthSource: "github_copilot", supportsResponseContinuity: true },
   { id: "qwen", name: "Qwen", defaultBaseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-max", apiType: "openai", authMethod: "bearer", models: QWEN_MODELS, supportsModelFetch: true, supportedTransports: NATIVE_AND_CHAT_TRANSPORTS, defaultTransport: "native_assistant", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", nativeTransportKind: "alibaba_assistant_api", nativeBaseUrl: "https://dashscope-intl.aliyuncs.com/api/v1", supportsResponseContinuity: false },

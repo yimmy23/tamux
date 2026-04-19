@@ -2,6 +2,7 @@ use super::*;
 use amux_shared::providers::{
     AudioToolKind, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI,
     PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN,
+    PROVIDER_ID_XAI,
 };
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
@@ -1701,6 +1702,13 @@ fn selecting_audio_stt_provider_updates_audio_provider_and_opens_model_picker() 
             auth_source: "api_key".to_string(),
             model: "gpt-4.1".to_string(),
         },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_XAI.to_string(),
+            provider_name: "xAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "grok-4".to_string(),
+        },
     ];
     model.config.agent_config_raw = Some(serde_json::json!({
         "audio": {
@@ -1716,7 +1724,7 @@ fn selecting_audio_stt_provider_updates_audio_provider_and_opens_model_picker() 
         AudioToolKind::SpeechToText,
     )
         .iter()
-        .position(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI)
+        .position(|provider| provider.id == PROVIDER_ID_XAI)
         .expect("provider to exist");
 
     model.settings_picker_target = Some(SettingsPickerTarget::AudioSttProvider);
@@ -1752,7 +1760,18 @@ fn selecting_audio_stt_provider_updates_audio_provider_and_opens_model_picker() 
             .and_then(|audio| audio.get("stt"))
             .and_then(|stt| stt.get("provider"))
             .and_then(|value| value.as_str()),
-        Some(PROVIDER_ID_AZURE_OPENAI)
+        Some(PROVIDER_ID_XAI)
+    );
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("model"))
+            .and_then(|value| value.as_str()),
+        Some("grok-4")
     );
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
 }
@@ -1830,6 +1849,13 @@ fn selecting_audio_tts_provider_updates_audio_provider_and_opens_model_picker() 
             auth_source: "api_key".to_string(),
             model: "gpt-4.1".to_string(),
         },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_XAI.to_string(),
+            provider_name: "xAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "grok-4".to_string(),
+        },
     ];
     model.config.agent_config_raw = Some(serde_json::json!({
         "audio": {
@@ -1845,7 +1871,7 @@ fn selecting_audio_tts_provider_updates_audio_provider_and_opens_model_picker() 
         AudioToolKind::TextToSpeech,
     )
         .iter()
-        .position(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI)
+        .position(|provider| provider.id == PROVIDER_ID_XAI)
         .expect("provider to exist");
 
     model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsProvider);
@@ -1881,9 +1907,45 @@ fn selecting_audio_tts_provider_updates_audio_provider_and_opens_model_picker() 
             .and_then(|audio| audio.get("tts"))
             .and_then(|tts| tts.get("provider"))
             .and_then(|value| value.as_str()),
-        Some(PROVIDER_ID_AZURE_OPENAI)
+        Some(PROVIDER_ID_XAI)
+    );
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("tts"))
+            .and_then(|tts| tts.get("model"))
+            .and_then(|value| value.as_str()),
+        Some("grok-4")
     );
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+}
+
+#[test]
+fn authenticated_provider_picker_lists_xai() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_XAI.to_string(),
+            provider_name: "xAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "grok-4".to_string(),
+        },
+    ];
+
+    let providers = widgets::provider_picker::available_provider_defs(&model.auth);
+
+    assert!(providers.iter().any(|provider| provider.id == PROVIDER_ID_XAI));
 }
 
 #[test]
@@ -2061,6 +2123,136 @@ fn selecting_main_audio_capable_model_prompts_for_stt_reuse() {
             .as_deref(),
         Some("Selected model supports audio. Use it as the STT model too?")
     );
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("model"))
+            .and_then(|value| value.as_str()),
+        Some("whisper-1")
+    );
+
+    let commands = collect_daemon_commands(&mut daemon_rx);
+    assert!(!commands.iter().any(|command| {
+        matches!(
+            command,
+            DaemonCommand::SetConfigItem { key_path, .. } if key_path == "/audio/stt/model"
+        )
+    }));
+}
+
+#[test]
+fn selecting_main_model_with_only_generic_audio_metadata_does_not_prompt_for_stt_reuse() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.model.clear();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "whisper-1"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "openai/generic-audio".to_string(),
+                name: Some("Generic Audio".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "modalities": ["text", "audio"]
+                })),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::Model);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    navigate_model_picker_to(&mut model, "openai/generic-audio");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.config.model, "openai/generic-audio");
+    assert_ne!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("model"))
+            .and_then(|value| value.as_str()),
+        Some("whisper-1")
+    );
+
+    let commands = collect_daemon_commands(&mut daemon_rx);
+    assert!(!commands.iter().any(|command| {
+        matches!(
+            command,
+            DaemonCommand::SetConfigItem { key_path, .. } if key_path == "/audio/stt/model"
+        )
+    }));
+}
+
+#[test]
+fn selecting_main_model_with_nondirectional_modality_string_does_not_prompt_for_stt_reuse() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.model.clear();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "whisper-1"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "openai/plain-modality-audio".to_string(),
+                name: Some("Plain Modality Audio".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "modality": "text+audio"
+                    }
+                })),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::Model);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    navigate_model_picker_to(&mut model, "openai/plain-modality-audio");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.config.model, "openai/plain-modality-audio");
+    assert_ne!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
     assert_eq!(
         model
             .config
@@ -2417,6 +2609,242 @@ fn audio_model_picker_filters_fetched_models_to_audio_capable_entries() {
 
     assert!(models.iter().any(|model| model.id == "openai/gpt-audio"));
     assert!(!models.iter().any(|model| model.id == "openai/gpt-text"));
+}
+
+#[test]
+fn audio_model_picker_keeps_input_only_models_out_of_tts() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-stt-only"
+            },
+            "tts": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-tts-only"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "openai/gpt-stt-only".to_string(),
+                name: Some("GPT STT Only".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "input_modalities": ["text", "audio"],
+                        "output_modalities": ["text"]
+                    }
+                })),
+            },
+            crate::state::config::FetchedModel {
+                id: "openai/gpt-tts-only".to_string(),
+                name: Some("GPT TTS Only".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "input_modalities": ["text"],
+                        "output_modalities": ["text", "audio"]
+                    }
+                })),
+            },
+        ]));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioSttModel);
+    let stt_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsModel);
+    let tts_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    assert!(stt_models.iter().any(|id| id == "openai/gpt-stt-only"));
+    assert!(!stt_models.iter().any(|id| id == "openai/gpt-tts-only"));
+    assert!(tts_models.iter().any(|id| id == "openai/gpt-tts-only"));
+    assert!(!tts_models.iter().any(|id| id == "openai/gpt-stt-only"));
+}
+
+#[test]
+fn audio_model_picker_uses_directional_audio_metadata_when_modality_is_sparse() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "xai/grok-listen"
+            },
+            "tts": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "xai/grok-speak"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "xai/grok-listen".to_string(),
+                name: Some("xAI Grok Listen".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "input_modalities": ["audio"]
+                })),
+            },
+            crate::state::config::FetchedModel {
+                id: "xai/grok-speak".to_string(),
+                name: Some("xAI Grok Speak".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "output_modalities": ["audio"]
+                })),
+            },
+        ]));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioSttModel);
+    let stt_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsModel);
+    let tts_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    assert!(stt_models.iter().any(|id| id == "xai/grok-listen"));
+    assert!(!stt_models.iter().any(|id| id == "xai/grok-speak"));
+    assert!(tts_models.iter().any(|id| id == "xai/grok-speak"));
+    assert!(!tts_models.iter().any(|id| id == "xai/grok-listen"));
+}
+
+#[test]
+fn audio_model_picker_does_not_treat_generic_modalities_audio_as_directional_support() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-stt-only"
+            },
+            "tts": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-tts-only"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "openai/generic-audio".to_string(),
+                name: Some("Generic Audio".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "modalities": ["text", "audio"]
+                })),
+            },
+        ]));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioSttModel);
+    let stt_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsModel);
+    let tts_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    assert!(!stt_models.iter().any(|id| id == "openai/generic-audio"));
+    assert!(!tts_models.iter().any(|id| id == "openai/generic-audio"));
+}
+
+#[test]
+fn audio_model_picker_does_not_treat_nondirectional_modality_string_as_directional_support() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-stt-only"
+            },
+            "tts": {
+                "provider": PROVIDER_ID_OPENROUTER,
+                "model": "openai/gpt-tts-only"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "openai/plain-modality-audio".to_string(),
+                name: Some("Plain Modality Audio".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "modality": "text+audio"
+                    }
+                })),
+            },
+        ]));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioSttModel);
+    let stt_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsModel);
+    let tts_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    assert!(!stt_models.iter().any(|id| id == "openai/plain-modality-audio"));
+    assert!(!tts_models.iter().any(|id| id == "openai/plain-modality-audio"));
 }
 
 #[test]

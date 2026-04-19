@@ -138,7 +138,7 @@ mod tests {
     use crate::state::auth::{AuthState, ProviderAuthEntry};
     use amux_shared::providers::{
         AudioToolKind, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_GROQ,
-        PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+        PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
     };
 
     #[test]
@@ -216,6 +216,13 @@ mod tests {
                 model: "openai/gpt-4o-mini-transcribe".to_string(),
             },
             ProviderAuthEntry {
+                provider_id: PROVIDER_ID_XAI.to_string(),
+                provider_name: "xAI".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "grok-4".to_string(),
+            },
+            ProviderAuthEntry {
                 provider_id: PROVIDER_ID_ANTHROPIC.to_string(),
                 provider_name: "Anthropic".to_string(),
                 authenticated: true,
@@ -237,6 +244,7 @@ mod tests {
         assert!(defs
             .iter()
             .any(|provider| provider.id == PROVIDER_ID_OPENROUTER));
+        assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_XAI));
         assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_CUSTOM));
         assert!(!defs
             .iter()

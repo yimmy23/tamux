@@ -55,6 +55,7 @@ export type AgentProviderId =
   | "featherless"
   | "anthropic"
   | "openai"
+  | "xai"
   | "azure-openai"
   | "github-copilot"
   | "qwen"
@@ -84,6 +85,7 @@ export const AGENT_PROVIDER_IDS: AgentProviderId[] = [
   "featherless",
   "anthropic",
   "openai",
+  "xai",
   "azure-openai",
   "github-copilot",
   "qwen",

@@ -94,10 +94,10 @@ test("filterFetchedModelsForAudio keeps audio-output models for tts", () => {
   ]);
 });
 
-test("filterFetchedModelsForAudio recognizes top-level modalities metadata", () => {
+test("filterFetchedModelsForAudio ignores coarse top-level modalities metadata for directional audio picks", () => {
   const models = [
     normalizeFetchedRemoteModel({
-      id: "groq/whisper-large-v3",
+      id: "groq/generic-audio-model",
       modalities: ["audio", "text"],
     }),
     normalizeFetchedRemoteModel({
@@ -106,7 +106,60 @@ test("filterFetchedModelsForAudio recognizes top-level modalities metadata", () 
     }),
   ];
 
+  expect(filterFetchedModelsForAudio(models, "stt").map((model) => model.id)).toEqual([]);
+  expect(filterFetchedModelsForAudio(models, "tts").map((model) => model.id)).toEqual([]);
+});
+
+test("filterFetchedModelsForAudio diverges between stt and tts for asymmetric audio metadata", () => {
+  const models = [
+    normalizeFetchedRemoteModel({
+      id: "openrouter/stt-only",
+      architecture: {
+        input_modalities: ["audio"],
+        output_modalities: ["text"],
+      },
+    }),
+    normalizeFetchedRemoteModel({
+      id: "openrouter/tts-only",
+      architecture: {
+        input_modalities: ["text"],
+        output_modalities: ["audio"],
+      },
+    }),
+  ];
+
   expect(filterFetchedModelsForAudio(models, "stt").map((model) => model.id)).toEqual([
-    "groq/whisper-large-v3",
+    "openrouter/stt-only",
+  ]);
+  expect(filterFetchedModelsForAudio(models, "tts").map((model) => model.id)).toEqual([
+    "openrouter/tts-only",
+  ]);
+});
+
+test("filterFetchedModelsForAudio keeps coarse audio pricing from leaking stt-only models into tts", () => {
+  const models = [
+    normalizeFetchedRemoteModel({
+      id: "xai/grok-stt-only",
+      pricing: { audio: "0.00001" },
+      architecture: {
+        input_modalities: ["audio"],
+        output_modalities: ["text"],
+      },
+    }),
+    normalizeFetchedRemoteModel({
+      id: "xai/grok-tts",
+      pricing: { audio: "0.00002" },
+      architecture: {
+        input_modalities: ["text"],
+        output_modalities: ["audio"],
+      },
+    }),
+  ];
+
+  expect(filterFetchedModelsForAudio(models, "stt").map((model) => model.id)).toEqual([
+    "xai/grok-stt-only",
+  ]);
+  expect(filterFetchedModelsForAudio(models, "tts").map((model) => model.id)).toEqual([
+    "xai/grok-tts",
   ]);
 });

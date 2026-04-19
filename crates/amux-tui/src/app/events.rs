@@ -330,6 +330,7 @@ impl TuiModel {
                 }
             }
             ClientEvent::TextToSpeechResult { content } => {
+                self.clear_matching_agent_activity("preparing speech");
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(error) = value.get("error").and_then(|v| v.as_str()) {
                         self.status_line = format!("TTS failed: {error}");
