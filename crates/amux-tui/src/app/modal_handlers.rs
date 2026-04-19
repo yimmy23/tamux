@@ -737,22 +737,26 @@ impl TuiModel {
             match self.settings.active_tab() {
                 SettingsTab::Auth => {
                     if self.handle_auth_settings_key(code) {
+                        self.sync_settings_modal_scroll_to_selection();
                         return false;
                     }
                 }
                 SettingsTab::Chat => {
                     if self.config.honcho_editor.is_some() {
                         self.handle_honcho_settings_key(code);
+                        self.sync_settings_modal_scroll_to_selection();
                         return false;
                     }
                 }
                 SettingsTab::SubAgents => {
                     if self.handle_subagent_settings_key(code) {
+                        self.sync_settings_modal_scroll_to_selection();
                         return false;
                     }
                 }
                 SettingsTab::Plugins => {
                     if self.handle_plugins_settings_key(code) {
+                        self.sync_settings_modal_scroll_to_selection();
                         return false;
                     }
                 }

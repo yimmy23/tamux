@@ -451,7 +451,7 @@ pub fn scroll_for_selected_field(
     let Some(content_area) = content_area(area) else {
         return 0;
     };
-    let line_count = render_tab_content(
+    let content_lines = render_tab_content(
         content_area.width,
         settings,
         config,
@@ -462,10 +462,10 @@ pub fn scroll_for_selected_field(
         tier,
         plugin_settings,
         theme,
-    )
-    .len();
+    );
+    let line_count = content_lines.len();
     let max_scroll = line_count.saturating_sub(content_area.height as usize);
-    let Some(selected_row) = selected_field_row(settings, config, subagents, line_count) else {
+    let Some(selected_row) = selected_content_row(&content_lines) else {
         return current_scroll.min(max_scroll);
     };
 
@@ -479,14 +479,11 @@ pub fn scroll_for_selected_field(
     scroll.min(max_scroll)
 }
 
-fn selected_field_row(
-    settings: &SettingsState,
-    config: &ConfigState,
-    subagents: &SubAgentsState,
-    line_count: usize,
-) -> Option<usize> {
-    (0..line_count).find(|row| {
-        settings_row_hit(settings, config, subagents, *row)
-            .is_some_and(|(field, _)| field == settings.field_cursor())
+fn selected_content_row(lines: &[Line<'_>]) -> Option<usize> {
+    lines.iter().position(|line| {
+        let text = line.to_string();
+        let trimmed = text.trim_start_matches(' ');
+        let indent = text.len().saturating_sub(trimmed.len());
+        indent <= 4 && trimmed.starts_with("> ")
     })
 }

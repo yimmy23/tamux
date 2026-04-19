@@ -263,6 +263,96 @@ fn settings_modal_keyboard_navigation_scrolls_selected_field_into_view() {
 }
 
 #[test]
+fn settings_modal_auth_keyboard_navigation_scrolls_selected_provider_into_view() {
+    let (mut model, _daemon_rx) = make_model();
+    model.width = 100;
+    model.height = 16;
+    model.auth.loaded = true;
+    model.auth.entries = (0..12)
+        .map(|i| crate::state::auth::ProviderAuthEntry {
+            provider_id: format!("provider-{i}"),
+            provider_name: format!("Provider {i}"),
+            authenticated: i % 2 == 0,
+            auth_source: "api_key".to_string(),
+            model: String::new(),
+        })
+        .collect();
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Auth));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+
+    let before = render_screen(&mut model).join("\n");
+    assert!(
+        !before.contains("Provider 10"),
+        "expected lower auth rows to be clipped before keyboard navigation"
+    );
+
+    for _ in 0..10 {
+        let quit = model.handle_key_modal(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+        assert!(!quit);
+    }
+
+    assert_eq!(model.auth.selected, 10);
+    assert!(
+        model.settings_modal_scroll > 0,
+        "expected auth keyboard navigation to advance the settings scroll offset"
+    );
+
+    let after = render_screen(&mut model).join("\n");
+    assert!(
+        after.contains("Provider 10"),
+        "expected auth keyboard navigation to reveal the selected provider row"
+    );
+}
+
+#[test]
+fn settings_modal_features_keyboard_navigation_scrolls_audio_fields_into_view() {
+    let (mut model, _daemon_rx) = make_model();
+    model.width = 100;
+    model.height = 16;
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Features));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+
+    let before = render_screen(&mut model).join("\n");
+    assert!(
+        !before.contains("TTS Voice"),
+        "expected lower Features rows to be clipped before keyboard navigation"
+    );
+
+    for _ in 0..22 {
+        let quit = model.handle_key_modal(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+        assert!(!quit);
+    }
+
+    assert_eq!(model.settings.field_cursor(), 22);
+    assert!(
+        model.settings_modal_scroll > 0,
+        "expected Features keyboard navigation to advance the settings scroll offset"
+    );
+
+    let after = render_screen(&mut model).join("\n");
+    assert!(
+        after.contains("TTS Voice"),
+        "expected Features keyboard navigation to reveal the selected audio field"
+    );
+}
+
+#[test]
 fn slash_status_opens_loading_modal_and_requests_status_without_sending_chat() {
     let (mut model, mut daemon_rx) = make_model();
     model.connected = true;
