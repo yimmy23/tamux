@@ -403,6 +403,9 @@ impl TuiModel {
         let runs = runs.into_iter().map(conversion::convert_goal_run).collect();
         self.tasks
             .reduce(task::TaskAction::GoalRunListReceived(runs));
+        if self.modal.top() == Some(modal::ModalKind::GoalPicker) {
+            self.sync_goal_picker_item_count();
+        }
         self.clamp_detail_view_scroll();
     }
 

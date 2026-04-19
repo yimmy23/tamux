@@ -623,6 +623,52 @@ fn goal_run_deleted_event_reclamps_open_goal_picker_cursor() {
 }
 
 #[test]
+fn goal_run_list_event_reclamps_open_goal_picker_cursor() {
+    let mut model = make_model();
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunListReceived(vec![
+            task::GoalRun {
+                id: "goal-1".into(),
+                title: "Goal One".into(),
+                status: Some(task::GoalRunStatus::Completed),
+                ..Default::default()
+            },
+            task::GoalRun {
+                id: "goal-2".into(),
+                title: "Goal Two".into(),
+                status: Some(task::GoalRunStatus::Cancelled),
+                ..Default::default()
+            },
+        ]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(2));
+
+    assert_eq!(model.modal.picker_cursor(), 2);
+    assert_eq!(
+        model.selected_goal_picker_run().map(|run| run.id.as_str()),
+        Some("goal-2")
+    );
+
+    model.handle_client_event(ClientEvent::GoalRunList(vec![crate::wire::GoalRun {
+        id: "goal-1".into(),
+        title: "Goal One".into(),
+        status: Some(crate::wire::GoalRunStatus::Completed),
+        goal: "Goal One".into(),
+        ..Default::default()
+    }]));
+
+    assert_eq!(model.modal.picker_cursor(), 1);
+    assert_eq!(
+        model.selected_goal_picker_run().map(|run| run.id.as_str()),
+        Some("goal-1")
+    );
+}
+
+#[test]
 fn operator_question_resolved_event_marks_message_answered_and_clears_actions() {
     let mut model = make_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {

@@ -9,6 +9,7 @@ crates/amux-daemon/target/
 .history
 /docs/superpowers/
 node_modules
+.ignored_docs
 tmp
 .claude
 .superpowers
