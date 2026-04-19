@@ -3,6 +3,12 @@ pub struct ProviderRef {
     pub id: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AudioToolKind {
+    SpeechToText,
+    TextToSpeech,
+}
+
 pub const PROVIDER_ID_ALIBABA_CODING_PLAN: &str = "alibaba-coding-plan";
 pub const PROVIDER_ID_ANTHROPIC: &str = "anthropic";
 pub const PROVIDER_ID_ARCEE: &str = "arcee";
@@ -75,3 +81,43 @@ pub const QWEN_PROVIDER: ProviderRef = ProviderRef {
 pub const XIAOMI_MIMO_TOKEN_PLAN_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
 };
+
+pub fn provider_supports_audio_tool(provider_id: &str, _kind: AudioToolKind) -> bool {
+    matches!(
+        provider_id,
+        PROVIDER_ID_CUSTOM
+            | PROVIDER_ID_OPENAI
+            | PROVIDER_ID_AZURE_OPENAI
+            | PROVIDER_ID_GROQ
+            | PROVIDER_ID_OPENROUTER
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openrouter_is_marked_as_audio_capable_for_both_tools() {
+        assert!(provider_supports_audio_tool(
+            PROVIDER_ID_OPENROUTER,
+            AudioToolKind::SpeechToText,
+        ));
+        assert!(provider_supports_audio_tool(
+            PROVIDER_ID_OPENROUTER,
+            AudioToolKind::TextToSpeech,
+        ));
+    }
+
+    #[test]
+    fn anthropic_is_not_marked_as_direct_audio_tool_provider() {
+        assert!(!provider_supports_audio_tool(
+            PROVIDER_ID_ANTHROPIC,
+            AudioToolKind::SpeechToText,
+        ));
+        assert!(!provider_supports_audio_tool(
+            PROVIDER_ID_ANTHROPIC,
+            AudioToolKind::TextToSpeech,
+        ));
+    }
+}

@@ -1,3 +1,7 @@
+use amux_shared::providers::{
+    PROVIDER_ID_ANTHROPIC, PROVIDER_ID_OPENAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+};
+
 /// FOUN-05: Channel capacity is configurable via AgentConfig.
 #[test]
 fn configurable_channel_capacity() {
@@ -338,31 +342,103 @@ fn interval_mins_to_cron_converts_correctly() {
 }
 
 #[test]
-fn first_party_media_modality_matrix_matches_curated_catalog() {
-    let openai = get_provider_definition(PROVIDER_ID_OPENAI).expect("openai provider");
+fn openai_curated_media_modalities_match_expectations() {
+    let provider = get_provider_definition(PROVIDER_ID_OPENAI).expect("openai provider");
+
     assert_eq!(model_modalities(PROVIDER_ID_OPENAI, "gpt-5.4"), MULTIMODAL);
     assert_eq!(
         model_modalities(PROVIDER_ID_OPENAI, "gpt-5.4-mini"),
         TEXT_IMAGE
     );
-    assert_eq!(openai.default_model, "gpt-5.4");
+    assert_eq!(provider.default_model, "gpt-5.4");
+    assert!(model_supports(
+        PROVIDER_ID_OPENAI,
+        "gpt-5.4",
+        Modality::Audio
+    ));
+    assert!(model_supports(
+        PROVIDER_ID_OPENAI,
+        "gpt-5.4",
+        Modality::Video
+    ));
+    assert!(!model_supports(
+        PROVIDER_ID_OPENAI,
+        "gpt-5.4-mini",
+        Modality::Audio
+    ));
+    assert!(!model_supports(
+        PROVIDER_ID_OPENAI,
+        "gpt-5.4-mini",
+        Modality::Video
+    ));
+}
+
+#[test]
+fn anthropic_models_remain_text_image_only() {
     assert_eq!(
         model_modalities(PROVIDER_ID_ANTHROPIC, "claude-opus-4-7"),
         TEXT_IMAGE
     );
+    assert!(model_supports(
+        PROVIDER_ID_ANTHROPIC,
+        "claude-opus-4-7",
+        Modality::Image
+    ));
+    assert!(!model_supports(
+        PROVIDER_ID_ANTHROPIC,
+        "claude-opus-4-7",
+        Modality::Audio
+    ));
+    assert!(!model_supports(
+        PROVIDER_ID_ANTHROPIC,
+        "claude-opus-4-7",
+        Modality::Video
+    ));
+}
+
+#[test]
+fn xiaomi_mimo_omni_is_multimodal() {
     assert_eq!(
         model_modalities(PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "mimo-v2-omni"),
         MULTIMODAL
     );
-    assert_eq!(
-        model_modalities(PROVIDER_ID_ARCEE, "trinity-large-thinking"),
-        TEXT_ONLY
-    );
+    assert!(model_supports(
+        PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+        "mimo-v2-omni",
+        Modality::Audio
+    ));
+    assert!(model_supports(
+        PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+        "mimo-v2-omni",
+        Modality::Video
+    ));
 }
 
-use amux_shared::providers::{
-    PROVIDER_ID_ANTHROPIC, PROVIDER_ID_OPENAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
-};
+#[test]
+fn arcee_catalog_stays_conservative_text_only() {
+    assert_eq!(
+        model_modalities(
+            amux_shared::providers::PROVIDER_ID_ARCEE,
+            "trinity-large-thinking"
+        ),
+        TEXT_ONLY
+    );
+    assert!(model_supports(
+        amux_shared::providers::PROVIDER_ID_ARCEE,
+        "trinity-large-thinking",
+        Modality::Text
+    ));
+    assert!(!model_supports(
+        amux_shared::providers::PROVIDER_ID_ARCEE,
+        "trinity-large-thinking",
+        Modality::Image
+    ));
+    assert!(!model_supports(
+        amux_shared::providers::PROVIDER_ID_ARCEE,
+        "trinity-large-thinking",
+        Modality::Audio
+    ));
+}
 
 #[test]
 fn circuit_breaker_event_serde_roundtrip() {

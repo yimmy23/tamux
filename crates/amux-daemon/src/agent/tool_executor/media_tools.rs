@@ -10,10 +10,21 @@ const DEFAULT_TTS_VOICE: &str = "alloy";
 const DEFAULT_IMAGE_OUTPUT_FORMAT: &str = "png";
 const DEFAULT_TTS_OUTPUT_FORMAT: &str = "mp3";
 
+const OPENROUTER_ATTRIBUTION_URL: &str = "https://tamux.app";
+const OPENROUTER_ATTRIBUTION_TITLE: &str = "tamux";
+const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MediaKind {
     Image,
     Audio,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioToolRoute {
+    OpenAiCompatibleDirect,
+    ProviderMultimodalCompletion,
+    OpenRouterTts,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +95,7 @@ fn file_extension_for_generated_mime(mime_type: &str, fallback: &str) -> String 
         "image/webp" => "webp",
         "image/gif" => "gif",
         "audio/mpeg" => "mp3",
+        "audio/L16" => "pcm",
         "audio/wav" => "wav",
         "audio/ogg" => "ogg",
         "audio/flac" => "flac",
@@ -96,6 +108,18 @@ fn file_extension_for_generated_mime(mime_type: &str, fallback: &str) -> String 
 
 fn data_url_from_base64(mime_type: &str, base64_data: &str) -> String {
     format!("data:{mime_type};base64,{base64_data}")
+}
+
+fn audio_format_from_mime_type(mime_type: &str) -> Option<&'static str> {
+    match mime_type.trim().to_ascii_lowercase().as_str() {
+        "audio/wav" | "audio/x-wav" => Some("wav"),
+        "audio/mpeg" | "audio/mp3" => Some("mp3"),
+        "audio/ogg" => Some("ogg"),
+        "audio/flac" => Some("flac"),
+        "audio/mp4" | "audio/m4a" => Some("mp4"),
+        "audio/webm" => Some("webm"),
+        _ => None,
+    }
 }
 
 fn parse_data_url(raw: &str) -> Result<(String, String)> {
@@ -452,7 +476,17 @@ fn apply_media_auth_headers(
     if provider_config.api_key.trim().is_empty() {
         anyhow::bail!("provider '{}' is missing an API key", provider_id);
     }
-    Ok(provider_auth_method(provider_id).apply(request, &provider_config.api_key))
+    let request = provider_auth_method(provider_id).apply(request, &provider_config.api_key);
+    if provider_id == amux_shared::providers::PROVIDER_ID_OPENROUTER {
+        return Ok(request
+            .header("HTTP-Referer", OPENROUTER_ATTRIBUTION_URL)
+            .header("X-OpenRouter-Title", OPENROUTER_ATTRIBUTION_TITLE)
+            .header(
+                "X-OpenRouter-Categories",
+                OPENROUTER_ATTRIBUTION_CATEGORIES,
+            ));
+    }
+    Ok(request)
 }
 
 fn ensure_openai_like_media_endpoint(
@@ -471,6 +505,148 @@ fn ensure_openai_like_media_endpoint(
         );
     }
     Ok(())
+}
+
+fn audio_tool_route(
+    provider_id: &str,
+    audio_tool_kind: amux_shared::providers::AudioToolKind,
+) -> AudioToolRoute {
+    if provider_id == amux_shared::providers::PROVIDER_ID_OPENROUTER {
+        return match audio_tool_kind {
+            amux_shared::providers::AudioToolKind::SpeechToText => {
+                AudioToolRoute::ProviderMultimodalCompletion
+            }
+            amux_shared::providers::AudioToolKind::TextToSpeech => AudioToolRoute::OpenRouterTts,
+        };
+    }
+
+    AudioToolRoute::OpenAiCompatibleDirect
+}
+
+fn resolve_audio_tool_route(
+    provider_id: &str,
+    provider_config: &crate::agent::types::ProviderConfig,
+    audio_tool_kind: amux_shared::providers::AudioToolKind,
+) -> Result<AudioToolRoute> {
+    if !amux_shared::providers::provider_supports_audio_tool(provider_id, audio_tool_kind) {
+        anyhow::bail!(
+            "provider '{}' is not supported for {}",
+            provider_id,
+            match audio_tool_kind {
+                amux_shared::providers::AudioToolKind::SpeechToText => "speech_to_text",
+                amux_shared::providers::AudioToolKind::TextToSpeech => "text_to_speech",
+            }
+        );
+    }
+
+    let route = audio_tool_route(provider_id, audio_tool_kind);
+    if route == AudioToolRoute::OpenAiCompatibleDirect {
+        ensure_openai_like_media_endpoint(provider_id, provider_config)?;
+    }
+    Ok(route)
+}
+
+fn build_audio_transcription_prompt(language: Option<&str>, prompt: Option<&str>) -> String {
+    let mut instruction =
+        "Transcribe the provided audio. Return only the transcription text.".to_string();
+    if let Some(language) = language.map(str::trim).filter(|value| !value.is_empty()) {
+        instruction.push_str(" The spoken language is ");
+        instruction.push_str(language);
+        instruction.push('.');
+    }
+    if let Some(prompt) = prompt.map(str::trim).filter(|value| !value.is_empty()) {
+        instruction.push_str(" Prefer these terms or context hints: ");
+        instruction.push_str(prompt);
+        instruction.push('.');
+    }
+    instruction
+}
+
+fn build_audio_transcription_blocks(
+    transport: ApiTransport,
+    prompt: &str,
+    base64_data: &str,
+    format: &str,
+) -> Vec<serde_json::Value> {
+    let text_type = if transport == ApiTransport::ChatCompletions {
+        "text"
+    } else {
+        "input_text"
+    };
+
+    vec![
+        serde_json::json!({
+            "type": text_type,
+            "text": prompt,
+        }),
+        serde_json::json!({
+            "type": "input_audio",
+            "input_audio": {
+                "data": base64_data,
+                "format": format,
+            }
+        }),
+    ]
+}
+
+async fn execute_multimodal_speech_to_text(
+    args: &serde_json::Value,
+    http_client: &reqwest::Client,
+    provider_id: &str,
+    provider_config: &crate::agent::types::ProviderConfig,
+    mime_type: &str,
+    bytes: &[u8],
+) -> Result<String> {
+    let transport = effective_multimodal_transport(provider_id, provider_config);
+    let audio_format = audio_format_from_mime_type(mime_type).unwrap_or("wav");
+    let prompt = build_audio_transcription_prompt(
+        args.get("language").and_then(|value| value.as_str()),
+        args.get("prompt").and_then(|value| value.as_str()),
+    );
+    let base64_data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let blocks = build_audio_transcription_blocks(transport, &prompt, &base64_data, audio_format);
+    let messages = vec![ApiMessage {
+        role: "user".to_string(),
+        content: ApiContent::Blocks(blocks),
+        tool_call_id: None,
+        name: None,
+        tool_calls: None,
+    }];
+
+    let stream = crate::agent::llm_client::send_completion_request(
+        http_client,
+        provider_id,
+        provider_config,
+        "",
+        &messages,
+        &[],
+        transport,
+        None,
+        None,
+        RetryStrategy::Bounded {
+            max_retries: 1,
+            retry_delay_ms: 1_000,
+        },
+    );
+    let (content, _, _) = collect_completion_output(stream).await?;
+    let transcript = content.trim();
+    if transcript.is_empty() {
+        anyhow::bail!("speech_to_text returned no transcription text");
+    }
+
+    let response_format = args
+        .get("response_format")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("json");
+    if response_format == "text" {
+        Ok(transcript.to_string())
+    } else {
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "text": transcript,
+        }))?)
+    }
 }
 
 async fn collect_completion_output(
@@ -792,7 +968,23 @@ async fn execute_speech_to_text(
         .unwrap_or_else(|| infer_media_mime(&resolved, MediaKind::Audio).to_string());
     let (provider_id, provider_config) =
         resolve_media_provider_config(agent, args, Some(DEFAULT_STT_MODEL)).await?;
-    ensure_openai_like_media_endpoint(&provider_id, &provider_config)?;
+    let route = resolve_audio_tool_route(
+        &provider_id,
+        &provider_config,
+        amux_shared::providers::AudioToolKind::SpeechToText,
+    )?;
+
+    if route == AudioToolRoute::ProviderMultimodalCompletion {
+        return execute_multimodal_speech_to_text(
+            args,
+            http_client,
+            &provider_id,
+            &provider_config,
+            &mime_type,
+            &bytes,
+        )
+        .await;
+    }
 
     let url = openai_like_endpoint(&provider_config.base_url, "audio/transcriptions");
     let file_part = reqwest::multipart::Part::bytes(bytes)
@@ -859,7 +1051,11 @@ async fn execute_text_to_speech(
         .ok_or_else(|| anyhow::anyhow!("missing 'input' argument"))?;
     let (provider_id, provider_config) =
         resolve_media_provider_config(agent, args, Some(DEFAULT_TTS_MODEL)).await?;
-    ensure_openai_like_media_endpoint(&provider_id, &provider_config)?;
+    let route = resolve_audio_tool_route(
+        &provider_id,
+        &provider_config,
+        amux_shared::providers::AudioToolKind::TextToSpeech,
+    )?;
 
     let voice = args
         .get("voice")
@@ -873,7 +1069,10 @@ async fn execute_text_to_speech(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_TTS_OUTPUT_FORMAT);
-    let url = openai_like_endpoint(&provider_config.base_url, "audio/speech");
+    let url = match route {
+        AudioToolRoute::OpenRouterTts => openai_like_endpoint(&provider_config.base_url, "tts"),
+        _ => openai_like_endpoint(&provider_config.base_url, "audio/speech"),
+    };
     let body = serde_json::json!({
         "model": provider_config.model,
         "input": input,
@@ -891,6 +1090,7 @@ async fn execute_text_to_speech(
 
     let bytes = response.bytes().await?;
     let mime_type = match output_format {
+        "pcm" => "audio/L16",
         "wav" => "audio/wav",
         "ogg" => "audio/ogg",
         "flac" => "audio/flac",
@@ -946,6 +1146,44 @@ mod media_tools_tests {
             openai_like_endpoint("https://api.example.com", "/audio/speech"),
             "https://api.example.com/v1/audio/speech"
         );
+    }
+
+    #[test]
+    fn openrouter_speech_to_text_uses_multimodal_completion_route() {
+        assert_eq!(
+            audio_tool_route(
+                amux_shared::providers::PROVIDER_ID_OPENROUTER,
+                amux_shared::providers::AudioToolKind::SpeechToText,
+            ),
+            AudioToolRoute::ProviderMultimodalCompletion
+        );
+    }
+
+    #[test]
+    fn openrouter_text_to_speech_uses_tts_endpoint() {
+        assert_eq!(
+            audio_tool_route(
+                amux_shared::providers::PROVIDER_ID_OPENROUTER,
+                amux_shared::providers::AudioToolKind::TextToSpeech,
+            ),
+            AudioToolRoute::OpenRouterTts
+        );
+    }
+
+    #[test]
+    fn openrouter_transcription_blocks_include_audio_input() {
+        let blocks = build_audio_transcription_blocks(
+            ApiTransport::ChatCompletions,
+            "Please transcribe this audio.",
+            "UklGRg==",
+            "wav",
+        );
+
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[1]["type"], "input_audio");
+        assert_eq!(blocks[1]["input_audio"]["format"], "wav");
+        assert_eq!(blocks[1]["input_audio"]["data"], "UklGRg==");
     }
 
     #[tokio::test]

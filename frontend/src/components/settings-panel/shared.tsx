@@ -4,8 +4,8 @@ import { BUILTIN_THEMES } from "../../lib/themes";
 import type { AmuxSettings } from "../../lib/types";
 import type { AgentProviderId, AuthSource, ModelDefinition } from "../../lib/agentStore";
 import { getProviderDefinition, getProviderModels } from "../../lib/agentStore";
+import { buildModelSelectorMetadata } from "./modelSelectorMetadata";
 import {
-    formatRemoteModelPricingSubtitle,
     normalizeFetchedRemoteModel,
     type FetchedRemoteModel,
 } from "../../lib/providerModels";
@@ -265,7 +265,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     providerId: AgentProviderId;
     value: string;
     customName?: string;
-    onChange: (value: string, name?: string) => void;
+    onChange: (value: string, name?: string, details?: { predefinedModel?: ModelDefinition; fetchedModel?: FetchedRemoteModel }) => void;
     disabled?: boolean;
     base_url?: string;
     api_key?: string;
@@ -273,6 +273,13 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     modelOptions?: ModelDefinition[];
     remoteModelFilter?: (model: FetchedRemoteModel) => boolean;
 }) {
+    type ModelSelectorOption = {
+        id: string;
+        name: string;
+        contextWindow: number;
+        predefinedModel?: ModelDefinition;
+        fetchedModel?: FetchedRemoteModel;
+    };
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
     const [useCustom, setUseCustom] = useState(false);
@@ -290,28 +297,39 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
         && !(providerId === "openai" && auth_source === "chatgpt_subscription");
     
     const allModels = useMemo(() => {
-        const merged: FetchedRemoteModel[] = predefinedModels.map((model: ModelDefinition) => ({
+        const merged: ModelSelectorOption[] = predefinedModels.map((model: ModelDefinition) => ({
             id: model.id,
             name: model.name,
             contextWindow: model.contextWindow,
-            pricing: null,
-            metadata: null,
+            predefinedModel: model,
         }));
         const visibleFetchedModels = remoteModelFilter ? fetchedModels.filter(remoteModelFilter) : fetchedModels;
         for (const fm of visibleFetchedModels) {
-            if (!merged.some(m => m.id === fm.id)) {
-                merged.push(fm);
+            const existing = merged.find((model) => model.id === fm.id);
+            if (existing) {
+                existing.fetchedModel = fm;
+                if (fm.name.trim()) {
+                    existing.name = fm.name;
+                }
+                if (fm.contextWindow > 0) {
+                    existing.contextWindow = fm.contextWindow;
+                }
+            } else {
+                merged.push({
+                    id: fm.id,
+                    name: fm.name,
+                    contextWindow: fm.contextWindow,
+                    fetchedModel: fm,
+                });
             }
         }
         if (value.trim() && !merged.some((m) => m.id === value.trim())) {
-            merged.unshift({
-                id: value.trim(),
-                name: customName?.trim() || value.trim(),
-                contextWindow: 0,
-                pricing: null,
-                metadata: null,
-            });
-        }
+                merged.unshift({
+                    id: value.trim(),
+                    name: customName?.trim() || value.trim(),
+                    contextWindow: 0,
+                });
+            }
         return merged;
     }, [predefinedModels, fetchedModels, remoteModelFilter, value, customName]);
 
@@ -497,12 +515,18 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
 
                     {filteredModels.length > 0 ? (
                         filteredModels.map((model) => {
-                            const pricingSubtitle = formatRemoteModelPricingSubtitle(model);
+                            const metadata = buildModelSelectorMetadata({
+                                predefinedModel: model.predefinedModel,
+                                fetchedModel: model.fetchedModel ?? null,
+                            });
                             return (
                             <div
                                 key={model.id}
                                 onClick={() => {
-                                    onChange(model.id, model.name);
+                                    onChange(model.id, model.name, {
+                                        predefinedModel: model.predefinedModel,
+                                        fetchedModel: model.fetchedModel,
+                                    });
                                     setIsOpen(false);
                                     setSearch("");
                                 }}
@@ -523,16 +547,33 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
                                         model.id === value ? "var(--bg-selected)" : "transparent";
                                 }}
                             >
-                                <div>
+                                <div style={{ minWidth: 0 }}>
                                     <div style={{ fontSize: 12 }}>{model.name}</div>
                                     <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                                         {model.id}
                                     </div>
-                                    {pricingSubtitle ? (
-                                        <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>
-                                            {pricingSubtitle}
-                                        </div>
-                                    ) : null}
+                                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                                        {metadata.modalities.map((modality) => (
+                                            <span
+                                                key={`${model.id}-${modality}`}
+                                                style={{
+                                                    fontSize: 9,
+                                                    lineHeight: 1,
+                                                    padding: "3px 5px",
+                                                    border: "1px solid var(--border)",
+                                                    color: "var(--text-secondary)",
+                                                    background: "var(--bg-elevated)",
+                                                    textTransform: "uppercase",
+                                                    letterSpacing: "0.04em",
+                                                }}
+                                            >
+                                                {modality}
+                                            </span>
+                                        ))}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: "var(--text-secondary)", marginTop: 4 }}>
+                                        {metadata.pricingSummary}
+                                    </div>
                                 </div>
                                 {model.contextWindow > 0 && (
                                     <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>

@@ -63,6 +63,8 @@ impl TuiModel {
             attachments: Vec::new(),
             voice_recording: false,
             voice_capture_path: None,
+            voice_capture_stderr_path: None,
+            voice_capture_backend_label: None,
             voice_recorder: None,
             voice_player: None,
             queued_prompts: Vec::new(),

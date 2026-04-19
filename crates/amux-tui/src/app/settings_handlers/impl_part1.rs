@@ -1,24 +1,54 @@
-use amux_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
+use amux_shared::providers::{
+    AudioToolKind, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI,
+};
 
 impl TuiModel {
     pub(super) fn audio_catalog_models(
         endpoint: &str,
         provider_id: &str,
     ) -> Vec<crate::state::config::FetchedModel> {
-        let model = |id: &str, name: &str, context_window: Option<u32>| crate::state::config::FetchedModel {
-            id: id.to_string(),
-            name: Some(name.to_string()),
-            context_window,
-            pricing: None,
-            metadata: None,
+        let model = |id: &str, name: &str, context_window: Option<u32>| {
+            crate::state::config::FetchedModel {
+                id: id.to_string(),
+                name: Some(name.to_string()),
+                context_window,
+                pricing: None,
+                metadata: None,
+            }
         };
         match (provider_id, endpoint) {
-            ("openai" | "azure-openai", "stt") => vec![
+            (PROVIDER_ID_OPENAI | PROVIDER_ID_AZURE_OPENAI, "stt") => vec![
                 model("gpt-4o-transcribe", "GPT-4o Transcribe", Some(128_000)),
-                model("gpt-4o-mini-transcribe", "GPT-4o Mini Transcribe", Some(128_000)),
+                model(
+                    "gpt-4o-mini-transcribe",
+                    "GPT-4o Mini Transcribe",
+                    Some(128_000),
+                ),
+                model(
+                    "gpt-4o-transcribe-diarize",
+                    "GPT-4o Transcribe Diarize",
+                    Some(16_000),
+                ),
                 model("whisper-1", "Whisper 1", None),
             ],
-            ("openai" | "azure-openai", "tts") => vec![
+            (PROVIDER_ID_GROQ, "stt") => vec![
+                model("whisper-large-v3-turbo", "Whisper Large V3 Turbo", None),
+                model("whisper-large-v3", "Whisper Large V3", None),
+            ],
+            (PROVIDER_ID_GROQ, "tts") => vec![
+                model(
+                    "canopylabs/orpheus-v1-english",
+                    "CanopyLabs Orpheus V1 English",
+                    None,
+                ),
+                model(
+                    "canopylabs/orpheus-arabic-saudi",
+                    "CanopyLabs Orpheus Arabic Saudi",
+                    None,
+                ),
+            ],
+            (PROVIDER_ID_OPENAI | PROVIDER_ID_AZURE_OPENAI, "tts") => vec![
                 model("gpt-4o-mini-tts", "GPT-4o Mini TTS", Some(128_000)),
                 model("tts-1", "TTS 1", None),
                 model("tts-1-hd", "TTS 1 HD", None),
@@ -32,11 +62,7 @@ impl TuiModel {
             .into_iter()
             .next()
             .map(|model| model.id)
-            .unwrap_or_else(|| match endpoint {
-                "stt" => "whisper-1".to_string(),
-                "tts" => "gpt-4o-mini-tts".to_string(),
-                _ => String::new(),
-            })
+            .unwrap_or_default()
     }
 
     pub(super) fn set_audio_config_string(&mut self, endpoint: &str, field: &str, value: String) {
@@ -247,9 +273,24 @@ impl TuiModel {
         self.settings_picker_target = Some(target);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-        self.modal.set_picker_item_count(
-            widgets::provider_picker::available_provider_defs(&self.auth).len(),
-        );
+        let item_count = match target {
+            SettingsPickerTarget::AudioSttProvider => {
+                widgets::provider_picker::available_audio_provider_defs(
+                    &self.auth,
+                    AudioToolKind::SpeechToText,
+                )
+                .len()
+            }
+            SettingsPickerTarget::AudioTtsProvider => {
+                widgets::provider_picker::available_audio_provider_defs(
+                    &self.auth,
+                    AudioToolKind::TextToSpeech,
+                )
+                .len()
+            }
+            _ => widgets::provider_picker::available_provider_defs(&self.auth).len(),
+        };
+        self.modal.set_picker_item_count(item_count);
     }
 
     pub(super) fn open_compaction_weles_model_picker(&mut self) {
@@ -336,8 +377,12 @@ impl TuiModel {
                     .settings_picker_target
                     .unwrap_or(SettingsPickerTarget::Model)
                 {
-                    SettingsPickerTarget::AudioSttModel => ("stt", self.config.audio_stt_provider()),
-                    SettingsPickerTarget::AudioTtsModel => ("tts", self.config.audio_tts_provider()),
+                    SettingsPickerTarget::AudioSttModel => {
+                        ("stt", self.config.audio_stt_provider())
+                    }
+                    SettingsPickerTarget::AudioTtsModel => {
+                        ("tts", self.config.audio_tts_provider())
+                    }
                     _ => unreachable!(),
                 };
                 let mut models = Self::audio_catalog_models(endpoint, &provider_id);
@@ -380,10 +425,8 @@ impl TuiModel {
                 self.settings
                     .reduce(SettingsAction::SwitchTab(SettingsTab::Features));
                 self.settings_navigate_to(18);
-                self.settings.start_editing(
-                    "feat_audio_stt_model",
-                    &self.config.audio_stt_model(),
-                );
+                self.settings
+                    .start_editing("feat_audio_stt_model", &self.config.audio_stt_model());
                 self.status_line = "Enter STT model ID".to_string();
             }
             SettingsPickerTarget::AudioTtsModel => {
@@ -394,10 +437,8 @@ impl TuiModel {
                 self.settings
                     .reduce(SettingsAction::SwitchTab(SettingsTab::Features));
                 self.settings_navigate_to(21);
-                self.settings.start_editing(
-                    "feat_audio_tts_model",
-                    &self.config.audio_tts_model(),
-                );
+                self.settings
+                    .start_editing("feat_audio_tts_model", &self.config.audio_tts_model());
                 self.status_line = "Enter TTS model ID".to_string();
             }
             SettingsPickerTarget::BuiltinPersonaModel => {

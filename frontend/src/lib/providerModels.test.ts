@@ -93,3 +93,20 @@ test("filterFetchedModelsForAudio keeps audio-output models for tts", () => {
     "openai/gpt-audio",
   ]);
 });
+
+test("filterFetchedModelsForAudio recognizes top-level modalities metadata", () => {
+  const models = [
+    normalizeFetchedRemoteModel({
+      id: "groq/whisper-large-v3",
+      modalities: ["audio", "text"],
+    }),
+    normalizeFetchedRemoteModel({
+      id: "groq/llama-3.3-70b-versatile",
+      modalities: ["text"],
+    }),
+  ];
+
+  expect(filterFetchedModelsForAudio(models, "stt").map((model) => model.id)).toEqual([
+    "groq/whisper-large-v3",
+  ]);
+});

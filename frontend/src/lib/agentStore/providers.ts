@@ -50,6 +50,13 @@ const OPENAI_CHATGPT_SUBSCRIPTION_MODELS: ModelDefinition[] = [
   { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", contextWindow: 400_000 },
 ];
 
+const QWEN_MODELS: ModelDefinition[] = [
+  { id: "qwen-max", name: "Qwen Max", contextWindow: 32768, modalities: M_TI },
+  { id: "qwen-plus", name: "Qwen Plus", contextWindow: 32768, modalities: M_TI },
+  { id: "qwen-turbo", name: "Qwen Turbo", contextWindow: 8192 },
+  { id: "qwen-long", name: "Qwen Long", contextWindow: 1_000_000 },
+];
+
 const ANTHROPIC_MODELS: ModelDefinition[] = [
   { id: "claude-opus-4-7", name: "Claude Opus 4.7", contextWindow: 1_000_000, modalities: M_TI },
   { id: "claude-opus-4-6", name: "Claude Opus 4.6", contextWindow: 1_000_000, modalities: M_TI },
@@ -95,10 +102,21 @@ const GITHUB_COPILOT_MODELS: ModelDefinition[] = [
 ];
 
 const ZAI_MODELS: ModelDefinition[] = [
+  { id: "glm-4-plus", name: "GLM-4 Plus", contextWindow: 128000 },
   { id: "glm-5.1", name: "GLM-5.1", contextWindow: 204800 },
   { id: "glm-5", name: "GLM-5", contextWindow: 128000 },
+  { id: "glm-4", name: "GLM-4", contextWindow: 128000 },
+  { id: "glm-4-air", name: "GLM-4 Air", contextWindow: 128000 },
+  { id: "glm-4-flash", name: "GLM-4 Flash", contextWindow: 128000 },
+];
+
+const ZAI_CODING_MODELS: ModelDefinition[] = [
+  { id: "glm-5", name: "GLM-5", contextWindow: 128000 },
+  { id: "glm-5.1", name: "GLM-5.1", contextWindow: 204800 },
   { id: "glm-4-plus", name: "GLM-4 Plus", contextWindow: 128000 },
   { id: "glm-4", name: "GLM-4", contextWindow: 128000 },
+  { id: "glm-4-air", name: "GLM-4 Air", contextWindow: 128000 },
+  { id: "glm-4-flash", name: "GLM-4 Flash", contextWindow: 128000 },
 ];
 
 const ARCEE_MODELS: ModelDefinition[] = [
@@ -110,14 +128,15 @@ const NVIDIA_MODELS: ModelDefinition[] = [
 ];
 
 const KIMI_MODELS: ModelDefinition[] = [
-  { id: "moonshot-v1-8k", name: "Moonshot V1 8K", contextWindow: 8192 },
   { id: "moonshot-v1-32k", name: "Moonshot V1 32K", contextWindow: 32768 },
+  { id: "moonshot-v1-8k", name: "Moonshot V1 8K", contextWindow: 8192 },
   { id: "moonshot-v1-128k", name: "Moonshot V1 128K", contextWindow: 131072 },
 ];
 
 const KIMI_CODING_MODELS: ModelDefinition[] = [
   { id: "kimi-for-coding", name: "Kimi for Coding", contextWindow: 262144 },
   { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
+  { id: "kimi-k2-turbo-preview", name: "Kimi K2 Turbo Preview", contextWindow: 262144 },
 ];
 
 const MINIMAX_MODELS: ModelDefinition[] = [
@@ -126,13 +145,16 @@ const MINIMAX_MODELS: ModelDefinition[] = [
 ];
 
 const ALIBABA_CODING_MODELS: ModelDefinition[] = [
+  { id: "qwen3.6-plus", name: "Qwen3.6 Plus", contextWindow: 983616 },
   { id: "qwen3-coder-plus", name: "Qwen3 Coder Plus", contextWindow: 997952 },
   { id: "qwen3-coder-next", name: "Qwen3 Coder Next", contextWindow: 204800 },
-  { id: "qwen3.6-plus", name: "Qwen3.6 Plus", contextWindow: 983616 },
-  { id: "qwen3.5-plus", name: "Qwen3.5 Plus", contextWindow: 983616 },
   { id: "glm-5", name: "GLM-5", contextWindow: 202752 },
   { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
   { id: "MiniMax-M2.5", name: "MiniMax M2.5", contextWindow: 205000 },
+];
+
+const ALIBABA_CODING_COMPAT_MODELS: ModelDefinition[] = [
+  { id: "qwen3.5-plus", name: "Qwen3.5 Plus", contextWindow: 983616 },
 ];
 
 const XIAOMI_MIMO_TOKEN_PLAN_MODELS: ModelDefinition[] = [
@@ -181,6 +203,15 @@ const RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS: ApiTransportMode[] = [
 const NATIVE_AND_CHAT_TRANSPORTS: ApiTransportMode[] = ["native_assistant", "chat_completions"];
 export const DEFAULT_PROVIDER_CONTEXT_WINDOW = 128_000;
 export const DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW = 264_000;
+
+function getCompatibilityModels(
+  providerId: AgentProviderId,
+): ModelDefinition[] {
+  if (providerId === "alibaba-coding-plan") {
+    return ALIBABA_CODING_COMPAT_MODELS;
+  }
+  return EMPTY_MODELS;
+}
 
 function normalizeModelLookupValue(value: string | undefined): string {
   return (value ?? "").trim().toLowerCase();
@@ -232,8 +263,10 @@ export function normalizeProviderConfig(
 ): AgentProviderConfig {
   const auth_source = normalizeAuthSource(providerId, value?.auth_source ?? fallback.auth_source);
   const requestedModel = typeof value?.model === "string" ? value.model.trim() : fallback.model.trim();
-  const supportedModels = getProviderModels(providerId, auth_source);
-  const matchesKnownModel = requestedModel && supportedModels.some((entry) => entry.id === requestedModel);
+  const resolvedModel = requestedModel
+    ? resolveProviderModelDefinition(providerId, auth_source, requestedModel)
+    : undefined;
+  const matchesKnownModel = Boolean(resolvedModel);
   const model = requestedModel
     ? requestedModel
     : getDefaultModelForProvider(providerId, auth_source);
@@ -274,12 +307,12 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
   { id: "openai", name: "OpenAI / ChatGPT", defaultBaseUrl: "https://api.openai.com/v1", defaultModel: "gpt-5.4", apiType: "openai", authMethod: "bearer", models: OPENAI_API_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: OPENAI_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
   { id: "azure-openai", name: "Azure OpenAI", defaultBaseUrl: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1", defaultModel: "", apiType: "openai", authMethod: "bearer", models: EMPTY_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
   { id: "github-copilot", name: "GitHub Copilot", defaultBaseUrl: "https://api.githubcopilot.com", defaultModel: "gpt-4.1", apiType: "openai", authMethod: "bearer", models: GITHUB_COPILOT_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: GITHUB_COPILOT_AUTH_SOURCES, defaultAuthSource: "github_copilot", supportsResponseContinuity: true },
-  { id: "qwen", name: "Qwen", defaultBaseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-max", apiType: "openai", authMethod: "bearer", models: ALIBABA_CODING_MODELS, supportsModelFetch: true, supportedTransports: NATIVE_AND_CHAT_TRANSPORTS, defaultTransport: "native_assistant", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", nativeTransportKind: "alibaba_assistant_api", nativeBaseUrl: "https://dashscope-intl.aliyuncs.com/api/v1", supportsResponseContinuity: false },
+  { id: "qwen", name: "Qwen", defaultBaseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-max", apiType: "openai", authMethod: "bearer", models: QWEN_MODELS, supportsModelFetch: true, supportedTransports: NATIVE_AND_CHAT_TRANSPORTS, defaultTransport: "native_assistant", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", nativeTransportKind: "alibaba_assistant_api", nativeBaseUrl: "https://dashscope-intl.aliyuncs.com/api/v1", supportsResponseContinuity: false },
   { id: "qwen-deepinfra", name: "Qwen (DeepInfra)", defaultBaseUrl: "https://api.deepinfra.com/v1/openai", defaultModel: "Qwen/Qwen2.5-72B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "kimi", name: "Kimi (Moonshot)", defaultBaseUrl: "https://api.moonshot.ai/v1", defaultModel: "moonshot-v1-32k", apiType: "openai", authMethod: "bearer", models: KIMI_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "kimi-coding-plan", name: "Kimi Coding Plan", defaultBaseUrl: "https://api.kimi.com/coding/v1", defaultModel: "kimi-for-coding", apiType: "openai", authMethod: "bearer", models: KIMI_CODING_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "z.ai", name: "Z.AI (GLM)", defaultBaseUrl: "https://api.z.ai/api/paas/v4", defaultModel: "glm-4-plus", apiType: "openai", authMethod: "bearer", models: ZAI_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
-  { id: "z.ai-coding-plan", name: "Z.AI Coding Plan", defaultBaseUrl: "https://api.z.ai/api/coding/paas/v4", defaultModel: "glm-5", apiType: "openai", authMethod: "bearer", models: ZAI_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "z.ai-coding-plan", name: "Z.AI Coding Plan", defaultBaseUrl: "https://api.z.ai/api/coding/paas/v4", defaultModel: "glm-5", apiType: "openai", authMethod: "bearer", models: ZAI_CODING_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "arcee", name: "Arcee", defaultBaseUrl: "https://api.arcee.ai/api/v1", defaultModel: "trinity-large-thinking", apiType: "openai", authMethod: "bearer", models: ARCEE_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "nvidia", name: "NVIDIA", defaultBaseUrl: "https://integrate.api.nvidia.com/v1", defaultModel: "minimaxai/minimax-m2.7", apiType: "openai", authMethod: "bearer", models: NVIDIA_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "nous-portal", name: "Nous Portal", defaultBaseUrl: "https://inference-api.nousresearch.com/v1", defaultModel: "nousresearch/hermes-4-70b", apiType: "openai", authMethod: "bearer", models: NOUS_PORTAL_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
@@ -377,7 +410,12 @@ export function resolveProviderModelDefinition(
     return undefined;
   }
 
-  return getProviderModels(providerId, auth_source).find((model) => {
+  const models = [
+    ...getProviderModels(providerId, auth_source),
+    ...getCompatibilityModels(providerId),
+  ];
+
+  return models.find((model) => {
     const normalizedId = normalizeModelLookupValue(model.id);
     const normalizedName = normalizeModelLookupValue(model.name);
     return normalizedCandidates.includes(normalizedId)

@@ -7001,6 +7001,7 @@ dependencies = [
  "chrono",
  "crossterm 0.28.1",
  "futures",
+ "libc",
  "ratatui",
  "ratatui-core",
  "ratatui-textarea",

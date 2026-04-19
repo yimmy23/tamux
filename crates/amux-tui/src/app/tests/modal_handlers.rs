@@ -1,7 +1,7 @@
 use super::*;
 use amux_shared::providers::{
-    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM,
-    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN,
+    AudioToolKind, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI,
+    PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN,
 };
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
@@ -46,6 +46,29 @@ fn render_screen(model: &mut TuiModel) -> Vec<String> {
                 .collect::<String>()
         })
         .collect()
+}
+
+fn collect_daemon_commands(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) -> Vec<DaemonCommand> {
+    let mut commands = Vec::new();
+    while let Ok(command) = daemon_rx.try_recv() {
+        commands.push(command);
+    }
+    commands
+}
+
+fn navigate_model_picker_to(model: &mut TuiModel, model_id: &str) {
+    let index = model
+        .available_model_picker_models()
+        .iter()
+        .position(|entry| entry.id == model_id)
+        .expect("expected model to exist in picker");
+    if index > 0 {
+        model
+            .modal
+            .reduce(modal::ModalAction::Navigate(index as i32));
+    }
 }
 
 #[test]
@@ -1688,7 +1711,10 @@ fn selecting_audio_stt_provider_updates_audio_provider_and_opens_model_picker() 
         }
     }));
 
-    let target_index = widgets::provider_picker::available_provider_defs(&model.auth)
+    let target_index = widgets::provider_picker::available_audio_provider_defs(
+        &model.auth,
+        AudioToolKind::SpeechToText,
+    )
         .iter()
         .position(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI)
         .expect("provider to exist");
@@ -1698,7 +1724,11 @@ fn selecting_audio_stt_provider_updates_audio_provider_and_opens_model_picker() 
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
     model.modal.set_picker_item_count(
-        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+        widgets::provider_picker::available_audio_provider_defs(
+            &model.auth,
+            AudioToolKind::SpeechToText,
+        )
+        .len(),
     );
     if target_index > 0 {
         model
@@ -1810,7 +1840,10 @@ fn selecting_audio_tts_provider_updates_audio_provider_and_opens_model_picker() 
         }
     }));
 
-    let target_index = widgets::provider_picker::available_provider_defs(&model.auth)
+    let target_index = widgets::provider_picker::available_audio_provider_defs(
+        &model.auth,
+        AudioToolKind::TextToSpeech,
+    )
         .iter()
         .position(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI)
         .expect("provider to exist");
@@ -1820,7 +1853,11 @@ fn selecting_audio_tts_provider_updates_audio_provider_and_opens_model_picker() 
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
     model.modal.set_picker_item_count(
-        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+        widgets::provider_picker::available_audio_provider_defs(
+            &model.auth,
+            AudioToolKind::TextToSpeech,
+        )
+        .len(),
     );
     if target_index > 0 {
         model
@@ -1903,6 +1940,331 @@ fn selecting_audio_tts_model_updates_audio_model() {
             .and_then(|value| value.as_str()),
         Some("tts-1")
     );
+}
+
+#[test]
+fn selecting_main_image_capable_model_enables_vision() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.tool_vision = false;
+    model.config.model.clear();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "tools": {
+            "vision": false
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-4.1-image".to_string(),
+                name: Some("GPT 4.1 Image".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    image: Some("0.00001".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "input_modalities": ["text", "image"],
+                        "output_modalities": ["text"]
+                    }
+                })),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::Model);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    navigate_model_picker_to(&mut model, "gpt-4.1-image");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.config.model, "gpt-4.1-image");
+    assert!(model.config.tool_vision);
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("tools"))
+            .and_then(|tools| tools.get("vision"))
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+
+    let commands = collect_daemon_commands(&mut daemon_rx);
+    assert!(commands.iter().any(|command| {
+        matches!(
+            command,
+            DaemonCommand::SetConfigItem { key_path, value_json }
+                if key_path == "/tools/vision" && value_json == "true"
+        )
+    }));
+}
+
+#[test]
+fn selecting_main_audio_capable_model_prompts_for_stt_reuse() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.model.clear();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "whisper-1"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-4o-audio-preview".to_string(),
+                name: Some("GPT-4o Audio Preview".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "input_modalities": ["text", "audio"],
+                        "output_modalities": ["text", "audio"]
+                    }
+                })),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::Model);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    navigate_model_picker_to(&mut model, "gpt-4o-audio-preview");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.config.model, "gpt-4o-audio-preview");
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert_eq!(
+        model
+            .pending_chat_action_confirm
+            .as_ref()
+            .map(PendingConfirmAction::modal_body)
+            .as_deref(),
+        Some("Selected model supports audio. Use it as the STT model too?")
+    );
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("model"))
+            .and_then(|value| value.as_str()),
+        Some("whisper-1")
+    );
+
+    let commands = collect_daemon_commands(&mut daemon_rx);
+    assert!(!commands.iter().any(|command| {
+        matches!(
+            command,
+            DaemonCommand::SetConfigItem { key_path, .. } if key_path == "/audio/stt/model"
+        )
+    }));
+}
+
+#[test]
+fn accepting_audio_model_stt_reuse_updates_stt_model() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.model.clear();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "whisper-1"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-4o-audio-preview".to_string(),
+                name: Some("GPT-4o Audio Preview".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "input_modalities": ["text", "audio"],
+                        "output_modalities": ["text", "audio"]
+                    }
+                })),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::Model);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    navigate_model_picker_to(&mut model, "gpt-4o-audio-preview");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+
+    assert!(!quit);
+    assert!(model.modal.top().is_none());
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("provider"))
+            .and_then(|value| value.as_str()),
+        Some(PROVIDER_ID_OPENAI)
+    );
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("model"))
+            .and_then(|value| value.as_str()),
+        Some("gpt-4o-audio-preview")
+    );
+
+    let commands = collect_daemon_commands(&mut daemon_rx);
+    assert!(commands.iter().any(|command| {
+        matches!(
+            command,
+            DaemonCommand::SetConfigItem { key_path, value_json }
+                if key_path == "/audio/stt/model"
+                    && value_json == "\"gpt-4o-audio-preview\""
+        )
+    }));
+    assert!(!commands.iter().any(|command| {
+        matches!(
+            command,
+            DaemonCommand::SetConfigItem { key_path, .. } if key_path == "/audio/stt/provider"
+        )
+    }));
+}
+
+#[test]
+fn declining_audio_model_stt_reuse_preserves_existing_stt_model() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.model.clear();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "whisper-1"
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-4o-audio-preview".to_string(),
+                name: Some("GPT-4o Audio Preview".to_string()),
+                context_window: Some(128_000),
+                pricing: Some(crate::state::config::FetchedModelPricing {
+                    audio: Some("0.000032".to_string()),
+                    ..Default::default()
+                }),
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "input_modalities": ["text", "audio"],
+                        "output_modalities": ["text", "audio"]
+                    }
+                })),
+            },
+        ]));
+    model.settings_picker_target = Some(SettingsPickerTarget::Model);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    navigate_model_picker_to(&mut model, "gpt-4o-audio-preview");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Tab,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+    assert!(!quit);
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+
+    assert!(!quit);
+    assert!(model.modal.top().is_none());
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("provider"))
+            .and_then(|value| value.as_str()),
+        Some(PROVIDER_ID_OPENAI)
+    );
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("audio"))
+            .and_then(|audio| audio.get("stt"))
+            .and_then(|stt| stt.get("model"))
+            .and_then(|value| value.as_str()),
+        Some("whisper-1")
+    );
+
+    let commands = collect_daemon_commands(&mut daemon_rx);
+    assert!(!commands.iter().any(|command| {
+        matches!(
+            command,
+            DaemonCommand::SetConfigItem { key_path, .. } if key_path == "/audio/stt/model"
+        )
+    }));
 }
 
 #[test]

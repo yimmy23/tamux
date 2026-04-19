@@ -7,6 +7,7 @@ import type { AgentProviderConfig, AgentProviderId, AgentSettings, ModelDefiniti
 import { DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW, getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, modelUsesContextWindowOverride, normalizeAuthSource, providerUsesConfigurableBaseUrl, resolveProviderModelDefinition } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
+import { applySttReuseDecision, getModelSelectionEffects } from "./modelSelectionEffects";
 import { GeneratedToolsPanel } from "../generated-tools/GeneratedToolsPanel";
 import { OperatorModelControls } from "./OperatorModelControls";
 import { PromptPreviewSection } from "./PromptPreviewSection";
@@ -57,6 +58,7 @@ export function AgentTab({
     const [useCustomUrl, setUseCustomUrl] = useState(false);
     const [subscriptionAuthStatus, setSubscriptionAuthStatus] = useState<any>(null);
     const [subscriptionAuthBusy, setSubscriptionAuthBusy] = useState(false);
+    const [pendingSttReuseModelId, setPendingSttReuseModelId] = useState<string | null>(null);
     const providerAuthStates = useAgentStore((s) => s.providerAuthStates);
     const refreshProviderAuthStates = useAgentStore((s) => s.refreshProviderAuthStates);
 
@@ -197,6 +199,12 @@ export function AgentTab({
 
         return () => window.clearInterval(timer);
     }, [subscriptionAuthUi.shouldPoll]);
+
+    useEffect(() => {
+        if (pendingSttReuseModelId && settings.audio_stt_model === pendingSttReuseModelId) {
+            setPendingSttReuseModelId(null);
+        }
+    }, [pendingSttReuseModelId, settings.audio_stt_model]);
 
     const triggerSubscriptionAuth = async () => {
         if (!authCapability.chatgptSubscriptionAvailable) {
@@ -473,7 +481,7 @@ export function AgentTab({
                             providerId={settings.active_provider}
                             value={providerConfig.model}
                             customName={providerConfig.custom_model_name}
-                            onChange={(value, custom_model_name) => {
+                            onChange={(value, custom_model_name, details) => {
                                 const nextCustomModelName = custom_model_name && custom_model_name !== value
                                     ? custom_model_name
                                     : "";
@@ -491,12 +499,72 @@ export function AgentTab({
                                         ? null
                                         : DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW,
                                 });
+                                const effects = getModelSelectionEffects({
+                                    enableVisionTool: settings.enable_vision_tool,
+                                    currentSttModel: settings.audio_stt_model,
+                                    selectedModelId: value,
+                                    predefinedModel: details?.predefinedModel ?? resolvedModel,
+                                    fetchedModel: details?.fetchedModel ?? null,
+                                });
+                                if (effects.enableVision) {
+                                    updateSetting("enable_vision_tool", true);
+                                }
+                                if (effects.promptForSttReuse && effects.sttModelOnConfirm) {
+                                    setPendingSttReuseModelId(effects.sttModelOnConfirm);
+                                } else {
+                                    setPendingSttReuseModelId(null);
+                                }
                             }}
                             base_url={providerConfig.base_url || providerDef?.defaultBaseUrl}
                             api_key={providerConfig.api_key}
                             auth_source={effectiveAuthSource}
                         />
                     </SettingRow>
+                    {pendingSttReuseModelId ? (
+                        <div
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 8,
+                                marginTop: -2,
+                                marginBottom: 10,
+                                padding: "8px 10px",
+                                border: "1px solid var(--border)",
+                                background: "var(--bg-surface)",
+                            }}
+                        >
+                            <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                                Selected model supports audio. Use it as the STT model too?
+                            </span>
+                            <div style={{ display: "flex", gap: 6 }}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        updateSetting(
+                                            "audio_stt_model",
+                                            applySttReuseDecision(
+                                                settings.audio_stt_model,
+                                                pendingSttReuseModelId,
+                                                true,
+                                            ),
+                                        );
+                                        setPendingSttReuseModelId(null);
+                                    }}
+                                    style={smallBtnStyle}
+                                >
+                                    Use for STT
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPendingSttReuseModelId(null)}
+                                    style={smallBtnStyle}
+                                >
+                                    Keep current
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
                     {providerApiType === "openai" ? (
                         <SettingRow label="Auth">
                             <select

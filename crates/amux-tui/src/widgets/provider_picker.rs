@@ -8,7 +8,9 @@ use crate::state::auth::AuthState;
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
-use amux_shared::providers::PROVIDER_ID_CUSTOM;
+use amux_shared::providers::{
+    provider_supports_audio_tool, AudioToolKind, PROVIDER_ID_CUSTOM,
+};
 
 pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
     PROVIDERS
@@ -23,12 +25,23 @@ pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
         .collect()
 }
 
+pub fn available_audio_provider_defs(
+    auth: &AuthState,
+    audio_tool_kind: AudioToolKind,
+) -> Vec<&'static ProviderDef> {
+    available_provider_defs(auth)
+        .into_iter()
+        .filter(|provider| provider_supports_audio_tool(provider.id, audio_tool_kind))
+        .collect()
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     modal: &ModalState,
     config: &ConfigState,
     auth: &AuthState,
+    audio_tool_kind: Option<AudioToolKind>,
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
@@ -52,7 +65,9 @@ pub fn render(
 
     let cursor = modal.picker_cursor();
     let active_provider = config.provider();
-    let providers = available_provider_defs(auth);
+    let providers = audio_tool_kind
+        .map(|kind| available_audio_provider_defs(auth, kind))
+        .unwrap_or_else(|| available_provider_defs(auth));
 
     if providers.is_empty() {
         frame.render_widget(
@@ -121,7 +136,10 @@ pub fn render(
 mod tests {
     use super::*;
     use crate::state::auth::{AuthState, ProviderAuthEntry};
-    use amux_shared::providers::{PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI};
+    use amux_shared::providers::{
+        AudioToolKind, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_GROQ,
+        PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+    };
 
     #[test]
     fn available_provider_defs_filters_to_authenticated_entries_plus_custom() {
@@ -170,5 +188,61 @@ mod tests {
         let _theme = ThemeTokens::default();
         assert_eq!(modal.picker_cursor(), 0);
         assert_eq!(config.provider(), PROVIDER_ID_OPENAI);
+    }
+
+    #[test]
+    fn audio_provider_defs_filter_to_supported_authenticated_entries() {
+        let mut auth = AuthState::new();
+        auth.entries = vec![
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_OPENAI.to_string(),
+                provider_name: "OpenAI".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "gpt-5.4".to_string(),
+            },
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_GROQ.to_string(),
+                provider_name: "Groq".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "llama".to_string(),
+            },
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_OPENROUTER.to_string(),
+                provider_name: "OpenRouter".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "openai/gpt-4o-mini-transcribe".to_string(),
+            },
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_ANTHROPIC.to_string(),
+                provider_name: "Anthropic".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "claude".to_string(),
+            },
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_AZURE_OPENAI.to_string(),
+                provider_name: "Azure OpenAI".to_string(),
+                authenticated: false,
+                auth_source: "api_key".to_string(),
+                model: String::new(),
+            },
+        ];
+
+        let defs = available_audio_provider_defs(&auth, AudioToolKind::SpeechToText);
+        assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_OPENAI));
+        assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_GROQ));
+        assert!(defs
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_OPENROUTER));
+        assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_CUSTOM));
+        assert!(!defs
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_ANTHROPIC));
+        assert!(!defs
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI));
     }
 }

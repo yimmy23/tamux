@@ -529,6 +529,10 @@ impl TuiModel {
                 });
                 self.status_line = "Resuming goal run...".to_string();
             }
+            PendingConfirmAction::ReuseModelAsStt { model_id } => {
+                self.set_audio_config_string("stt", "model", model_id.clone());
+                self.status_line = format!("STT model: {}", model_id);
+            }
         }
     }
 

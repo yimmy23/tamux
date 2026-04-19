@@ -23,7 +23,15 @@ export function usesDashScopeEnableThinking(
   model: string,
 ): boolean {
   return (provider === "qwen" || provider === "alibaba-coding-plan") &&
-    ["qwen3.6-plus", "qwen3.5-plus", "qwen3-max-2026-01-23", "glm-4.7", "glm-5"].includes(model);
+    [
+      "qwen-max",
+      "qwen-plus",
+      "qwen3.6-plus",
+      "qwen3.5-plus",
+      "qwen3-max-2026-01-23",
+      "glm-4.7",
+      "glm-5",
+    ].includes(model);
 }
 
 export function applyDashScopeCodingPlanHeaders(

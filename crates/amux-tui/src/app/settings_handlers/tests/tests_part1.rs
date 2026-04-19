@@ -1,5 +1,5 @@
 use amux_shared::providers::{
-    PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_GROQ,
     PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
 };
 
@@ -165,7 +165,11 @@ fn activating_compaction_weles_provider_opens_provider_picker() {
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
     model.config.compaction_strategy = "weles".to_string();
-    focus_settings_field(&mut model, SettingsTab::Advanced, "compaction_weles_provider");
+    focus_settings_field(
+        &mut model,
+        SettingsTab::Advanced,
+        "compaction_weles_provider",
+    );
 
     model.activate_settings_field();
 
@@ -208,7 +212,11 @@ fn activating_compaction_custom_provider_opens_provider_picker() {
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
     model.config.compaction_strategy = "custom_model".to_string();
-    focus_settings_field(&mut model, SettingsTab::Advanced, "compaction_custom_provider");
+    focus_settings_field(
+        &mut model,
+        SettingsTab::Advanced,
+        "compaction_custom_provider",
+    );
 
     model.activate_settings_field();
 
@@ -360,6 +368,157 @@ fn activating_audio_stt_model_fetches_remote_models_for_audio_provider() {
 }
 
 #[test]
+fn activating_audio_tts_model_fetches_remote_models_for_audio_provider() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.provider = PROVIDER_ID_OPENAI.to_string();
+    model.config.base_url = "https://api.openai.com/v1".to_string();
+    model.config.api_key = "openai-key".to_string();
+    model.config.auth_source = "api_key".to_string();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "tts": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "gpt-4o-mini-tts"
+            }
+        }
+    }));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_audio_tts_model");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::FetchModels {
+            provider_id,
+            base_url,
+            api_key,
+        }) => {
+            assert_eq!(provider_id, PROVIDER_ID_OPENAI);
+            assert_eq!(base_url, "https://api.openai.com/v1");
+            assert_eq!(api_key, "openai-key");
+        }
+        other => panic!("expected FetchModels for audio TTS picker, got {other:?}"),
+    }
+}
+
+#[test]
+fn audio_stt_catalog_includes_openai_diarization_model() {
+    let model_ids = TuiModel::audio_catalog_models("stt", PROVIDER_ID_OPENAI)
+        .into_iter()
+        .map(|model| model.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        model_ids,
+        vec![
+            "gpt-4o-transcribe",
+            "gpt-4o-mini-transcribe",
+            "gpt-4o-transcribe-diarize",
+            "whisper-1",
+        ]
+    );
+}
+
+#[test]
+fn audio_stt_catalog_includes_groq_transcription_models() {
+    let model_ids = TuiModel::audio_catalog_models("stt", PROVIDER_ID_GROQ)
+        .into_iter()
+        .map(|model| model.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        model_ids,
+        vec!["whisper-large-v3-turbo", "whisper-large-v3"]
+    );
+}
+
+#[test]
+fn activating_audio_stt_model_prefills_groq_static_models_and_fetches_remote_catalog() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "providers": {
+            PROVIDER_ID_GROQ: {
+                "base_url": "https://api.groq.com/openai/v1",
+                "api_key": "groq-key",
+                "auth_source": "api_key"
+            }
+        },
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_GROQ,
+                "model": "whisper-large-v3-turbo"
+            }
+        }
+    }));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_audio_stt_model");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    assert_eq!(
+        model
+            .config
+            .fetched_models
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["whisper-large-v3-turbo", "whisper-large-v3"]
+    );
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::FetchModels {
+            provider_id,
+            base_url,
+            api_key,
+        }) => {
+            assert_eq!(provider_id, PROVIDER_ID_GROQ);
+            assert_eq!(base_url, "https://api.groq.com/openai/v1");
+            assert_eq!(api_key, "groq-key");
+        }
+        other => panic!("expected FetchModels for Groq audio STT picker, got {other:?}"),
+    }
+}
+
+#[test]
+fn audio_tts_catalog_does_not_fabricate_groq_entries() {
+    let model_ids = TuiModel::audio_catalog_models("tts", PROVIDER_ID_GROQ)
+        .into_iter()
+        .map(|model| model.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        model_ids,
+        vec![
+            "canopylabs/orpheus-v1-english",
+            "canopylabs/orpheus-arabic-saudi",
+        ]
+    );
+}
+
+#[test]
+fn audio_tts_catalog_matches_azure_openai_alias() {
+    let model_ids = TuiModel::audio_catalog_models("tts", PROVIDER_ID_AZURE_OPENAI)
+        .into_iter()
+        .map(|model| model.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(model_ids, vec!["gpt-4o-mini-tts", "tts-1", "tts-1-hd"]);
+}
+
+#[test]
+fn audio_default_model_is_empty_when_provider_has_no_static_audio_catalog() {
+    assert_eq!(
+        TuiModel::default_audio_model_for("tts", PROVIDER_ID_GROQ),
+        ""
+    );
+}
+
+#[test]
 fn activating_compaction_custom_auth_source_for_openai_forces_responses_transport() {
     let (mut model, _daemon_rx) = make_model();
     model
@@ -369,7 +528,11 @@ fn activating_compaction_custom_auth_source_for_openai_forces_responses_transpor
     model.config.compaction_custom_provider = PROVIDER_ID_OPENAI.to_string();
     model.config.compaction_custom_auth_source = "api_key".to_string();
     model.config.compaction_custom_api_transport = "chat_completions".to_string();
-    focus_settings_field(&mut model, SettingsTab::Advanced, "compaction_custom_auth_source");
+    focus_settings_field(
+        &mut model,
+        SettingsTab::Advanced,
+        "compaction_custom_auth_source",
+    );
 
     model.activate_settings_field();
 

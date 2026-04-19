@@ -1177,6 +1177,15 @@ impl TuiModel {
                         &self.modal,
                         &self.config,
                         &self.auth,
+                        match self.settings_picker_target {
+                            Some(SettingsPickerTarget::AudioSttProvider) => {
+                                Some(amux_shared::providers::AudioToolKind::SpeechToText)
+                            }
+                            Some(SettingsPickerTarget::AudioTtsProvider) => {
+                                Some(amux_shared::providers::AudioToolKind::TextToSpeech)
+                            }
+                            _ => None,
+                        },
                         &self.theme,
                     );
                 }

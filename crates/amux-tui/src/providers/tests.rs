@@ -2,12 +2,13 @@ use super::*;
 use crate::providers::context::is_known_default_url;
 use amux_shared::providers::{
     MINIMAX_PROVIDER, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE,
-    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, QWEN_PROVIDER,
+    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_KIMI, PROVIDER_ID_KIMI_CODING_PLAN, PROVIDER_ID_NVIDIA,
+    PROVIDER_ID_OPENAI, PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
 };
 
 #[test]
-fn provider_count_is_26() {
-    assert_eq!(PROVIDERS.len(), 26);
+fn provider_count_is_27() {
+    assert_eq!(PROVIDERS.len(), 27);
 }
 
 #[test]
@@ -92,6 +93,68 @@ fn known_models_openai_chatgpt_subscription_is_restricted() {
 fn known_models_unknown_returns_empty() {
     let models = known_models_for_provider("nonexistent");
     assert!(models.is_empty());
+}
+
+#[test]
+fn kimi_static_catalog_preserves_provider_default_model() {
+    let models = known_models_for_provider(PROVIDER_ID_KIMI);
+    assert!(models.iter().any(|model| model.id == "moonshot-v1-32k"));
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_KIMI, "api_key"),
+        "moonshot-v1-32k"
+    );
+}
+
+#[test]
+fn kimi_coding_static_catalog_preserves_provider_default_model() {
+    let models = known_models_for_provider(PROVIDER_ID_KIMI_CODING_PLAN);
+    assert!(models.iter().any(|model| model.id == "kimi-for-coding"));
+    assert!(models
+        .iter()
+        .any(|model| model.id == "kimi-k2-turbo-preview"));
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_KIMI_CODING_PLAN, "api_key"),
+        "kimi-for-coding"
+    );
+}
+
+#[test]
+fn z_ai_static_catalog_preserves_provider_default_model() {
+    let models = known_models_for_provider(PROVIDER_ID_Z_AI);
+    assert!(models.iter().any(|model| model.id == "glm-4-plus"));
+    assert!(models.iter().any(|model| model.id == "glm-4-air"));
+    assert!(!models.iter().any(|model| model.id == "glm-4.7"));
+    assert!(!models.iter().any(|model| model.id == "glm-4.7-air"));
+    assert!(!models.iter().any(|model| model.id == "glm-4.7-flash"));
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_Z_AI, "api_key"),
+        "glm-4-plus"
+    );
+}
+
+#[test]
+fn z_ai_coding_static_catalog_preserves_provider_default_model() {
+    let models = known_models_for_provider(PROVIDER_ID_Z_AI_CODING_PLAN);
+    assert!(models.iter().any(|model| model.id == "glm-5"));
+    assert!(models.iter().any(|model| model.id == "glm-4-flash"));
+    assert!(!models.iter().any(|model| model.id == "glm-4.7"));
+    assert!(!models.iter().any(|model| model.id == "glm-4.7-air"));
+    assert!(!models.iter().any(|model| model.id == "glm-4.7-flash"));
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_Z_AI_CODING_PLAN, "api_key"),
+        "glm-5"
+    );
+}
+
+#[test]
+fn alibaba_coding_static_catalog_preserves_provider_default_model() {
+    let models = known_models_for_provider(PROVIDER_ID_ALIBABA_CODING_PLAN);
+    assert!(models.iter().any(|model| model.id == "qwen3.6-plus"));
+    assert!(!models.iter().any(|model| model.id == "qwen3.5-plus"));
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_ALIBABA_CODING_PLAN, "api_key"),
+        "qwen3.6-plus"
+    );
 }
 
 #[test]

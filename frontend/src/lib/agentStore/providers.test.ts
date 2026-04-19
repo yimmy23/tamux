@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getEffectiveContextWindow,
   getDefaultModelForProvider,
   getProviderApiType,
   getProviderDefinition,
+  getProviderModels,
+  getModelDefinition,
+  getModelModalities,
   normalizeApiTransport,
   normalizeAgentProviderId,
   normalizeProviderConfig,
@@ -139,6 +143,94 @@ describe("frontend Azure OpenAI provider catalog", () => {
 
     expect(normalized.base_url).toBe("https://my-real-resource.openai.azure.com/openai/v1");
     expect(normalized.model).toBe("deployment-name");
+  });
+});
+
+describe("frontend curated media provider catalog", () => {
+  it("keeps representative modalities aligned with the curated matrix", () => {
+    expect(getModelModalities(getModelDefinition("openai", "gpt-5.4"))).toEqual([
+      "text",
+      "image",
+      "video",
+      "audio",
+    ]);
+    expect(
+      getModelModalities(getModelDefinition("anthropic", "claude-opus-4-7")),
+    ).toEqual(["text", "image"]);
+    expect(
+      getModelModalities(getModelDefinition("xiaomi-mimo-token-plan", "mimo-v2-omni")),
+    ).toEqual(["text", "image", "video", "audio"]);
+    expect(getModelModalities(getModelDefinition("arcee", "trinity-large-thinking"))).toEqual([
+      "text",
+    ]);
+  });
+
+  it("keeps first-party default model resolution aligned with the provider defaults", () => {
+    expect(getDefaultModelForProvider("qwen")).toBe("qwen-max");
+    expect(getDefaultModelForProvider("kimi")).toBe("moonshot-v1-32k");
+    expect(getDefaultModelForProvider("z.ai")).toBe("glm-4-plus");
+    expect(getDefaultModelForProvider("z.ai-coding-plan")).toBe("glm-5");
+    expect(getDefaultModelForProvider("alibaba-coding-plan")).toBe("qwen3.6-plus");
+  });
+
+  it("removes stale frontend catalog drift for z.ai, kimi coding, and alibaba coding", () => {
+    expect(getProviderModels("qwen").map((model) => [model.id, getModelModalities(model)])).toEqual([
+      ["qwen-max", ["text", "image"]],
+      ["qwen-plus", ["text", "image"]],
+      ["qwen-turbo", ["text"]],
+      ["qwen-long", ["text"]],
+    ]);
+    expect(getProviderModels("z.ai").map((model) => model.id)).toEqual([
+      "glm-4-plus",
+      "glm-5.1",
+      "glm-5",
+      "glm-4",
+      "glm-4-air",
+      "glm-4-flash",
+    ]);
+    expect(getProviderModels("z.ai-coding-plan").map((model) => model.id)).toEqual([
+      "glm-5",
+      "glm-5.1",
+      "glm-4-plus",
+      "glm-4",
+      "glm-4-air",
+      "glm-4-flash",
+    ]);
+    expect(getProviderModels("kimi-coding-plan").map((model) => model.id)).toEqual([
+      "kimi-for-coding",
+      "kimi-k2.5",
+      "kimi-k2-turbo-preview",
+    ]);
+    expect(getProviderModels("alibaba-coding-plan").map((model) => model.id)).toEqual([
+      "qwen3.6-plus",
+      "qwen3-coder-plus",
+      "qwen3-coder-next",
+      "glm-5",
+      "kimi-k2.5",
+      "MiniMax-M2.5",
+    ]);
+  });
+
+  it("keeps legacy alibaba coding-plan models on the curated context-window path", () => {
+    const normalized = normalizeProviderConfig(
+      "alibaba-coding-plan" as any,
+      {
+        base_url: "https://coding-intl.dashscope.aliyuncs.com/v1",
+        model: "qwen3.6-plus",
+        custom_model_name: "",
+        api_key: "",
+        assistant_id: "",
+        api_transport: "chat_completions",
+        auth_source: "api_key",
+        context_window_tokens: null,
+      },
+      {
+        model: "qwen3.5-plus",
+      },
+    );
+
+    expect(normalized.custom_model_name).toBe("");
+    expect(getEffectiveContextWindow("alibaba-coding-plan", normalized)).toBe(983_616);
   });
 });
 

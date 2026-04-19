@@ -1,5 +1,5 @@
 use super::*;
-use amux_shared::providers::PROVIDER_ID_CUSTOM;
+use amux_shared::providers::{AudioToolKind, PROVIDER_ID_CUSTOM};
 
 pub(super) fn begin_custom_model_edit(model: &mut TuiModel) {
     let current = if model.config.custom_model_name.trim().is_empty()
@@ -23,6 +23,92 @@ pub(super) fn begin_custom_model_edit(model: &mut TuiModel) {
     model.settings_navigate_to(3);
     model.settings.start_editing("custom_model_entry", &current);
     model.status_line = "Enter custom model as `Name | ID` or just `ID`".to_string();
+}
+
+fn json_array_contains_modality(value: Option<&serde_json::Value>, modality: &str) -> bool {
+    value
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items.iter().any(|item| {
+                item.as_str()
+                    .map(str::trim)
+                    .map(|value| value.eq_ignore_ascii_case(modality))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn json_string_has_modality(value: Option<&serde_json::Value>, modality: &str) -> bool {
+    value
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase().contains(modality))
+        .unwrap_or(false)
+}
+
+fn selected_model_supports_image_input(model: &crate::state::config::FetchedModel) -> bool {
+    let metadata = model.metadata.as_ref();
+    json_array_contains_modality(
+        metadata
+            .and_then(|value| value.pointer("/architecture/input_modalities"))
+            .or_else(|| metadata.and_then(|value| value.pointer("/input_modalities")))
+            .or_else(|| metadata.and_then(|value| value.pointer("/modalities"))),
+        "image",
+    ) || json_string_has_modality(
+        metadata
+            .and_then(|value| value.pointer("/architecture/modality"))
+            .or_else(|| metadata.and_then(|value| value.pointer("/modality"))),
+        "image",
+    )
+}
+
+fn selected_model_supports_audio(model: &crate::state::config::FetchedModel) -> bool {
+    if model
+        .pricing
+        .as_ref()
+        .and_then(|pricing| pricing.audio.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        return true;
+    }
+
+    let metadata = model.metadata.as_ref();
+    json_array_contains_modality(
+        metadata
+            .and_then(|value| value.pointer("/architecture/input_modalities"))
+            .or_else(|| metadata.and_then(|value| value.pointer("/input_modalities")))
+            .or_else(|| metadata.and_then(|value| value.pointer("/modalities"))),
+        "audio",
+    ) || json_array_contains_modality(
+        metadata
+            .and_then(|value| value.pointer("/architecture/output_modalities"))
+            .or_else(|| metadata.and_then(|value| value.pointer("/output_modalities")))
+            .or_else(|| metadata.and_then(|value| value.pointer("/modalities"))),
+        "audio",
+    ) || json_string_has_modality(
+        metadata
+            .and_then(|value| value.pointer("/architecture/modality"))
+            .or_else(|| metadata.and_then(|value| value.pointer("/modality"))),
+        "audio",
+    )
+}
+
+fn enable_vision_tool(model: &mut TuiModel) {
+    model.config.tool_vision = true;
+    if let Some(raw) = model.config.agent_config_raw.as_mut() {
+        if raw.get("tools").is_none() {
+            raw["tools"] = serde_json::json!({});
+        }
+        raw["tools"]["vision"] = serde_json::Value::Bool(true);
+    }
+    model.send_daemon_command(DaemonCommand::SetConfigItem {
+        key_path: "/tools/vision".to_string(),
+        value_json: "true".to_string(),
+    });
 }
 
 pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
@@ -121,7 +207,21 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         }
         modal::ModalKind::ProviderPicker => {
             let cursor = model.modal.picker_cursor();
-            let provider_defs = widgets::provider_picker::available_provider_defs(&model.auth);
+            let provider_defs = match model.settings_picker_target {
+                Some(SettingsPickerTarget::AudioSttProvider) => {
+                    widgets::provider_picker::available_audio_provider_defs(
+                        &model.auth,
+                        AudioToolKind::SpeechToText,
+                    )
+                }
+                Some(SettingsPickerTarget::AudioTtsProvider) => {
+                    widgets::provider_picker::available_audio_provider_defs(
+                        &model.auth,
+                        AudioToolKind::TextToSpeech,
+                    )
+                }
+                _ => widgets::provider_picker::available_provider_defs(&model.auth),
+            };
             if let Some(def) = provider_defs.get(cursor) {
                 match model
                     .settings_picker_target
@@ -333,6 +433,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             } else if let Some(model_entry) = models.get(cursor) {
                 let model_id = model_entry.id.clone();
                 let model_context_window = model_entry.context_window;
+                let mut follow_up_confirm = None;
                 match model
                     .settings_picker_target
                     .unwrap_or(SettingsPickerTarget::Model)
@@ -378,6 +479,18 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                             model.send_daemon_command(DaemonCommand::SetConfigItem {
                                 key_path: format!("/{}/model", model.config.provider),
                                 value_json,
+                            });
+                        }
+                        if selected_model_supports_image_input(model_entry)
+                            && !model.config.tool_vision
+                        {
+                            enable_vision_tool(model);
+                        }
+                        if selected_model_supports_audio(model_entry)
+                            && model.config.audio_stt_model() != model_id
+                        {
+                            follow_up_confirm = Some(PendingConfirmAction::ReuseModelAsStt {
+                                model_id: model_id.clone(),
                             });
                         }
                         model.save_settings();
@@ -465,6 +578,12 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     | SettingsPickerTarget::CompactionWelesReasoningEffort
                     | SettingsPickerTarget::CompactionCustomReasoningEffort => {}
                 }
+                model.settings_picker_target = None;
+                model.close_top_modal();
+                if let Some(action) = follow_up_confirm {
+                    model.open_pending_action_confirm(action);
+                }
+                return;
             }
             model.settings_picker_target = None;
             model.close_top_modal();

@@ -129,6 +129,7 @@ enum PendingConfirmAction {
     DeleteGoalRun { goal_run_id: String, title: String },
     PauseGoalRun { goal_run_id: String, title: String },
     ResumeGoalRun { goal_run_id: String, title: String },
+    ReuseModelAsStt { model_id: String },
 }
 
 impl PendingConfirmAction {
@@ -157,6 +158,9 @@ impl PendingConfirmAction {
             }
             PendingConfirmAction::ResumeGoalRun { title, .. } => {
                 format!("Resume goal run \"{title}\"?")
+            }
+            PendingConfirmAction::ReuseModelAsStt { .. } => {
+                "Selected model supports audio. Use it as the STT model too?".to_string()
             }
         }
     }
@@ -428,6 +432,8 @@ pub struct TuiModel {
     // Voice capture / playback state
     voice_recording: bool,
     voice_capture_path: Option<String>,
+    voice_capture_stderr_path: Option<String>,
+    voice_capture_backend_label: Option<String>,
     voice_recorder: Option<Child>,
     voice_player: Option<Child>,
 
