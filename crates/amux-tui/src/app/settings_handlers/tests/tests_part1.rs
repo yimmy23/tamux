@@ -1,6 +1,6 @@
 use amux_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_GROQ,
-    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
 };
 
 #[test]
@@ -248,13 +248,22 @@ fn activating_compaction_custom_model_opens_model_picker() {
 #[test]
 fn activating_audio_stt_provider_opens_provider_picker() {
     let (mut model, _daemon_rx) = make_model();
-    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
-        provider_id: PROVIDER_ID_OPENAI.to_string(),
-        provider_name: "OpenAI".to_string(),
-        authenticated: true,
-        auth_source: "api_key".to_string(),
-        model: "gpt-5.4".to_string(),
-    }];
+    model.auth.entries = vec![
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_XAI.to_string(),
+            provider_name: "xAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "grok-4".to_string(),
+        },
+    ];
     model
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
@@ -263,6 +272,12 @@ fn activating_audio_stt_provider_opens_provider_picker() {
     model.activate_settings_field();
 
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+    assert!(widgets::provider_picker::available_audio_provider_defs(
+        &model.auth,
+        amux_shared::providers::AudioToolKind::SpeechToText,
+    )
+    .iter()
+    .any(|provider| provider.id == PROVIDER_ID_XAI));
 }
 
 #[test]
@@ -289,13 +304,22 @@ fn activating_audio_stt_model_opens_model_picker() {
 #[test]
 fn activating_audio_tts_provider_opens_provider_picker() {
     let (mut model, _daemon_rx) = make_model();
-    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
-        provider_id: PROVIDER_ID_OPENAI.to_string(),
-        provider_name: "OpenAI".to_string(),
-        authenticated: true,
-        auth_source: "api_key".to_string(),
-        model: "gpt-5.4".to_string(),
-    }];
+    model.auth.entries = vec![
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_XAI.to_string(),
+            provider_name: "xAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "grok-4".to_string(),
+        },
+    ];
     model
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
@@ -304,6 +328,12 @@ fn activating_audio_tts_provider_opens_provider_picker() {
     model.activate_settings_field();
 
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+    assert!(widgets::provider_picker::available_audio_provider_defs(
+        &model.auth,
+        amux_shared::providers::AudioToolKind::TextToSpeech,
+    )
+    .iter()
+    .any(|provider| provider.id == PROVIDER_ID_XAI));
 }
 
 #[test]
@@ -508,6 +538,29 @@ fn audio_tts_catalog_matches_azure_openai_alias() {
         .collect::<Vec<_>>();
 
     assert_eq!(model_ids, vec!["gpt-4o-mini-tts", "tts-1", "tts-1-hd"]);
+}
+
+#[test]
+fn xai_audio_catalog_uses_provider_native_defaults_for_both_endpoints() {
+    let stt_model_ids = TuiModel::audio_catalog_models("stt", PROVIDER_ID_XAI)
+        .into_iter()
+        .map(|model| model.id)
+        .collect::<Vec<_>>();
+    let tts_model_ids = TuiModel::audio_catalog_models("tts", PROVIDER_ID_XAI)
+        .into_iter()
+        .map(|model| model.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(stt_model_ids, vec!["grok-4"]);
+    assert_eq!(tts_model_ids, vec!["grok-4"]);
+    assert_eq!(
+        TuiModel::default_audio_model_for("stt", PROVIDER_ID_XAI),
+        "grok-4"
+    );
+    assert_eq!(
+        TuiModel::default_audio_model_for("tts", PROVIDER_ID_XAI),
+        "grok-4"
+    );
 }
 
 #[test]

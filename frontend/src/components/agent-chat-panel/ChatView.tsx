@@ -77,6 +77,7 @@ export function ChatView({
   const [pinLimitResult, setPinLimitResult] = useState<AmuxThreadMessagePinResult | null>(null);
   const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
   const [autoSpeakReplies, setAutoSpeakReplies] = useState(agentSettings.audio_tts_auto_speak);
+  const [isSynthesizingSpeech, setIsSynthesizingSpeech] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastAutoSpokenMessageIdRef = useRef<string | null>(null);
@@ -104,6 +105,7 @@ export function ChatView({
       activeAudioRef.current.currentTime = 0;
       activeAudioRef.current = null;
     }
+    setIsSynthesizingSpeech(false);
     setSpeakingMessageId(null);
   };
 
@@ -128,6 +130,7 @@ export function ChatView({
     if (messageId) {
       setSpeakingMessageId(messageId);
     }
+    setIsSynthesizingSpeech(true);
     try {
       const result = await bridge.agentTextToSpeech(text, agentSettings.audio_tts_voice || null, {
         provider: agentSettings.audio_tts_provider,
@@ -148,6 +151,7 @@ export function ChatView({
         stopAudioPlayback();
         return;
       }
+      setIsSynthesizingSpeech(false);
       const audio = new Audio(source);
       activeAudioRef.current = audio;
       audio.onended = () => {
@@ -400,6 +404,7 @@ export function ChatView({
         onKeyDown={onKeyDown}
         agentSettings={agentSettings}
         isStreamingResponse={isStreamingResponse}
+        isSynthesizingSpeech={isSynthesizingSpeech}
         onStopStreaming={onStopStreaming}
         onSend={handleSendClick}
         canStartGoalRun={canStartGoalRun}

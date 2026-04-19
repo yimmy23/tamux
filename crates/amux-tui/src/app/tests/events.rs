@@ -189,6 +189,45 @@ fn whatsapp_status_events_update_modal_state() {
 }
 
 #[test]
+fn tts_request_surfaces_pending_footer_activity_until_audio_starts() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-1".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "Say this aloud".to_string(),
+            timestamp: 1,
+            ..Default::default()
+        },
+    });
+
+    model.speak_latest_assistant_message();
+
+    let command = daemon_rx.try_recv().expect("expected TTS command");
+    assert!(matches!(command, DaemonCommand::TextToSpeech { .. }));
+    assert_eq!(
+        model.footer_activity_text().as_deref(),
+        Some("preparing speech")
+    );
+
+    model.handle_client_event(ClientEvent::TextToSpeechResult {
+        content: r#"{"path":"/tmp/speech.mp3"}"#.to_string(),
+    });
+
+    assert!(
+        model.footer_activity_text().is_none(),
+        "pending TTS activity should clear once audio is ready to play"
+    );
+}
+
+#[test]
 fn collaboration_sessions_event_populates_workspace_state_without_error_modal() {
     let mut model = make_model();
 

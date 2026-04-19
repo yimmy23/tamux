@@ -1,4 +1,4 @@
-import { normalizeLlmStreamTimeoutInput } from "./AgentTab";
+import { normalizeLlmStreamTimeoutInput } from "./agentTabHelpers";
 
 function assert(condition: unknown, message: string): void {
     if (!condition) {

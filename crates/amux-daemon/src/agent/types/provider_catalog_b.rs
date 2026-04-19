@@ -15,13 +15,13 @@ pub const ALIBABA_CODING_MODELS: &[ModelDefinition] = &[
         id: "qwen3.6-plus",
         name: "Qwen3.6 Plus",
         context_window: 983616,
-        modalities: TEXT_ONLY,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "glm-5",
         name: "GLM-5",
         context_window: 202752,
-        modalities: TEXT_ONLY,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "kimi-k2.5",

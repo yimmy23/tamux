@@ -1,7 +1,7 @@
 //! Predefined LLM provider definitions.
 //!
-//! This mirrors the `PROVIDER_DEFINITIONS` from the frontend's `agentStore.ts`
-//! so that the TUI has the same provider list with default base URLs and models.
+//! This keeps the TUI's built-in provider defaults aligned with the app-wide
+//! provider registry while remaining a TUI-local source for picker/config UX.
 
 use crate::state::config::FetchedModel;
 use amux_shared::providers::*;
@@ -109,6 +109,17 @@ pub const PROVIDERS: &[ProviderDef] = &[
         supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
         default_transport: "responses",
         supported_auth_sources: OPENAI_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
+        id: PROVIDER_ID_XAI,
+        name: "xAI",
+        default_base_url: "https://api.x.ai/v1",
+        default_model: "grok-4",
+        supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
+        default_transport: "responses",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
         default_auth_source: "api_key",
         native_base_url: None,
     },

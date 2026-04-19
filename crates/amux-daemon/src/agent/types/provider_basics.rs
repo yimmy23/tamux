@@ -82,6 +82,21 @@ pub const MULTIMODAL: &[Modality] = &[
     Modality::Audio,
 ];
 
+pub const XAI_MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: "grok-4",
+        name: "Grok 4",
+        context_window: 262_144,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "grok-code-fast-1",
+        name: "Grok Code Fast 1",
+        context_window: 173_000,
+        modalities: TEXT_ONLY,
+    },
+];
+
 pub const GITHUB_COPILOT_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "claude-haiku-4.5",

@@ -114,6 +114,41 @@ fn parse_model_pricing(model: &serde_json::Value) -> Option<FetchedModelPricing>
     (!pricing.is_empty()).then_some(pricing)
 }
 
+fn parse_fetched_models_response(json: &serde_json::Value) -> Vec<FetchedModel> {
+    json.get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    let id = m.get("id")?.as_str()?.to_string();
+                    let name = m
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string());
+
+                    let context_window = m
+                        .get("context_length")
+                        .or_else(|| m.get("context_window"))
+                        .and_then(|c| match c {
+                            serde_json::Value::Number(number) => number.as_u64(),
+                            serde_json::Value::String(text) => text.trim().parse::<u64>().ok(),
+                            _ => None,
+                        })
+                        .and_then(|n| u32::try_from(n).ok());
+
+                    Some(FetchedModel {
+                        id,
+                        name,
+                        context_window,
+                        pricing: parse_model_pricing(m),
+                        metadata: Some(m.clone()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub async fn fetch_models(
     provider_id: &str,
     base_url: &str,
@@ -167,38 +202,7 @@ pub async fn fetch_models(
     }
 
     let json: serde_json::Value = response.json().await?;
-
-    let models = json
-        .get("data")
-        .and_then(|d| d.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|m| {
-                    let id = m.get("id")?.as_str()?.to_string();
-                    let name = m
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .map(|s| s.to_string());
-
-                    let context_window = m
-                        .get("context_length")
-                        .or_else(|| m.get("context_window"))
-                        .and_then(|c| c.as_u64())
-                        .map(|n| n as u32);
-
-                    Some(FetchedModel {
-                        id,
-                        name,
-                        context_window,
-                        pricing: parse_model_pricing(m),
-                        metadata: Some(m.clone()),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(models)
+    Ok(parse_fetched_models_response(&json))
 }
 
 pub async fn validate_provider_connection(
@@ -331,4 +335,98 @@ pub async fn validate_provider_connection(
     }
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod helper_tests {
+    use super::*;
+
+    #[test]
+    fn parse_fetched_models_response_preserves_xai_metadata_and_pricing() {
+        let json = serde_json::json!({
+            "data": [{
+                "id": "grok-4",
+                "name": "Grok 4",
+                "context_length": "262144",
+                "pricing": {
+                    "prompt": "3.00",
+                    "completion": "15.00",
+                    "input_cache_read": "0.75"
+                },
+                "modalities": ["text", "image"],
+                "owned_by": "xai",
+                "supports_reasoning": true
+            }, {
+                "id": "grok-code-fast-1",
+                "context_window": 131072,
+                "pricing": {
+                    "request": 42
+                },
+                "mode": "code"
+            }, {
+                "id": "grok-overflow",
+                "context_length": "4294967296"
+            }]
+        });
+
+        let models = parse_fetched_models_response(&json);
+
+        assert_eq!(models.len(), 3);
+        assert_eq!(models[0].id, "grok-4");
+        assert_eq!(models[0].name.as_deref(), Some("Grok 4"));
+        assert_eq!(models[0].context_window, Some(262_144));
+        assert_eq!(models[0].pricing.as_ref().and_then(|p| p.prompt.as_deref()), Some("3.00"));
+        assert_eq!(
+            models[0]
+                .pricing
+                .as_ref()
+                .and_then(|p| p.completion.as_deref()),
+            Some("15.00")
+        );
+        assert_eq!(
+            models[0]
+                .pricing
+                .as_ref()
+                .and_then(|p| p.input_cache_read.as_deref()),
+            Some("0.75")
+        );
+        assert_eq!(
+            models[0]
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("owned_by"))
+                .and_then(|v| v.as_str()),
+            Some("xai")
+        );
+        assert_eq!(
+            models[0]
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("modalities"))
+                .and_then(|v| v.as_array())
+                .map(|items| items.len()),
+            Some(2)
+        );
+
+        assert_eq!(models[1].id, "grok-code-fast-1");
+        assert_eq!(models[1].context_window, Some(131_072));
+        assert_eq!(
+            models[1]
+                .pricing
+                .as_ref()
+                .and_then(|p| p.request.as_deref()),
+            Some("42")
+        );
+        assert_eq!(
+            models[1]
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("mode"))
+                .and_then(|v| v.as_str()),
+            Some("code")
+        );
+
+        assert_eq!(models[2].id, "grok-overflow");
+        assert_eq!(models[2].context_window, None);
+    }
 }

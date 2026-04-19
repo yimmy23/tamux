@@ -921,6 +921,14 @@ impl TuiModel {
         self.thread_agent_activity.clear();
     }
 
+    fn clear_matching_agent_activity(&mut self, target: &str) {
+        if self.agent_activity.as_deref() == Some(target) {
+            self.agent_activity = None;
+        }
+        self.thread_agent_activity
+            .retain(|_, activity| activity != target);
+    }
+
     fn assistant_busy(&self) -> bool {
         self.chat.is_streaming() || self.current_thread_agent_activity().is_some()
     }

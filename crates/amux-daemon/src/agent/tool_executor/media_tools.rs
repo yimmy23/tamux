@@ -7,6 +7,7 @@ const DEFAULT_IMAGE_GENERATION_MODEL: &str = "gpt-image-1";
 const DEFAULT_STT_MODEL: &str = "whisper-1";
 const DEFAULT_TTS_MODEL: &str = "gpt-4o-mini-tts";
 const DEFAULT_TTS_VOICE: &str = "alloy";
+const DEFAULT_XAI_TTS_VOICE: &str = "eve";
 const DEFAULT_IMAGE_OUTPUT_FORMAT: &str = "png";
 const DEFAULT_TTS_OUTPUT_FORMAT: &str = "mp3";
 
@@ -25,6 +26,18 @@ enum AudioToolRoute {
     OpenAiCompatibleDirect,
     ProviderMultimodalCompletion,
     OpenRouterTts,
+    XaiStt,
+    XaiTts,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum OrderedMultipartField {
+    Text { name: String, value: String },
+    File {
+        name: String,
+        filename: String,
+        mime_type: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -511,6 +524,13 @@ fn audio_tool_route(
     provider_id: &str,
     audio_tool_kind: amux_shared::providers::AudioToolKind,
 ) -> AudioToolRoute {
+    if provider_id == amux_shared::providers::PROVIDER_ID_XAI {
+        return match audio_tool_kind {
+            amux_shared::providers::AudioToolKind::SpeechToText => AudioToolRoute::XaiStt,
+            amux_shared::providers::AudioToolKind::TextToSpeech => AudioToolRoute::XaiTts,
+        };
+    }
+
     if provider_id == amux_shared::providers::PROVIDER_ID_OPENROUTER {
         return match audio_tool_kind {
             amux_shared::providers::AudioToolKind::SpeechToText => {
@@ -544,6 +564,200 @@ fn resolve_audio_tool_route(
         ensure_openai_like_media_endpoint(provider_id, provider_config)?;
     }
     Ok(route)
+}
+
+fn stt_endpoint_for_route(base_url: &str, route: AudioToolRoute) -> String {
+    match route {
+        AudioToolRoute::XaiStt => openai_like_endpoint(base_url, "stt"),
+        _ => openai_like_endpoint(base_url, "audio/transcriptions"),
+    }
+}
+
+fn tts_endpoint_for_route(base_url: &str, route: AudioToolRoute) -> String {
+    match route {
+        AudioToolRoute::OpenRouterTts | AudioToolRoute::XaiTts => {
+            openai_like_endpoint(base_url, "tts")
+        }
+        _ => openai_like_endpoint(base_url, "audio/speech"),
+    }
+}
+
+fn push_nonempty_text_field(
+    fields: &mut Vec<OrderedMultipartField>,
+    name: &str,
+    value: Option<&str>,
+) {
+    if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
+        fields.push(OrderedMultipartField::Text {
+            name: name.to_string(),
+            value: value.to_string(),
+        });
+    }
+}
+
+fn build_xai_stt_multipart_fields(
+    args: &serde_json::Value,
+    filename: &str,
+    mime_type: &str,
+) -> Vec<OrderedMultipartField> {
+    let mut fields = Vec::new();
+    push_nonempty_text_field(
+        &mut fields,
+        "language",
+        args.get("language").and_then(|value| value.as_str()),
+    );
+    push_nonempty_text_field(
+        &mut fields,
+        "format",
+        args.get("format").map(|value| match value {
+            serde_json::Value::Bool(boolean) => boolean.to_string(),
+            serde_json::Value::String(string) => string.trim().to_string(),
+            _ => String::new(),
+        }).as_deref(),
+    );
+    push_nonempty_text_field(
+        &mut fields,
+        "audio_format",
+        args.get("audio_format").and_then(|value| value.as_str()),
+    );
+    push_nonempty_text_field(
+        &mut fields,
+        "sample_rate",
+        args.get("sample_rate").map(|value| value.to_string()).as_deref(),
+    );
+    push_nonempty_text_field(
+        &mut fields,
+        "multichannel",
+        args.get("multichannel").map(|value| value.to_string()).as_deref(),
+    );
+    push_nonempty_text_field(
+        &mut fields,
+        "channels",
+        args.get("channels").map(|value| value.to_string()).as_deref(),
+    );
+    push_nonempty_text_field(
+        &mut fields,
+        "diarize",
+        args.get("diarize").map(|value| value.to_string()).as_deref(),
+    );
+    fields.push(OrderedMultipartField::File {
+        name: "file".to_string(),
+        filename: filename.to_string(),
+        mime_type: mime_type.to_string(),
+    });
+    fields
+}
+
+fn ordered_fields_to_multipart_form(
+    fields: &[OrderedMultipartField],
+    bytes: &[u8],
+) -> Result<reqwest::multipart::Form> {
+    let mut form = reqwest::multipart::Form::new();
+    for field in fields {
+        match field {
+            OrderedMultipartField::Text { name, value } => {
+                form = form.text(name.clone(), value.clone());
+            }
+            OrderedMultipartField::File {
+                name,
+                filename,
+                mime_type,
+            } => {
+                let part = reqwest::multipart::Part::bytes(bytes.to_vec())
+                    .file_name(filename.clone())
+                    .mime_str(mime_type)?;
+                form = form.part(name.clone(), part);
+            }
+        }
+    }
+    Ok(form)
+}
+
+fn xai_tts_voice(args: &serde_json::Value) -> &str {
+    args.get("voice")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_XAI_TTS_VOICE)
+}
+
+fn build_xai_tts_body(
+    args: &serde_json::Value,
+    input: &str,
+) -> Result<serde_json::Value> {
+    let language = args
+        .get("language")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("xAI text_to_speech requires a non-empty 'language' argument"))?;
+    let mut body = serde_json::json!({
+        "text": input,
+        "voice_id": xai_tts_voice(args),
+        "language": language,
+    });
+
+    let mut output_format = serde_json::Map::new();
+    let codec = args
+        .get("response_format")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_TTS_OUTPUT_FORMAT);
+    output_format.insert(
+        "codec".to_string(),
+        serde_json::Value::String(codec.to_string()),
+    );
+    if let Some(sample_rate) = args.get("sample_rate") {
+        output_format.insert("sample_rate".to_string(), sample_rate.clone());
+    }
+    if let Some(bit_rate) = args.get("bit_rate") {
+        output_format.insert("bit_rate".to_string(), bit_rate.clone());
+    }
+    if !output_format.is_empty() {
+        body["output_format"] = serde_json::Value::Object(output_format);
+    }
+    Ok(body)
+}
+
+fn format_speech_to_text_response(
+    route: AudioToolRoute,
+    response_format: &str,
+    parsed: &serde_json::Value,
+) -> Result<String> {
+    if response_format == "text" {
+        let transcript = parsed
+            .get("text")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("speech_to_text returned no transcription text"))?;
+        return Ok(transcript.to_string());
+    }
+
+    match route {
+        AudioToolRoute::XaiStt => Ok(serde_json::to_string_pretty(parsed)?),
+        _ => {
+            if let Some(text) = parsed.get("text").and_then(|value| value.as_str()) {
+                Ok(text.to_string())
+            } else {
+                Ok(serde_json::to_string_pretty(parsed)?)
+            }
+        }
+    }
+}
+
+fn output_mime_type_for_codec(codec: &str) -> &'static str {
+    match codec {
+        "pcm" => "audio/L16",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "flac" => "audio/flac",
+        "aac" | "m4a" => "audio/mp4",
+        "mulaw" => "audio/basic",
+        "alaw" => "audio/alaw",
+        _ => "audio/mpeg",
+    }
 }
 
 fn build_audio_transcription_prompt(language: Option<&str>, prompt: Option<&str>) -> String {
@@ -986,36 +1200,41 @@ async fn execute_speech_to_text(
         .await;
     }
 
-    let url = openai_like_endpoint(&provider_config.base_url, "audio/transcriptions");
-    let file_part = reqwest::multipart::Part::bytes(bytes)
-        .file_name(filename)
-        .mime_str(&mime_type)?;
-    let mut form = reqwest::multipart::Form::new()
-        .part("file", file_part)
-        .text("model", provider_config.model.clone());
-    if let Some(language) = args
-        .get("language")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        form = form.text("language", language.to_string());
-    }
-    if let Some(prompt) = args
-        .get("prompt")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        form = form.text("prompt", prompt.to_string());
-    }
+    let url = stt_endpoint_for_route(&provider_config.base_url, route);
     let response_format = args
         .get("response_format")
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("json");
-    form = form.text("response_format", response_format.to_string());
+    let form = if route == AudioToolRoute::XaiStt {
+        let fields = build_xai_stt_multipart_fields(args, &filename, &mime_type);
+        ordered_fields_to_multipart_form(&fields, &bytes)?
+    } else {
+        let file_part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(filename)
+            .mime_str(&mime_type)?;
+        let mut form = reqwest::multipart::Form::new()
+            .part("file", file_part)
+            .text("model", provider_config.model.clone());
+        if let Some(language) = args
+            .get("language")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            form = form.text("language", language.to_string());
+        }
+        if let Some(prompt) = args
+            .get("prompt")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            form = form.text("prompt", prompt.to_string());
+        }
+        form.text("response_format", response_format.to_string())
+    };
 
     let request = apply_media_auth_headers(http_client.post(&url), &provider_id, &provider_config)?;
     let response = request.multipart(form).send().await?;
@@ -1026,16 +1245,13 @@ async fn execute_speech_to_text(
     }
 
     let body = response.text().await?;
-    if response_format == "text" {
+    if route != AudioToolRoute::XaiStt && response_format == "text" {
         return Ok(body);
     }
 
     let parsed: serde_json::Value = serde_json::from_str(&body)
         .map_err(|error| anyhow::anyhow!("speech_to_text returned invalid JSON: {error}"))?;
-    if let Some(text) = parsed.get("text").and_then(|value| value.as_str()) {
-        return Ok(text.to_string());
-    }
-    Ok(serde_json::to_string_pretty(&parsed)?)
+    format_speech_to_text_response(route, response_format, &parsed)
 }
 
 async fn execute_text_to_speech(
@@ -1057,28 +1273,32 @@ async fn execute_text_to_speech(
         amux_shared::providers::AudioToolKind::TextToSpeech,
     )?;
 
-    let voice = args
-        .get("voice")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(DEFAULT_TTS_VOICE);
+    let voice = if route == AudioToolRoute::XaiTts {
+        xai_tts_voice(args)
+    } else {
+        args.get("voice")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(DEFAULT_TTS_VOICE)
+    };
     let output_format = args
         .get("response_format")
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_TTS_OUTPUT_FORMAT);
-    let url = match route {
-        AudioToolRoute::OpenRouterTts => openai_like_endpoint(&provider_config.base_url, "tts"),
-        _ => openai_like_endpoint(&provider_config.base_url, "audio/speech"),
+    let url = tts_endpoint_for_route(&provider_config.base_url, route);
+    let body = if route == AudioToolRoute::XaiTts {
+        build_xai_tts_body(args, input)?
+    } else {
+        serde_json::json!({
+            "model": provider_config.model,
+            "input": input,
+            "voice": voice,
+            "response_format": output_format,
+        })
     };
-    let body = serde_json::json!({
-        "model": provider_config.model,
-        "input": input,
-        "voice": voice,
-        "response_format": output_format,
-    });
 
     let request = apply_media_auth_headers(http_client.post(&url), &provider_id, &provider_config)?;
     let response = request.json(&body).send().await?;
@@ -1089,14 +1309,7 @@ async fn execute_text_to_speech(
     }
 
     let bytes = response.bytes().await?;
-    let mime_type = match output_format {
-        "pcm" => "audio/L16",
-        "wav" => "audio/wav",
-        "ogg" => "audio/ogg",
-        "flac" => "audio/flac",
-        "aac" | "m4a" => "audio/mp4",
-        _ => "audio/mpeg",
-    };
+    let mime_type = output_mime_type_for_codec(output_format);
     let extension = file_extension_for_generated_mime(mime_type, output_format);
     let output_path = temp_output_path("speech", &extension);
     tokio::fs::write(&output_path, &bytes).await?;
@@ -1184,6 +1397,181 @@ mod media_tools_tests {
         assert_eq!(blocks[1]["type"], "input_audio");
         assert_eq!(blocks[1]["input_audio"]["format"], "wav");
         assert_eq!(blocks[1]["input_audio"]["data"], "UklGRg==");
+    }
+
+    #[test]
+    fn xai_speech_to_text_uses_xai_stt_route_and_endpoint() {
+        let route = audio_tool_route(
+            amux_shared::providers::PROVIDER_ID_XAI,
+            amux_shared::providers::AudioToolKind::SpeechToText,
+        );
+        assert_eq!(route, AudioToolRoute::XaiStt);
+        assert_eq!(
+            stt_endpoint_for_route("https://api.x.ai/v1", route),
+            "https://api.x.ai/v1/stt"
+        );
+    }
+
+    #[test]
+    fn xai_text_to_speech_uses_xai_tts_route_and_endpoint() {
+        let route = audio_tool_route(
+            amux_shared::providers::PROVIDER_ID_XAI,
+            amux_shared::providers::AudioToolKind::TextToSpeech,
+        );
+        assert_eq!(route, AudioToolRoute::XaiTts);
+        assert_eq!(
+            tts_endpoint_for_route("https://api.x.ai/v1", route),
+            "https://api.x.ai/v1/tts"
+        );
+    }
+
+    #[test]
+    fn xai_stt_multipart_fields_append_file_last() {
+        let fields = build_xai_stt_multipart_fields(
+            &serde_json::json!({
+                "language": "en",
+                "format": true,
+                "audio_format": "wav",
+                "sample_rate": 16000,
+                "multichannel": false,
+                "channels": 1,
+                "diarize": true
+            }),
+            "clip.wav",
+            "audio/wav",
+        );
+
+        assert_eq!(
+            fields,
+            vec![
+                OrderedMultipartField::Text {
+                    name: "language".to_string(),
+                    value: "en".to_string()
+                },
+                OrderedMultipartField::Text {
+                    name: "format".to_string(),
+                    value: "true".to_string()
+                },
+                OrderedMultipartField::Text {
+                    name: "audio_format".to_string(),
+                    value: "wav".to_string()
+                },
+                OrderedMultipartField::Text {
+                    name: "sample_rate".to_string(),
+                    value: "16000".to_string()
+                },
+                OrderedMultipartField::Text {
+                    name: "multichannel".to_string(),
+                    value: "false".to_string()
+                },
+                OrderedMultipartField::Text {
+                    name: "channels".to_string(),
+                    value: "1".to_string()
+                },
+                OrderedMultipartField::Text {
+                    name: "diarize".to_string(),
+                    value: "true".to_string()
+                },
+                OrderedMultipartField::File {
+                    name: "file".to_string(),
+                    filename: "clip.wav".to_string(),
+                    mime_type: "audio/wav".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn xai_tts_body_maps_input_voice_language_and_output_format() {
+        let body = build_xai_tts_body(
+            &serde_json::json!({
+                "input": "Hello from tamux",
+                "voice": "nova",
+                "language": "pl",
+                "response_format": "wav",
+                "sample_rate": 24000,
+                "bit_rate": 128000
+            }),
+            "Hello from tamux",
+        )
+        .expect("xai body should build");
+
+        assert_eq!(body["text"], "Hello from tamux");
+        assert_eq!(body["voice_id"], "nova");
+        assert_eq!(body["language"], "pl");
+        assert_eq!(body["output_format"]["codec"], "wav");
+        assert_eq!(body["output_format"]["sample_rate"], 24000);
+        assert_eq!(body["output_format"]["bit_rate"], 128000);
+        assert!(body.get("model").is_none());
+    }
+
+    #[test]
+    fn xai_tts_body_includes_default_mp3_codec_when_response_format_is_omitted() {
+        let body = build_xai_tts_body(
+            &serde_json::json!({
+                "input": "Hello from tamux",
+                "language": "en"
+            }),
+            "Hello from tamux",
+        )
+        .expect("xai body should build");
+
+        assert_eq!(body["output_format"]["codec"], "mp3");
+    }
+
+    #[test]
+    fn xai_tts_body_requires_language() {
+        let error = build_xai_tts_body(
+            &serde_json::json!({
+                "input": "Hello from tamux"
+            }),
+            "Hello from tamux",
+        )
+        .expect_err("xai body should reject missing language");
+
+        assert!(error.to_string().contains("requires a non-empty 'language' argument"));
+    }
+
+    #[test]
+    fn xai_stt_formats_json_response_according_to_daemon_contract() {
+        let payload = serde_json::json!({
+            "text": "hello world",
+            "duration": 1.23
+        });
+
+        assert_eq!(
+            format_speech_to_text_response(AudioToolRoute::XaiStt, "text", &payload)
+                .expect("xai text contract should parse"),
+            "hello world"
+        );
+        assert_eq!(
+            format_speech_to_text_response(AudioToolRoute::XaiStt, "json", &payload)
+                .expect("xai json contract should pretty-print transcript payload"),
+            serde_json::to_string_pretty(&payload).expect("payload should serialize")
+        );
+    }
+
+    #[test]
+    fn direct_provider_stt_text_contract_still_returns_plain_text_body() {
+        let payload = serde_json::json!({
+            "text": "hello world"
+        });
+
+        assert_eq!(
+            format_speech_to_text_response(
+                AudioToolRoute::OpenAiCompatibleDirect,
+                "text",
+                &payload
+            )
+            .expect("text contract should extract transcript"),
+            "hello world"
+        );
+    }
+
+    #[test]
+    fn telephony_codecs_map_to_correct_tts_mime_types() {
+        assert_eq!(output_mime_type_for_codec("mulaw"), "audio/basic");
+        assert_eq!(output_mime_type_for_codec("alaw"), "audio/alaw");
     }
 
     #[tokio::test]
