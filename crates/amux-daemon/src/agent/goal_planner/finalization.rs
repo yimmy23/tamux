@@ -63,6 +63,12 @@ impl AgentEngine {
                 goal_run.total_completion_tokens = summary.total_completion_tokens;
                 goal_run.estimated_cost_usd = summary.estimated_cost_usd;
             }
+            super::goal_dossier::set_goal_report(
+                goal_run,
+                GoalProjectionState::Completed,
+                reflection.summary.clone(),
+                Vec::new(),
+            );
             goal_run.authorship_tag = Some(super::authorship::classify_authorship(true, true));
             goal_run.events.push(make_goal_run_event(
                 "reflection",
@@ -163,6 +169,32 @@ impl AgentEngine {
                     goal_run.total_completion_tokens = summary.total_completion_tokens;
                     goal_run.estimated_cost_usd = summary.estimated_cost_usd;
                 }
+                if let Some(step_id) = goal_run
+                    .steps
+                    .get(goal_run.current_step_index)
+                    .map(|step| step.id.clone())
+                {
+                    super::goal_dossier::set_goal_unit_report(
+                        goal_run,
+                        &step_id,
+                        GoalProjectionState::Failed,
+                        error.to_string(),
+                        vec![format!("failure phase: {phase}")],
+                    );
+                }
+                super::goal_dossier::set_goal_report(
+                    goal_run,
+                    GoalProjectionState::Failed,
+                    error.to_string(),
+                    vec![format!("failure phase: {phase}")],
+                );
+                super::goal_dossier::set_goal_resume_decision(
+                    goal_run,
+                    GoalResumeAction::Stop,
+                    "goal_failed",
+                    Some(error.to_string()),
+                    vec![format!("failure phase: {phase}")],
+                );
                 goal_run.events.push(make_goal_run_event(
                     phase,
                     "goal run failed",

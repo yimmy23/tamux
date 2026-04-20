@@ -130,12 +130,16 @@ impl AgentEngine {
             if let Some(thread_id) = task.thread_id.clone() {
                 goal_run.thread_id = Some(thread_id);
             }
+            let mut completed_step_id = None;
+            let mut completed_summary = None;
             if let Some(step) = goal_run.steps.get_mut(goal_run.current_step_index) {
                 step.status = GoalRunStepStatus::Completed;
                 step.completed_at = Some(now);
                 step.summary = thread_summary
                     .clone()
                     .or_else(|| Some("step completed".into()));
+                completed_step_id = Some(step.id.clone());
+                completed_summary = step.summary.clone();
             }
             goal_run.current_step_index = goal_run.current_step_index.saturating_add(1);
             let next_step = goal_run.steps.get(goal_run.current_step_index);
@@ -152,6 +156,22 @@ impl AgentEngine {
                 "goal step completed",
                 thread_summary.clone(),
             ));
+            if let Some(step_id) = completed_step_id.as_deref() {
+                super::goal_dossier::set_goal_unit_report(
+                    goal_run,
+                    step_id,
+                    GoalProjectionState::Completed,
+                    completed_summary.unwrap_or_else(|| "step completed".to_string()),
+                    Vec::new(),
+                );
+            }
+            super::goal_dossier::set_goal_resume_decision(
+                goal_run,
+                GoalResumeAction::Advance,
+                "step_completed",
+                Some("goal step completed successfully".to_string()),
+                Vec::new(),
+            );
             goal_run.clone()
         };
 
@@ -324,6 +344,23 @@ impl AgentEngine {
                     "goal plan revised after failed step",
                     Some(failure.clone()),
                 ));
+                if insert_at > 0 {
+                    let failed_step_id = goal_run.steps[insert_at - 1].id.clone();
+                    super::goal_dossier::set_goal_unit_report(
+                        goal_run,
+                        &failed_step_id,
+                        GoalProjectionState::Failed,
+                        failure.clone(),
+                        vec!["step failed and triggered a replan".to_string()],
+                    );
+                }
+                super::goal_dossier::set_goal_resume_decision(
+                    goal_run,
+                    GoalResumeAction::Replan,
+                    "step_failed_replan",
+                    Some(failure.clone()),
+                    vec![format!("replan_count={}", goal_run.replan_count)],
+                );
                 goal_run.clone()
             };
             self.persist_goal_runs().await;

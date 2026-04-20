@@ -57,6 +57,118 @@ fn default_unit_from_step(step: &GoalRunStep) -> GoalDeliveryUnit {
     }
 }
 
+fn goal_role_binding_label(binding: &GoalRoleBinding) -> String {
+    match binding {
+        GoalRoleBinding::Builtin(value) => format!("builtin:{value}"),
+        GoalRoleBinding::Subagent(value) => format!("subagent:{value}"),
+    }
+}
+
+fn ensure_dossier_unit<'a>(
+    goal_run: &'a mut GoalRun,
+    step_id: &str,
+) -> Option<&'a mut GoalDeliveryUnit> {
+    let step = goal_run
+        .steps
+        .iter()
+        .find(|step| step.id == step_id)
+        .cloned()?;
+    let projection_state = projection_state_for_goal_run(goal_run);
+    let summary = summary_for_goal_run(goal_run);
+    let dossier = goal_run.dossier.get_or_insert_with(|| GoalRunDossier {
+        projection_state,
+        summary: Some(summary),
+        ..Default::default()
+    });
+
+    if !dossier.units.iter().any(|unit| unit.id == step_id) {
+        dossier.units.push(default_unit_from_step(&step));
+    }
+
+    dossier.units.iter_mut().find(|unit| unit.id == step_id)
+}
+
+pub(super) fn set_goal_resume_decision(
+    goal_run: &mut GoalRun,
+    action: GoalResumeAction,
+    reason_code: impl Into<String>,
+    reason: Option<String>,
+    details: Vec<String>,
+) {
+    let projection_state = projection_state_for_goal_run(goal_run);
+    let summary = summary_for_goal_run(goal_run);
+    let dossier = goal_run.dossier.get_or_insert_with(|| GoalRunDossier {
+        projection_state,
+        summary: Some(summary),
+        ..Default::default()
+    });
+    dossier.latest_resume_decision = Some(GoalResumeDecision {
+        action,
+        reason_code: reason_code.into(),
+        reason,
+        details,
+        decided_at: Some(now_millis()),
+        projection_state,
+    });
+}
+
+pub(super) fn set_goal_report(
+    goal_run: &mut GoalRun,
+    state: GoalProjectionState,
+    summary: impl Into<String>,
+    notes: Vec<String>,
+) {
+    let projection_state = projection_state_for_goal_run(goal_run);
+    let dossier_summary = summary_for_goal_run(goal_run);
+    let dossier = goal_run.dossier.get_or_insert_with(|| GoalRunDossier {
+        projection_state,
+        summary: Some(dossier_summary),
+        ..Default::default()
+    });
+    dossier.report = Some(GoalRunReport {
+        summary: summary.into(),
+        state,
+        notes,
+        evidence: Vec::new(),
+        proof_checks: Vec::new(),
+        generated_at: Some(now_millis()),
+    });
+}
+
+pub(super) fn set_goal_unit_report(
+    goal_run: &mut GoalRun,
+    step_id: &str,
+    state: GoalProjectionState,
+    summary: impl Into<String>,
+    mut notes: Vec<String>,
+) {
+    let Some(unit) = ensure_dossier_unit(goal_run, step_id) else {
+        return;
+    };
+    let execution_binding = format!(
+        "execution binding: {}",
+        goal_role_binding_label(&unit.execution_binding)
+    );
+    if !notes.iter().any(|note| note == &execution_binding) {
+        notes.push(execution_binding);
+    }
+    let verification_binding = format!(
+        "verification binding: {}",
+        goal_role_binding_label(&unit.verification_binding)
+    );
+    if !notes.iter().any(|note| note == &verification_binding) {
+        notes.push(verification_binding);
+    }
+    unit.report = Some(GoalRunReport {
+        summary: summary.into(),
+        state,
+        notes,
+        evidence: unit.evidence.clone(),
+        proof_checks: unit.proof_checks.clone(),
+        generated_at: Some(now_millis()),
+    });
+}
+
 pub(super) fn refresh_goal_run_dossier(goal_run: &mut GoalRun) {
     let mut dossier = goal_run.dossier.clone().unwrap_or_default();
     let existing_units = dossier

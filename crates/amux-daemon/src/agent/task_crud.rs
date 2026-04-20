@@ -1175,18 +1175,19 @@ impl AgentEngine {
                         goal_run.completed_at = Some(stopped_at);
                         goal_run.updated_at = stopped_at;
                         goal_run.stopped_reason = Some("operator_stop".to_string());
-                        let mut dossier = goal_run.dossier.clone().unwrap_or_default();
-                        dossier.latest_resume_decision = Some(GoalResumeDecision {
-                            action: GoalResumeAction::Stop,
-                            reason_code: "operator_stop".to_string(),
-                            reason: Some("goal run explicitly stopped by operator".to_string()),
-                            details: vec![
-                                "stop requested through built-in goal control".to_string()
-                            ],
-                            decided_at: Some(stopped_at),
-                            projection_state: GoalProjectionState::Failed,
-                        });
-                        goal_run.dossier = Some(dossier);
+                        super::goal_dossier::set_goal_resume_decision(
+                            goal_run,
+                            GoalResumeAction::Stop,
+                            "operator_stop",
+                            Some("goal run explicitly stopped by operator".to_string()),
+                            vec!["stop requested through built-in goal control".to_string()],
+                        );
+                        super::goal_dossier::set_goal_report(
+                            goal_run,
+                            GoalProjectionState::Failed,
+                            "goal run explicitly stopped by operator",
+                            vec!["reason_code: operator_stop".to_string()],
+                        );
                         goal_run.events.push(make_goal_run_event(
                             "control",
                             "goal run stopped",

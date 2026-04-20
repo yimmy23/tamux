@@ -160,6 +160,38 @@ async fn fail_goal_run_settles_unresolved_goal_replan_trace() {
         )
         .await;
 
+    let failed_goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("failed goal should still exist");
+    let dossier = failed_goal
+        .dossier
+        .expect("failed goal should persist dossier report");
+    assert_eq!(
+        dossier
+            .report
+            .as_ref()
+            .expect("failed goal should capture goal report")
+            .state,
+        GoalProjectionState::Failed
+    );
+    assert_eq!(
+        dossier
+            .latest_resume_decision
+            .as_ref()
+            .expect("failed goal should record terminal decision")
+            .action,
+        GoalResumeAction::Stop
+    );
+    assert_eq!(
+        dossier
+            .latest_resume_decision
+            .as_ref()
+            .expect("failed goal should record reason code")
+            .reason_code,
+        "goal_failed"
+    );
+
     let records = engine
         .history
         .list_recent_causal_trace_records("goal_replan", 1)
@@ -318,6 +350,129 @@ fn sample_goal_run_with_kind(
         autonomy_level: super::autonomy::AutonomyLevel::Aware,
         authorship_tag: None,
     }
+}
+
+#[tokio::test]
+async fn handle_goal_run_step_completion_records_dossier_report_and_advance_decision() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-completion-dossier";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Run the build and continue",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-step-complete".to_string());
+    goal_run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "verify artifacts".to_string(),
+        kind: GoalRunStepKind::Research,
+        success_criteria: "artifacts verified".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let completed_task = AgentTask {
+        id: "task-step-complete".to_string(),
+        title: "complete step".to_string(),
+        description: "complete step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: None,
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_task)
+        .await
+        .expect("step completion should succeed");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    let dossier = updated
+        .dossier
+        .expect("completion should create dossier state");
+    assert_eq!(
+        dossier
+            .latest_resume_decision
+            .as_ref()
+            .expect("completion should record latest resume decision")
+            .action,
+        GoalResumeAction::Advance
+    );
+    assert_eq!(
+        dossier
+            .latest_resume_decision
+            .as_ref()
+            .expect("completion should record reason code")
+            .reason_code,
+        "step_completed"
+    );
+    assert_eq!(
+        dossier.units[0]
+            .report
+            .as_ref()
+            .expect("completed unit should have a report")
+            .state,
+        GoalProjectionState::Completed
+    );
 }
 
 #[tokio::test]
@@ -511,6 +666,25 @@ async fn handle_goal_run_step_failure_surfaces_strained_replan_summary_guidance(
     assert!(summary.contains("Conservative execution mode:"));
     assert!(summary.contains("prefer proven tools"));
     assert!(summary.contains("keep iteration bounds short"));
+    let dossier = updated
+        .dossier
+        .expect("replan should preserve dossier state");
+    assert_eq!(
+        dossier
+            .latest_resume_decision
+            .as_ref()
+            .expect("replan should record resume decision")
+            .action,
+        GoalResumeAction::Replan
+    );
+    assert_eq!(
+        dossier.units[0]
+            .report
+            .as_ref()
+            .expect("failed unit should capture a report")
+            .state,
+        GoalProjectionState::Failed
+    );
 }
 
 #[tokio::test]
