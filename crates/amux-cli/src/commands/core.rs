@@ -225,6 +225,9 @@ fn format_goal_detail_output(
     rendered.push_str(&format!("Goal:    {}\n", goal.goal));
     rendered.push_str(&format!("Status:  {}\n", goal.status));
     rendered.push_str(&format!("Priority: {}\n", priority));
+    if let Some(stopped_reason) = goal.stopped_reason.as_deref() {
+        rendered.push_str(&format!("Stopped: {}\n", stopped_reason));
+    }
     if let Some(thread_id) = goal.thread_id.as_deref() {
         rendered.push_str(&format!("Thread:  {}\n", thread_id));
     }
@@ -237,6 +240,12 @@ fn format_goal_detail_output(
     ));
     if let Some(step_title) = goal.current_step_title.as_deref() {
         rendered.push_str(&format!("Current: {}\n", step_title));
+    }
+    if let Some(dossier) = goal.dossier.as_ref() {
+        rendered.push_str(&format!("Projection: {}\n", dossier.projection_state));
+        if let Some(summary) = dossier.summary.as_deref() {
+            rendered.push_str(&format!("Dossier: {}\n", summary));
+        }
     }
 
     rendered.push_str("Steps:\n");
@@ -269,11 +278,186 @@ fn format_goal_detail_output(
     Ok(rendered)
 }
 
+fn format_goal_dossier_output(
+    goal: Option<&client::AgentGoalRunRecord>,
+    json: bool,
+) -> Result<String> {
+    if json {
+        return serde_json::to_string_pretty(&goal.and_then(|goal| goal.dossier.as_ref()))
+            .map_err(Into::into);
+    }
+
+    let Some(goal) = goal else {
+        return Ok("Goal not found.".to_string());
+    };
+    let Some(dossier) = goal.dossier.as_ref() else {
+        return Ok("Goal dossier unavailable.".to_string());
+    };
+
+    let mut rendered = String::from("Goal Dossier\n============\n");
+    rendered.push_str(&format!("ID:         {}\n", goal.id));
+    rendered.push_str(&format!("Projection: {}\n", dossier.projection_state));
+    if let Some(summary) = dossier.summary.as_deref() {
+        rendered.push_str(&format!("Summary:    {}\n", summary));
+    }
+    if let Some(error) = dossier.projection_error.as_deref() {
+        rendered.push_str(&format!("Error:      {}\n", error));
+    }
+    if let Some(decision) = dossier.latest_resume_decision.as_ref() {
+        rendered.push_str(&format!(
+            "Latest Decision: {} [{}] {}\n",
+            decision.action, decision.projection_state, decision.reason_code
+        ));
+    }
+
+    rendered.push_str("\nUnits:\n");
+    if dossier.units.is_empty() {
+        rendered.push_str("  (none)");
+        return Ok(rendered);
+    }
+
+    for unit in &dossier.units {
+        rendered.push_str(&format!("  - {} [{}]\n", unit.title, unit.status));
+        rendered.push_str(&format!("    execution: {}\n", unit.execution_binding));
+        rendered.push_str(&format!(
+            "    verification: {}\n",
+            unit.verification_binding
+        ));
+        if let Some(summary) = unit.summary.as_deref() {
+            rendered.push_str(&format!("    summary: {}\n", summary));
+        }
+        if !unit.proof_checks.is_empty() {
+            rendered.push_str(&format!("    proof checks: {}\n", unit.proof_checks.len()));
+        }
+    }
+
+    Ok(rendered.trim_end().to_string())
+}
+
+fn format_goal_proof_output(
+    goal: Option<&client::AgentGoalRunRecord>,
+    json: bool,
+) -> Result<String> {
+    if json {
+        let proof = goal.and_then(|goal| goal.dossier.as_ref()).map(|dossier| {
+            dossier
+                .units
+                .iter()
+                .map(|unit| {
+                    serde_json::json!({
+                        "unit_id": unit.id,
+                        "unit_title": unit.title,
+                        "proof_checks": unit.proof_checks,
+                        "evidence": unit.evidence,
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        return serde_json::to_string_pretty(&proof).map_err(Into::into);
+    }
+
+    let Some(goal) = goal else {
+        return Ok("Goal not found.".to_string());
+    };
+    let Some(dossier) = goal.dossier.as_ref() else {
+        return Ok("Goal proof unavailable.".to_string());
+    };
+
+    let mut rendered = String::from("Goal Proof\n==========\n");
+    rendered.push_str(&format!("ID: {}\n", goal.id));
+
+    let mut has_any = false;
+    for unit in &dossier.units {
+        if unit.proof_checks.is_empty() && unit.evidence.is_empty() {
+            continue;
+        }
+        has_any = true;
+        rendered.push_str(&format!("\n{} ({})\n", unit.title, unit.id));
+        for check in &unit.proof_checks {
+            rendered.push_str(&format!(
+                "  - {} [{}] {}\n",
+                check.id, check.state, check.title
+            ));
+        }
+        for evidence in &unit.evidence {
+            rendered.push_str(&format!("    evidence: {}", evidence.title));
+            if let Some(summary) = evidence.summary.as_deref() {
+                rendered.push_str(&format!(" - {}", summary));
+            }
+            rendered.push('\n');
+        }
+    }
+
+    if !has_any {
+        rendered.push_str("\n(no proof checks or evidence)");
+    }
+
+    Ok(rendered.trim_end().to_string())
+}
+
+fn format_goal_reports_output(
+    goal: Option<&client::AgentGoalRunRecord>,
+    json: bool,
+) -> Result<String> {
+    if json {
+        let reports = goal.and_then(|goal| goal.dossier.as_ref()).map(|dossier| {
+            serde_json::json!({
+                "goal_report": dossier.report,
+                "unit_reports": dossier.units.iter().filter_map(|unit| {
+                    unit.report.as_ref().map(|report| serde_json::json!({
+                        "unit_id": unit.id,
+                        "unit_title": unit.title,
+                        "report": report,
+                    }))
+                }).collect::<Vec<_>>(),
+            })
+        });
+        return serde_json::to_string_pretty(&reports).map_err(Into::into);
+    }
+
+    let Some(goal) = goal else {
+        return Ok("Goal not found.".to_string());
+    };
+    let Some(dossier) = goal.dossier.as_ref() else {
+        return Ok("Goal reports unavailable.".to_string());
+    };
+
+    let mut rendered = String::from("Goal Reports\n============\n");
+    rendered.push_str(&format!("ID: {}\n", goal.id));
+    if let Some(report) = dossier.report.as_ref() {
+        rendered.push_str(&format!(
+            "Goal Report [{}]: {}\n",
+            report.state, report.summary
+        ));
+    }
+
+    let mut has_unit_reports = false;
+    for unit in &dossier.units {
+        let Some(report) = unit.report.as_ref() else {
+            continue;
+        };
+        if !has_unit_reports {
+            rendered.push_str("\nUnit Reports:\n");
+            has_unit_reports = true;
+        }
+        rendered.push_str(&format!(
+            "  - {} [{}]: {}\n",
+            unit.title, report.state, report.summary
+        ));
+    }
+
+    if dossier.report.is_none() && !has_unit_reports {
+        rendered.push_str("No reports recorded.");
+    }
+
+    Ok(rendered.trim_end().to_string())
+}
+
 fn format_goal_control_output(goal_run_id: &str, action: &str, ok: bool) -> String {
     match action {
         "stop" => {
             if ok {
-                format!("Paused goal {}.", goal_run_id)
+                format!("Stopped goal {}.", goal_run_id)
             } else {
                 format!("Goal {} was not stoppable.", goal_run_id)
             }
@@ -521,15 +705,18 @@ pub(crate) async fn run_default() -> Result<()> {
 mod tests {
     use super::{
         default_startup_action, format_direct_message_output, format_goal_control_output,
-        format_goal_delete_output, format_goal_detail_output, format_goal_list_output,
+        format_goal_delete_output, format_goal_detail_output, format_goal_dossier_output,
+        format_goal_list_output, format_goal_proof_output, format_goal_reports_output,
         format_operation_status_output, format_prompt_output, format_status_output,
         format_thread_control_output, format_thread_delete_output, format_thread_detail_output,
         format_thread_list_output, DefaultStartupAction,
     };
     use crate::client::{
-        AgentGoalRunEventRecord, AgentGoalRunRecord, AgentGoalRunStepRecord, AgentPromptInspection,
-        AgentPromptInspectionSection, AgentStatusSnapshot, AgentThreadMessageRecord,
-        AgentThreadRecord, DirectMessageResponse,
+        AgentGoalDeliveryUnitRecord, AgentGoalEvidenceRecord, AgentGoalProofCheckRecord,
+        AgentGoalResumeDecisionRecord, AgentGoalRunDossierRecord, AgentGoalRunEventRecord,
+        AgentGoalRunRecord, AgentGoalRunReportRecord, AgentGoalRunStepRecord,
+        AgentPromptInspection, AgentPromptInspectionSection, AgentStatusSnapshot,
+        AgentThreadMessageRecord, AgentThreadRecord, DirectMessageResponse,
     };
     use crate::setup_wizard::SetupProbe;
 
@@ -853,12 +1040,130 @@ mod tests {
     fn goal_control_output_reports_stop_and_resume_state() {
         assert_eq!(
             format_goal_control_output("goal-1", "stop", true),
-            "Paused goal goal-1."
+            "Stopped goal goal-1."
         );
         assert_eq!(
             format_goal_control_output("goal-1", "resume", false),
             "Goal goal-1 was not resumable."
         );
+    }
+
+    #[test]
+    fn goal_dossier_output_prints_units_and_resume_decision() {
+        let rendered = format_goal_dossier_output(
+            Some(&AgentGoalRunRecord {
+                id: "goal-1".to_string(),
+                title: "Deploy release".to_string(),
+                dossier: Some(AgentGoalRunDossierRecord {
+                    projection_state: "in_progress".to_string(),
+                    latest_resume_decision: Some(AgentGoalResumeDecisionRecord {
+                        action: "stop".to_string(),
+                        reason_code: "operator_stop".to_string(),
+                        projection_state: "failed".to_string(),
+                        ..Default::default()
+                    }),
+                    summary: Some("Two delivery units active".to_string()),
+                    units: vec![AgentGoalDeliveryUnitRecord {
+                        id: "unit-1".to_string(),
+                        title: "MQTT gateway".to_string(),
+                        status: "in_progress".to_string(),
+                        execution_binding: "builtin:main".to_string(),
+                        verification_binding: "subagent:qa-reviewer".to_string(),
+                        proof_checks: vec![AgentGoalProofCheckRecord {
+                            id: "VAL-MQTT-001".to_string(),
+                            title: "Publishes heartbeats".to_string(),
+                            state: "pending".to_string(),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            false,
+        )
+        .expect("render dossier output");
+
+        assert!(rendered.contains("Goal Dossier"));
+        assert!(rendered.contains("Projection: in_progress"));
+        assert!(rendered.contains("Latest Decision: stop"));
+        assert!(rendered.contains("MQTT gateway"));
+        assert!(rendered.contains("builtin:main"));
+        assert!(rendered.contains("subagent:qa-reviewer"));
+    }
+
+    #[test]
+    fn goal_proof_output_prints_checks_and_evidence() {
+        let rendered = format_goal_proof_output(
+            Some(&AgentGoalRunRecord {
+                id: "goal-1".to_string(),
+                dossier: Some(AgentGoalRunDossierRecord {
+                    units: vec![AgentGoalDeliveryUnitRecord {
+                        id: "unit-1".to_string(),
+                        title: "MQTT gateway".to_string(),
+                        proof_checks: vec![AgentGoalProofCheckRecord {
+                            id: "VAL-MQTT-001".to_string(),
+                            title: "Publishes heartbeats".to_string(),
+                            state: "completed".to_string(),
+                            evidence_ids: vec!["ev-1".to_string()],
+                            ..Default::default()
+                        }],
+                        evidence: vec![AgentGoalEvidenceRecord {
+                            id: "ev-1".to_string(),
+                            title: "Broker log".to_string(),
+                            summary: Some("Observed heartbeat publish".to_string()),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            false,
+        )
+        .expect("render proof output");
+
+        assert!(rendered.contains("Goal Proof"));
+        assert!(rendered.contains("VAL-MQTT-001"));
+        assert!(rendered.contains("completed"));
+        assert!(rendered.contains("Broker log"));
+    }
+
+    #[test]
+    fn goal_reports_output_prints_goal_and_unit_reports() {
+        let rendered = format_goal_reports_output(
+            Some(&AgentGoalRunRecord {
+                id: "goal-1".to_string(),
+                dossier: Some(AgentGoalRunDossierRecord {
+                    report: Some(AgentGoalRunReportRecord {
+                        summary: "Overall milestone healthy".to_string(),
+                        state: "in_progress".to_string(),
+                        ..Default::default()
+                    }),
+                    units: vec![AgentGoalDeliveryUnitRecord {
+                        id: "unit-1".to_string(),
+                        title: "MQTT gateway".to_string(),
+                        report: Some(AgentGoalRunReportRecord {
+                            summary: "Worker implemented reconnect logic".to_string(),
+                            state: "completed".to_string(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            false,
+        )
+        .expect("render reports output");
+
+        assert!(rendered.contains("Goal Reports"));
+        assert!(rendered.contains("Overall milestone healthy"));
+        assert!(rendered.contains("MQTT gateway"));
+        assert!(rendered.contains("Worker implemented reconnect logic"));
     }
 
     #[test]
@@ -1143,6 +1448,18 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
             GoalAction::Get { goal_run_id, json } => {
                 let goal = client::send_goal_get_query(goal_run_id).await?;
                 println!("{}", format_goal_detail_output(goal.as_ref(), json)?);
+            }
+            GoalAction::Dossier { goal_run_id, json } => {
+                let goal = client::send_goal_get_query(goal_run_id).await?;
+                println!("{}", format_goal_dossier_output(goal.as_ref(), json)?);
+            }
+            GoalAction::Proof { goal_run_id, json } => {
+                let goal = client::send_goal_get_query(goal_run_id).await?;
+                println!("{}", format_goal_proof_output(goal.as_ref(), json)?);
+            }
+            GoalAction::Reports { goal_run_id, json } => {
+                let goal = client::send_goal_get_query(goal_run_id).await?;
+                println!("{}", format_goal_reports_output(goal.as_ref(), json)?);
             }
             GoalAction::Stop { goal_run_id } => {
                 let result = client::send_goal_control(goal_run_id, "stop").await?;

@@ -1,6 +1,7 @@
 use amux_protocol::{ClientMessage, DaemonMessage, OperationStatusSnapshot};
 use anyhow::Result;
 use futures::StreamExt;
+use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 
 use super::connection::{connect, roundtrip};
@@ -75,6 +76,128 @@ pub struct AgentGoalRunEventRecord {
     pub todo_snapshot: Vec<serde_json::Value>,
 }
 
+fn deserialize_goal_binding<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::String(value) => Ok(value),
+        serde_json::Value::Object(map) if map.len() == 1 => {
+            let (kind, payload) = map.into_iter().next().expect("validated length");
+            let payload = payload
+                .as_str()
+                .ok_or_else(|| D::Error::custom("goal binding payload must be a string"))?;
+            Ok(format!("{kind}:{payload}"))
+        }
+        other => Err(D::Error::custom(format!(
+            "unsupported goal binding payload: {other}"
+        ))),
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalEvidenceRecord {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub uri: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub captured_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalProofCheckRecord {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub evidence_ids: Vec<String>,
+    #[serde(default)]
+    pub resolved_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalRunReportRecord {
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub notes: Vec<String>,
+    #[serde(default)]
+    pub evidence: Vec<AgentGoalEvidenceRecord>,
+    #[serde(default)]
+    pub proof_checks: Vec<AgentGoalProofCheckRecord>,
+    #[serde(default)]
+    pub generated_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalResumeDecisionRecord {
+    #[serde(default)]
+    pub action: String,
+    #[serde(default)]
+    pub reason_code: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub details: Vec<String>,
+    #[serde(default)]
+    pub decided_at: Option<u64>,
+    #[serde(default)]
+    pub projection_state: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalDeliveryUnitRecord {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, deserialize_with = "deserialize_goal_binding")]
+    pub execution_binding: String,
+    #[serde(default, deserialize_with = "deserialize_goal_binding")]
+    pub verification_binding: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub proof_checks: Vec<AgentGoalProofCheckRecord>,
+    #[serde(default)]
+    pub evidence: Vec<AgentGoalEvidenceRecord>,
+    #[serde(default)]
+    pub report: Option<AgentGoalRunReportRecord>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalRunDossierRecord {
+    #[serde(default)]
+    pub units: Vec<AgentGoalDeliveryUnitRecord>,
+    #[serde(default)]
+    pub projection_state: String,
+    #[serde(default)]
+    pub latest_resume_decision: Option<AgentGoalResumeDecisionRecord>,
+    #[serde(default)]
+    pub report: Option<AgentGoalRunReportRecord>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub projection_error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentGoalRunRecord {
     #[serde(default)]
@@ -124,6 +247,8 @@ pub struct AgentGoalRunRecord {
     #[serde(default)]
     pub failure_cause: Option<String>,
     #[serde(default)]
+    pub stopped_reason: Option<String>,
+    #[serde(default)]
     pub child_task_ids: Vec<String>,
     #[serde(default)]
     pub child_task_count: u32,
@@ -149,6 +274,8 @@ pub struct AgentGoalRunRecord {
     pub steps: Vec<AgentGoalRunStepRecord>,
     #[serde(default)]
     pub events: Vec<AgentGoalRunEventRecord>,
+    #[serde(default)]
+    pub dossier: Option<AgentGoalRunDossierRecord>,
     #[serde(default)]
     pub total_prompt_tokens: u64,
     #[serde(default)]
@@ -428,7 +555,7 @@ pub async fn send_goal_get_query(goal_run_id: String) -> Result<Option<AgentGoal
 
 pub async fn send_goal_control(goal_run_id: String, action: &str) -> Result<GoalControlResponse> {
     let daemon_action = match action {
-        "stop" => "pause",
+        "stop" => "stop",
         "resume" => "resume",
         other => anyhow::bail!("unsupported goal action: {other}"),
     };
