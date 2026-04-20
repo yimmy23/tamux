@@ -361,8 +361,6 @@ pub struct GoalRun {
     #[serde(default)]
     pub generated_skill_path: Option<String>,
     #[serde(default)]
-    pub dossier: GoalRunDossier,
-    #[serde(default)]
     pub child_task_ids: Vec<String>,
     #[serde(default)]
     pub loaded_step_start: usize,
@@ -484,86 +482,6 @@ pub struct GoalRunDossier {
     pub summary: Option<String>,
     #[serde(default)]
     pub projection_error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GoalRunDossier {
-    #[serde(default)]
-    pub projection_state: Option<String>,
-    #[serde(default)]
-    pub projection_error: Option<String>,
-    #[serde(default)]
-    pub summary: Option<String>,
-    #[serde(default)]
-    pub delivery_units: Vec<GoalDeliveryUnit>,
-    #[serde(default)]
-    pub execution_binding_label: Option<String>,
-    #[serde(default)]
-    pub verification_binding_label: Option<String>,
-    #[serde(default)]
-    pub proof_checks: Vec<GoalProofCheck>,
-    #[serde(default)]
-    pub evidence: Vec<String>,
-    #[serde(default)]
-    pub reports: Vec<GoalRunReport>,
-    #[serde(default)]
-    pub latest_resume_decision: Option<GoalResumeDecision>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GoalDeliveryUnit {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub summary: Option<String>,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub path: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GoalProofCheck {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub summary: Option<String>,
-    #[serde(default)]
-    pub evidence: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GoalRunReport {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub summary: Option<String>,
-    #[serde(default)]
-    pub details: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GoalResumeDecision {
-    #[serde(default)]
-    pub outcome: Option<String>,
-    #[serde(default)]
-    pub summary: Option<String>,
-    #[serde(default)]
-    pub rationale: Option<String>,
-    #[serde(default)]
-    pub decided_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

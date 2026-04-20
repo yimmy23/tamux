@@ -238,59 +238,6 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
         reflection_summary: r.reflection_summary,
         memory_updates: r.memory_updates,
         generated_skill_path: r.generated_skill_path,
-        dossier: task::GoalRunDossier {
-            projection_state: r.dossier.projection_state,
-            projection_error: r.dossier.projection_error,
-            summary: r.dossier.summary,
-            delivery_units: r
-                .dossier
-                .delivery_units
-                .into_iter()
-                .map(|unit| task::GoalDeliveryUnit {
-                    id: unit.id,
-                    label: unit.label,
-                    summary: unit.summary,
-                    status: unit.status,
-                    kind: unit.kind,
-                    path: unit.path,
-                })
-                .collect(),
-            execution_binding_label: r.dossier.execution_binding_label,
-            verification_binding_label: r.dossier.verification_binding_label,
-            proof_checks: r
-                .dossier
-                .proof_checks
-                .into_iter()
-                .map(|check| task::GoalProofCheck {
-                    id: check.id,
-                    label: check.label,
-                    status: check.status,
-                    summary: check.summary,
-                    evidence: check.evidence,
-                })
-                .collect(),
-            evidence: r.dossier.evidence,
-            reports: r
-                .dossier
-                .reports
-                .into_iter()
-                .map(|report| task::GoalRunReport {
-                    id: report.id,
-                    title: report.title,
-                    status: report.status,
-                    summary: report.summary,
-                    details: report.details,
-                })
-                .collect(),
-            latest_resume_decision: r.dossier.latest_resume_decision.map(|decision| {
-                task::GoalResumeDecision {
-                    outcome: decision.outcome,
-                    summary: decision.summary,
-                    rationale: decision.rationale,
-                    decided_at: decision.decided_at,
-                }
-            }),
-        },
         child_task_ids: r.child_task_ids,
         loaded_step_start: r.loaded_step_start,
         loaded_step_end: r.loaded_step_end,
