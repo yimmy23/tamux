@@ -923,11 +923,71 @@ impl TuiModel {
                         !self.chat_action_confirm_accept_selected;
                 }
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    self.confirm_pending_chat_action();
+                    if let Some(apply_mode) = self
+                        .pending_chat_action_confirm
+                        .as_ref()
+                        .and_then(|pending| match pending {
+                            PendingConfirmAction::ReuseModelAsStt { model_id }
+                                if model_id == "__mission_control__:next_turn" =>
+                            {
+                                Some(goal_mission_control::RuntimeAssignmentApplyMode::NextTurn)
+                            }
+                            PendingConfirmAction::ReuseModelAsStt { model_id }
+                                if model_id == "__mission_control__:reassign_active_step" =>
+                            {
+                                Some(
+                                    goal_mission_control::RuntimeAssignmentApplyMode::ReassignActiveStep,
+                                )
+                            }
+                            PendingConfirmAction::ReuseModelAsStt { model_id }
+                                if model_id == "__mission_control__:restart_active_step" =>
+                            {
+                                Some(
+                                    goal_mission_control::RuntimeAssignmentApplyMode::RestartActiveStep,
+                                )
+                            }
+                            _ => None,
+                        })
+                    {
+                        self.close_chat_action_confirm();
+                        let _ = self.confirm_runtime_assignment_change(apply_mode);
+                    } else {
+                        self.confirm_pending_chat_action();
+                    }
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     if self.chat_action_confirm_accept_selected {
-                        self.confirm_pending_chat_action();
+                        if let Some(apply_mode) = self
+                            .pending_chat_action_confirm
+                            .as_ref()
+                            .and_then(|pending| match pending {
+                                PendingConfirmAction::ReuseModelAsStt { model_id }
+                                    if model_id == "__mission_control__:next_turn" =>
+                                {
+                                    Some(goal_mission_control::RuntimeAssignmentApplyMode::NextTurn)
+                                }
+                                PendingConfirmAction::ReuseModelAsStt { model_id }
+                                    if model_id == "__mission_control__:reassign_active_step" =>
+                                {
+                                    Some(
+                                        goal_mission_control::RuntimeAssignmentApplyMode::ReassignActiveStep,
+                                    )
+                                }
+                                PendingConfirmAction::ReuseModelAsStt { model_id }
+                                    if model_id == "__mission_control__:restart_active_step" =>
+                                {
+                                    Some(
+                                        goal_mission_control::RuntimeAssignmentApplyMode::RestartActiveStep,
+                                    )
+                                }
+                                _ => None,
+                            })
+                        {
+                            self.close_chat_action_confirm();
+                            let _ = self.confirm_runtime_assignment_change(apply_mode);
+                        } else {
+                            self.confirm_pending_chat_action();
+                        }
                     } else {
                         self.close_chat_action_confirm();
                     }

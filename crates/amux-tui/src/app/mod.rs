@@ -241,8 +241,18 @@ impl PendingConfirmAction {
                 step_title,
                 goal_title
             ),
-            PendingConfirmAction::ReuseModelAsStt { .. } => {
-                "Selected model supports audio. Use it as the STT model too?".to_string()
+            PendingConfirmAction::ReuseModelAsStt { model_id } => {
+                if model_id == "__mission_control__:next_turn" {
+                    "Apply the pending Mission Control roster change on the next turn?".to_string()
+                } else if model_id == "__mission_control__:reassign_active_step" {
+                    "Reassign the active step with the pending Mission Control roster change?"
+                        .to_string()
+                } else if model_id == "__mission_control__:restart_active_step" {
+                    "Restart the active step with the pending Mission Control roster change?"
+                        .to_string()
+                } else {
+                    "Selected model supports audio. Use it as the STT model too?".to_string()
+                }
             }
         }
     }

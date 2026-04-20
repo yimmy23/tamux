@@ -19,6 +19,16 @@ pub(super) enum GoalActionPickerItem {
     StopGoal,
     RetryStep,
     RerunFromStep,
+    CycleRuntimeAssignment,
+    EditRuntimeProvider,
+    EditRuntimeModel,
+    EditRuntimeReasoning,
+    EditRuntimeRole,
+    ToggleRuntimeEnabled,
+    ToggleRuntimeInherit,
+    ApplyRuntimeNextTurn,
+    ApplyRuntimeReassignActiveStep,
+    ApplyRuntimeRestartActiveStep,
 }
 
 impl GoalActionPickerItem {
@@ -29,6 +39,16 @@ impl GoalActionPickerItem {
             Self::StopGoal => "Stop Goal",
             Self::RetryStep => "Retry Step",
             Self::RerunFromStep => "Rerun From Step",
+            Self::CycleRuntimeAssignment => "Select Next Runtime Agent",
+            Self::EditRuntimeProvider => "Edit Runtime Provider",
+            Self::EditRuntimeModel => "Edit Runtime Model",
+            Self::EditRuntimeReasoning => "Edit Runtime Reasoning",
+            Self::EditRuntimeRole => "Edit Runtime Role",
+            Self::ToggleRuntimeEnabled => "Toggle Runtime Enabled",
+            Self::ToggleRuntimeInherit => "Toggle Runtime Inherit",
+            Self::ApplyRuntimeNextTurn => "Apply Next Turn",
+            Self::ApplyRuntimeReassignActiveStep => "Reassign Active Step",
+            Self::ApplyRuntimeRestartActiveStep => "Restart Active Step",
         }
     }
 }
@@ -110,6 +130,98 @@ impl TuiModel {
 
     pub(super) fn mission_control_has_thread_target(&self) -> bool {
         self.mission_control_thread_target().is_some()
+    }
+
+    fn runtime_assignments_for_goal_run(
+        &self,
+        run: &task::GoalRun,
+    ) -> (Vec<task::GoalAgentAssignment>, bool) {
+        if !run.runtime_assignment_list.is_empty() {
+            (run.runtime_assignment_list.clone(), false)
+        } else if !run.launch_assignment_snapshot.is_empty() {
+            (run.launch_assignment_snapshot.clone(), true)
+        } else {
+            let fallback_profile = self.current_conversation_agent_profile();
+            (
+                vec![task::GoalAgentAssignment {
+                    role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+                    enabled: true,
+                    provider: fallback_profile.provider,
+                    model: fallback_profile.model,
+                    reasoning_effort: fallback_profile.reasoning_effort,
+                    inherit_from_main: false,
+                }],
+                true,
+            )
+        }
+    }
+
+    fn runtime_assignment_matches_owner(
+        assignment: &task::GoalAgentAssignment,
+        owner: &task::GoalRuntimeOwnerProfile,
+    ) -> bool {
+        assignment.provider == owner.provider
+            && assignment.model == owner.model
+            && assignment.reasoning_effort == owner.reasoning_effort
+    }
+
+    fn active_runtime_assignment_index_for_run(
+        &self,
+        run: &task::GoalRun,
+        assignments: &[task::GoalAgentAssignment],
+    ) -> Option<usize> {
+        run.current_step_owner_profile
+            .as_ref()
+            .or(run.planner_owner_profile.as_ref())
+            .and_then(|owner| {
+                assignments.iter().position(|assignment| {
+                    Self::runtime_assignment_matches_owner(assignment, owner)
+                })
+            })
+    }
+
+    fn sync_goal_mission_control_from_run(&mut self, run: &task::GoalRun, preserve_pending: bool) {
+        let (assignments, uses_fallback) = self.runtime_assignments_for_goal_run(run);
+        let active_index = self.active_runtime_assignment_index_for_run(run, &assignments);
+        let preserved_pending = preserve_pending
+            && self.goal_mission_control.runtime_goal_run_id.as_deref() == Some(run.id.as_str())
+            && self.goal_mission_control.pending_role_assignments.is_some();
+        let preserved_overlay = preserved_pending
+            .then(|| self.goal_mission_control.pending_role_assignments.clone())
+            .flatten();
+        let preserved_modes = preserved_pending
+            .then(|| {
+                self.goal_mission_control
+                    .pending_runtime_apply_modes
+                    .clone()
+            })
+            .unwrap_or_default();
+        let preserved_selection = preserved_pending
+            .then_some(self.goal_mission_control.selected_runtime_assignment_index);
+
+        self.goal_mission_control.configure_runtime_assignments(
+            run.id.clone(),
+            assignments,
+            active_index,
+            uses_fallback,
+        );
+        if let Some(overlay) = preserved_overlay {
+            self.goal_mission_control.pending_role_assignments = Some(overlay);
+            self.goal_mission_control.pending_runtime_apply_modes = preserved_modes;
+        }
+        if let Some(selection) = preserved_selection {
+            self.goal_mission_control
+                .set_selected_runtime_assignment_index(selection);
+        }
+    }
+
+    fn sync_goal_mission_control_from_selected_goal_run(&mut self) -> bool {
+        let Some(run) = self.selected_goal_run().cloned() else {
+            return false;
+        };
+        self.set_mission_control_source_goal_target(self.current_goal_target_for_mission_control());
+        self.sync_goal_mission_control_from_run(&run, true);
+        true
     }
 
     pub(super) fn sidebar_uses_goal_sidebar(&self) -> bool {
@@ -807,6 +919,246 @@ impl TuiModel {
         self.tasks.goal_run_by_id(goal_run_id)
     }
 
+    fn selected_goal_run_id(&self) -> Option<String> {
+        self.selected_goal_run()
+            .map(|run| run.id.clone())
+            .or_else(|| self.goal_mission_control.runtime_goal_run_id.clone())
+    }
+
+    fn open_mission_control_runtime_editor(&mut self) -> bool {
+        if matches!(self.main_pane_view, MainPaneView::GoalComposer)
+            && self.goal_mission_control.runtime_mode()
+        {
+            if let Some(run) = self.mission_control_goal_run().cloned() {
+                let preserve_pending = self.goal_mission_control.pending_role_assignments.is_some();
+                self.sync_goal_mission_control_from_run(&run, preserve_pending);
+            }
+        } else if !self.sync_goal_mission_control_from_selected_goal_run() {
+            return false;
+        }
+        if let Some(target) = self.current_goal_target_for_mission_control() {
+            self.set_mission_control_return_to_goal_target(Some(target));
+        }
+        self.main_pane_view = MainPaneView::GoalComposer;
+        self.focus = FocusArea::Chat;
+        self.task_view_scroll = 0;
+        true
+    }
+
+    fn selected_runtime_assignment_preview(&self) -> Option<(usize, task::GoalAgentAssignment)> {
+        let index = self.goal_mission_control.selected_runtime_assignment_index;
+        self.goal_mission_control
+            .selected_runtime_assignment()
+            .cloned()
+            .map(|assignment| (index, assignment))
+    }
+
+    pub(super) fn stage_runtime_assignment_modal_edit(
+        &mut self,
+        field: goal_mission_control::RuntimeAssignmentEditField,
+    ) -> bool {
+        if !self.open_mission_control_runtime_editor() {
+            return false;
+        }
+        let Some((row_index, _)) = self.selected_runtime_assignment_preview() else {
+            return false;
+        };
+        self.goal_mission_control
+            .stage_runtime_edit(row_index, field);
+        match field {
+            goal_mission_control::RuntimeAssignmentEditField::Provider => {
+                self.settings_picker_target = Some(SettingsPickerTarget::Provider);
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+                let item_count =
+                    widgets::provider_picker::available_provider_defs(&self.auth).len();
+                self.modal.set_picker_item_count(item_count);
+            }
+            goal_mission_control::RuntimeAssignmentEditField::Model => {
+                self.settings_picker_target = Some(SettingsPickerTarget::Model);
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+                self.modal
+                    .set_picker_item_count(self.available_runtime_assignment_models().len() + 1);
+            }
+            goal_mission_control::RuntimeAssignmentEditField::ReasoningEffort => {
+                self.settings_picker_target = Some(SettingsPickerTarget::SubAgentReasoningEffort);
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
+                self.modal.set_picker_item_count(6);
+            }
+            goal_mission_control::RuntimeAssignmentEditField::Role => {
+                self.settings_picker_target = Some(SettingsPickerTarget::SubAgentRole);
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::RolePicker));
+                self.modal.set_picker_item_count(
+                    crate::state::subagents::SUBAGENT_ROLE_PRESETS.len() + 1,
+                );
+            }
+            goal_mission_control::RuntimeAssignmentEditField::Enabled
+            | goal_mission_control::RuntimeAssignmentEditField::InheritFromMain => {}
+        }
+        true
+    }
+
+    pub(super) fn update_selected_runtime_assignment(
+        &mut self,
+        update: impl FnOnce(&mut task::GoalAgentAssignment),
+    ) -> bool {
+        let Some(goal_run_id) = self.selected_goal_run_id() else {
+            return false;
+        };
+        if !self.open_mission_control_runtime_editor() {
+            return false;
+        }
+        let Some((row_index, mut assignment)) = self.selected_runtime_assignment_preview() else {
+            return false;
+        };
+        update(&mut assignment);
+        let apply_mode = if self
+            .goal_mission_control
+            .selected_assignment_matches_active_step()
+        {
+            self.goal_mission_control.stage_runtime_change(
+                goal_run_id,
+                row_index,
+                assignment,
+                goal_mission_control::RuntimeAssignmentApplyMode::NextTurn,
+            );
+            self.modal.reduce(modal::ModalAction::Push(
+                modal::ModalKind::GoalStepActionPicker,
+            ));
+            self.modal.set_picker_item_count(3);
+            self.status_line =
+                "Choose how the active step should adopt the pending roster change".to_string();
+            return true;
+        } else {
+            goal_mission_control::RuntimeAssignmentApplyMode::NextTurn
+        };
+        self.goal_mission_control.stage_runtime_change(
+            goal_run_id,
+            row_index,
+            assignment,
+            apply_mode,
+        );
+        self.goal_mission_control
+            .apply_runtime_assignment_change(row_index, apply_mode);
+        self.status_line = "Mission Control roster updated for the next turn".to_string();
+        true
+    }
+
+    pub(super) fn cycle_selected_runtime_assignment(&mut self) -> bool {
+        if !self.open_mission_control_runtime_editor() {
+            return false;
+        }
+        if !self
+            .goal_mission_control
+            .cycle_selected_runtime_assignment(1)
+        {
+            return false;
+        }
+        let role_label = self
+            .goal_mission_control
+            .selected_runtime_row_label()
+            .unwrap_or("runtime assignment");
+        self.status_line = format!("Mission Control selected {role_label}");
+        true
+    }
+
+    fn runtime_assignment_confirmation_items(&self) -> Vec<GoalActionPickerItem> {
+        if self.goal_mission_control.pending_runtime_change.is_some() {
+            vec![
+                GoalActionPickerItem::ApplyRuntimeNextTurn,
+                GoalActionPickerItem::ApplyRuntimeReassignActiveStep,
+                GoalActionPickerItem::ApplyRuntimeRestartActiveStep,
+            ]
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub(super) fn mission_control_role_picker_value(&self) -> String {
+        self.goal_mission_control
+            .pending_runtime_edit
+            .as_ref()
+            .filter(|edit| edit.field == goal_mission_control::RuntimeAssignmentEditField::Role)
+            .and_then(|edit| {
+                self.goal_mission_control
+                    .display_role_assignments()
+                    .get(edit.row_index)
+            })
+            .map(|assignment| assignment.role_id.clone())
+            .or_else(|| {
+                self.subagents
+                    .editor
+                    .as_ref()
+                    .map(|editor| editor.role.clone())
+            })
+            .unwrap_or_default()
+    }
+
+    pub(super) fn mission_control_effort_picker_value(&self) -> Option<String> {
+        self.goal_mission_control
+            .pending_runtime_edit
+            .as_ref()
+            .filter(|edit| {
+                edit.field == goal_mission_control::RuntimeAssignmentEditField::ReasoningEffort
+            })
+            .and_then(|edit| {
+                self.goal_mission_control
+                    .display_role_assignments()
+                    .get(edit.row_index)
+            })
+            .and_then(|assignment| assignment.reasoning_effort.clone())
+    }
+
+    pub(super) fn runtime_model_picker_current_selection(
+        &self,
+    ) -> Option<(String, Option<String>)> {
+        self.goal_mission_control
+            .pending_runtime_edit
+            .as_ref()
+            .filter(|edit| edit.field == goal_mission_control::RuntimeAssignmentEditField::Model)
+            .and_then(|edit| {
+                self.goal_mission_control
+                    .display_role_assignments()
+                    .get(edit.row_index)
+            })
+            .map(|assignment| (assignment.model.clone(), None))
+    }
+
+    pub(super) fn available_runtime_assignment_models(
+        &self,
+    ) -> Vec<crate::state::config::FetchedModel> {
+        if let Some((current_model, custom_model_name)) =
+            self.runtime_model_picker_current_selection()
+        {
+            widgets::model_picker::available_models_for(
+                &self.config,
+                &current_model,
+                custom_model_name.as_deref(),
+            )
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub(super) fn confirm_runtime_assignment_change(
+        &mut self,
+        apply_mode: goal_mission_control::RuntimeAssignmentApplyMode,
+    ) -> bool {
+        let Some(change) = self.goal_mission_control.pending_runtime_change.clone() else {
+            return false;
+        };
+        self.goal_mission_control
+            .apply_runtime_assignment_change(change.row_index, apply_mode);
+        self.status_line = format!(
+            "Mission Control roster updated: {}",
+            apply_mode.roster_status_label()
+        );
+        true
+    }
+
     pub(super) fn selected_goal_run_toggle_action(&self) -> Option<PendingConfirmAction> {
         let run = self.selected_goal_run()?;
         let title = run.title.clone();
@@ -1138,6 +1490,11 @@ impl TuiModel {
     }
 
     pub(super) fn goal_action_picker_items(&self) -> Vec<GoalActionPickerItem> {
+        let confirmation_items = self.runtime_assignment_confirmation_items();
+        if !confirmation_items.is_empty() {
+            return confirmation_items;
+        }
+
         let mut items = Vec::new();
         if let Some(run) = self.selected_goal_run() {
             match run.status {
@@ -1150,6 +1507,16 @@ impl TuiModel {
                     items.push(GoalActionPickerItem::StopGoal);
                 }
                 _ => {}
+            }
+            if !run.runtime_assignment_list.is_empty() || !run.launch_assignment_snapshot.is_empty()
+            {
+                items.push(GoalActionPickerItem::CycleRuntimeAssignment);
+                items.push(GoalActionPickerItem::EditRuntimeProvider);
+                items.push(GoalActionPickerItem::EditRuntimeModel);
+                items.push(GoalActionPickerItem::EditRuntimeReasoning);
+                items.push(GoalActionPickerItem::EditRuntimeRole);
+                items.push(GoalActionPickerItem::ToggleRuntimeEnabled);
+                items.push(GoalActionPickerItem::ToggleRuntimeInherit);
             }
         }
 
@@ -1350,7 +1717,8 @@ impl TuiModel {
     }
 
     pub(super) fn open_new_goal_view(&mut self) {
-        self.set_mission_control_source_goal_target(self.current_goal_target_for_mission_control());
+        let current_goal_target = self.current_goal_target_for_mission_control();
+        self.set_mission_control_source_goal_target(current_goal_target.clone());
         self.set_mission_control_return_to_goal_target(None);
         self.cleanup_concierge_on_navigate();
         let fallback_profile = self.current_conversation_agent_profile();
@@ -1362,40 +1730,66 @@ impl TuiModel {
             reasoning_effort: fallback_profile.reasoning_effort,
             inherit_from_main: false,
         };
-        let latest_goal_snapshot = self
-            .tasks
-            .goal_runs()
-            .iter()
-            .max_by_key(|run| run.updated_at)
-            .and_then(|run| {
-                if !run.launch_assignment_snapshot.is_empty() {
-                    Some(run.launch_assignment_snapshot.clone())
-                } else if !run.runtime_assignment_list.is_empty() {
-                    Some(run.runtime_assignment_list.clone())
-                } else {
-                    None
+        if let Some(goal_run_target) = current_goal_target
+            .as_ref()
+            .and_then(|target| target_goal_run_id(self, target))
+            .and_then(|goal_run_id| self.tasks.goal_run_by_id(&goal_run_id).cloned())
+        {
+            let preserve_pending = self.goal_mission_control.runtime_goal_run_id.as_deref()
+                == Some(goal_run_target.id.as_str());
+            self.goal_mission_control =
+                goal_mission_control::GoalMissionControlState::from_goal_snapshot(
+                    self.runtime_assignments_for_goal_run(&goal_run_target).0,
+                    fallback_main_assignment.clone(),
+                    "Goal runtime roster",
+                );
+            self.sync_goal_mission_control_from_run(&goal_run_target, preserve_pending);
+        } else {
+            let latest_goal_snapshot = self
+                .tasks
+                .goal_runs()
+                .iter()
+                .max_by_key(|run| run.updated_at)
+                .and_then(|run| {
+                    if !run.launch_assignment_snapshot.is_empty() {
+                        Some(run.launch_assignment_snapshot.clone())
+                    } else if !run.runtime_assignment_list.is_empty() {
+                        Some(run.runtime_assignment_list.clone())
+                    } else {
+                        None
+                    }
+                });
+            self.goal_mission_control = match latest_goal_snapshot {
+                Some(snapshot) => {
+                    goal_mission_control::GoalMissionControlState::from_goal_snapshot(
+                        snapshot,
+                        fallback_main_assignment,
+                        "Previous goal snapshot",
+                    )
                 }
-            });
-        self.goal_mission_control = match latest_goal_snapshot {
-            Some(snapshot) => goal_mission_control::GoalMissionControlState::from_goal_snapshot(
-                snapshot,
-                fallback_main_assignment,
-                "Previous goal snapshot",
-            ),
-            None => goal_mission_control::GoalMissionControlState::from_main_assignment(
-                fallback_main_assignment.clone(),
-                vec![fallback_main_assignment],
-                "Main agent inheritance",
-            ),
-        };
+                None => goal_mission_control::GoalMissionControlState::from_main_assignment(
+                    fallback_main_assignment.clone(),
+                    vec![fallback_main_assignment],
+                    "Main agent inheritance",
+                ),
+            };
+        }
         self.goal_mission_control.set_prompt_text(String::new());
         self.goal_mission_control.set_save_as_default_pending(false);
         self.main_pane_view = MainPaneView::GoalComposer;
         self.task_view_scroll = 0;
-        self.focus = FocusArea::Input;
+        self.focus = if self.goal_mission_control.runtime_mode() {
+            FocusArea::Chat
+        } else {
+            FocusArea::Input
+        };
         self.set_input_text("");
         self.attachments.clear();
-        self.status_line = "Mission Control preflight is ready".to_string();
+        self.status_line = if self.goal_mission_control.runtime_mode() {
+            "Mission Control runtime editor is ready".to_string()
+        } else {
+            "Mission Control preflight is ready".to_string()
+        };
     }
 
     pub(super) fn open_mission_control_goal_thread(&mut self) -> bool {

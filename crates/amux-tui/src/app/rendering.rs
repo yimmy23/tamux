@@ -47,6 +47,78 @@ struct HandoffResponderEvent {
 
 const THREAD_HANDOFF_SYSTEM_MARKER: &str = "[[handoff_event]]";
 
+fn render_runtime_effort_picker(
+    frame: &mut Frame,
+    area: Rect,
+    modal: &modal::ModalState,
+    current_effort: Option<&str>,
+    theme: &ThemeTokens,
+) {
+    use ratatui::style::{Color, Style};
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
+
+    let block = Block::default()
+        .title(" EFFORT ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .border_style(theme.accent_secondary);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let efforts = [
+        ("", "None"),
+        ("minimal", "Minimal"),
+        ("low", "Low"),
+        ("medium", "Medium"),
+        ("high", "High"),
+        ("xhigh", "Extra High"),
+    ];
+    let cursor = modal.picker_cursor();
+    let current = current_effort.unwrap_or("");
+    let items: Vec<ListItem> = efforts
+        .iter()
+        .enumerate()
+        .map(|(i, (value, label))| {
+            let is_current = *value == current;
+            let marker = if is_current { "\u{25cf} " } else { "  " };
+            if i == cursor {
+                ListItem::new(Line::from(vec![
+                    Span::raw("> "),
+                    Span::raw(marker),
+                    Span::raw(*label),
+                ]))
+                .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
+            } else {
+                let style = if is_current {
+                    theme.accent_primary
+                } else {
+                    theme.fg_dim
+                };
+                ListItem::new(Line::from(vec![
+                    Span::raw("  "),
+                    Span::raw(marker),
+                    Span::styled(*label, style),
+                ]))
+            }
+        })
+        .collect();
+    let inner_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+    frame.render_widget(List::new(items), inner_chunks[0]);
+    let hints = Line::from(vec![
+        Span::styled("↑↓", theme.fg_active),
+        Span::styled(" nav  ", theme.fg_dim),
+        Span::styled("Enter", theme.fg_active),
+        Span::styled(" sel  ", theme.fg_dim),
+        Span::styled("Esc", theme.fg_active),
+        Span::styled(" close", theme.fg_dim),
+    ]);
+    frame.render_widget(Paragraph::new(hints), inner_chunks[1]);
+}
+
 impl TuiModel {
     fn estimate_header_message_tokens(message: &chat::AgentMessage) -> u64 {
         let content = if message.message_kind == "compaction_artifact" {
@@ -1435,10 +1507,20 @@ impl TuiModel {
                     let action_items = self.goal_action_picker_items();
                     let action_labels: Vec<_> =
                         action_items.iter().map(|item| item.label()).collect();
+                    let goal_title = self
+                        .selected_goal_run()
+                        .map(|run| run.title.as_str())
+                        .or_else(|| {
+                            self.goal_mission_control
+                                .runtime_goal_run_id
+                                .as_deref()
+                                .and_then(|goal_run_id| self.tasks.goal_run_by_id(goal_run_id))
+                                .map(|run| run.title.as_str())
+                        });
                     render_helpers::render_goal_step_action_picker_modal(
                         frame,
                         overlay_area,
-                        self.selected_goal_run().map(|run| run.title.as_str()),
+                        goal_title,
                         step_context
                             .as_ref()
                             .map(|(_, _, _, step)| step.title.as_str()),
@@ -1533,8 +1615,20 @@ impl TuiModel {
                     );
                 }
                 modal::ModalKind::ModelPicker => {
-                    let (current_model, _custom_model_name) = self.model_picker_current_selection();
-                    let models = self.available_model_picker_models();
+                    let (current_model, _custom_model_name) = self
+                        .runtime_model_picker_current_selection()
+                        .unwrap_or_else(|| self.model_picker_current_selection());
+                    let models = if self
+                        .goal_mission_control
+                        .pending_runtime_edit
+                        .as_ref()
+                        .is_some_and(|edit| {
+                            edit.field == goal_mission_control::RuntimeAssignmentEditField::Model
+                        }) {
+                        self.available_runtime_assignment_models()
+                    } else {
+                        self.available_model_picker_models()
+                    };
                     widgets::model_picker::render_with_models(
                         frame,
                         overlay_area,
@@ -1545,17 +1639,12 @@ impl TuiModel {
                     );
                 }
                 modal::ModalKind::RolePicker => {
-                    let current_role = self
-                        .subagents
-                        .editor
-                        .as_ref()
-                        .map(|editor| editor.role.as_str())
-                        .unwrap_or("");
+                    let current_role = self.mission_control_role_picker_value();
                     widgets::role_picker::render(
                         frame,
                         overlay_area,
                         &self.modal,
-                        current_role,
+                        current_role.as_str(),
                         &self.theme,
                     );
                 }
@@ -1577,13 +1666,23 @@ impl TuiModel {
                     );
                 }
                 modal::ModalKind::EffortPicker => {
-                    render_helpers::render_effort_picker(
-                        frame,
-                        overlay_area,
-                        &self.modal,
-                        &self.config,
-                        &self.theme,
-                    );
+                    if let Some(current_effort) = self.mission_control_effort_picker_value() {
+                        render_runtime_effort_picker(
+                            frame,
+                            overlay_area,
+                            &self.modal,
+                            Some(current_effort.as_str()),
+                            &self.theme,
+                        );
+                    } else {
+                        render_helpers::render_effort_picker(
+                            frame,
+                            overlay_area,
+                            &self.modal,
+                            &self.config,
+                            &self.theme,
+                        );
+                    }
                 }
                 modal::ModalKind::Notifications => {
                     widgets::notifications::render(

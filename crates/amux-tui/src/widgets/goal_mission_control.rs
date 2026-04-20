@@ -189,13 +189,15 @@ fn render_role_assignments_section(
         theme.accent_secondary,
     )));
 
-    if state.role_assignments.is_empty() {
+    let live_assignments = state.role_assignments.as_slice();
+    let display_assignments = state.display_role_assignments();
+    if display_assignments.is_empty() {
         lines.push(Line::from(Span::styled(
             "No role assignments loaded.",
             theme.fg_dim,
         )));
     } else {
-        for assignment in &state.role_assignments {
+        for (index, assignment) in display_assignments.iter().enumerate() {
             let reasoning = assignment
                 .reasoning_effort
                 .as_deref()
@@ -206,7 +208,24 @@ fn render_role_assignments_section(
             } else {
                 "custom"
             };
+            let selection_marker = if state.selected_runtime_assignment_index == index {
+                "> "
+            } else {
+                "  "
+            };
+            let active_marker = if state.active_runtime_assignment_index == Some(index) {
+                "active"
+            } else {
+                ""
+            };
+            let status_label = state.runtime_assignment_status_label(index);
+            let live_suffix = live_assignments
+                .get(index)
+                .filter(|live| *live != assignment)
+                .map(|live| format!("  live {} / {}", live.provider, live.model))
+                .unwrap_or_default();
             lines.push(Line::from(vec![
+                Span::styled(selection_marker, theme.accent_secondary),
                 Span::styled(format!("{}: ", assignment.role_id), theme.fg_active),
                 Span::styled(
                     format!(
@@ -215,6 +234,20 @@ fn render_role_assignments_section(
                     ),
                     theme.fg_dim,
                 ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("   ", theme.fg_dim),
+                Span::styled(status_label, theme.accent_secondary),
+                if active_marker.is_empty() {
+                    Span::raw("")
+                } else {
+                    Span::styled(format!("  {active_marker}"), theme.fg_dim)
+                },
+                if live_suffix.is_empty() {
+                    Span::raw("")
+                } else {
+                    Span::styled(live_suffix, theme.fg_dim)
+                },
             ]));
         }
     }

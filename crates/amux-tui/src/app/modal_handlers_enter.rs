@@ -236,6 +236,68 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.status_line = "Selected goal step is unavailable".to_string();
                     }
                 }
+                Some(GoalActionPickerItem::CycleRuntimeAssignment) => {
+                    if !model.cycle_selected_runtime_assignment() {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                }
+                Some(GoalActionPickerItem::EditRuntimeProvider) => {
+                    if !model.stage_runtime_assignment_modal_edit(
+                        goal_mission_control::RuntimeAssignmentEditField::Provider,
+                    ) {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                }
+                Some(GoalActionPickerItem::EditRuntimeModel) => {
+                    if !model.stage_runtime_assignment_modal_edit(
+                        goal_mission_control::RuntimeAssignmentEditField::Model,
+                    ) {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                }
+                Some(GoalActionPickerItem::EditRuntimeReasoning) => {
+                    if !model.stage_runtime_assignment_modal_edit(
+                        goal_mission_control::RuntimeAssignmentEditField::ReasoningEffort,
+                    ) {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                }
+                Some(GoalActionPickerItem::EditRuntimeRole) => {
+                    if !model.stage_runtime_assignment_modal_edit(
+                        goal_mission_control::RuntimeAssignmentEditField::Role,
+                    ) {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                }
+                Some(GoalActionPickerItem::ToggleRuntimeEnabled) => {
+                    if !model.update_selected_runtime_assignment(|assignment| {
+                        assignment.enabled = !assignment.enabled;
+                    }) {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                }
+                Some(GoalActionPickerItem::ToggleRuntimeInherit) => {
+                    if !model.update_selected_runtime_assignment(|assignment| {
+                        assignment.inherit_from_main = !assignment.inherit_from_main;
+                    }) {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                }
+                Some(GoalActionPickerItem::ApplyRuntimeNextTurn) => {
+                    model.open_pending_action_confirm(PendingConfirmAction::ReuseModelAsStt {
+                        model_id: "__mission_control__:next_turn".to_string(),
+                    });
+                }
+                Some(GoalActionPickerItem::ApplyRuntimeReassignActiveStep) => {
+                    model.open_pending_action_confirm(PendingConfirmAction::ReuseModelAsStt {
+                        model_id: "__mission_control__:reassign_active_step".to_string(),
+                    });
+                }
+                Some(GoalActionPickerItem::ApplyRuntimeRestartActiveStep) => {
+                    model.open_pending_action_confirm(PendingConfirmAction::ReuseModelAsStt {
+                        model_id: "__mission_control__:restart_active_step".to_string(),
+                    });
+                }
                 None => {
                     model.status_line = "Goal action is unavailable".to_string();
                 }
@@ -248,6 +310,37 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             model.close_pinned_budget_exceeded_modal();
         }
         modal::ModalKind::ProviderPicker => {
+            if let Some(edit) = model.goal_mission_control.pending_runtime_edit.clone() {
+                let cursor = model.modal.picker_cursor();
+                let provider_defs = widgets::provider_picker::available_provider_defs(&model.auth);
+                if let Some(def) = provider_defs.get(cursor) {
+                    let next_provider = def.id.to_string();
+                    let next_model = providers::default_model_for_provider_auth(
+                        def.id,
+                        providers::default_auth_source_for(def.id),
+                    );
+                    model.goal_mission_control.clear_runtime_edit();
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                    let updated = model.update_selected_runtime_assignment(|assignment| {
+                        if edit.field == goal_mission_control::RuntimeAssignmentEditField::Provider
+                        {
+                            assignment.provider = next_provider.clone();
+                            if !next_model.trim().is_empty() {
+                                assignment.model = next_model.clone();
+                            }
+                        }
+                    });
+                    if !updated {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                } else {
+                    model.goal_mission_control.clear_runtime_edit();
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                }
+                return;
+            }
             let cursor = model.modal.picker_cursor();
             let provider_defs = match model.settings_picker_target {
                 Some(SettingsPickerTarget::AudioSttProvider) => {
@@ -461,6 +554,29 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             model.close_top_modal();
         }
         modal::ModalKind::ModelPicker => {
+            if let Some(edit) = model.goal_mission_control.pending_runtime_edit.clone() {
+                let models = model.available_runtime_assignment_models();
+                let cursor = model.modal.picker_cursor();
+                if let Some(model_entry) = models.get(cursor) {
+                    let next_model = model_entry.id.clone();
+                    model.goal_mission_control.clear_runtime_edit();
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                    let updated = model.update_selected_runtime_assignment(|assignment| {
+                        if edit.field == goal_mission_control::RuntimeAssignmentEditField::Model {
+                            assignment.model = next_model.clone();
+                        }
+                    });
+                    if !updated {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                } else {
+                    model.goal_mission_control.clear_runtime_edit();
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                }
+                return;
+            }
             let models = model.available_model_picker_models();
             let cursor = model.modal.picker_cursor();
             if cursor == models.len() {
@@ -647,6 +763,37 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             }
         }
         modal::ModalKind::RolePicker => {
+            if let Some(edit) = model.goal_mission_control.pending_runtime_edit.clone() {
+                let presets = crate::state::subagents::SUBAGENT_ROLE_PRESETS;
+                let cursor = model.modal.picker_cursor();
+                if cursor == presets.len() {
+                    model.goal_mission_control.clear_runtime_edit();
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                    model.status_line =
+                        "Custom Mission Control roles are not supported in this editor".to_string();
+                    return;
+                }
+                if let Some(preset) = presets.get(cursor) {
+                    let role_id = preset.id.to_string();
+                    model.goal_mission_control.clear_runtime_edit();
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                    let updated = model.update_selected_runtime_assignment(|assignment| {
+                        if edit.field == goal_mission_control::RuntimeAssignmentEditField::Role {
+                            assignment.role_id = role_id.clone();
+                        }
+                    });
+                    if !updated {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                } else {
+                    model.goal_mission_control.clear_runtime_edit();
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                }
+                return;
+            }
             let presets = crate::state::subagents::SUBAGENT_ROLE_PRESETS;
             let cursor = model.modal.picker_cursor();
             if cursor == presets.len() {
@@ -673,6 +820,31 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             model.close_top_modal();
         }
         modal::ModalKind::EffortPicker => {
+            if let Some(edit) = model.goal_mission_control.pending_runtime_edit.clone() {
+                let efforts = ["", "minimal", "low", "medium", "high", "xhigh"];
+                let cursor = model.modal.picker_cursor();
+                if let Some(&effort) = efforts.get(cursor) {
+                    let next_effort = (!effort.is_empty()).then(|| effort.to_string());
+                    model.goal_mission_control.clear_runtime_edit();
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                    let updated = model.update_selected_runtime_assignment(|assignment| {
+                        if edit.field
+                            == goal_mission_control::RuntimeAssignmentEditField::ReasoningEffort
+                        {
+                            assignment.reasoning_effort = next_effort.clone();
+                        }
+                    });
+                    if !updated {
+                        model.status_line = "Mission Control roster is unavailable".to_string();
+                    }
+                } else {
+                    model.goal_mission_control.clear_runtime_edit();
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                }
+                return;
+            }
             let efforts = ["", "minimal", "low", "medium", "high", "xhigh"];
             let cursor = model.modal.picker_cursor();
             if let Some(&effort) = efforts.get(cursor) {

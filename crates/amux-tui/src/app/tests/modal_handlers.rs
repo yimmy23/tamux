@@ -207,6 +207,36 @@ fn navigate_model_picker_to(model: &mut TuiModel, model_id: &str) {
     }
 }
 
+fn make_runtime_assignment(
+    role_id: &str,
+    provider: &str,
+    model: &str,
+    reasoning_effort: Option<&str>,
+) -> task::GoalAgentAssignment {
+    task::GoalAgentAssignment {
+        role_id: role_id.to_string(),
+        enabled: true,
+        provider: provider.to_string(),
+        model: model.to_string(),
+        reasoning_effort: reasoning_effort.map(str::to_string),
+        inherit_from_main: false,
+    }
+}
+
+fn make_goal_owner_profile(
+    agent_label: &str,
+    provider: &str,
+    model: &str,
+    reasoning_effort: Option<&str>,
+) -> task::GoalRuntimeOwnerProfile {
+    task::GoalRuntimeOwnerProfile {
+        agent_label: agent_label.to_string(),
+        provider: provider.to_string(),
+        model: model.to_string(),
+        reasoning_effort: reasoning_effort.map(str::to_string),
+    }
+}
+
 #[test]
 fn whatsapp_modal_esc_sends_stop_and_closes() {
     let (mut model, mut daemon_rx) = make_model();
@@ -5693,4 +5723,165 @@ fn pinned_budget_modal_dismiss_restores_chat_focus() {
     assert!(model.modal.top().is_none());
     assert_eq!(model.chat.selected_message(), Some(0));
     assert!(model.pending_pinned_budget_exceeded.is_none());
+}
+
+#[test]
+fn goal_view_action_menu_runtime_assignment_reassign_requires_confirmation() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            config::FetchedModel {
+                id: "gpt-5.4".to_string(),
+                name: Some("GPT-5.4".to_string()),
+                context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
+            },
+            config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
+            },
+        ]));
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal One".to_string(),
+            status: Some(task::GoalRunStatus::Running),
+            goal: "Mission Control runtime edit".to_string(),
+            thread_id: Some("thread-1".to_string()),
+            root_thread_id: Some("thread-1".to_string()),
+            active_thread_id: Some("thread-2".to_string()),
+            runtime_assignment_list: vec![
+                make_runtime_assignment(
+                    amux_protocol::AGENT_ID_SWAROG,
+                    "openai",
+                    "gpt-5.4",
+                    Some("medium"),
+                ),
+                make_runtime_assignment("reviewer", "openai", "gpt-5.4", Some("low")),
+            ],
+            launch_assignment_snapshot: vec![
+                make_runtime_assignment(
+                    amux_protocol::AGENT_ID_SWAROG,
+                    "openai",
+                    "gpt-5.4",
+                    Some("medium"),
+                ),
+                make_runtime_assignment("reviewer", "openai", "gpt-5.4", Some("low")),
+            ],
+            current_step_owner_profile: Some(make_goal_owner_profile(
+                "Swarog",
+                "openai",
+                "gpt-5.4",
+                Some("medium"),
+            )),
+            ..Default::default()
+        }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    let handled = model.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::GoalStepActionPicker)
+    );
+
+    let model_edit_index = model
+        .goal_action_picker_items()
+        .iter()
+        .position(|item| item.label() == "Edit Runtime Model")
+        .expect("runtime model action should be available");
+    if model_edit_index > 0 {
+        model
+            .modal
+            .reduce(modal::ModalAction::Navigate(model_edit_index as i32));
+    }
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::GoalStepActionPicker,
+    );
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+
+    navigate_model_picker_to(&mut model, "gpt-5.4-mini");
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+    assert!(!handled);
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::GoalStepActionPicker)
+    );
+
+    let reassign_index = model
+        .goal_action_picker_items()
+        .iter()
+        .position(|item| item.label() == "Reassign Active Step")
+        .expect("reassign action should be available");
+    if reassign_index > 0 {
+        model
+            .modal
+            .reduce(modal::ModalAction::Navigate(reassign_index as i32));
+    }
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::GoalStepActionPicker,
+    );
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert_eq!(
+        model
+            .pending_chat_action_confirm
+            .as_ref()
+            .map(PendingConfirmAction::modal_body)
+            .as_deref(),
+        Some("Reassign the active step with the pending Mission Control roster change?")
+    );
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+    assert!(!handled);
+    assert!(
+        daemon_rx.try_recv().is_err(),
+        "runtime assignment edit should stay TUI-local without daemon command"
+    );
+    assert_eq!(
+        model.goal_mission_control.pending_role_assignments.as_ref(),
+        Some(&vec![
+            make_runtime_assignment(
+                amux_protocol::AGENT_ID_SWAROG,
+                "openai",
+                "gpt-5.4-mini",
+                Some("medium"),
+            ),
+            make_runtime_assignment("reviewer", "openai", "gpt-5.4", Some("low")),
+        ])
+    );
+    assert_eq!(
+        model.goal_mission_control.pending_runtime_apply_modes,
+        vec![
+            Some(goal_mission_control::RuntimeAssignmentApplyMode::ReassignActiveStep),
+            None,
+        ]
+    );
 }
