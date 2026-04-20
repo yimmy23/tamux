@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::types::GoalRuntimeOwnerProfile;
+use crate::agent::types::{GoalAgentAssignment, GoalRuntimeOwnerProfile};
 
 fn serialize_goal_runtime_owner_profile(
     profile: &Option<GoalRuntimeOwnerProfile>,
@@ -21,6 +21,25 @@ fn deserialize_goal_runtime_owner_profile(
         .and_then(|json| serde_json::from_str(json).ok())
 }
 
+fn deserialize_goal_agent_assignments(
+    assignments_json: Option<String>,
+) -> Vec<GoalAgentAssignment> {
+    assignments_json
+        .as_deref()
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default()
+}
+
+fn deserialize_goal_run_thread_ids(
+    thread_id: &Option<String>,
+    execution_thread_ids_json: Option<String>,
+) -> Vec<String> {
+    match execution_thread_ids_json {
+        Some(json) => serde_json::from_str(&json).unwrap_or_default(),
+        None => thread_id.clone().into_iter().collect(),
+    }
+}
+
 impl HistoryStore {
     pub async fn upsert_goal_run(&self, goal_run: &GoalRun) -> Result<()> {
         let goal_run = goal_run.clone();
@@ -28,6 +47,12 @@ impl HistoryStore {
             let transaction = conn.transaction()?;
             let memory_updates_json = serde_json::to_string(&goal_run.memory_updates).call_err()?;
             let child_task_ids_json = serde_json::to_string(&goal_run.child_task_ids).call_err()?;
+            let launch_assignment_snapshot_json =
+                serde_json::to_string(&goal_run.launch_assignment_snapshot).call_err()?;
+            let runtime_assignment_list_json =
+                serde_json::to_string(&goal_run.runtime_assignment_list).call_err()?;
+            let execution_thread_ids_json =
+                serde_json::to_string(&goal_run.execution_thread_ids).call_err()?;
             let dossier_json = goal_run
                 .dossier
                 .as_ref()
@@ -41,8 +66,8 @@ impl HistoryStore {
 
             transaction.execute(
                 "INSERT OR REPLACE INTO goal_runs \
-                 (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41)",
+                 (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46)",
                 params![
                     &goal_run.id,
                     &goal_run.title,
@@ -56,6 +81,9 @@ impl HistoryStore {
                     goal_run.completed_at.map(|value| value as i64),
                     &goal_run.thread_id,
                     &goal_run.session_id,
+                    &goal_run.root_thread_id,
+                    &goal_run.active_thread_id,
+                    execution_thread_ids_json,
                     goal_run.current_step_index as i64,
                     goal_run.replan_count as i64,
                     goal_run.max_replans as i64,
@@ -85,6 +113,8 @@ impl HistoryStore {
                     authorship_tag,
                     planner_owner_profile_json,
                     current_step_owner_profile_json,
+                    launch_assignment_snapshot_json,
+                    runtime_assignment_list_json,
                 ],
             )?;
 
@@ -202,17 +232,25 @@ impl HistoryStore {
         }
 
         let mut stmt = conn.prepare(
-            "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json \
+            "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json \
              FROM goal_runs ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
-            let memory_updates_json: String = row.get(17)?;
-            let dossier_json: Option<String> = row.get(33)?;
-            let child_task_ids_json: String = row.get(22)?;
-            let planner_owner_profile_json: Option<String> = row.get(39)?;
-            let current_step_owner_profile_json: Option<String> = row.get(40)?;
+            let thread_id: Option<String> = row.get(10)?;
+            let root_thread_id: Option<String> = row.get(12)?;
+            let active_thread_id: Option<String> = row.get(13)?;
+            let execution_thread_ids_json: Option<String> = row.get(14)?;
+            let memory_updates_json: String = row.get(20)?;
+            let dossier_json: Option<String> = row.get(36)?;
+            let child_task_ids_json: String = row.get(25)?;
+            let planner_owner_profile_json: Option<String> = row.get(42)?;
+            let current_step_owner_profile_json: Option<String> = row.get(43)?;
+            let launch_assignment_snapshot_json: Option<String> = row.get(44)?;
+            let runtime_assignment_list_json: Option<String> = row.get(45)?;
             let child_task_ids = serde_json::from_str(&child_task_ids_json).unwrap_or_default();
+            let root_thread_id = root_thread_id.or_else(|| thread_id.clone());
+            let active_thread_id = active_thread_id.or_else(|| thread_id.clone());
             Ok(GoalRun {
                 id,
                 title: row.get(1)?,
@@ -224,48 +262,60 @@ impl HistoryStore {
                 updated_at: row.get::<_, i64>(7)? as u64,
                 started_at: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
                 completed_at: row.get::<_, Option<i64>>(9)?.map(|value| value as u64),
-                thread_id: row.get(10)?,
+                thread_id: thread_id.clone(),
+                root_thread_id,
+                active_thread_id,
+                execution_thread_ids: deserialize_goal_run_thread_ids(
+                    &thread_id,
+                    execution_thread_ids_json,
+                ),
                 session_id: row.get(11)?,
-                current_step_index: row.get::<_, i64>(12)? as usize,
+                current_step_index: row.get::<_, i64>(15)? as usize,
                 current_step_title: None,
                 current_step_kind: None,
+                launch_assignment_snapshot: deserialize_goal_agent_assignments(
+                    launch_assignment_snapshot_json,
+                ),
+                runtime_assignment_list: deserialize_goal_agent_assignments(
+                    runtime_assignment_list_json,
+                ),
                 planner_owner_profile: deserialize_goal_runtime_owner_profile(
                     planner_owner_profile_json,
                 ),
                 current_step_owner_profile: deserialize_goal_runtime_owner_profile(
                     current_step_owner_profile_json,
                 ),
-                replan_count: row.get::<_, i64>(13)? as u32,
-                max_replans: row.get::<_, i64>(14)? as u32,
-                plan_summary: row.get(15)?,
-                reflection_summary: row.get(16)?,
+                replan_count: row.get::<_, i64>(16)? as u32,
+                max_replans: row.get::<_, i64>(17)? as u32,
+                plan_summary: row.get(18)?,
+                reflection_summary: row.get(19)?,
                 memory_updates: serde_json::from_str(&memory_updates_json).unwrap_or_default(),
-                generated_skill_path: row.get(18)?,
-                last_error: row.get(19)?,
-                failure_cause: row.get(20)?,
-                stopped_reason: row.get(21)?,
+                generated_skill_path: row.get(21)?,
+                last_error: row.get(22)?,
+                failure_cause: row.get(23)?,
+                stopped_reason: row.get(24)?,
                 child_task_ids,
-                child_task_count: row.get::<_, i64>(23)? as u32,
-                approval_count: row.get::<_, i64>(24)? as u32,
-                awaiting_approval_id: row.get(25)?,
-                policy_fingerprint: row.get(26)?,
-                approval_expires_at: row.get::<_, Option<i64>>(27)?.map(|value| value as u64),
-                containment_scope: row.get(28)?,
-                compensation_status: row.get(29)?,
-                compensation_summary: row.get(30)?,
-                active_task_id: row.get(31)?,
-                duration_ms: row.get::<_, Option<i64>>(32)?.map(|value| value as u64),
+                child_task_count: row.get::<_, i64>(26)? as u32,
+                approval_count: row.get::<_, i64>(27)? as u32,
+                awaiting_approval_id: row.get(28)?,
+                policy_fingerprint: row.get(29)?,
+                approval_expires_at: row.get::<_, Option<i64>>(30)?.map(|value| value as u64),
+                containment_scope: row.get(31)?,
+                compensation_status: row.get(32)?,
+                compensation_summary: row.get(33)?,
+                active_task_id: row.get(34)?,
+                duration_ms: row.get::<_, Option<i64>>(35)?.map(|value| value as u64),
                 steps: Vec::new(),
                 events: Vec::new(),
                 dossier: dossier_json
                     .as_deref()
                     .and_then(|json| serde_json::from_str(json).ok()),
-                total_prompt_tokens: row.get::<_, i64>(34)? as u64,
-                total_completion_tokens: row.get::<_, i64>(35)? as u64,
-                estimated_cost_usd: row.get(36)?,
-                autonomy_level: parse_autonomy_level(&row.get::<_, String>(37)?),
+                total_prompt_tokens: row.get::<_, i64>(37)? as u64,
+                total_completion_tokens: row.get::<_, i64>(38)? as u64,
+                estimated_cost_usd: row.get(39)?,
+                autonomy_level: parse_autonomy_level(&row.get::<_, String>(40)?),
                 authorship_tag: row
-                    .get::<_, Option<String>>(38)?
+                    .get::<_, Option<String>>(41)?
                     .map(|value| parse_authorship_tag(&value)),
             })
         })?;

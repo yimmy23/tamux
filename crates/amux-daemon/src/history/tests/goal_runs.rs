@@ -1,9 +1,25 @@
 use super::*;
 use crate::agent::types::{
-    GoalDeliveryUnit, GoalProjectionState, GoalResumeAction, GoalResumeDecision, GoalRoleBinding,
-    GoalRunDossier, GoalRuntimeOwnerProfile,
+    GoalAgentAssignment, GoalDeliveryUnit, GoalProjectionState, GoalResumeAction,
+    GoalResumeDecision, GoalRoleBinding, GoalRunDossier, GoalRuntimeOwnerProfile,
 };
 use crate::history::schema_helpers::table_has_column;
+
+fn sample_assignment(
+    role_id: &str,
+    provider: &str,
+    model: &str,
+    reasoning_effort: Option<&str>,
+) -> GoalAgentAssignment {
+    GoalAgentAssignment {
+        role_id: role_id.to_string(),
+        enabled: true,
+        provider: provider.to_string(),
+        model: model.to_string(),
+        reasoning_effort: reasoning_effort.map(str::to_string),
+        inherit_from_main: false,
+    }
+}
 
 #[tokio::test]
 async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Result<()> {
@@ -310,6 +326,11 @@ async fn goal_run_event_todo_snapshot_round_trips() -> Result<()> {
         estimated_cost_usd: None,
         autonomy_level: Default::default(),
         authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
     };
 
     store.upsert_goal_run(&goal_run).await?;
@@ -379,6 +400,23 @@ async fn goal_run_extended_metadata_round_trips() -> Result<()> {
         compensation_summary: Some("rollback pending".to_string()),
         active_task_id: Some("task-2".to_string()),
         duration_ms: Some(888),
+        launch_assignment_snapshot: vec![
+            sample_assignment("planner", "openai", "gpt-5.4", Some("high")),
+            sample_assignment("executor", "anthropic", "claude-sonnet-4", None),
+        ],
+        runtime_assignment_list: vec![sample_assignment(
+            "executor",
+            "anthropic",
+            "claude-sonnet-4",
+            None,
+        )],
+        root_thread_id: Some("thread-root".to_string()),
+        active_thread_id: Some("thread-active".to_string()),
+        execution_thread_ids: vec![
+            "thread-root".to_string(),
+            "thread-active".to_string(),
+            "thread-followup".to_string(),
+        ],
         steps: vec![GoalRunStep {
             id: "step-meta".to_string(),
             position: 0,
@@ -491,6 +529,32 @@ async fn goal_run_extended_metadata_round_trips() -> Result<()> {
             reasoning_effort: None,
         })
     );
+    assert_eq!(
+        loaded.launch_assignment_snapshot,
+        vec![
+            sample_assignment("planner", "openai", "gpt-5.4", Some("high")),
+            sample_assignment("executor", "anthropic", "claude-sonnet-4", None),
+        ]
+    );
+    assert_eq!(
+        loaded.runtime_assignment_list,
+        vec![sample_assignment(
+            "executor",
+            "anthropic",
+            "claude-sonnet-4",
+            None,
+        )]
+    );
+    assert_eq!(loaded.root_thread_id.as_deref(), Some("thread-root"));
+    assert_eq!(loaded.active_thread_id.as_deref(), Some("thread-active"));
+    assert_eq!(
+        loaded.execution_thread_ids,
+        vec![
+            "thread-root".to_string(),
+            "thread-active".to_string(),
+            "thread-followup".to_string(),
+        ]
+    );
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -562,6 +626,11 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
                 table_has_column(conn, "goal_runs", "authorship_tag")?,
                 table_has_column(conn, "goal_runs", "planner_owner_profile_json")?,
                 table_has_column(conn, "goal_runs", "current_step_owner_profile_json")?,
+                table_has_column(conn, "goal_runs", "launch_assignment_snapshot_json")?,
+                table_has_column(conn, "goal_runs", "runtime_assignment_list_json")?,
+                table_has_column(conn, "goal_runs", "root_thread_id")?,
+                table_has_column(conn, "goal_runs", "active_thread_id")?,
+                table_has_column(conn, "goal_runs", "execution_thread_ids_json")?,
             ))
         })
         .await
@@ -587,6 +656,11 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
     assert!(cols.17);
     assert!(cols.18);
     assert!(cols.19);
+    assert!(cols.20);
+    assert!(cols.21);
+    assert!(cols.22);
+    assert!(cols.23);
+    assert!(cols.24);
 
     fs::remove_dir_all(root)?;
     Ok(())

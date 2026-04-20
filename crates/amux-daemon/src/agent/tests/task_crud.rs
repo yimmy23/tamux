@@ -66,6 +66,11 @@ fn sample_supervised_goal_run(goal_run_id: &str, task_id: &str, approval_id: &st
         estimated_cost_usd: None,
         autonomy_level: super::autonomy::AutonomyLevel::Supervised,
         authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
     }
 }
 
@@ -80,6 +85,22 @@ fn sample_owner_profile(
         provider: provider.to_string(),
         model: model.to_string(),
         reasoning_effort: reasoning_effort.map(str::to_string),
+    }
+}
+
+fn sample_assignment(
+    role_id: &str,
+    provider: &str,
+    model: &str,
+    reasoning_effort: Option<&str>,
+) -> GoalAgentAssignment {
+    GoalAgentAssignment {
+        role_id: role_id.to_string(),
+        enabled: true,
+        provider: provider.to_string(),
+        model: model.to_string(),
+        reasoning_effort: reasoning_effort.map(str::to_string),
+        inherit_from_main: false,
     }
 }
 
@@ -873,6 +894,23 @@ async fn get_goal_run_capped_for_ipc_preserves_owner_profiles_when_step_slice_dr
     let huge_instructions = "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024);
 
     let mut goal_run = sample_supervised_goal_run(goal_run_id, "task-owner", "approval-owner");
+    goal_run.launch_assignment_snapshot = vec![
+        sample_assignment("planner", "openai", "gpt-5", Some("high")),
+        sample_assignment("executor", "anthropic", "claude-sonnet-4", None),
+    ];
+    goal_run.runtime_assignment_list = vec![sample_assignment(
+        "executor",
+        "anthropic",
+        "claude-sonnet-4",
+        None,
+    )];
+    goal_run.root_thread_id = Some("thread-root".to_string());
+    goal_run.active_thread_id = Some("thread-current".to_string());
+    goal_run.execution_thread_ids = vec![
+        "thread-root".to_string(),
+        "thread-current".to_string(),
+        "thread-followup".to_string(),
+    ];
     goal_run.planner_owner_profile = Some(sample_owner_profile(
         "planner",
         "openai",
@@ -982,6 +1020,24 @@ async fn get_goal_run_capped_for_ipc_preserves_owner_profiles_when_step_slice_dr
         Some(&serde_json::json!("task-current")),
         "active task id should follow the rebased current step",
     );
+    assert_eq!(
+        goal_run_object.get("root_thread_id"),
+        Some(&serde_json::json!("thread-root")),
+        "root thread id should survive IPC capping",
+    );
+    assert_eq!(
+        goal_run_object.get("active_thread_id"),
+        Some(&serde_json::json!("thread-current")),
+        "active thread id should survive IPC capping",
+    );
+    assert_eq!(
+        goal_run_object
+            .get("execution_thread_ids")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len),
+        Some(3),
+        "execution thread ids should survive IPC capping",
+    );
     let goal_run: Option<GoalRun> =
         serde_json::from_str(&goal_run_json).expect("parse capped goal run detail json");
     let goal_run = goal_run.expect("goal run detail should still exist");
@@ -1014,6 +1070,43 @@ async fn get_goal_run_capped_for_ipc_preserves_owner_profiles_when_step_slice_dr
     assert_eq!(goal_run.current_step_kind, Some(GoalRunStepKind::Command));
     assert_eq!(goal_run.active_task_id.as_deref(), Some("task-current"));
     assert_eq!(goal_run.current_step_title.as_deref(), Some("step-current"));
+    assert_eq!(
+        goal_run.launch_assignment_snapshot,
+        vec![
+            sample_assignment("planner", "openai", "gpt-5", Some("high")),
+            sample_assignment("executor", "anthropic", "claude-sonnet-4", None),
+        ],
+        "launch assignment snapshot should survive IPC capping",
+    );
+    assert_eq!(
+        goal_run.runtime_assignment_list,
+        vec![sample_assignment(
+            "executor",
+            "anthropic",
+            "claude-sonnet-4",
+            None,
+        )],
+        "runtime assignment list should survive IPC capping",
+    );
+    assert_eq!(
+        goal_run.root_thread_id.as_deref(),
+        Some("thread-root"),
+        "root thread id should survive IPC capping",
+    );
+    assert_eq!(
+        goal_run.active_thread_id.as_deref(),
+        Some("thread-current"),
+        "active thread id should survive IPC capping",
+    );
+    assert_eq!(
+        goal_run.execution_thread_ids,
+        vec![
+            "thread-root".to_string(),
+            "thread-current".to_string(),
+            "thread-followup".to_string(),
+        ],
+        "execution thread ids should survive IPC capping",
+    );
 }
 
 #[tokio::test]

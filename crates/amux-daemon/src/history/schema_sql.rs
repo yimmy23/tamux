@@ -214,7 +214,12 @@ pub(super) fn base_schema_sql() -> &'static str {
                 autonomy_level      TEXT NOT NULL DEFAULT 'aware',
                 authorship_tag      TEXT,
                 planner_owner_profile_json TEXT,
-                current_step_owner_profile_json TEXT
+                current_step_owner_profile_json TEXT,
+                launch_assignment_snapshot_json TEXT NOT NULL DEFAULT '[]',
+                runtime_assignment_list_json TEXT NOT NULL DEFAULT '[]',
+                root_thread_id      TEXT,
+                active_thread_id    TEXT,
+                execution_thread_ids_json TEXT NOT NULL DEFAULT '[]'
             );
             CREATE INDEX IF NOT EXISTS idx_goal_runs_status ON goal_runs(status, updated_at DESC);
             CREATE TABLE IF NOT EXISTS goal_run_steps (

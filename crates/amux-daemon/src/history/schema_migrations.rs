@@ -603,6 +603,26 @@ pub(super) fn apply_schema_migrations(
         "current_step_owner_profile_json",
         "TEXT",
     )?;
+    ensure_column(
+        connection,
+        "goal_runs",
+        "launch_assignment_snapshot_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    ensure_column(
+        connection,
+        "goal_runs",
+        "runtime_assignment_list_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    ensure_column(connection, "goal_runs", "root_thread_id", "TEXT")?;
+    ensure_column(connection, "goal_runs", "active_thread_id", "TEXT")?;
+    ensure_column(
+        connection,
+        "goal_runs",
+        "execution_thread_ids_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
     ensure_column(connection, "goal_run_events", "step_index", "INTEGER")?;
     ensure_column(connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
     // BEAT-09: user_action column for dismissal tracking in action_audit.
