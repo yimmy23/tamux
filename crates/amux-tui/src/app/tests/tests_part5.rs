@@ -2153,3 +2153,63 @@ fn file_preview_view_uses_available_height_for_image_preview() {
         "expected image preview to use more than the old 20-row cap, got {image_rows} rows"
     );
 }
+
+#[test]
+fn goal_composer_mission_control_preflight_renders_stable_sections() {
+    let mut model = build_model();
+    model.width = 100;
+    model.height = 40;
+    model.open_new_goal_view();
+    model.goal_mission_control.prompt_text = "Ship the next release".to_string();
+    model.goal_mission_control.preset_source_label = "Previous goal snapshot".to_string();
+    model.goal_mission_control.save_as_default_pending = true;
+
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("goal mission control preflight render should succeed");
+
+    let buffer = terminal.backend().buffer();
+    let rendered = (0..model.height)
+        .map(|y| {
+            (0..model.width)
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        rendered.contains("MISSION CONTROL"),
+        "preflight should render the Mission Control title"
+    );
+    assert!(
+        rendered.contains("Goal prompt"),
+        "preflight should render a prompt section"
+    );
+    assert!(
+        rendered.contains("Main model"),
+        "preflight should render the selected main model section"
+    );
+    assert!(
+        rendered.contains("Role assignments"),
+        "preflight should render the goal role assignments section"
+    );
+    assert!(
+        rendered.contains("Preset source"),
+        "preflight should render the preset source label"
+    );
+    assert!(
+        rendered.contains("Save as default"),
+        "preflight should render the save-as-default toggle state"
+    );
+    assert!(
+        rendered.contains("Ship the next release"),
+        "preflight should include the current goal prompt"
+    );
+    assert!(
+        !rendered.contains("Describe the goal in the input below"),
+        "old composer helper text should no longer be rendered"
+    );
+}

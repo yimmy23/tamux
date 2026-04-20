@@ -1134,7 +1134,12 @@ impl TuiModel {
                     self.task_view_scroll,
                 ),
                 MainPaneView::GoalComposer => {
-                    render_helpers::render_goal_composer(frame, layout.chat, &self.theme)
+                    render_helpers::render_goal_mission_control_preflight(
+                        frame,
+                        layout.chat,
+                        &self.goal_mission_control,
+                        &self.theme,
+                    )
                 }
             }
             if matches!(
@@ -1251,7 +1256,12 @@ impl TuiModel {
                     self.task_view_scroll,
                 ),
                 MainPaneView::GoalComposer => {
-                    render_helpers::render_goal_composer(frame, layout.chat, &self.theme)
+                    render_helpers::render_goal_mission_control_preflight(
+                        frame,
+                        layout.chat,
+                        &self.goal_mission_control,
+                        &self.theme,
+                    )
                 }
             }
         }

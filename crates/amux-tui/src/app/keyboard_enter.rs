@@ -190,12 +190,14 @@ impl TuiModel {
                 );
                 return false;
             }
+            if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
+                self.start_goal_run_from_mission_control();
+                return false;
+            }
             if prompt.starts_with('/') {
                 if !self.execute_slash_command_line(&prompt) {
                     self.submit_prompt(prompt);
                 }
-            } else if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
-                self.start_goal_run_from_prompt(prompt);
             } else {
                 self.submit_prompt(prompt);
             }

@@ -9,6 +9,7 @@ impl TuiModel {
             modal: modal::ModalState::new(),
             sidebar: sidebar::SidebarState::new(),
             goal_sidebar: goal_sidebar::GoalSidebarState::new(),
+            goal_mission_control: goal_mission_control::GoalMissionControlState::new(),
             goal_sidebar_selection_anchor: None,
             tasks: task::TaskState::new(),
             config: config::ConfigState::new(),
@@ -1274,6 +1275,7 @@ impl TuiModel {
             self.input.reduce(input::InputAction::InsertChar(ch));
         }
         self.input.set_mode(input::InputMode::Insert);
+        self.sync_goal_mission_control_prompt_from_input();
     }
 
     fn close_top_modal(&mut self) {

@@ -218,6 +218,7 @@ impl TuiModel {
                 self.input.reduce(input::InputAction::InsertChar(c));
             }
         }
+        self.sync_goal_mission_control_prompt_from_input();
     }
 
     pub(super) fn attach_file(&mut self, path: &str) {

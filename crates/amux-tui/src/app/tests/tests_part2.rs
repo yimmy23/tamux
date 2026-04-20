@@ -370,6 +370,138 @@
     }
 
     #[test]
+    fn goal_composer_opens_mission_control_preflight_with_main_agent_defaults() {
+        let mut model = build_model();
+        model.config.provider = "openai".to_string();
+        model.config.model = "gpt-5.4".to_string();
+        model.config.reasoning_effort = "low".to_string();
+
+        model.open_new_goal_view();
+
+        assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
+        assert_eq!(model.input.buffer(), "");
+        assert_eq!(
+            model.goal_mission_control.preset_source_label,
+            "Main agent inheritance"
+        );
+        assert_eq!(
+            model.goal_mission_control.main_assignment.provider,
+            "openai"
+        );
+        assert_eq!(model.goal_mission_control.main_assignment.model, "gpt-5.4");
+        assert_eq!(
+            model.goal_mission_control.main_assignment.reasoning_effort.as_deref(),
+            Some("low")
+        );
+        assert_eq!(model.goal_mission_control.role_assignments.len(), 1);
+        assert!(
+            !model.goal_mission_control.save_as_default_pending,
+            "save-as-default should start disabled"
+        );
+    }
+
+    #[test]
+    fn goal_composer_loads_previous_goal_settings_as_defaults_when_present() {
+        let mut model = build_model();
+        model.config.provider = "fallback-provider".to_string();
+        model.config.model = "fallback-model".to_string();
+        model.config.reasoning_effort = "fallback-effort".to_string();
+        model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Previous Goal".to_string(),
+            updated_at: 42,
+            launch_assignment_snapshot: vec![
+                task::GoalAgentAssignment {
+                    role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+                    enabled: true,
+                    provider: "previous-provider".to_string(),
+                    model: "previous-model".to_string(),
+                    reasoning_effort: Some("medium".to_string()),
+                    inherit_from_main: false,
+                },
+                task::GoalAgentAssignment {
+                    role_id: "planner".to_string(),
+                    enabled: true,
+                    provider: "planner-provider".to_string(),
+                    model: "planner-model".to_string(),
+                    reasoning_effort: Some("high".to_string()),
+                    inherit_from_main: false,
+                },
+            ],
+            runtime_assignment_list: vec![task::GoalAgentAssignment {
+                role_id: "planner".to_string(),
+                enabled: true,
+                provider: "planner-provider".to_string(),
+                model: "planner-model".to_string(),
+                reasoning_effort: Some("high".to_string()),
+                inherit_from_main: false,
+            }],
+            ..Default::default()
+        }));
+
+        model.open_new_goal_view();
+
+        assert_eq!(
+            model.goal_mission_control.preset_source_label,
+            "Previous goal snapshot"
+        );
+        assert_eq!(
+            model.goal_mission_control.main_assignment.provider,
+            "previous-provider"
+        );
+        assert_eq!(
+            model.goal_mission_control.main_assignment.model,
+            "previous-model"
+        );
+        assert_eq!(
+            model.goal_mission_control.main_assignment.reasoning_effort.as_deref(),
+            Some("medium")
+        );
+        assert_eq!(model.goal_mission_control.role_assignments.len(), 2);
+        assert_eq!(
+            model.goal_mission_control.role_assignments[1].provider,
+            "planner-provider"
+        );
+    }
+
+    #[test]
+    fn goal_composer_enter_launches_from_mission_control_preflight_state_instead_of_raw_input_mode() {
+        let (_daemon_tx, daemon_rx) = mpsc::channel();
+        let (cmd_tx, mut cmd_rx) = unbounded_channel();
+        let mut model = TuiModel::new(daemon_rx, cmd_tx);
+        model.connected = true;
+        model.main_pane_view = MainPaneView::GoalComposer;
+        model.focus = FocusArea::Input;
+        model.goal_mission_control.prompt_text = "Mission Control goal".to_string();
+        model.input.set_text("raw input that should be ignored");
+
+        let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(!handled);
+
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => {}
+            other => panic!("expected concierge dismissal before launch, got {:?}", other),
+        }
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::StartGoalRun {
+                goal,
+                thread_id,
+                session_id,
+            }) => {
+                assert_eq!(goal, "Mission Control goal");
+                assert_eq!(thread_id, None);
+                assert_eq!(session_id, None);
+            }
+            other => panic!("expected start-goal-run command, got {:?}", other),
+        }
+        assert_eq!(
+            model.status_line,
+            "Starting goal run...",
+            "preflight submission should launch the goal run"
+        );
+    }
+
+    #[test]
     fn concierge_arrow_keys_navigate_visible_actions() {
         let mut model = build_model();
         model.focus = FocusArea::Chat;

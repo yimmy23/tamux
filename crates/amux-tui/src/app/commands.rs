@@ -1271,17 +1271,64 @@ impl TuiModel {
 
     pub(super) fn open_new_goal_view(&mut self) {
         self.cleanup_concierge_on_navigate();
+        let fallback_profile = self.current_conversation_agent_profile();
+        let fallback_main_assignment = task::GoalAgentAssignment {
+            role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+            enabled: true,
+            provider: fallback_profile.provider,
+            model: fallback_profile.model,
+            reasoning_effort: fallback_profile.reasoning_effort,
+            inherit_from_main: false,
+        };
+        let latest_goal_snapshot = self
+            .tasks
+            .goal_runs()
+            .iter()
+            .max_by_key(|run| run.updated_at)
+            .and_then(|run| {
+                if !run.launch_assignment_snapshot.is_empty() {
+                    Some(run.launch_assignment_snapshot.clone())
+                } else if !run.runtime_assignment_list.is_empty() {
+                    Some(run.runtime_assignment_list.clone())
+                } else {
+                    None
+                }
+            });
+        self.goal_mission_control = match latest_goal_snapshot {
+            Some(snapshot) => goal_mission_control::GoalMissionControlState::from_goal_snapshot(
+                snapshot,
+                fallback_main_assignment,
+                "Previous goal snapshot",
+            ),
+            None => goal_mission_control::GoalMissionControlState::from_main_assignment(
+                fallback_main_assignment.clone(),
+                vec![fallback_main_assignment],
+                "Main agent inheritance",
+            ),
+        };
+        self.goal_mission_control.set_prompt_text(String::new());
+        self.goal_mission_control.set_save_as_default_pending(false);
         self.main_pane_view = MainPaneView::GoalComposer;
         self.task_view_scroll = 0;
         self.focus = FocusArea::Input;
-        self.input.reduce(input::InputAction::Clear);
+        self.set_input_text("");
         self.attachments.clear();
-        self.status_line = "Describe the goal in the input and press Enter".to_string();
+        self.status_line = "Mission Control preflight is ready".to_string();
     }
 
     pub(super) fn start_goal_run_from_prompt(&mut self, goal: String) {
+        self.goal_mission_control.set_prompt_text(goal);
+        self.start_goal_run_from_mission_control();
+    }
+
+    pub(super) fn start_goal_run_from_mission_control(&mut self) {
         if !self.connected {
             self.status_line = "Not connected to daemon".to_string();
+            return;
+        }
+        let goal = self.goal_mission_control.prompt_text().trim().to_string();
+        if goal.is_empty() {
+            self.status_line = "Enter a goal before launching".to_string();
             return;
         }
         self.cleanup_concierge_on_navigate();
@@ -1291,6 +1338,15 @@ impl TuiModel {
             session_id: None,
         });
         self.status_line = "Starting goal run...".to_string();
+    }
+
+    pub(super) fn sync_goal_mission_control_prompt_from_input(&mut self) {
+        if matches!(self.main_pane_view, MainPaneView::GoalComposer)
+            && self.focus == FocusArea::Input
+        {
+            self.goal_mission_control
+                .set_prompt_text(self.input.buffer().to_string());
+        }
     }
 
     pub(super) fn is_builtin_command(&self, command: &str) -> bool {

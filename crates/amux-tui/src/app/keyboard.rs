@@ -894,6 +894,8 @@ impl TuiModel {
             _ => {}
         }
 
+        self.sync_goal_mission_control_prompt_from_input();
+
         false
     }
 }

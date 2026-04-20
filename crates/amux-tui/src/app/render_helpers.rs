@@ -1,6 +1,7 @@
 use super::*;
-use ratatui::style::Modifier;
 
+#[path = "render_helpers/goal_mission_control.rs"]
+mod goal_mission_control;
 #[path = "render_helpers/help_modal.rs"]
 mod help_modal;
 #[path = "render_helpers/status_modal.rs"]
@@ -115,46 +116,13 @@ pub(super) fn render_effort_picker(
     frame.render_widget(Paragraph::new(hints), inner_chunks[1]);
 }
 
-pub(super) fn render_goal_composer(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
-    use ratatui::widgets::{Paragraph, Wrap};
-
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Min(1)])
-        .split(area);
-
-    let title = Paragraph::new(Line::from(Span::styled(
-        "Goal Runner",
-        theme.accent_primary.add_modifier(Modifier::BOLD),
-    )));
-    frame.render_widget(title, layout[0]);
-
-    let content = vec![
-        Line::from(Span::styled(
-            "Describe the goal in the input below and press Enter.",
-            theme.fg_active,
-        )),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled("Examples", theme.fg_dim.add_modifier(Modifier::BOLD)),
-            Span::raw(": "),
-            Span::styled(
-                "create a migration plan, implement auth, refactor a module, investigate a bug",
-                theme.fg_dim,
-            ),
-        ]),
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled("Esc", theme.fg_active),
-            Span::styled(" back to conversation  ", theme.fg_dim),
-            Span::styled("Ctrl+G", theme.fg_active),
-            Span::styled(" goal picker", theme.fg_dim),
-        ]),
-    ];
-    frame.render_widget(
-        Paragraph::new(content).wrap(Wrap { trim: false }),
-        layout[1],
-    );
+pub(super) fn render_goal_mission_control_preflight(
+    frame: &mut Frame,
+    area: Rect,
+    state: &crate::state::goal_mission_control::GoalMissionControlState,
+    theme: &ThemeTokens,
+) {
+    goal_mission_control::render_goal_mission_control_preflight(frame, area, state, theme);
 }
 
 pub(super) fn render_error_modal(
