@@ -12,9 +12,14 @@ fn welcome_signature_changes_when_context_changes() {
             opening_message: Some("User: kickoff".to_string()),
             last_messages: vec!["hello".to_string()],
         }],
-        pending_task_total: 1,
-        pending_tasks: vec!["task-a".to_string()],
-        latest_pending_task: None,
+        latest_goal_run: Some(GoalRunSummary {
+            label: "Goal A".to_string(),
+            status: GoalRunStatus::Running,
+            updated_at: 150,
+            summary: Some("Initial summary".to_string()),
+        }),
+        running_goal_total: 1,
+        paused_goal_total: 0,
     };
     let mut changed_context = WelcomeContext {
         recent_threads: vec![ThreadSummary {
@@ -25,11 +30,23 @@ fn welcome_signature_changes_when_context_changes() {
             opening_message: Some("User: kickoff".to_string()),
             last_messages: vec!["hello".to_string()],
         }],
-        pending_task_total: 1,
-        pending_tasks: vec!["task-a".to_string()],
-        latest_pending_task: None,
+        latest_goal_run: Some(GoalRunSummary {
+            label: "Goal A".to_string(),
+            status: GoalRunStatus::Running,
+            updated_at: 150,
+            summary: Some("Initial summary".to_string()),
+        }),
+        running_goal_total: 1,
+        paused_goal_total: 0,
     };
-    changed_context.pending_tasks.push("task-b".to_string());
+    changed_context.latest_goal_run = Some(GoalRunSummary {
+        label: "Goal A".to_string(),
+        status: GoalRunStatus::Paused,
+        updated_at: 200,
+        summary: Some("Paused summary".to_string()),
+    });
+    changed_context.running_goal_total = 0;
+    changed_context.paused_goal_total = 1;
 
     let a = build_welcome_signature(ConciergeDetailLevel::ProactiveTriage, &base_context);
     let b = build_welcome_signature(ConciergeDetailLevel::ProactiveTriage, &changed_context);
@@ -37,7 +54,7 @@ fn welcome_signature_changes_when_context_changes() {
 }
 
 #[tokio::test]
-async fn minimal_welcome_mentions_pending_goal_work_not_just_threads() {
+async fn minimal_welcome_mentions_latest_goal_work_not_just_threads() {
     let config = Arc::new(RwLock::new(AgentConfig::default()));
     let (event_tx, _) = broadcast::channel(8);
     let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
@@ -53,13 +70,14 @@ async fn minimal_welcome_mentions_pending_goal_work_not_just_threads() {
             opening_message: Some("User: kickoff".to_string()),
             last_messages: vec!["hello".to_string()],
         }],
-        pending_task_total: 1,
-        pending_tasks: vec!["- [Queued] Investigate ingenix.ai".to_string()],
-        latest_pending_task: Some(PendingTaskSummary {
+        latest_goal_run: Some(GoalRunSummary {
             label: "Investigate ingenix.ai".to_string(),
-            status: TaskStatus::Queued,
-            created_at: 200,
+            status: GoalRunStatus::Queued,
+            updated_at: 200,
+            summary: Some("Validate the lead".to_string()),
         }),
+        running_goal_total: 1,
+        paused_goal_total: 0,
     };
 
     let (content, _) = engine
@@ -68,17 +86,18 @@ async fn minimal_welcome_mentions_pending_goal_work_not_just_threads() {
 
     assert!(
         content.contains("Investigate ingenix.ai"),
-        "minimal welcome should mention the latest pending goal work"
+        "minimal welcome should mention the latest goal work"
     );
+    assert!(content.contains("Validate the lead"));
 }
 
 #[test]
 fn gateway_triage_prompt_includes_recent_channel_history_when_present() {
     let context = WelcomeContext {
         recent_threads: vec![],
-        pending_task_total: 0,
-        pending_tasks: vec![],
-        latest_pending_task: None,
+        latest_goal_run: None,
+        running_goal_total: 0,
+        paused_goal_total: 0,
     };
 
     let prompt = build_gateway_triage_prompt(

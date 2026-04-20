@@ -11,7 +11,7 @@ impl ConciergeEngine {
         recent_channel_history: Option<&str>,
         gateway_thread_id: Option<&str>,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
-        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
+        _tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
     ) -> GatewayTriage {
         let config = self.config.read().await;
         if !config.concierge.enabled {
@@ -37,7 +37,7 @@ impl ConciergeEngine {
         );
         drop(config);
 
-        let context = self.gather_gateway_context(threads, tasks).await;
+        let context = self.gather_gateway_context(threads, &agent.goal_runs).await;
         let user_prompt = build_gateway_triage_prompt(
             platform,
             sender,
@@ -309,8 +309,11 @@ pub(super) fn build_gateway_triage_prompt(
             format_timestamp(last.updated_at),
         ));
     }
-    if context.pending_task_total > 0 {
-        prompt.push_str(&format!(" {} pending tasks.", context.pending_task_total));
+    if context.running_goal_total > 0 || context.paused_goal_total > 0 {
+        prompt.push_str(&format!(
+            " {} running goals, {} paused goals.",
+            context.running_goal_total, context.paused_goal_total
+        ));
     }
     prompt
 }

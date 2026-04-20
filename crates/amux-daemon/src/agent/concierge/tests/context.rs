@@ -1,7 +1,82 @@
 use super::*;
 
+fn sample_goal_run(
+    id: &str,
+    title: &str,
+    status: GoalRunStatus,
+    updated_at: u64,
+    summary: Option<&str>,
+) -> GoalRun {
+    GoalRun {
+        id: id.to_string(),
+        title: title.to_string(),
+        goal: title.to_string(),
+        client_request_id: None,
+        status,
+        priority: TaskPriority::Normal,
+        created_at: updated_at.saturating_sub(100),
+        updated_at,
+        started_at: Some(updated_at.saturating_sub(50)),
+        completed_at: None,
+        thread_id: Some(format!("thread-{id}")),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
+        session_id: None,
+        current_step_index: 0,
+        current_step_title: Some("step-1".to_string()),
+        current_step_kind: Some(GoalRunStepKind::Research),
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        planner_owner_profile: None,
+        current_step_owner_profile: None,
+        replan_count: 0,
+        max_replans: 2,
+        plan_summary: summary.map(str::to_string),
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: None,
+        last_error: None,
+        failure_cause: None,
+        stopped_reason: None,
+        child_task_ids: Vec::new(),
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        active_task_id: None,
+        duration_ms: None,
+        steps: vec![GoalRunStep {
+            id: "step-1".to_string(),
+            position: 0,
+            title: "step-1".to_string(),
+            instructions: "inspect".to_string(),
+            kind: GoalRunStepKind::Research,
+            success_criteria: "done".to_string(),
+            session_id: None,
+            status: GoalRunStepStatus::Pending,
+            task_id: None,
+            summary: None,
+            error: None,
+            started_at: None,
+            completed_at: None,
+        }],
+        events: Vec::new(),
+        dossier: None,
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        autonomy_level: crate::agent::AutonomyLevel::Aware,
+        authorship_tag: None,
+    }
+}
+
 #[tokio::test]
-async fn context_summary_gathers_opening_message_recent_messages_and_bounded_tasks() {
+async fn context_summary_gathers_recent_messages_and_goal_snapshot() {
     let config = Arc::new(RwLock::new(AgentConfig::default()));
     let (event_tx, _) = broadcast::channel(8);
     let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
@@ -57,17 +132,33 @@ async fn context_summary_gathers_opening_message_recent_messages_and_bounded_tas
             },
         ),
     ]));
-    let tasks = Mutex::new(std::collections::VecDeque::from([
-        sample_task("task-1", "oldest-1", now - 600),
-        sample_task("task-2", "oldest-2", now - 500),
-        sample_task("task-3", "middle", now - 400),
-        sample_task("task-4", "newest-3", now - 300),
-        sample_task("task-5", "newest-2", now - 200),
-        sample_task("task-6", "newest-1", now - 100),
+    let tasks = Mutex::new(std::collections::VecDeque::new());
+    let goal_runs = Mutex::new(std::collections::VecDeque::from([
+        sample_goal_run(
+            "goal-running",
+            "Ship concierge perf fix",
+            GoalRunStatus::Running,
+            now - 2_000,
+            Some("Trim the welcome query payload"),
+        ),
+        sample_goal_run(
+            "goal-latest",
+            "Stabilize concierge startup",
+            GoalRunStatus::Paused,
+            now - 1_000,
+            Some("Waiting on operator review"),
+        ),
+        sample_goal_run(
+            "goal-paused-2",
+            "Archive old briefs",
+            GoalRunStatus::Paused,
+            now - 1_500,
+            Some("Wrap up cleanup"),
+        ),
     ]));
 
     let context = engine
-        .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+        .gather_context(&threads, &tasks, &goal_runs, ConciergeDetailLevel::ContextSummary)
         .await;
 
     assert_eq!(context.recent_threads.len(), 1);
@@ -77,12 +168,22 @@ async fn context_summary_gathers_opening_message_recent_messages_and_bounded_tas
         Some("User: kickoff scope")
     );
     assert_eq!(context.recent_threads[0].last_messages.len(), 5);
-    assert_eq!(context.pending_task_total, 6);
-    assert_eq!(context.pending_tasks.len(), 5);
+    assert_eq!(context.running_goal_total, 1);
+    assert_eq!(context.paused_goal_total, 2);
+    let latest_goal = context
+        .latest_goal_run
+        .as_ref()
+        .expect("latest goal should be present");
+    assert_eq!(latest_goal.label, "Stabilize concierge startup");
+    assert_eq!(latest_goal.status, GoalRunStatus::Paused);
+    assert_eq!(
+        latest_goal.summary.as_deref(),
+        Some("Waiting on operator review")
+    );
 }
 
 #[tokio::test]
-async fn context_summary_prefers_tasks_for_latest_thread_before_global_fallback() {
+async fn context_summary_picks_latest_goal_by_updated_at() {
     let config = Arc::new(RwLock::new(AgentConfig::default()));
     let (event_tx, _) = broadcast::channel(8);
     let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
@@ -92,61 +193,39 @@ async fn context_summary_prefers_tasks_for_latest_thread_before_global_fallback(
     let now = test_now_millis();
     let threads = RwLock::new(HashMap::from([(
         "thread-1".to_string(),
-        AgentThread {
-            id: "thread-1".to_string(),
-            agent_name: None,
-            title: "Newest".to_string(),
-            created_at: 1,
-            updated_at: now,
-            pinned: false,
-            upstream_thread_id: None,
-            upstream_transport: None,
-            upstream_provider: None,
-            upstream_model: None,
-            upstream_assistant_id: None,
-            total_input_tokens: 0,
-            total_output_tokens: 0,
-            messages: vec![AgentMessage::user("kickoff", now - 5)],
-        },
+        thread_with_messages(
+            "thread-1",
+            "Actual work",
+            now,
+            vec![AgentMessage::user("kickoff", now - 5)],
+        ),
     )]));
-    let tasks = Mutex::new(std::collections::VecDeque::from([
-        sample_task_for_thread("task-a", "thread task old", now - 250, "thread-1"),
-        sample_task_for_thread("task-b", "thread task new", now - 150, "thread-1"),
-        sample_task("task-c", "global old", now - 500),
-        sample_task("task-d", "global middle", now - 300),
-        sample_task("task-e", "global new-2", now - 100),
-        sample_task("task-f", "global new-1", now - 10),
+    let tasks = Mutex::new(std::collections::VecDeque::new());
+    let goal_runs = Mutex::new(std::collections::VecDeque::from([
+        sample_goal_run(
+            "goal-old",
+            "Older goal",
+            GoalRunStatus::Running,
+            now - 10_000,
+            Some("Older summary"),
+        ),
+        sample_goal_run(
+            "goal-new",
+            "Newer goal",
+            GoalRunStatus::Completed,
+            now - 1_000,
+            Some("Newer summary"),
+        ),
     ]));
 
     let context = engine
-        .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+        .gather_context(&threads, &tasks, &goal_runs, ConciergeDetailLevel::ContextSummary)
         .await;
 
-    assert_eq!(context.pending_task_total, 6);
-    assert!(context
-        .pending_tasks
-        .iter()
-        .any(|task| task.contains("thread task old")));
-    assert!(context
-        .pending_tasks
-        .iter()
-        .any(|task| task.contains("thread task new")));
-    assert!(context
-        .pending_tasks
-        .iter()
-        .any(|task| task.contains("global old")));
-    assert!(context
-        .pending_tasks
-        .iter()
-        .any(|task| task.contains("global new-2")));
-    assert!(context
-        .pending_tasks
-        .iter()
-        .any(|task| task.contains("global new-1")));
-    assert!(!context
-        .pending_tasks
-        .iter()
-        .any(|task| task.contains("global middle")));
+    assert_eq!(
+        context.latest_goal_run.as_ref().map(|goal| goal.label.as_str()),
+        Some("Newer goal")
+    );
 }
 
 #[tokio::test]
@@ -161,50 +240,31 @@ async fn context_summary_ignores_assistant_only_concierge_like_threads() {
     let threads = RwLock::new(HashMap::from([
         (
             "thread-real".to_string(),
-            AgentThread {
-                id: "thread-real".to_string(),
-                agent_name: None,
-                title: "Actual work".to_string(),
-                created_at: 1,
-                updated_at: now - 100,
-                pinned: false,
-                upstream_thread_id: None,
-                upstream_transport: None,
-                upstream_provider: None,
-                upstream_model: None,
-                upstream_assistant_id: None,
-                total_input_tokens: 0,
-                total_output_tokens: 0,
-                messages: vec![
+            thread_with_messages(
+                "thread-real",
+                "Actual work",
+                now - 100,
+                vec![
                     AgentMessage::user("fix concierge context", now - 120),
                     assistant_message("working on it", now - 110),
                 ],
-            },
+            ),
         ),
         (
             "thread-meta".to_string(),
-            AgentThread {
-                id: "thread-meta".to_string(),
-                agent_name: None,
-                title: "Concierge".to_string(),
-                created_at: 1,
-                updated_at: now,
-                pinned: false,
-                upstream_thread_id: None,
-                upstream_transport: None,
-                upstream_provider: None,
-                upstream_model: None,
-                upstream_assistant_id: None,
-                total_input_tokens: 0,
-                total_output_tokens: 0,
-                messages: vec![assistant_message("welcome back", now - 10)],
-            },
+            thread_with_messages(
+                "thread-meta",
+                "Concierge",
+                now,
+                vec![assistant_message("welcome back", now - 10)],
+            ),
         ),
     ]));
     let tasks = Mutex::new(std::collections::VecDeque::new());
+    let goal_runs = Mutex::new(std::collections::VecDeque::new());
 
     let context = engine
-        .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+        .gather_context(&threads, &tasks, &goal_runs, ConciergeDetailLevel::ContextSummary)
         .await;
 
     assert_eq!(context.recent_threads.len(), 1);
@@ -253,9 +313,10 @@ async fn context_summary_excludes_structured_heartbeat_threads() {
         ),
     ]));
     let tasks = Mutex::new(std::collections::VecDeque::new());
+    let goal_runs = Mutex::new(std::collections::VecDeque::new());
 
     let context = engine
-        .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+        .gather_context(&threads, &tasks, &goal_runs, ConciergeDetailLevel::ContextSummary)
         .await;
 
     assert_eq!(context.recent_threads.len(), 1);
@@ -263,7 +324,7 @@ async fn context_summary_excludes_structured_heartbeat_threads() {
 }
 
 #[tokio::test]
-async fn context_summary_hides_weles_internal_threads_and_tasks() {
+async fn context_summary_hides_weles_internal_threads() {
     let config = Arc::new(RwLock::new(AgentConfig::default()));
     let (event_tx, _) = broadcast::channel(8);
     let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
@@ -300,22 +361,15 @@ async fn context_summary_hides_weles_internal_threads_and_tasks() {
             ),
         ),
     ]));
-    let mut weles_task = sample_task("task-weles", "WELES", now - 10);
-    weles_task.sub_agent_def_id = Some("weles_builtin".to_string());
-    let tasks = Mutex::new(std::collections::VecDeque::from([
-        sample_task("task-real", "real task", now - 20),
-        weles_task,
-    ]));
+    let tasks = Mutex::new(std::collections::VecDeque::new());
+    let goal_runs = Mutex::new(std::collections::VecDeque::new());
 
     let context = engine
-        .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+        .gather_context(&threads, &tasks, &goal_runs, ConciergeDetailLevel::ContextSummary)
         .await;
 
     assert_eq!(context.recent_threads.len(), 1);
     assert_eq!(context.recent_threads[0].id, "thread-real");
-    assert_eq!(context.pending_task_total, 1);
-    assert_eq!(context.pending_tasks.len(), 1);
-    assert!(context.pending_tasks[0].contains("real task"));
 }
 
 #[tokio::test]
@@ -358,9 +412,10 @@ async fn context_summary_excludes_internal_dm_threads() {
         ),
     ]));
     let tasks = Mutex::new(std::collections::VecDeque::new());
+    let goal_runs = Mutex::new(std::collections::VecDeque::new());
 
     let context = engine
-        .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+        .gather_context(&threads, &tasks, &goal_runs, ConciergeDetailLevel::ContextSummary)
         .await;
 
     assert_eq!(context.recent_threads.len(), 1);
@@ -405,9 +460,10 @@ async fn context_summary_excludes_participant_playground_threads() {
         ),
     ]));
     let tasks = Mutex::new(std::collections::VecDeque::new());
+    let goal_runs = Mutex::new(std::collections::VecDeque::new());
 
     let context = engine
-        .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+        .gather_context(&threads, &tasks, &goal_runs, ConciergeDetailLevel::ContextSummary)
         .await;
 
     assert_eq!(context.recent_threads.len(), 1);

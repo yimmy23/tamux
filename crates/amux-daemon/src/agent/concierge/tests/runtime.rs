@@ -1,6 +1,81 @@
 use super::*;
 use crate::agent::now_millis;
 
+fn sample_goal_run_for_welcome(
+    goal_run_id: &str,
+    title: &str,
+    status: GoalRunStatus,
+    updated_at: u64,
+    summary: Option<&str>,
+) -> GoalRun {
+    GoalRun {
+        id: goal_run_id.to_string(),
+        title: title.to_string(),
+        goal: title.to_string(),
+        client_request_id: None,
+        status,
+        priority: TaskPriority::Normal,
+        created_at: updated_at.saturating_sub(100),
+        updated_at,
+        started_at: Some(updated_at.saturating_sub(50)),
+        completed_at: None,
+        thread_id: Some(format!("thread-{goal_run_id}")),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
+        session_id: None,
+        current_step_index: 0,
+        current_step_title: Some("step-1".to_string()),
+        current_step_kind: Some(GoalRunStepKind::Research),
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        planner_owner_profile: None,
+        current_step_owner_profile: None,
+        replan_count: 0,
+        max_replans: 2,
+        plan_summary: summary.map(str::to_string),
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: None,
+        last_error: None,
+        failure_cause: None,
+        stopped_reason: None,
+        child_task_ids: Vec::new(),
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        active_task_id: None,
+        duration_ms: None,
+        steps: vec![GoalRunStep {
+            id: "step-1".to_string(),
+            position: 0,
+            title: "step-1".to_string(),
+            instructions: "inspect".to_string(),
+            kind: GoalRunStepKind::Research,
+            success_criteria: "done".to_string(),
+            session_id: None,
+            status: GoalRunStepStatus::Pending,
+            task_id: None,
+            summary: None,
+            error: None,
+            started_at: None,
+            completed_at: None,
+        }],
+        events: Vec::new(),
+        dossier: None,
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        autonomy_level: crate::agent::AutonomyLevel::Aware,
+        authorship_tag: None,
+    }
+}
+
 fn sample_goal_run_with_kind(
     goal_run_id: &str,
     kind: GoalRunStepKind,
@@ -162,7 +237,7 @@ async fn generate_welcome_survives_low_confidence_goal_plan_approval_resume() {
 
     let welcome = engine
         .concierge
-        .generate_welcome(&engine.threads, &engine.tasks)
+        .generate_welcome(&engine.threads, &engine.tasks, &engine.goal_runs)
         .await
         .expect("welcome should be returned after approval resume");
 
@@ -221,6 +296,68 @@ async fn concierge_recovery_deduplicates_inflight_investigations_per_thread_sign
             .as_deref()
             .is_some_and(|prompt| prompt.contains(crate::agent::agent_identity::WELES_AGENT_ID)),
         "recovery investigation should be owned by daemon WELES"
+    );
+}
+
+#[tokio::test]
+async fn generate_welcome_uses_latest_goal_summary_and_running_paused_counts() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.concierge.detail_level = ConciergeDetailLevel::Minimal;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    engine.concierge.initialize(&engine.threads).await;
+
+    let now = now_millis();
+    engine.goal_runs.lock().await.extend([
+        sample_goal_run_for_welcome(
+            "goal-old-running",
+            "Ship concierge perf fix",
+            GoalRunStatus::Running,
+            now - 5_000,
+            Some("Trim the welcome query payload"),
+        ),
+        sample_goal_run_for_welcome(
+            "goal-latest-paused",
+            "Stabilize concierge startup",
+            GoalRunStatus::Paused,
+            now - 1_000,
+            Some("Waiting on operator review"),
+        ),
+        sample_goal_run_for_welcome(
+            "goal-other-paused",
+            "Archive old briefs",
+            GoalRunStatus::Paused,
+            now - 2_000,
+            Some("Wrap up cleanup"),
+        ),
+    ]);
+
+    let welcome = engine
+        .concierge
+        .generate_welcome(&engine.threads, &engine.tasks, &engine.goal_runs)
+        .await
+        .expect("welcome should be returned");
+
+    assert!(
+        welcome.0.contains("Stabilize concierge startup"),
+        "welcome should mention the latest goal title"
+    );
+    assert!(
+        welcome.0.to_ascii_lowercase().contains("paused"),
+        "welcome should mention the latest goal status"
+    );
+    assert!(
+        welcome.0.contains("Waiting on operator review"),
+        "welcome should include the latest goal summary"
+    );
+    assert!(
+        welcome.0.contains("1 running"),
+        "welcome should report running goal count"
+    );
+    assert!(
+        welcome.0.contains("2 paused"),
+        "welcome should report paused goal count"
     );
 }
 
@@ -307,7 +444,11 @@ async fn generate_welcome_reuses_recent_persisted_welcome_without_new_user_messa
     ]));
 
     let result = engine
-        .generate_welcome(&threads, &Mutex::new(std::collections::VecDeque::new()))
+        .generate_welcome(
+            &threads,
+            &Mutex::new(std::collections::VecDeque::new()),
+            &Mutex::new(std::collections::VecDeque::new()),
+        )
         .await
         .expect("welcome should be returned");
     assert_eq!(result.0, "persisted welcome");
@@ -344,7 +485,11 @@ async fn generate_welcome_regenerates_when_user_messaged_after_welcome() {
     ]));
 
     let result = engine
-        .generate_welcome(&threads, &Mutex::new(std::collections::VecDeque::new()))
+        .generate_welcome(
+            &threads,
+            &Mutex::new(std::collections::VecDeque::new()),
+            &Mutex::new(std::collections::VecDeque::new()),
+        )
         .await
         .expect("welcome should be returned");
     assert_ne!(result.0, "persisted welcome");
@@ -390,7 +535,11 @@ async fn generate_welcome_reuses_persisted_welcome_when_only_heartbeat_ran_after
     ]));
 
     let result = engine
-        .generate_welcome(&threads, &Mutex::new(std::collections::VecDeque::new()))
+        .generate_welcome(
+            &threads,
+            &Mutex::new(std::collections::VecDeque::new()),
+            &Mutex::new(std::collections::VecDeque::new()),
+        )
         .await
         .expect("welcome should be returned");
     assert_eq!(result.0, "persisted welcome");
@@ -427,7 +576,11 @@ async fn generate_welcome_regenerates_when_persisted_welcome_is_stale() {
     ]));
 
     let result = engine
-        .generate_welcome(&threads, &Mutex::new(std::collections::VecDeque::new()))
+        .generate_welcome(
+            &threads,
+            &Mutex::new(std::collections::VecDeque::new()),
+            &Mutex::new(std::collections::VecDeque::new()),
+        )
         .await
         .expect("welcome should be returned");
     assert_ne!(result.0, "persisted welcome");

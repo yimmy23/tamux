@@ -24,7 +24,8 @@ impl ConciergeEngine {
     pub(super) async fn gather_context(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
-        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
+        _tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
+        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
         detail_level: ConciergeDetailLevel,
     ) -> WelcomeContext {
         let threads_guard = threads.read().await;
@@ -42,20 +43,21 @@ impl ConciergeEngine {
         let mut recent_threads: Vec<ThreadSummary> = threads_guard
             .values()
             .filter(|thread| include_thread_in_concierge_context(thread))
-            .map(|t| {
-                let opening_message = t
+            .map(|thread| {
+                let opening_message = thread
                     .messages
                     .iter()
                     .find(|message| {
                         message.role == MessageRole::User && !message.content.is_empty()
                     })
                     .or_else(|| {
-                        t.messages
+                        thread
+                            .messages
                             .iter()
                             .find(|message| !message.content.is_empty())
                     })
                     .map(format_message_snippet);
-                let last_messages: Vec<String> = t
+                let last_messages: Vec<String> = thread
                     .messages
                     .iter()
                     .rev()
@@ -66,10 +68,10 @@ impl ConciergeEngine {
                     .rev()
                     .collect();
                 ThreadSummary {
-                    id: t.id.clone(),
-                    title: t.title.clone(),
-                    updated_at: t.updated_at,
-                    message_count: t.messages.len(),
+                    id: thread.id.clone(),
+                    title: thread.title.clone(),
+                    updated_at: thread.updated_at,
+                    message_count: thread.messages.len(),
                     opening_message,
                     last_messages,
                 }
@@ -79,40 +81,29 @@ impl ConciergeEngine {
         recent_threads.truncate(thread_limit);
         drop(threads_guard);
 
-        let (pending_task_total, pending_tasks, latest_pending_task) = {
-            let tasks_guard = tasks.lock().await;
-            let preferred_thread_id = recent_threads.first().map(|thread| thread.id.as_str());
-            let latest_pending_task = latest_pending_task(tasks_guard.iter());
-            if matches!(
-                detail_level,
-                ConciergeDetailLevel::ContextSummary
-                    | ConciergeDetailLevel::ProactiveTriage
-                    | ConciergeDetailLevel::DailyBriefing
-            ) {
-                let (pending_task_total, pending_tasks) =
-                    sample_pending_tasks(tasks_guard.iter(), preferred_thread_id);
-                (pending_task_total, pending_tasks, latest_pending_task)
-            } else {
-                (
-                    unresolved_task_total(tasks_guard.iter()),
-                    Vec::new(),
-                    latest_pending_task,
-                )
-            }
-        };
+        let goal_runs_guard = goal_runs.lock().await;
+        let latest_goal_run = latest_goal_run(goal_runs_guard.iter());
+        let running_goal_total = goal_runs_guard
+            .iter()
+            .filter(|goal_run| goal_run.status == GoalRunStatus::Running)
+            .count();
+        let paused_goal_total = goal_runs_guard
+            .iter()
+            .filter(|goal_run| goal_run.status == GoalRunStatus::Paused)
+            .count();
 
         WelcomeContext {
             recent_threads,
-            pending_task_total,
-            pending_tasks,
-            latest_pending_task,
+            latest_goal_run,
+            running_goal_total,
+            paused_goal_total,
         }
     }
 
     pub(super) async fn gather_gateway_context(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
-        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
+        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
     ) -> WelcomeContext {
         let threads_guard = threads.read().await;
         let recent_threads = threads_guard
@@ -132,15 +123,22 @@ impl ConciergeEngine {
             .unwrap_or_default();
         drop(threads_guard);
 
-        let tasks_guard = tasks.lock().await;
-        let pending_task_total = unresolved_task_total(tasks_guard.iter());
-        let latest_pending_task = latest_pending_task(tasks_guard.iter());
+        let goal_runs_guard = goal_runs.lock().await;
+        let latest_goal_run = latest_goal_run(goal_runs_guard.iter());
+        let running_goal_total = goal_runs_guard
+            .iter()
+            .filter(|goal_run| goal_run.status == GoalRunStatus::Running)
+            .count();
+        let paused_goal_total = goal_runs_guard
+            .iter()
+            .filter(|goal_run| goal_run.status == GoalRunStatus::Paused)
+            .count();
 
         WelcomeContext {
             recent_threads,
-            pending_task_total,
-            pending_tasks: Vec::new(),
-            latest_pending_task,
+            latest_goal_run,
+            running_goal_total,
+            paused_goal_total,
         }
     }
 }
@@ -200,145 +198,38 @@ fn format_message_snippet(message: &AgentMessage) -> String {
     format!("{role}: {snippet}")
 }
 
-fn is_unresolved_user_task(task: &AgentTask) -> bool {
-    matches!(
-        task.status,
-        TaskStatus::Queued
-            | TaskStatus::InProgress
-            | TaskStatus::Blocked
-            | TaskStatus::AwaitingApproval
-    ) && !is_user_hidden_task(task)
+fn goal_run_label(goal_run: &GoalRun) -> String {
+    goal_run.title.trim().to_string()
 }
 
-fn pending_task_label(task: &AgentTask) -> String {
-    let base = task
-        .goal_run_title
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(task.title.as_str())
-        .trim()
-        .to_string();
-    let step = task
-        .goal_step_title
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && *value != base);
-    match step {
-        Some(step) => format!("{base}: {step}"),
-        None => base,
+fn goal_run_summary(goal_run: &GoalRun) -> GoalRunSummary {
+    GoalRunSummary {
+        label: goal_run_label(goal_run),
+        status: goal_run.status,
+        updated_at: goal_run.updated_at,
+        summary: goal_run_summary_excerpt(goal_run),
     }
 }
 
-fn pending_task_summary(task: &AgentTask) -> PendingTaskSummary {
-    PendingTaskSummary {
-        label: pending_task_label(task),
-        status: task.status,
-        created_at: task.created_at,
-    }
+fn goal_run_summary_excerpt(goal_run: &GoalRun) -> Option<String> {
+    [
+        goal_run.reflection_summary.as_deref(),
+        goal_run.plan_summary.as_deref(),
+        goal_run.current_step_title.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .find(|value| !value.is_empty())
+    .map(ToOwned::to_owned)
 }
 
-fn format_pending_task_entry(summary: &PendingTaskSummary) -> String {
-    format!(
-        "- [{}] {} ({})",
-        format!("{:?}", summary.status),
-        summary.label,
-        format_timestamp(summary.created_at)
-    )
-}
-
-fn unresolved_task_total<'a, I>(tasks: I) -> usize
+fn latest_goal_run<'a, I>(goal_runs: I) -> Option<GoalRunSummary>
 where
-    I: IntoIterator<Item = &'a AgentTask>,
+    I: IntoIterator<Item = &'a GoalRun>,
 {
-    tasks
+    goal_runs
         .into_iter()
-        .filter(|task| is_unresolved_user_task(task))
-        .count()
-}
-
-fn latest_pending_task<'a, I>(tasks: I) -> Option<PendingTaskSummary>
-where
-    I: IntoIterator<Item = &'a AgentTask>,
-{
-    tasks
-        .into_iter()
-        .filter(|task| is_unresolved_user_task(task))
-        .max_by_key(|task| task.created_at)
-        .map(pending_task_summary)
-}
-
-fn sample_pending_tasks<'a, I>(tasks: I, preferred_thread_id: Option<&str>) -> (usize, Vec<String>)
-where
-    I: IntoIterator<Item = &'a AgentTask>,
-{
-    let unresolved: Vec<&AgentTask> = tasks
-        .into_iter()
-        .filter(|task| is_unresolved_user_task(task))
-        .collect();
-    let total = unresolved.len();
-    if total == 0 {
-        return (0, Vec::new());
-    }
-
-    let mut sampled = Vec::new();
-    if let Some(thread_id) = preferred_thread_id {
-        let preferred: Vec<&AgentTask> = unresolved
-            .iter()
-            .copied()
-            .filter(|task| task_belongs_to_thread(task, thread_id))
-            .collect();
-        append_task_slice(&mut sampled, &preferred, 5);
-    }
-
-    if sampled.len() < 5 {
-        append_task_slice(&mut sampled, &unresolved, 5);
-    }
-
-    let entries = sampled
-        .into_iter()
-        .map(|task| format_pending_task_entry(&pending_task_summary(task)))
-        .collect();
-
-    (total, entries)
-}
-
-fn append_task_slice<'a>(
-    sampled: &mut Vec<&'a AgentTask>,
-    tasks: &[&'a AgentTask],
-    target_len: usize,
-) {
-    if sampled.len() >= target_len || tasks.is_empty() {
-        return;
-    }
-
-    let mut sorted = tasks.to_vec();
-    sorted.sort_by_key(|task| task.created_at);
-    sorted.retain(|task| !sampled.iter().any(|existing| existing.id == task.id));
-    if sorted.is_empty() {
-        return;
-    }
-
-    let remaining_slots = target_len.saturating_sub(sampled.len());
-    let oldest_quota = match remaining_slots {
-        0 => 0,
-        1 => 1,
-        _ => std::cmp::min(2, remaining_slots / 2),
-    };
-    let newest_quota = remaining_slots.saturating_sub(oldest_quota);
-
-    for task in sorted.iter().take(oldest_quota) {
-        sampled.push(*task);
-    }
-
-    for task in sorted.iter().rev().take(newest_quota).rev() {
-        if sampled.iter().any(|existing| existing.id == task.id) {
-            continue;
-        }
-        sampled.push(*task);
-    }
-}
-
-fn task_belongs_to_thread(task: &AgentTask, thread_id: &str) -> bool {
-    task.thread_id.as_deref() == Some(thread_id)
-        || task.parent_thread_id.as_deref() == Some(thread_id)
+        .max_by_key(|goal_run| goal_run.updated_at)
+        .map(goal_run_summary)
 }

@@ -114,6 +114,7 @@ impl ConciergeEngine {
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
         tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
+        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
     ) {
         tracing::info!("concierge: on_client_connected called");
         let config = self.config.read().await;
@@ -126,11 +127,13 @@ impl ConciergeEngine {
         tracing::info!("concierge: gathering context at level {:?}", detail_level);
         drop(config);
 
-        let context = self.gather_context(threads, tasks, detail_level).await;
+        let context = self.gather_context(threads, tasks, goal_runs, detail_level).await;
         tracing::info!(
-            "concierge: gathered {} threads, {} tasks",
+            "concierge: gathered {} threads, latest_goal={}, running_goals={}, paused_goals={}",
             context.recent_threads.len(),
-            context.pending_tasks.len()
+            context.latest_goal_run.is_some(),
+            context.running_goal_total,
+            context.paused_goal_total
         );
         let (content, actions) = if let Some(existing) = self
             .reuse_welcome_from_history(threads, detail_level, &context)
@@ -165,6 +168,7 @@ impl ConciergeEngine {
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
         tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
+        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
     ) -> Option<(String, ConciergeDetailLevel, Vec<ConciergeAction>)> {
         let config = self.config.read().await;
         if !config.concierge.enabled {
@@ -174,7 +178,7 @@ impl ConciergeEngine {
         let detail_level = config.concierge.detail_level;
         drop(config);
 
-        let context = self.gather_context(threads, tasks, detail_level).await;
+        let context = self.gather_context(threads, tasks, goal_runs, detail_level).await;
         let (content, actions) = if let Some(existing) = self
             .reuse_welcome_from_history(threads, detail_level, &context)
             .await

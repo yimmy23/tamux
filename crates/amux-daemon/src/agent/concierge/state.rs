@@ -2,9 +2,9 @@ use super::*;
 
 pub(super) struct WelcomeContext {
     pub(super) recent_threads: Vec<ThreadSummary>,
-    pub(super) pending_task_total: usize,
-    pub(super) pending_tasks: Vec<String>,
-    pub(super) latest_pending_task: Option<PendingTaskSummary>,
+    pub(super) latest_goal_run: Option<GoalRunSummary>,
+    pub(super) running_goal_total: usize,
+    pub(super) paused_goal_total: usize,
 }
 
 pub(super) const WELCOME_CACHE_TTL: std::time::Duration =
@@ -28,8 +28,9 @@ pub(super) struct ThreadSummary {
 }
 
 #[derive(Clone)]
-pub(super) struct PendingTaskSummary {
+pub(super) struct GoalRunSummary {
     pub(super) label: String,
-    pub(super) status: TaskStatus,
-    pub(super) created_at: u64,
+    pub(super) status: GoalRunStatus,
+    pub(super) updated_at: u64,
+    pub(super) summary: Option<String>,
 }

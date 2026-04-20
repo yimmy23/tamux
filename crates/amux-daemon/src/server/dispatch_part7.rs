@@ -402,7 +402,7 @@ if matches!(
 
                         agent
                             .concierge
-                            .on_client_connected(&agent.threads, &agent.tasks)
+                            .on_client_connected(&agent.threads, &agent.tasks, &agent.goal_runs)
                             .await;
                         agent
                             .persist_thread_by_id(crate::agent::concierge::CONCIERGE_THREAD_ID)
