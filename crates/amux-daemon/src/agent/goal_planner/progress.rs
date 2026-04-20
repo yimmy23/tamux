@@ -1,6 +1,217 @@
 use super::*;
 
+const GOAL_VERIFICATION_SOURCE: &str = "goal_verification";
+
+fn current_step_verification_requirements(
+    goal_run: &GoalRun,
+) -> Option<(GoalRunStep, GoalRoleBinding, Vec<GoalProofCheck>)> {
+    let step = goal_run.steps.get(goal_run.current_step_index)?.clone();
+    let unit = goal_run
+        .dossier
+        .as_ref()?
+        .units
+        .iter()
+        .find(|unit| unit.id == step.id)?;
+    if unit.proof_checks.is_empty() {
+        return None;
+    }
+    Some((
+        step,
+        unit.verification_binding.clone(),
+        unit.proof_checks.clone(),
+    ))
+}
+
 impl AgentEngine {
+    fn verification_binding_target(binding: &GoalRoleBinding) -> Option<String> {
+        match binding {
+            GoalRoleBinding::Builtin(value) => {
+                let normalized = value.trim().to_ascii_lowercase();
+                if matches!(
+                    normalized.as_str(),
+                    crate::agent::agent_identity::MAIN_AGENT_ID
+                        | crate::agent::agent_identity::MAIN_AGENT_PUBLIC_ALIAS
+                        | crate::agent::agent_identity::MAIN_AGENT_ALIAS
+                        | crate::agent::agent_identity::MAIN_AGENT_LEGACY_ALIAS
+                        | crate::agent::agent_identity::MAIN_AGENT_FALLBACK_ALIAS
+                ) {
+                    None
+                } else {
+                    Some(value.trim().to_string()).filter(|value| !value.is_empty())
+                }
+            }
+            GoalRoleBinding::Subagent(value) => {
+                Some(value.trim().to_string()).filter(|value| !value.is_empty())
+            }
+        }
+    }
+
+    async fn verification_binding_definition(
+        &self,
+        binding: &GoalRoleBinding,
+    ) -> Option<SubAgentDefinition> {
+        let target = Self::verification_binding_target(binding)?;
+        self.list_sub_agents().await.into_iter().find(|definition| {
+            definition.id.eq_ignore_ascii_case(&target)
+                || definition.name.eq_ignore_ascii_case(&target)
+                || definition
+                    .id
+                    .strip_suffix("_builtin")
+                    .is_some_and(|value| value.eq_ignore_ascii_case(&target))
+        })
+    }
+
+    async fn enqueue_goal_step_verification(
+        &self,
+        snapshot: &GoalRun,
+        step: &GoalRunStep,
+        verification_binding: &GoalRoleBinding,
+        proof_checks: &[GoalProofCheck],
+        completed_task: &AgentTask,
+        implementation_summary: Option<String>,
+    ) -> Result<()> {
+        let proof_check_lines = proof_checks
+            .iter()
+            .map(|check| format!("- {}: {}", check.id, check.title))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let binding_label = match verification_binding {
+            GoalRoleBinding::Builtin(value) => format!("builtin:{value}"),
+            GoalRoleBinding::Subagent(value) => format!("subagent:{value}"),
+        };
+        let verification_description = format!(
+            "Validate completed goal step `{}`.\n\n\
+             Original instructions:\n{}\n\n\
+             Success criteria:\n{}\n\n\
+             Implementation summary:\n{}\n\n\
+             Verification binding:\n{}\n\n\
+             Required proof checks:\n{}",
+            step.title,
+            step.instructions,
+            step.success_criteria,
+            implementation_summary
+                .clone()
+                .unwrap_or_else(|| "step completed without summary".to_string()),
+            binding_label,
+            proof_check_lines
+        );
+
+        let verification_task = self
+            .enqueue_task(
+                format!("Verify: {}", step.title),
+                verification_description,
+                task_priority_to_str(snapshot.priority),
+                None,
+                snapshot.session_id.clone(),
+                Vec::new(),
+                None,
+                GOAL_VERIFICATION_SOURCE,
+                Some(snapshot.id.clone()),
+                Some(completed_task.id.clone()),
+                snapshot.thread_id.clone(),
+                None,
+            )
+            .await;
+
+        let target_sub_agent = Self::verification_binding_target(verification_binding);
+        let binding_definition = self
+            .verification_binding_definition(verification_binding)
+            .await;
+        let updated_task = {
+            let mut tasks = self.tasks.lock().await;
+            let Some(task) = tasks
+                .iter_mut()
+                .find(|task| task.id == verification_task.id)
+            else {
+                anyhow::bail!("verification task disappeared after enqueue");
+            };
+            task.goal_run_title = Some(snapshot.title.clone());
+            task.goal_step_id = Some(step.id.clone());
+            task.goal_step_title = Some(step.title.clone());
+            task.thread_id = snapshot.thread_id.clone();
+            task.success_criteria = Some(format!(
+                "All proof checks pass: {}",
+                proof_checks
+                    .iter()
+                    .map(|check| check.id.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            task.sub_agent_def_id = target_sub_agent;
+            if let Some(definition) = binding_definition.as_ref() {
+                task.override_provider = Some(definition.provider.clone());
+                task.override_model = Some(definition.model.clone());
+                task.override_system_prompt = definition.system_prompt.clone();
+                task.tool_whitelist = definition.tool_whitelist.clone();
+                task.tool_blacklist = definition.tool_blacklist.clone();
+                task.context_budget_tokens = definition.context_budget_tokens;
+                task.max_duration_secs = definition.max_duration_secs;
+                task.supervisor_config = definition.supervisor_config.clone();
+                if definition.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID {
+                    self.trusted_weles_tasks
+                        .write()
+                        .await
+                        .insert(task.id.clone());
+                }
+            }
+            task.clone()
+        };
+        self.persist_tasks().await;
+        self.emit_task_update(&updated_task, Some(status_message(&updated_task).into()));
+
+        let updated_goal = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == snapshot.id) else {
+                anyhow::bail!("goal run missing while queuing verification");
+            };
+            if let Some(current_step) = goal_run.steps.get_mut(goal_run.current_step_index) {
+                current_step.task_id = Some(updated_task.id.clone());
+                current_step.status = GoalRunStepStatus::InProgress;
+                current_step.summary = implementation_summary.clone();
+                current_step.completed_at = None;
+            }
+            if !goal_run
+                .child_task_ids
+                .iter()
+                .any(|id| id == &updated_task.id)
+            {
+                goal_run.child_task_ids.push(updated_task.id.clone());
+            }
+            goal_run.child_task_count = goal_run.child_task_ids.len() as u32;
+            goal_run.status = GoalRunStatus::Running;
+            goal_run.updated_at = now_millis();
+            goal_run.last_error = None;
+            goal_run.failure_cause = None;
+            goal_run.awaiting_approval_id = None;
+            goal_run.active_task_id = Some(updated_task.id.clone());
+            goal_run.events.push(make_goal_run_event(
+                "verification",
+                "goal step verification queued",
+                Some(binding_label.clone()),
+            ));
+            super::goal_dossier::set_goal_unit_verification_state(
+                goal_run,
+                &step.id,
+                GoalProjectionState::InProgress,
+                format!("verification queued via {binding_label}"),
+                implementation_summary
+                    .clone()
+                    .map(|summary| vec![format!("implementation summary: {summary}")])
+                    .unwrap_or_default(),
+                None,
+                None,
+            );
+            goal_run.clone()
+        };
+
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(
+            &updated_goal,
+            Some("Goal step implementation complete; verification queued".into()),
+        );
+        Ok(())
+    }
+
     pub(in crate::agent) async fn sync_goal_run_with_task(
         &self,
         goal_run_id: &str,
@@ -117,6 +328,37 @@ impl AgentEngine {
             }
         }
 
+        let snapshot = self
+            .get_goal_run(goal_run_id)
+            .await
+            .context("goal run missing during step completion")?;
+        if task.source != GOAL_VERIFICATION_SOURCE {
+            if let Some((step, verification_binding, proof_checks)) =
+                current_step_verification_requirements(&snapshot)
+            {
+                let step_summary = snapshot
+                    .steps
+                    .get(snapshot.current_step_index)
+                    .and_then(|step| step.summary.clone());
+                let implementation_summary = task
+                    .result
+                    .clone()
+                    .or(step_summary)
+                    .or_else(|| task.last_error.clone())
+                    .or_else(|| task.error.clone());
+                self.enqueue_goal_step_verification(
+                    &snapshot,
+                    &step,
+                    &verification_binding,
+                    &proof_checks,
+                    task,
+                    implementation_summary,
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+
         let now = now_millis();
         let thread_summary = match task.thread_id.as_deref() {
             Some(thread_id) => self.goal_thread_summary(thread_id).await,
@@ -157,13 +399,25 @@ impl AgentEngine {
                 thread_summary.clone(),
             ));
             if let Some(step_id) = completed_step_id.as_deref() {
-                super::goal_dossier::set_goal_unit_report(
-                    goal_run,
-                    step_id,
-                    GoalProjectionState::Completed,
-                    completed_summary.unwrap_or_else(|| "step completed".to_string()),
-                    Vec::new(),
-                );
+                if task.source == GOAL_VERIFICATION_SOURCE {
+                    super::goal_dossier::set_goal_unit_verification_state(
+                        goal_run,
+                        step_id,
+                        GoalProjectionState::Completed,
+                        completed_summary.unwrap_or_else(|| "verification completed".to_string()),
+                        Vec::new(),
+                        Some("verification result"),
+                        task.result.clone().or(thread_summary.clone()),
+                    );
+                } else {
+                    super::goal_dossier::set_goal_unit_report(
+                        goal_run,
+                        step_id,
+                        GoalProjectionState::Completed,
+                        completed_summary.unwrap_or_else(|| "step completed".to_string()),
+                        Vec::new(),
+                    );
+                }
             }
             super::goal_dossier::set_goal_resume_decision(
                 goal_run,
@@ -346,13 +600,25 @@ impl AgentEngine {
                 ));
                 if insert_at > 0 {
                     let failed_step_id = goal_run.steps[insert_at - 1].id.clone();
-                    super::goal_dossier::set_goal_unit_report(
-                        goal_run,
-                        &failed_step_id,
-                        GoalProjectionState::Failed,
-                        failure.clone(),
-                        vec!["step failed and triggered a replan".to_string()],
-                    );
+                    if task.source == GOAL_VERIFICATION_SOURCE {
+                        super::goal_dossier::set_goal_unit_verification_state(
+                            goal_run,
+                            &failed_step_id,
+                            GoalProjectionState::Failed,
+                            failure.clone(),
+                            vec!["verification failed and triggered a replan".to_string()],
+                            Some("verification failure"),
+                            Some(failure.clone()),
+                        );
+                    } else {
+                        super::goal_dossier::set_goal_unit_report(
+                            goal_run,
+                            &failed_step_id,
+                            GoalProjectionState::Failed,
+                            failure.clone(),
+                            vec!["step failed and triggered a replan".to_string()],
+                        );
+                    }
                 }
                 super::goal_dossier::set_goal_resume_decision(
                     goal_run,
@@ -398,6 +664,27 @@ impl AgentEngine {
             )
             .await;
             return Ok(());
+        }
+
+        if task.source == GOAL_VERIFICATION_SOURCE {
+            let mut goal_runs = self.goal_runs.lock().await;
+            if let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) {
+                if let Some(step_id) = goal_run
+                    .steps
+                    .get(goal_run.current_step_index)
+                    .map(|step| step.id.clone())
+                {
+                    super::goal_dossier::set_goal_unit_verification_state(
+                        goal_run,
+                        &step_id,
+                        GoalProjectionState::Failed,
+                        failure.clone(),
+                        vec!["verification failed".to_string()],
+                        Some("verification failure"),
+                        Some(failure.clone()),
+                    );
+                }
+            }
         }
 
         self.record_provenance_event(

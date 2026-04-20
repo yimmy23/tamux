@@ -353,6 +353,312 @@ fn sample_goal_run_with_kind(
 }
 
 #[tokio::test]
+async fn implementation_completion_queues_verifier_before_advancing_goal_step() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-verification-queue";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Build the Android artifact",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-impl".to_string());
+    goal_run.dossier = Some(GoalRunDossier {
+        units: vec![GoalDeliveryUnit {
+            id: "step-1".to_string(),
+            title: "step-1".to_string(),
+            status: GoalProjectionState::InProgress,
+            execution_binding: GoalRoleBinding::Builtin("swarog".to_string()),
+            verification_binding: GoalRoleBinding::Subagent("android-verifier".to_string()),
+            summary: None,
+            proof_checks: vec![GoalProofCheck {
+                id: "proof-build-debug".to_string(),
+                title: "Debug build succeeds".to_string(),
+                state: GoalProjectionState::Pending,
+                summary: None,
+                evidence_ids: Vec::new(),
+                resolved_at: None,
+            }],
+            evidence: Vec::new(),
+            report: None,
+        }],
+        ..Default::default()
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let completed_task = AgentTask {
+        id: "task-impl".to_string(),
+        title: "implement step".to_string(),
+        description: "implement step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("build completed successfully".to_string()),
+        thread_id: None,
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_task)
+        .await
+        .expect("implementation completion should queue verification");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should still exist");
+    assert_eq!(
+        updated.current_step_index, 0,
+        "step should not advance before verification"
+    );
+    assert_eq!(updated.steps[0].status, GoalRunStepStatus::InProgress);
+
+    let verifier_task_id = updated.steps[0]
+        .task_id
+        .clone()
+        .expect("verification task should take over current step");
+    assert_ne!(verifier_task_id, "task-impl");
+
+    let verifier_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == verifier_task_id)
+        .cloned()
+        .expect("verification task should be enqueued");
+    assert_eq!(verifier_task.source, "goal_verification");
+    assert_eq!(
+        verifier_task.sub_agent_def_id.as_deref(),
+        Some("android-verifier")
+    );
+    assert_eq!(verifier_task.goal_step_id.as_deref(), Some("step-1"));
+
+    let dossier = updated
+        .dossier
+        .expect("verification should keep dossier state");
+    assert_eq!(dossier.units[0].status, GoalProjectionState::InProgress);
+    assert_eq!(
+        dossier.units[0].proof_checks[0].state,
+        GoalProjectionState::InProgress
+    );
+    assert_eq!(
+        dossier.units[0]
+            .report
+            .as_ref()
+            .expect("verification queue should emit a unit report")
+            .state,
+        GoalProjectionState::InProgress
+    );
+}
+
+#[tokio::test]
+async fn verifier_completion_advances_goal_step_and_resolves_proof_checks() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-verification-complete";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Build the Android artifact",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-impl".to_string());
+    goal_run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "ship result".to_string(),
+        kind: GoalRunStepKind::Command,
+        success_criteria: "result shipped".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    goal_run.dossier = Some(GoalRunDossier {
+        units: vec![GoalDeliveryUnit {
+            id: "step-1".to_string(),
+            title: "step-1".to_string(),
+            status: GoalProjectionState::InProgress,
+            execution_binding: GoalRoleBinding::Builtin("swarog".to_string()),
+            verification_binding: GoalRoleBinding::Builtin("main".to_string()),
+            summary: None,
+            proof_checks: vec![GoalProofCheck {
+                id: "proof-build-debug".to_string(),
+                title: "Debug build succeeds".to_string(),
+                state: GoalProjectionState::Pending,
+                summary: None,
+                evidence_ids: Vec::new(),
+                resolved_at: None,
+            }],
+            evidence: Vec::new(),
+            report: None,
+        }],
+        ..Default::default()
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let implementation_task = AgentTask {
+        id: "task-impl".to_string(),
+        title: "implement step".to_string(),
+        description: "implement step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("build completed successfully".to_string()),
+        thread_id: None,
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &implementation_task)
+        .await
+        .expect("implementation completion should queue verification");
+
+    let verifier_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.source == "goal_verification")
+        .cloned()
+        .expect("verification task should exist");
+    assert!(
+        verifier_task.sub_agent_def_id.is_none(),
+        "main-agent verification should stay on the builtin daemon path"
+    );
+
+    let mut completed_verifier = verifier_task.clone();
+    completed_verifier.status = TaskStatus::Completed;
+    completed_verifier.result = Some("all proof checks satisfied".to_string());
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_verifier)
+        .await
+        .expect("verification completion should advance the step");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should still exist");
+    assert_eq!(updated.current_step_index, 1);
+    assert_eq!(updated.steps[0].status, GoalRunStepStatus::Completed);
+    assert_eq!(updated.current_step_title.as_deref(), Some("step-2"));
+
+    let dossier = updated.dossier.expect("verification should update dossier");
+    assert_eq!(dossier.units[0].status, GoalProjectionState::Completed);
+    assert_eq!(
+        dossier.units[0].proof_checks[0].state,
+        GoalProjectionState::Completed
+    );
+    assert!(
+        !dossier.units[0].evidence.is_empty(),
+        "verification completion should capture evidence"
+    );
+    assert_eq!(
+        dossier
+            .latest_resume_decision
+            .as_ref()
+            .expect("verification completion should advance the goal")
+            .action,
+        GoalResumeAction::Advance
+    );
+}
+
+#[tokio::test]
 async fn handle_goal_run_step_completion_records_dossier_report_and_advance_decision() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -472,6 +778,395 @@ async fn handle_goal_run_step_completion_records_dossier_report_and_advance_deci
             .expect("completed unit should have a report")
             .state,
         GoalProjectionState::Completed
+    );
+    assert_eq!(dossier.units[0].status, GoalProjectionState::Completed);
+    assert_eq!(
+        dossier.units[0].summary.as_deref(),
+        Some("step completed"),
+        "live dossier unit state should match the emitted report before persistence refresh"
+    );
+}
+
+#[tokio::test]
+async fn handle_goal_run_step_completion_schedules_subagent_verification_before_advance() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.sub_agents.push(SubAgentDefinition {
+        id: "android-verifier".to_string(),
+        name: "Android Verifier".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-4o-mini".to_string(),
+        role: Some("verification specialist".to_string()),
+        system_prompt: Some("Verify Android build artifacts.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: None,
+        created_at: now_millis(),
+    });
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let goal_run_id = "goal-verification-subagent";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Create the Android shell",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-step-exec".to_string());
+    goal_run.steps[0].summary = Some("build finished".to_string());
+    goal_run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "continue".to_string(),
+        kind: GoalRunStepKind::Research,
+        success_criteria: "step 2 done".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    goal_run.active_task_id = Some("task-step-exec".to_string());
+    goal_run.child_task_ids.push("task-step-exec".to_string());
+    goal_run.child_task_count = 1;
+    goal_run.dossier = Some(GoalRunDossier {
+        units: vec![GoalDeliveryUnit {
+            id: "step-1".to_string(),
+            title: "Create the Android shell".to_string(),
+            status: GoalProjectionState::InProgress,
+            execution_binding: GoalRoleBinding::Builtin(
+                crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+            ),
+            verification_binding: GoalRoleBinding::Subagent("android-verifier".to_string()),
+            summary: Some("Build the shell".to_string()),
+            proof_checks: vec![GoalProofCheck {
+                id: "proof-build-debug".to_string(),
+                title: "assembleDebug passes".to_string(),
+                state: GoalProjectionState::Pending,
+                summary: Some("run the Android debug build".to_string()),
+                evidence_ids: Vec::new(),
+                resolved_at: None,
+            }],
+            evidence: Vec::new(),
+            report: None,
+        }],
+        projection_state: GoalProjectionState::InProgress,
+        summary: Some("Build the shell".to_string()),
+        ..Default::default()
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let completed_task = AgentTask {
+        id: "task-step-exec".to_string(),
+        title: "complete step".to_string(),
+        description: "complete step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: Some("thread-goal-custom".to_string()),
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_task)
+        .await
+        .expect("step completion should schedule verification");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.current_step_index, 0);
+    assert_eq!(updated.status, GoalRunStatus::Running);
+    assert!(updated
+        .dossier
+        .as_ref()
+        .expect("dossier should exist")
+        .units[0]
+        .proof_checks[0]
+        .state
+        .eq(&GoalProjectionState::InProgress));
+
+    let verification_task_id = updated.steps[0]
+        .task_id
+        .clone()
+        .expect("verification task should replace the execution task");
+    let verification_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == verification_task_id)
+        .cloned()
+        .expect("verification task should exist");
+
+    assert_eq!(verification_task.source, "goal_verification");
+    assert_eq!(
+        verification_task.sub_agent_def_id.as_deref(),
+        Some("android-verifier")
+    );
+    assert_eq!(
+        verification_task.override_provider.as_deref(),
+        Some("openai")
+    );
+    assert_eq!(
+        verification_task.override_model.as_deref(),
+        Some("gpt-4o-mini")
+    );
+    assert_eq!(
+        updated
+            .dossier
+            .as_ref()
+            .expect("dossier should exist")
+            .units[0]
+            .report
+            .as_ref()
+            .expect("verification should write a dossier report")
+            .state,
+        GoalProjectionState::InProgress
+    );
+
+    let mut verification_complete = verification_task.clone();
+    verification_complete.status = TaskStatus::Completed;
+    verification_complete.completed_at = Some(now_millis());
+    verification_complete.result = Some("verification passed".to_string());
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &verification_complete)
+        .await
+        .expect("verification completion should advance the goal");
+
+    let final_goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(final_goal.current_step_index, 1);
+    assert_eq!(final_goal.steps[0].status, GoalRunStepStatus::Completed);
+    assert_eq!(
+        final_goal
+            .dossier
+            .as_ref()
+            .expect("dossier should exist")
+            .units[0]
+            .status,
+        GoalProjectionState::Completed
+    );
+    assert_eq!(
+        final_goal
+            .dossier
+            .as_ref()
+            .expect("dossier should exist")
+            .units[0]
+            .proof_checks[0]
+            .state,
+        GoalProjectionState::Completed
+    );
+    assert_eq!(
+        final_goal
+            .dossier
+            .as_ref()
+            .expect("dossier should exist")
+            .latest_resume_decision
+            .as_ref()
+            .expect("verification should record a resume decision")
+            .action,
+        GoalResumeAction::Advance
+    );
+}
+
+#[tokio::test]
+async fn handle_goal_run_step_completion_resolves_builtin_verification_binding_to_existing_infra() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.builtin_sub_agents.weles.provider = Some("openai".to_string());
+    config.builtin_sub_agents.weles.model = Some("gpt-4o-mini".to_string());
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let goal_run_id = "goal-verification-builtin";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Create the Android shell",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-step-exec".to_string());
+    goal_run.active_task_id = Some("task-step-exec".to_string());
+    goal_run.child_task_ids.push("task-step-exec".to_string());
+    goal_run.child_task_count = 1;
+    goal_run.dossier = Some(GoalRunDossier {
+        units: vec![GoalDeliveryUnit {
+            id: "step-1".to_string(),
+            title: "Create the Android shell".to_string(),
+            status: GoalProjectionState::InProgress,
+            execution_binding: GoalRoleBinding::Builtin(
+                crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+            ),
+            verification_binding: GoalRoleBinding::Builtin(
+                crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string(),
+            ),
+            summary: Some("Build the shell".to_string()),
+            proof_checks: vec![GoalProofCheck {
+                id: "proof-build-debug".to_string(),
+                title: "assembleDebug passes".to_string(),
+                state: GoalProjectionState::Pending,
+                summary: Some("run the Android debug build".to_string()),
+                evidence_ids: Vec::new(),
+                resolved_at: None,
+            }],
+            evidence: Vec::new(),
+            report: None,
+        }],
+        projection_state: GoalProjectionState::InProgress,
+        summary: Some("Build the shell".to_string()),
+        ..Default::default()
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let completed_task = AgentTask {
+        id: "task-step-exec".to_string(),
+        title: "complete step".to_string(),
+        description: "complete step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: Some("thread-goal-custom".to_string()),
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_task)
+        .await
+        .expect("step completion should schedule verification");
+
+    let verification_task_id = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should exist")
+        .steps[0]
+        .task_id
+        .clone()
+        .expect("verification task should replace the execution task");
+    let verification_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == verification_task_id)
+        .cloned()
+        .expect("verification task should exist");
+
+    assert_eq!(verification_task.source, "goal_verification");
+    assert_eq!(
+        verification_task.sub_agent_def_id.as_deref(),
+        Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    );
+    assert_eq!(
+        verification_task.override_provider.as_deref(),
+        Some("openai")
+    );
+    assert_eq!(
+        verification_task.override_model.as_deref(),
+        Some("gpt-4o-mini")
     );
 }
 
@@ -684,6 +1379,11 @@ async fn handle_goal_run_step_failure_surfaces_strained_replan_summary_guidance(
             .expect("failed unit should capture a report")
             .state,
         GoalProjectionState::Failed
+    );
+    assert_eq!(dossier.units[0].status, GoalProjectionState::Failed);
+    assert_eq!(
+        dossier.units[0].summary.as_deref(),
+        Some("managed command failed permanently")
     );
 }
 

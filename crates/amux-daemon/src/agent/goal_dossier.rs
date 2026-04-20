@@ -145,6 +145,7 @@ pub(super) fn set_goal_unit_report(
     let Some(unit) = ensure_dossier_unit(goal_run, step_id) else {
         return;
     };
+    let summary = summary.into();
     let execution_binding = format!(
         "execution binding: {}",
         goal_role_binding_label(&unit.execution_binding)
@@ -159,14 +160,64 @@ pub(super) fn set_goal_unit_report(
     if !notes.iter().any(|note| note == &verification_binding) {
         notes.push(verification_binding);
     }
+    unit.status = state;
+    unit.summary = Some(summary.clone());
     unit.report = Some(GoalRunReport {
-        summary: summary.into(),
+        summary,
         state,
         notes,
         evidence: unit.evidence.clone(),
         proof_checks: unit.proof_checks.clone(),
         generated_at: Some(now_millis()),
     });
+}
+
+pub(super) fn set_goal_unit_verification_state(
+    goal_run: &mut GoalRun,
+    step_id: &str,
+    state: GoalProjectionState,
+    summary: impl Into<String>,
+    notes: Vec<String>,
+    evidence_title: Option<&str>,
+    evidence_summary: Option<String>,
+) {
+    let Some(unit) = ensure_dossier_unit(goal_run, step_id) else {
+        return;
+    };
+    let summary = summary.into();
+    let now = now_millis();
+    let evidence_id = match (evidence_title, evidence_summary) {
+        (Some(title), Some(evidence_summary)) => {
+            let record = GoalEvidenceRecord {
+                id: format!("goal_evidence_{}", Uuid::new_v4()),
+                title: title.to_string(),
+                source: Some("goal_verification".to_string()),
+                uri: None,
+                summary: Some(evidence_summary),
+                captured_at: Some(now),
+            };
+            let evidence_id = record.id.clone();
+            unit.evidence.push(record);
+            Some(evidence_id)
+        }
+        _ => None,
+    };
+
+    for proof_check in &mut unit.proof_checks {
+        proof_check.state = state;
+        proof_check.summary = Some(summary.clone());
+        proof_check.resolved_at = match state {
+            GoalProjectionState::Completed | GoalProjectionState::Failed => Some(now),
+            _ => None,
+        };
+        if let Some(evidence_id) = evidence_id.as_ref() {
+            if !proof_check.evidence_ids.iter().any(|id| id == evidence_id) {
+                proof_check.evidence_ids.push(evidence_id.clone());
+            }
+        }
+    }
+
+    set_goal_unit_report(goal_run, step_id, state, summary, notes);
 }
 
 pub(super) fn refresh_goal_run_dossier(goal_run: &mut GoalRun) {
