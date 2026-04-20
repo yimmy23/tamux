@@ -56,6 +56,7 @@ pub(super) fn render_dossier(
             Span::styled(projection_chip(&dossier.projection_state), theme.fg_active),
         ]),
         work_path: None,
+        goal_step_id: None,
         close_preview: false,
     });
     if let Some(summary) = dossier.summary.as_deref() {
@@ -88,6 +89,7 @@ pub(super) fn render_delivery_units(
                 theme.fg_dim,
             )),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
         return;
@@ -101,6 +103,7 @@ pub(super) fn render_delivery_units(
                 Span::styled(unit.title.clone(), theme.fg_active),
             ]),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
         push_wrapped_text(
@@ -143,6 +146,7 @@ pub(super) fn render_proof_coverage(
         rows.push(RenderRow {
             line: Line::from(Span::styled(unit.title.clone(), theme.fg_active)),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
         for check in &unit.proof_checks {
@@ -154,6 +158,7 @@ pub(super) fn render_proof_coverage(
                     Span::styled(check.title.clone(), theme.fg_active),
                 ]),
                 work_path: None,
+                goal_step_id: None,
                 close_preview: false,
             });
             if let Some(summary) = check.summary.as_deref() {
@@ -179,6 +184,7 @@ pub(super) fn render_proof_coverage(
                 theme.fg_dim,
             )),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
     }
@@ -230,6 +236,7 @@ pub(super) fn render_reports(
         rows.push(RenderRow {
             line: Line::from(Span::styled("No reports recorded yet.", theme.fg_dim)),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
     }
@@ -289,6 +296,7 @@ pub(super) fn render_checkpoints(
         rows.push(RenderRow {
             line: Line::from(Span::styled("No checkpoints recorded yet.", theme.fg_dim)),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
         return;
@@ -315,6 +323,7 @@ pub(super) fn render_checkpoints(
                 Span::styled(short_checkpoint_id(&checkpoint.id), theme.accent_primary),
             ]),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
         if let Some(preview) = checkpoint.context_summary_preview.as_deref() {
@@ -344,6 +353,7 @@ pub(super) fn render_steps(
         rows.push(RenderRow {
             line: Line::from(Span::styled("No steps", theme.fg_dim)),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
         return;
@@ -372,6 +382,7 @@ pub(super) fn render_steps(
         rows.push(RenderRow {
             line,
             work_path: None,
+            goal_step_id: Some(step.id.clone()),
             close_preview: false,
         });
 
@@ -395,6 +406,7 @@ pub(super) fn render_steps(
                     Span::styled(task_status_label(task.status), theme.fg_dim),
                 ]),
                 work_path: None,
+                goal_step_id: None,
                 close_preview: false,
             });
         }
@@ -475,6 +487,7 @@ pub(super) fn render_work_context(
                 theme.fg_dim,
             )),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
         return;
@@ -500,6 +513,7 @@ pub(super) fn render_work_context(
                 Span::styled(entry.path.clone(), theme.fg_active),
             ]),
             work_path: Some(entry.path.clone()),
+            goal_step_id: None,
             close_preview: false,
         });
         if let Some(previous_path) = &entry.previous_path {
@@ -536,6 +550,7 @@ pub(super) fn render_work_context(
             Span::styled("Close preview", theme.fg_dim),
         ]),
         work_path: None,
+        goal_step_id: None,
         close_preview: true,
     });
     if let Some(repo_root) = selected_entry.repo_root.as_deref() {
@@ -547,6 +562,7 @@ pub(super) fn render_work_context(
                         theme.fg_dim,
                     )),
                     work_path: None,
+                    goal_step_id: None,
                     close_preview: false,
                 });
             } else {
@@ -575,6 +591,7 @@ pub(super) fn render_work_context(
                     theme.fg_dim,
                 )),
                 work_path: None,
+                goal_step_id: None,
                 close_preview: false,
             });
         }
@@ -582,6 +599,7 @@ pub(super) fn render_work_context(
         rows.push(RenderRow {
             line: Line::from(Span::styled("Loading preview...", theme.fg_dim)),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
     }

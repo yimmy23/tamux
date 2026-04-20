@@ -1,6 +1,42 @@
 use super::*;
 
 #[test]
+fn goal_plan_json_schema_marks_every_step_and_proof_check_field_as_required() {
+    let schema = goal_plan_json_schema();
+    let step_items = &schema["properties"]["steps"]["items"];
+    let step_required = step_items["required"]
+        .as_array()
+        .expect("step items should declare required fields")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let step_properties = step_items["properties"]
+        .as_object()
+        .expect("step items should declare properties")
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(step_required, step_properties);
+
+    let proof_items = &step_items["properties"]["proof_checks"]["items"];
+    let proof_required = proof_items["required"]
+        .as_array()
+        .expect("proof check items should declare required fields")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let proof_properties = proof_items["properties"]
+        .as_object()
+        .expect("proof check items should declare properties")
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(proof_required, proof_properties);
+}
+
+#[test]
 fn parse_json_block_preserves_optional_llm_confidence_fields() {
     let json = r#"
     {

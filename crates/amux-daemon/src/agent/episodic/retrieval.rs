@@ -22,7 +22,7 @@ use rusqlite::params;
 pub fn format_fts5_query(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
-        .filter(|c| !matches!(c, '"' | '(' | ')' | '*' | '{' | '}' | '[' | ']' | ':' | '^'))
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
         .collect();
 
     let terms: Vec<&str> = cleaned

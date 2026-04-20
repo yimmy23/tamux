@@ -197,6 +197,65 @@ fn work_context_drag_selection_copies_beyond_visible_window() {
 }
 
 #[test]
+fn goal_view_drag_selection_copies_beyond_visible_window() {
+    let mut model = build_model();
+    model.show_sidebar_override = Some(false);
+    model.focus = FocusArea::Chat;
+    model.task_show_live_todos = false;
+    model.task_show_timeline = false;
+    model.task_show_files = false;
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Large Goal".to_string(),
+            goal: (1..=80)
+                .map(|idx| format!("goal line {idx}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            ..Default::default()
+        }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    let chat_area = rendered_chat_area(&model);
+    let start_row = chat_area.y.saturating_add(4);
+
+    super::conversion::reset_last_copied_text();
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 3,
+        row: start_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    for _ in 0..4 {
+        model.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 3,
+            row: start_row,
+            modifiers: KeyModifiers::NONE,
+        });
+    }
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: 3,
+        row: start_row,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    let copied = super::conversion::last_copied_text()
+        .expect("dragging across goal view content should copy selected text");
+    assert!(
+        copied.contains("goal line"),
+        "expected goal selection to include goal text, got: {copied:?}"
+    );
+    assert_eq!(model.status_line, "Copied selection to clipboard");
+}
+
+#[test]
 fn esc_closes_work_context_even_from_input_focus() {
     let mut model = build_model();
     model.focus = FocusArea::Input;
@@ -1343,7 +1402,10 @@ fn goal_view_renders_goal_run_dossier_sections() {
     assert!(plain.contains("Resume Decision"), "{plain}");
     assert!(plain.contains("Phone logging flow"), "{plain}");
     assert!(plain.contains("execute via builtin:android"), "{plain}");
-    assert!(plain.contains("Verifier consumed builtin:weles binding"), "{plain}");
+    assert!(
+        plain.contains("Verifier consumed builtin:weles binding"),
+        "{plain}"
+    );
 }
 
 #[test]
@@ -1492,7 +1554,6 @@ fn task_view_renders_visible_scrollbar_when_content_overflows() {
         "expected visible scrollbar in task view, got: {plain:?}"
     );
 }
-
 
 #[test]
 fn work_context_view_renders_visible_scrollbar_when_preview_overflows() {

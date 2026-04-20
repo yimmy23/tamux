@@ -42,6 +42,11 @@ impl TuiModel {
         self.request_thread_page(thread_id, message_limit, 0, show_loading);
     }
 
+    fn request_authoritative_goal_run_refresh(&mut self, goal_run_id: String) {
+        self.send_daemon_command(DaemonCommand::RequestGoalRunDetail(goal_run_id.clone()));
+        self.send_daemon_command(DaemonCommand::RequestGoalRunCheckpoints(goal_run_id));
+    }
+
     fn maybe_request_older_chat_history(&mut self) {
         let Some(message_offset) = self.chat.active_thread_next_page_offset(self.tick_counter)
         else {
@@ -123,9 +128,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn thread_picker_target_agent_id(
-        tab: modal::ThreadPickerTab,
-    ) -> Option<String> {
+    pub(super) fn thread_picker_target_agent_id(tab: modal::ThreadPickerTab) -> Option<String> {
         tab.agent_id().map(str::to_string)
     }
 
@@ -136,6 +139,7 @@ impl TuiModel {
 
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
+        self.clear_task_view_drag_selection();
         self.ignore_pending_concierge_welcome = true;
         self.concierge
             .reduce(crate::state::ConciergeAction::WelcomeDismissed);
@@ -157,6 +161,7 @@ impl TuiModel {
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
+        self.clear_task_view_drag_selection();
         self.pending_new_thread_target_agent = None;
         self.chat
             .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
@@ -173,6 +178,7 @@ impl TuiModel {
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
+        self.clear_task_view_drag_selection();
         self.pending_new_thread_target_agent = target_agent_id.map(str::to_string);
         self.thread_loading_id = None;
         self.chat.reduce(chat::ChatAction::NewThread);
@@ -513,6 +519,7 @@ impl TuiModel {
                 self.send_daemon_command(DaemonCommand::ControlGoalRun {
                     goal_run_id,
                     action: "stop".to_string(),
+                    step_index: None,
                 });
                 self.status_line = "Stopping goal run...".to_string();
             }
@@ -520,8 +527,33 @@ impl TuiModel {
                 self.send_daemon_command(DaemonCommand::ControlGoalRun {
                     goal_run_id,
                     action: "resume".to_string(),
+                    step_index: None,
                 });
                 self.status_line = "Resuming goal run...".to_string();
+            }
+            PendingConfirmAction::RetryGoalStep {
+                goal_run_id,
+                step_index,
+                ..
+            } => {
+                self.send_daemon_command(DaemonCommand::ControlGoalRun {
+                    goal_run_id,
+                    action: "retry_step".to_string(),
+                    step_index: Some(step_index),
+                });
+                self.status_line = "Retrying goal step...".to_string();
+            }
+            PendingConfirmAction::RerunGoalFromStep {
+                goal_run_id,
+                step_index,
+                ..
+            } => {
+                self.send_daemon_command(DaemonCommand::ControlGoalRun {
+                    goal_run_id,
+                    action: "rerun_from_step".to_string(),
+                    step_index: Some(step_index),
+                });
+                self.status_line = "Rerunning goal from step...".to_string();
             }
             PendingConfirmAction::ReuseModelAsStt { model_id } => {
                 self.set_audio_config_string("stt", "model", model_id.clone());

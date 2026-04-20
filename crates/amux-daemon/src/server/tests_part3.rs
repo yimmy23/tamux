@@ -477,33 +477,6 @@ async fn divergent_ipc_get_session_returns_completion_payload() {
     conn.shutdown().await;
 }
 
-struct EnvGuard {
-    vars: Vec<(&'static str, Option<String>)>,
-}
-
-impl EnvGuard {
-    fn new(names: &[&'static str]) -> Self {
-        Self {
-            vars: names
-                .iter()
-                .map(|name| (*name, std::env::var(name).ok()))
-                .collect(),
-        }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        for (name, value) in self.vars.drain(..) {
-            if let Some(value) = value {
-                std::env::set_var(name, value);
-            } else {
-                std::env::remove_var(name);
-            }
-        }
-    }
-}
-
 fn prepare_server_openai_codex_auth_test(root: &std::path::Path) {
     std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", root.join("provider-auth.db"));
     std::env::set_var(
@@ -513,9 +486,12 @@ fn prepare_server_openai_codex_auth_test(root: &std::path::Path) {
     crate::agent::openai_codex_auth::clear_openai_codex_auth_test_state();
 }
 
-fn setup_server_openai_codex_auth_test() -> (tempfile::TempDir, EnvGuard) {
+fn setup_server_openai_codex_auth_test() -> (tempfile::TempDir, crate::test_support::EnvGuard) {
     let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
-    let env_guard = EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);
+    let env_guard = crate::test_support::EnvGuard::new(&[
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+    ]);
     prepare_server_openai_codex_auth_test(temp_dir.path());
     (temp_dir, env_guard)
 }
@@ -933,7 +909,7 @@ async fn openai_codex_auth_status_request_returns_status_payload() {
 async fn github_copilot_login_provider_without_token_uses_browser_auth_flow() {
     let _lock = crate::agent::provider_auth_test_env_lock();
     let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
-    let _env_guard = EnvGuard::new(&[
+    let _env_guard = crate::test_support::EnvGuard::new(&[
         "PATH",
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI",

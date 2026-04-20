@@ -18,6 +18,8 @@ mod server;
 mod session_manager;
 mod snapshot;
 mod state;
+#[cfg(test)]
+mod test_support;
 mod validation;
 
 use anyhow::Result;

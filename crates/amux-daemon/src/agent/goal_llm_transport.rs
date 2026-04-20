@@ -22,6 +22,40 @@ pub(super) fn orchestrator_policy_json_schema() -> serde_json::Value {
     })
 }
 
+fn structured_output_rejection_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("response_format")
+        || lower.contains("structured_output")
+        || lower.contains("json_schema")
+        || lower.contains("invalid_json_schema")
+        || lower.contains("text.format.schema")
+}
+
+fn should_fallback_from_structured_output_error(err: &anyhow::Error) -> bool {
+    if let Some(structured) =
+        crate::agent::llm_client::parse_structured_upstream_failure(&err.to_string())
+    {
+        if structured.class != "request_invalid" {
+            return false;
+        }
+        let raw_message = structured
+            .diagnostics
+            .get("raw_message")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let body = structured
+            .diagnostics
+            .get("body")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        return structured_output_rejection_message(&structured.summary)
+            || structured_output_rejection_message(raw_message)
+            || structured_output_rejection_message(body);
+    }
+
+    structured_output_rejection_message(&err.to_string())
+}
+
 impl AgentEngine {
     pub(super) async fn run_goal_llm_raw(&self, prompt: &str) -> Result<String> {
         let config = self.config.read().await.clone();
@@ -159,6 +193,16 @@ impl AgentEngine {
                 Ok(value) => value,
                 Err(error) => {
                     self.record_llm_outcome(&config.provider, false).await;
+                    if should_fallback_from_structured_output_error(&error) {
+                        tracing::warn!(
+                            provider = %config.provider,
+                            model = %provider_config.model,
+                            operation = log_label,
+                            error = %error,
+                            "structured output rejected upstream; falling back to unstructured goal request"
+                        );
+                        return self.run_goal_llm_raw(prompt).await;
+                    }
                     return Err(error);
                 }
             };
@@ -199,6 +243,16 @@ impl AgentEngine {
                 }
                 CompletionChunk::Error { message } => {
                     self.record_llm_outcome(&config.provider, false).await;
+                    if structured_output_rejection_message(&message) {
+                        tracing::warn!(
+                            provider = %config.provider,
+                            model = %provider_config.model,
+                            operation = log_label,
+                            error = %message,
+                            "structured output rejected in stream; falling back to unstructured goal request"
+                        );
+                        return self.run_goal_llm_raw(prompt).await;
+                    }
                     anyhow::bail!(message);
                 }
                 CompletionChunk::TransportFallback { .. } => {}

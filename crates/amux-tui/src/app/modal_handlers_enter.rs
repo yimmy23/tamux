@@ -205,6 +205,25 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 model.status_line = "No goals available".to_string();
             }
         }
+        modal::ModalKind::GoalStepActionPicker => {
+            let cursor = model.modal.picker_cursor();
+            model.close_top_modal();
+            match cursor {
+                0 => {
+                    if !model.request_selected_goal_step_retry_confirmation() {
+                        model.status_line = "Selected goal step is unavailable".to_string();
+                    }
+                }
+                1 => {
+                    if !model.request_selected_goal_step_rerun_confirmation() {
+                        model.status_line = "Selected goal step is unavailable".to_string();
+                    }
+                }
+                _ => {
+                    model.status_line = "Goal step action is unavailable".to_string();
+                }
+            }
+        }
         modal::ModalKind::QueuedPrompts => {
             model.execute_selected_queued_prompt_action();
         }

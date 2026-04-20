@@ -19,6 +19,14 @@ fn format_fts5_query_converts_words_to_or() {
 }
 
 #[test]
+fn format_fts5_query_strips_dots_from_domain_like_tokens() {
+    let result = format_fts5_query("find me all information about company.ai.");
+    assert!(!result.contains('.'));
+    assert!(result.contains("company"));
+    assert!(result.contains("ai"));
+}
+
+#[test]
 fn format_fts5_query_empty_returns_star() {
     assert_eq!(format_fts5_query(""), "*");
     assert_eq!(format_fts5_query("  "), "*");

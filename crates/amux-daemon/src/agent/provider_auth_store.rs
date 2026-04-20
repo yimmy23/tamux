@@ -9,10 +9,7 @@ const PROVIDER_AUTH_DB_PATH_ENV: &str = "TAMUX_PROVIDER_AUTH_DB_PATH";
 
 #[cfg(test)]
 pub(crate) fn provider_auth_test_env_lock() -> MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    crate::test_support::env_test_lock()
 }
 
 fn provider_auth_db_path() -> Result<PathBuf> {

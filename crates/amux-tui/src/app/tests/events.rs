@@ -103,6 +103,28 @@ fn next_goal_run_page_request(
     None
 }
 
+fn next_goal_run_detail_request(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) -> Option<String> {
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::RequestGoalRunDetail(goal_run_id) = command {
+            return Some(goal_run_id);
+        }
+    }
+    None
+}
+
+fn next_goal_run_checkpoints_request(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) -> Option<String> {
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::RequestGoalRunCheckpoints(goal_run_id) = command {
+            return Some(goal_run_id);
+        }
+    }
+    None
+}
+
 #[test]
 fn connected_event_defers_concierge_welcome_until_config_loads() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
@@ -2890,6 +2912,31 @@ fn prepending_older_goal_run_history_releases_top_edge_until_user_scrolls_again(
     assert!(
         next_goal_run_page_request(&mut daemon_rx).is_none(),
         "prepend anchor should move the viewport below the new top so goal history does not auto-fetch again"
+    );
+}
+
+#[test]
+fn active_goal_run_update_requests_authoritative_refresh() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    model.handle_goal_run_update_event(crate::wire::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal One".to_string(),
+        status: Some(crate::wire::GoalRunStatus::Running),
+        ..Default::default()
+    });
+
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
     );
 }
 

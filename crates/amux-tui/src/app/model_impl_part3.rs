@@ -82,6 +82,9 @@ impl TuiModel {
                 modal::ModalKind::ThreadParticipants => "modal:thread_participants".to_string(),
                 modal::ModalKind::ThreadPicker => "modal:thread_picker".to_string(),
                 modal::ModalKind::GoalPicker => "modal:goal_picker".to_string(),
+                modal::ModalKind::GoalStepActionPicker => {
+                    "modal:goal_step_action_picker".to_string()
+                }
                 modal::ModalKind::QueuedPrompts => "modal:queued_prompts".to_string(),
                 modal::ModalKind::ProviderPicker => "modal:provider_picker".to_string(),
                 modal::ModalKind::ModelPicker => "modal:model_picker".to_string(),

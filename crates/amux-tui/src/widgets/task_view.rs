@@ -5,12 +5,15 @@ use ratatui::widgets::Paragraph;
 
 #[path = "task_view_sections.rs"]
 mod sections;
+#[path = "task_view_selection.rs"]
+mod selection;
 
 use sections::{
     render_checkpoints, render_delivery_units, render_dossier, render_live_todos,
     render_proof_coverage, render_reports, render_resume_decision, render_step_timeline,
     render_steps, render_work_context,
 };
+use selection::{display_slice, highlight_line_range, line_display_width, line_plain_text};
 
 use crate::state::sidebar::SidebarItemTarget;
 use crate::state::task::{
@@ -18,6 +21,7 @@ use crate::state::task::{
     WorkContextEntryKind,
 };
 use crate::theme::ThemeTokens;
+use crate::widgets::chat::SelectionPoint;
 use crate::widgets::message::{render_markdown_pub, wrap_text};
 
 fn content_inner(area: Rect) -> Rect {
@@ -39,11 +43,19 @@ pub struct TaskViewScrollbarLayout {
 struct RenderRow {
     line: Line<'static>,
     work_path: Option<String>,
+    goal_step_id: Option<String>,
     close_preview: bool,
+}
+
+struct SelectionSnapshot {
+    rows: Vec<RenderRow>,
+    scroll: usize,
+    area: Rect,
 }
 
 pub enum TaskViewHitTarget {
     WorkPath(String),
+    GoalStep(String),
     ClosePreview,
 }
 
@@ -105,6 +117,7 @@ fn push_wrapped_text(
                 Span::styled(wrapped, style),
             ]),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
     }
@@ -114,6 +127,7 @@ fn push_blank(rows: &mut Vec<RenderRow>) {
     rows.push(RenderRow {
         line: Line::raw(""),
         work_path: None,
+        goal_step_id: None,
         close_preview: false,
     });
 }
@@ -125,6 +139,7 @@ fn push_section_title(rows: &mut Vec<RenderRow>, title: &str, style: Style) {
     rows.push(RenderRow {
         line: Line::from(Span::styled(title.to_string(), style)),
         work_path: None,
+        goal_step_id: None,
         close_preview: false,
     });
 }
@@ -146,6 +161,7 @@ fn push_preview_text(
             rows.push(RenderRow {
                 line,
                 work_path: None,
+                goal_step_id: None,
                 close_preview: false,
             });
         }
@@ -187,6 +203,7 @@ fn push_todo_items(
                 Span::styled("No todos", theme.fg_dim),
             ]),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
         return;
@@ -203,6 +220,7 @@ fn push_todo_items(
                 Span::styled(item.content, theme.fg_active),
             ]),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
     }
@@ -220,6 +238,7 @@ fn render_goal_summary(
             Span::styled(goal_status_label(run.status), theme.fg_active),
         ]),
         work_path: None,
+        goal_step_id: None,
         close_preview: false,
     });
     rows.push(RenderRow {
@@ -231,6 +250,7 @@ fn render_goal_summary(
             Span::styled(run.approval_count.to_string(), theme.fg_active),
         ]),
         work_path: None,
+        goal_step_id: None,
         close_preview: false,
     });
     if let Some(current_step_title) = &run.current_step_title {
@@ -240,6 +260,7 @@ fn render_goal_summary(
                 Span::styled(current_step_title.clone(), theme.fg_active),
             ]),
             work_path: None,
+            goal_step_id: None,
             close_preview: false,
         });
     }
@@ -285,6 +306,7 @@ fn build_rows(
                     vec![RenderRow {
                         line: Line::from(Span::styled("Goal run not found", theme.accent_danger)),
                         work_path: None,
+                        goal_step_id: None,
                         close_preview: false,
                     }],
                 );
@@ -296,6 +318,7 @@ fn build_rows(
                     Span::styled(run.id.clone(), theme.fg_active),
                 ]),
                 work_path: None,
+                goal_step_id: None,
                 close_preview: false,
             });
             render_goal_summary(&mut rows, run, theme, width);
@@ -323,6 +346,7 @@ fn build_rows(
                 rows.push(RenderRow {
                     line: Line::from(Span::styled("No tasks", theme.fg_dim)),
                     work_path: None,
+                    goal_step_id: None,
                     close_preview: false,
                 });
             } else {
@@ -335,6 +359,7 @@ fn build_rows(
                             Span::styled(task_status_label(task.status), theme.fg_dim),
                         ]),
                         work_path: None,
+                        goal_step_id: None,
                         close_preview: false,
                     });
                 }
@@ -363,6 +388,7 @@ fn build_rows(
                     vec![RenderRow {
                         line: Line::from(Span::styled("Task not found", theme.accent_danger)),
                         work_path: None,
+                        goal_step_id: None,
                         close_preview: false,
                     }],
                 );
@@ -374,6 +400,7 @@ fn build_rows(
                     Span::styled(task_status_label(task.status), theme.fg_active),
                 ]),
                 work_path: None,
+                goal_step_id: None,
                 close_preview: false,
             });
             rows.push(RenderRow {
@@ -382,6 +409,7 @@ fn build_rows(
                     Span::styled(format!("{}%", task.progress), theme.fg_active),
                 ]),
                 work_path: None,
+                goal_step_id: None,
                 close_preview: false,
             });
             if let Some(session_id) = &task.session_id {
@@ -391,6 +419,7 @@ fn build_rows(
                         Span::styled(session_id.clone(), theme.fg_active),
                     ]),
                     work_path: None,
+                    goal_step_id: None,
                     close_preview: false,
                 });
             }
@@ -416,6 +445,7 @@ fn build_rows(
                         ])
                         .style(highlight_style),
                         work_path: None,
+                        goal_step_id: None,
                         close_preview: false,
                     });
                     if !step.instructions.is_empty() {
@@ -557,10 +587,188 @@ pub fn hit_test(
     rows.get(row_index).and_then(|row| {
         if row.close_preview {
             Some(TaskViewHitTarget::ClosePreview)
+        } else if let Some(step_id) = row.goal_step_id.clone() {
+            Some(TaskViewHitTarget::GoalStep(step_id))
         } else {
             row.work_path.clone().map(TaskViewHitTarget::WorkPath)
         }
     })
+}
+
+fn selection_snapshot(
+    area: Rect,
+    tasks: &TaskState,
+    target: &SidebarItemTarget,
+    theme: &ThemeTokens,
+    scroll: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
+) -> Option<SelectionSnapshot> {
+    let layout = scrollbar_layout(
+        area,
+        tasks,
+        target,
+        theme,
+        scroll,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    );
+    let content = layout
+        .map(|layout| layout.content)
+        .unwrap_or(content_inner(area));
+    let resolved_scroll = layout.map(|layout| layout.scroll).unwrap_or(scroll);
+    let rows = rows_for_width(
+        tasks,
+        target,
+        theme,
+        content.width as usize,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    );
+    if rows.is_empty() || content.width == 0 || content.height == 0 {
+        return None;
+    }
+    Some(SelectionSnapshot {
+        rows,
+        scroll: resolved_scroll,
+        area: content,
+    })
+}
+
+fn selection_point_from_snapshot(
+    snapshot: &SelectionSnapshot,
+    mouse: Position,
+) -> Option<SelectionPoint> {
+    let area = snapshot.area;
+    let clamped_x = mouse
+        .x
+        .clamp(area.x, area.x.saturating_add(area.width).saturating_sub(1));
+    let clamped_y = mouse
+        .y
+        .clamp(area.y, area.y.saturating_add(area.height).saturating_sub(1));
+    let row = snapshot
+        .scroll
+        .saturating_add(clamped_y.saturating_sub(area.y) as usize)
+        .min(snapshot.rows.len().saturating_sub(1));
+    let col = clamped_x.saturating_sub(area.x) as usize;
+    let width = line_display_width(&snapshot.rows.get(row)?.line);
+    Some(SelectionPoint {
+        row,
+        col: col.min(width),
+    })
+}
+
+pub fn selection_points_from_mouse(
+    area: Rect,
+    tasks: &TaskState,
+    target: &SidebarItemTarget,
+    theme: &ThemeTokens,
+    scroll: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
+    start: Position,
+    end: Position,
+) -> Option<(SelectionPoint, SelectionPoint)> {
+    let snapshot = selection_snapshot(
+        area,
+        tasks,
+        target,
+        theme,
+        scroll,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    )?;
+    Some((
+        selection_point_from_snapshot(&snapshot, start)?,
+        selection_point_from_snapshot(&snapshot, end)?,
+    ))
+}
+
+pub fn selection_point_from_mouse(
+    area: Rect,
+    tasks: &TaskState,
+    target: &SidebarItemTarget,
+    theme: &ThemeTokens,
+    scroll: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
+    mouse: Position,
+) -> Option<SelectionPoint> {
+    let snapshot = selection_snapshot(
+        area,
+        tasks,
+        target,
+        theme,
+        scroll,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    )?;
+    selection_point_from_snapshot(&snapshot, mouse)
+}
+
+pub fn selected_text(
+    area: Rect,
+    tasks: &TaskState,
+    target: &SidebarItemTarget,
+    theme: &ThemeTokens,
+    scroll: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
+    start: SelectionPoint,
+    end: SelectionPoint,
+) -> Option<String> {
+    let snapshot = selection_snapshot(
+        area,
+        tasks,
+        target,
+        theme,
+        scroll,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    )?;
+    let (start_point, end_point) =
+        if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+            (start, end)
+        } else {
+            (end, start)
+        };
+    if start_point == end_point {
+        return None;
+    }
+
+    let mut lines = Vec::new();
+    for row in start_point.row..=end_point.row {
+        let rendered = snapshot.rows.get(row)?;
+        let plain = line_plain_text(&rendered.line);
+        let width = line_display_width(&rendered.line);
+        let from = if row == start_point.row {
+            start_point.col.min(width)
+        } else {
+            0
+        };
+        let to = if row == end_point.row {
+            end_point.col.min(width).max(from)
+        } else {
+            width
+        };
+        lines.push(display_slice(&plain, from, to));
+    }
+
+    let text = lines.join("\n");
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 pub fn render(
@@ -574,6 +782,7 @@ pub fn render(
     show_live_todos: bool,
     show_timeline: bool,
     show_files: bool,
+    mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
 ) {
     let inner = content_inner(area);
 
@@ -599,10 +808,34 @@ pub fn render(
             show_live_todos,
             show_timeline,
             show_files,
-        )
-        .into_iter()
-        .map(|row| row.line)
-        .collect::<Vec<_>>();
+        );
+        let mut lines = lines;
+        if let Some((start, end)) = mouse_selection {
+            let (start_point, end_point) =
+                if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+                    (start, end)
+                } else {
+                    (end, start)
+                };
+            let highlight = Style::default().bg(Color::Indexed(31));
+            for row in start_point.row..=end_point.row {
+                if let Some(rendered) = lines.get_mut(row) {
+                    let line_width = line_display_width(&rendered.line);
+                    let from = if row == start_point.row {
+                        start_point.col.min(line_width)
+                    } else {
+                        0
+                    };
+                    let to = if row == end_point.row {
+                        end_point.col.min(line_width).max(from)
+                    } else {
+                        line_width
+                    };
+                    highlight_line_range(&mut rendered.line, from, to, highlight);
+                }
+            }
+        }
+        let lines = lines.into_iter().map(|row| row.line).collect::<Vec<_>>();
         let paragraph = Paragraph::new(lines).scroll((layout.scroll as u16, 0));
         frame.render_widget(paragraph, layout.content);
 
@@ -631,11 +864,35 @@ pub fn render(
         show_live_todos,
         show_timeline,
         show_files,
-    )
-    .into_iter()
-    .map(|row| row.line)
-    .collect::<Vec<_>>();
+    );
+    let mut lines = lines;
+    if let Some((start, end)) = mouse_selection {
+        let (start_point, end_point) =
+            if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+                (start, end)
+            } else {
+                (end, start)
+            };
+        let highlight = Style::default().bg(Color::Indexed(31));
+        for row in start_point.row..=end_point.row {
+            if let Some(rendered) = lines.get_mut(row) {
+                let line_width = line_display_width(&rendered.line);
+                let from = if row == start_point.row {
+                    start_point.col.min(line_width)
+                } else {
+                    0
+                };
+                let to = if row == end_point.row {
+                    end_point.col.min(line_width).max(from)
+                } else {
+                    line_width
+                };
+                highlight_line_range(&mut rendered.line, from, to, highlight);
+            }
+        }
+    }
     let max_scroll = lines.len().saturating_sub(inner.height as usize);
+    let lines = lines.into_iter().map(|row| row.line).collect::<Vec<_>>();
     let paragraph = Paragraph::new(lines).scroll((scroll.min(max_scroll) as u16, 0));
     frame.render_widget(paragraph, inner);
 }
@@ -718,4 +975,60 @@ pub fn scrollbar_layout(
         show_files,
     );
     scrollbar_layout_from_metrics(inner, rows.len(), scroll)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hit_test_returns_goal_step_for_step_rows() {
+        let mut tasks = TaskState::new();
+        tasks.reduce(crate::state::task::TaskAction::GoalRunDetailReceived(
+            GoalRun {
+                id: "goal-1".to_string(),
+                title: "Goal One".to_string(),
+                steps: vec![
+                    GoalRunStep {
+                        id: "step-1".to_string(),
+                        title: "Plan".to_string(),
+                        order: 0,
+                        ..Default::default()
+                    },
+                    GoalRunStep {
+                        id: "step-2".to_string(),
+                        title: "Execute".to_string(),
+                        order: 1,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        ));
+
+        let area = Rect::new(0, 0, 80, 20);
+        let target = SidebarItemTarget::GoalRun {
+            goal_run_id: "goal-1".to_string(),
+            step_id: None,
+        };
+
+        let found = (area.y..area.y.saturating_add(area.height)).find_map(|row| {
+            match hit_test(
+                area,
+                &tasks,
+                &target,
+                &ThemeTokens::default(),
+                0,
+                true,
+                true,
+                true,
+                Position::new(area.x.saturating_add(2), row),
+            ) {
+                Some(TaskViewHitTarget::GoalStep(step_id)) if step_id == "step-2" => Some(step_id),
+                _ => None,
+            }
+        });
+
+        assert_eq!(found.as_deref(), Some("step-2"));
+    }
 }

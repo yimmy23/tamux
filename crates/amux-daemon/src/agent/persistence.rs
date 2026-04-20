@@ -396,8 +396,8 @@ impl AgentEngine {
                 }
 
                 *self.goal_runs.lock().await = runs;
-                // Persist the paused status back to SQLite immediately
-                self.persist_goal_runs().await;
+                // Startup should not wait on goal projection writes before the daemon becomes usable.
+                self.persist_goal_runs_in_background();
             }
             Ok(_) => {
                 let goal_runs_path = self.data_dir.join("goal-runs.json");
@@ -406,7 +406,7 @@ impl AgentEngine {
                         Ok(raw) => {
                             if let Ok(goal_runs) = serde_json::from_str::<VecDeque<GoalRun>>(&raw) {
                                 *self.goal_runs.lock().await = goal_runs;
-                                self.persist_goal_runs().await;
+                                self.persist_goal_runs_in_background();
                             }
                         }
                         Err(e) => tracing::warn!("failed to migrate legacy goal runs: {e}"),

@@ -472,9 +472,18 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_goal_run_update_event(&mut self, run: crate::wire::GoalRun) {
-        self.tasks.reduce(task::TaskAction::GoalRunUpdate(
-            conversion::convert_goal_run(run),
-        ));
+        let run = conversion::convert_goal_run(run);
+        let active_goal_run_id = match &self.main_pane_view {
+            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) => {
+                Some(goal_run_id.clone())
+            }
+            _ => None,
+        };
+        self.tasks
+            .reduce(task::TaskAction::GoalRunUpdate(run.clone()));
+        if active_goal_run_id.as_deref() == Some(run.id.as_str()) {
+            self.request_authoritative_goal_run_refresh(run.id.clone());
+        }
         self.clamp_detail_view_scroll();
     }
 

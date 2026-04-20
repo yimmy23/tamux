@@ -150,6 +150,7 @@ pub enum DaemonCommand {
     ControlGoalRun {
         goal_run_id: String,
         action: String,
+        step_index: Option<usize>,
     },
     DeleteGoalRun {
         goal_run_id: String,

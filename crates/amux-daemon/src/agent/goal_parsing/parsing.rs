@@ -33,6 +33,7 @@ pub(crate) fn goal_plan_json_schema() -> serde_json::Value {
                                     "title": { "type": "string" },
                                     "summary": { "type": ["string", "null"] }
                                 },
+                                "required": ["id", "title", "summary"],
                                 "additionalProperties": false
                             }
                         },
@@ -40,7 +41,18 @@ pub(crate) fn goal_plan_json_schema() -> serde_json::Value {
                         "llm_confidence": { "type": ["string", "null"] },
                         "llm_confidence_rationale": { "type": ["string", "null"] }
                     },
-                    "required": ["title", "instructions", "kind", "success_criteria", "session_id"],
+                    "required": [
+                        "title",
+                        "instructions",
+                        "kind",
+                        "success_criteria",
+                        "execution_binding",
+                        "verification_binding",
+                        "proof_checks",
+                        "session_id",
+                        "llm_confidence",
+                        "llm_confidence_rationale"
+                    ],
                     "additionalProperties": false
                 }
             },

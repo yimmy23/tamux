@@ -32,6 +32,22 @@ fn make_goal_run(
     }
 }
 
+fn make_goal_run_with_steps(
+    id: &str,
+    title: &str,
+    status: crate::state::task::GoalRunStatus,
+    steps: Vec<crate::state::task::GoalRunStep>,
+) -> crate::state::task::GoalRun {
+    crate::state::task::GoalRun {
+        id: id.to_string(),
+        title: title.to_string(),
+        status: Some(status),
+        goal: format!("Goal for {title}"),
+        steps,
+        ..Default::default()
+    }
+}
+
 fn render_screen(model: &mut TuiModel) -> Vec<String> {
     let backend = TestBackend::new(model.width, model.height);
     let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
@@ -4150,7 +4166,11 @@ fn goal_picker_ctrl_s_running_goal_requires_confirmation_before_stop() {
     assert!(!quit);
     assert!(matches!(
         daemon_rx.try_recv().expect("expected control-goal command"),
-        DaemonCommand::ControlGoalRun { goal_run_id, action }
+        DaemonCommand::ControlGoalRun {
+            goal_run_id,
+            action,
+            ..
+        }
             if goal_run_id == "goal-1" && action == "stop"
     ));
     assert_eq!(model.status_line, "Stopping goal run...");
@@ -4190,8 +4210,227 @@ fn goal_picker_ctrl_s_paused_goal_requires_confirmation_before_resume() {
     assert!(!quit);
     assert!(matches!(
         daemon_rx.try_recv().expect("expected control-goal command"),
-        DaemonCommand::ControlGoalRun { goal_run_id, action }
+        DaemonCommand::ControlGoalRun {
+            goal_run_id,
+            action,
+            ..
+        }
             if goal_run_id == "goal-1" && action == "resume"
+    ));
+}
+
+#[test]
+fn selected_goal_step_r_opens_retry_confirmation() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(
+        make_goal_run_with_steps(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Failed,
+            vec![
+                task::GoalRunStep {
+                    id: "step-1".to_string(),
+                    title: "Plan".to_string(),
+                    order: 0,
+                    status: Some(task::GoalRunStatus::Completed),
+                    ..Default::default()
+                },
+                task::GoalRunStep {
+                    id: "step-2".to_string(),
+                    title: "Deploy".to_string(),
+                    order: 1,
+                    status: Some(task::GoalRunStatus::Failed),
+                    ..Default::default()
+                },
+            ],
+        ),
+    ));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: Some("step-2".to_string()),
+    });
+
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert_eq!(
+        model
+            .pending_chat_action_confirm
+            .as_ref()
+            .map(PendingConfirmAction::modal_body)
+            .as_deref(),
+        Some("Retry step 2 \"Deploy\" in goal \"Goal One\"?")
+    );
+}
+
+#[test]
+fn selected_goal_step_shift_r_opens_rerun_confirmation() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(
+        make_goal_run_with_steps(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Failed,
+            vec![
+                task::GoalRunStep {
+                    id: "step-1".to_string(),
+                    title: "Plan".to_string(),
+                    order: 0,
+                    status: Some(task::GoalRunStatus::Completed),
+                    ..Default::default()
+                },
+                task::GoalRunStep {
+                    id: "step-2".to_string(),
+                    title: "Deploy".to_string(),
+                    order: 1,
+                    status: Some(task::GoalRunStatus::Failed),
+                    ..Default::default()
+                },
+            ],
+        ),
+    ));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: Some("step-2".to_string()),
+    });
+
+    let handled = model.handle_key(KeyCode::Char('R'), KeyModifiers::SHIFT);
+
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert_eq!(
+        model
+            .pending_chat_action_confirm
+            .as_ref()
+            .map(PendingConfirmAction::modal_body)
+            .as_deref(),
+        Some("Rerun from step 2 \"Deploy\" in goal \"Goal One\"?")
+    );
+}
+
+#[test]
+fn selected_goal_step_action_menu_can_send_retry_step() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(
+        make_goal_run_with_steps(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Failed,
+            vec![
+                task::GoalRunStep {
+                    id: "step-1".to_string(),
+                    title: "Plan".to_string(),
+                    order: 0,
+                    status: Some(task::GoalRunStatus::Completed),
+                    ..Default::default()
+                },
+                task::GoalRunStep {
+                    id: "step-2".to_string(),
+                    title: "Deploy".to_string(),
+                    order: 1,
+                    status: Some(task::GoalRunStatus::Failed),
+                    ..Default::default()
+                },
+            ],
+        ),
+    ));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: Some("step-2".to_string()),
+    });
+
+    let handled = model.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::GoalStepActionPicker)
+    );
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::GoalStepActionPicker,
+    );
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+    assert!(!handled);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected control-goal command"),
+        DaemonCommand::ControlGoalRun {
+            goal_run_id,
+            action,
+            step_index: Some(1),
+        } if goal_run_id == "goal-1" && action == "retry_step"
+    ));
+}
+
+#[test]
+fn goal_run_task_view_bracket_keys_cycle_selected_step() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(
+        make_goal_run_with_steps(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Running,
+            vec![
+                task::GoalRunStep {
+                    id: "step-1".to_string(),
+                    title: "Plan".to_string(),
+                    order: 0,
+                    status: Some(task::GoalRunStatus::Completed),
+                    ..Default::default()
+                },
+                task::GoalRunStep {
+                    id: "step-2".to_string(),
+                    title: "Execute".to_string(),
+                    order: 1,
+                    status: Some(task::GoalRunStatus::Running),
+                    ..Default::default()
+                },
+                task::GoalRunStep {
+                    id: "step-3".to_string(),
+                    title: "Verify".to_string(),
+                    order: 2,
+                    status: Some(task::GoalRunStatus::Queued),
+                    ..Default::default()
+                },
+            ],
+        ),
+    ));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: Some("step-2".to_string()),
+    });
+
+    let handled = model.handle_key(KeyCode::Char(']'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(matches!(
+        model.main_pane_view,
+        MainPaneView::Task(SidebarItemTarget::GoalRun {
+            ref goal_run_id,
+            step_id: Some(ref step_id),
+        }) if goal_run_id == "goal-1" && step_id == "step-3"
+    ));
+
+    let handled = model.handle_key(KeyCode::Char('['), KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(matches!(
+        model.main_pane_view,
+        MainPaneView::Task(SidebarItemTarget::GoalRun {
+            ref goal_run_id,
+            step_id: Some(ref step_id),
+        }) if goal_run_id == "goal-1" && step_id == "step-2"
     ));
 }
 

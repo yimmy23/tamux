@@ -269,6 +269,13 @@ impl AgentEngine {
         }
     }
 
+    pub(in crate::agent) fn persist_goal_runs_in_background(self: &Arc<Self>) {
+        let engine = self.clone();
+        tokio::spawn(async move {
+            engine.persist_goal_runs().await;
+        });
+    }
+
     pub(in crate::agent) async fn persist_heartbeat(&self) {
         let items = self.heartbeat_items.read().await;
         if let Err(e) = persist_json(&self.data_dir.join("heartbeat.json"), &*items).await {

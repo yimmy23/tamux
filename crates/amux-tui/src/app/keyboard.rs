@@ -679,13 +679,6 @@ impl TuiModel {
                     );
                 }
             }
-            KeyCode::Char('r') if self.focus == FocusArea::Chat => {
-                if let Some(sel) = self.chat.selected_message() {
-                    self.chat.toggle_reasoning(sel);
-                } else {
-                    self.chat.toggle_last_reasoning();
-                }
-            }
             KeyCode::Char('t')
                 if self.focus == FocusArea::Chat
                     && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
@@ -699,6 +692,55 @@ impl TuiModel {
             {
                 self.task_show_timeline = !self.task_show_timeline;
                 self.clamp_detail_view_scroll();
+            }
+            KeyCode::Char('a')
+                if self.focus == FocusArea::Chat
+                    && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
+            {
+                if self.open_goal_step_action_picker() {
+                    self.status_line = "Goal step actions".to_string();
+                }
+            }
+            KeyCode::Char('r')
+                if self.focus == FocusArea::Chat
+                    && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
+            {
+                if self.request_selected_goal_step_retry_confirmation() {
+                    self.status_line = "Retry selected goal step?".to_string();
+                }
+            }
+            KeyCode::Char('R')
+                if self.focus == FocusArea::Chat
+                    && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
+            {
+                if self.request_selected_goal_step_rerun_confirmation() {
+                    self.status_line = "Rerun goal from selected step?".to_string();
+                }
+            }
+            KeyCode::Char('[')
+                if self.focus == FocusArea::Chat
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) =>
+            {
+                self.step_goal_step_selection(-1);
+            }
+            KeyCode::Char(']')
+                if self.focus == FocusArea::Chat
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) =>
+            {
+                self.step_goal_step_selection(1);
+            }
+            KeyCode::Char('r') if self.focus == FocusArea::Chat => {
+                if let Some(sel) = self.chat.selected_message() {
+                    self.chat.toggle_reasoning(sel);
+                } else {
+                    self.chat.toggle_last_reasoning();
+                }
             }
             KeyCode::Char('f')
                 if self.focus == FocusArea::Chat

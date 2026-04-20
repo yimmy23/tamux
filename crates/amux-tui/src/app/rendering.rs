@@ -844,13 +844,15 @@ impl TuiModel {
     ) -> Option<crate::terminal_graphics::TerminalImageOverlaySpec> {
         let layout = self.pane_layout();
         match &self.main_pane_view {
-            MainPaneView::FilePreview(target) => widgets::file_preview::terminal_image_overlay_spec(
-                layout.chat,
-                &self.tasks,
-                target,
-                &self.theme,
-                self.task_view_scroll,
-            ),
+            MainPaneView::FilePreview(target) => {
+                widgets::file_preview::terminal_image_overlay_spec(
+                    layout.chat,
+                    &self.tasks,
+                    target,
+                    &self.theme,
+                    self.task_view_scroll,
+                )
+            }
             MainPaneView::WorkContext => widgets::work_context_view::terminal_image_overlay_spec(
                 layout.chat,
                 &self.tasks,
@@ -924,6 +926,26 @@ impl TuiModel {
                     self.task_show_live_todos,
                     self.task_show_timeline,
                     self.task_show_files,
+                    self.task_view_drag_anchor_point
+                        .zip(self.task_view_drag_current_point)
+                        .or_else(|| {
+                            self.task_view_drag_anchor.and_then(|anchor| {
+                                self.task_view_drag_current.and_then(|current| {
+                                    widgets::task_view::selection_points_from_mouse(
+                                        layout.chat,
+                                        &self.tasks,
+                                        target,
+                                        &self.theme,
+                                        self.task_view_scroll,
+                                        self.task_show_live_todos,
+                                        self.task_show_timeline,
+                                        self.task_show_files,
+                                        anchor,
+                                        current,
+                                    )
+                                })
+                            })
+                        }),
                 ),
                 MainPaneView::WorkContext => widgets::work_context_view::render(
                     frame,
@@ -1002,6 +1024,26 @@ impl TuiModel {
                     self.task_show_live_todos,
                     self.task_show_timeline,
                     self.task_show_files,
+                    self.task_view_drag_anchor_point
+                        .zip(self.task_view_drag_current_point)
+                        .or_else(|| {
+                            self.task_view_drag_anchor.and_then(|anchor| {
+                                self.task_view_drag_current.and_then(|current| {
+                                    widgets::task_view::selection_points_from_mouse(
+                                        layout.chat,
+                                        &self.tasks,
+                                        target,
+                                        &self.theme,
+                                        self.task_view_scroll,
+                                        self.task_show_live_todos,
+                                        self.task_show_timeline,
+                                        self.task_show_files,
+                                        anchor,
+                                        current,
+                                    )
+                                })
+                            })
+                        }),
                 ),
                 MainPaneView::WorkContext => widgets::work_context_view::render(
                     frame,
@@ -1108,6 +1150,9 @@ impl TuiModel {
                 modal::ModalKind::ThreadParticipants => render_helpers::centered_rect(76, 68, area),
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
+                modal::ModalKind::GoalStepActionPicker => {
+                    render_helpers::centered_rect(46, 28, area)
+                }
                 modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),
                 modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
                 modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),
@@ -1144,6 +1189,21 @@ impl TuiModel {
                         overlay_area,
                         &self.tasks,
                         &self.modal,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::GoalStepActionPicker => {
+                    let step_context = self.selected_goal_step_context();
+                    render_helpers::render_goal_step_action_picker_modal(
+                        frame,
+                        overlay_area,
+                        step_context
+                            .as_ref()
+                            .map(|(_, goal_title, _, _)| goal_title.as_str()),
+                        step_context
+                            .as_ref()
+                            .map(|(_, _, _, step)| step.title.as_str()),
+                        self.modal.picker_cursor(),
                         &self.theme,
                     );
                 }
@@ -1375,6 +1435,7 @@ impl TuiModel {
             modal::ModalKind::ThreadParticipants => render_helpers::centered_rect(76, 68, area),
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
+            modal::ModalKind::GoalStepActionPicker => render_helpers::centered_rect(46, 28, area),
             modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),
             modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
             modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),

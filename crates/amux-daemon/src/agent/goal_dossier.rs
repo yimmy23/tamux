@@ -256,6 +256,13 @@ pub(super) async fn write_goal_run_projection(
     projection::write_goal_projection_files(&engine.data_dir, goal_run).await
 }
 
+#[cfg(test)]
+pub(crate) fn set_goal_projection_write_delay_for_tests(
+    delay: std::time::Duration,
+) -> projection::GoalProjectionWriteDelayGuard {
+    projection::set_goal_projection_write_delay_for_tests(delay)
+}
+
 pub(super) async fn remove_goal_run_projection(
     engine: &AgentEngine,
     goal_run_id: &str,

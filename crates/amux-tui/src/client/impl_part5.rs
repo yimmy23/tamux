@@ -166,11 +166,16 @@ impl DaemonClient {
         })
     }
 
-    pub fn control_goal_run(&self, goal_run_id: String, action: String) -> Result<()> {
+    pub fn control_goal_run(
+        &self,
+        goal_run_id: String,
+        action: String,
+        step_index: Option<usize>,
+    ) -> Result<()> {
         self.send(ClientMessage::AgentControlGoalRun {
             goal_run_id,
             action,
-            step_index: None,
+            step_index,
         })
     }
 

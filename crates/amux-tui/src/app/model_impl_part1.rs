@@ -110,6 +110,10 @@ impl TuiModel {
             work_context_drag_current: None,
             work_context_drag_anchor_point: None,
             work_context_drag_current_point: None,
+            task_view_drag_anchor: None,
+            task_view_drag_current: None,
+            task_view_drag_anchor_point: None,
+            task_view_drag_current_point: None,
         }
     }
 
@@ -905,7 +909,8 @@ impl TuiModel {
     }
 
     fn mark_bootstrap_pending_activity_thread(&mut self, thread_id: impl Into<String>) {
-        self.bootstrap_pending_activity_threads.insert(thread_id.into());
+        self.bootstrap_pending_activity_threads
+            .insert(thread_id.into());
     }
 
     fn clear_bootstrap_pending_activity_thread(&mut self, thread_id: &str) {
@@ -914,7 +919,11 @@ impl TuiModel {
 
     fn should_preserve_bootstrap_activity_on_reload(&self, thread_id: &str) -> bool {
         self.bootstrap_pending_activity_threads.contains(thread_id)
-            && self.thread_agent_activity.get(thread_id).map(String::as_str) == Some("thinking")
+            && self
+                .thread_agent_activity
+                .get(thread_id)
+                .map(String::as_str)
+                == Some("thinking")
             && !self.chat.is_streaming()
     }
 

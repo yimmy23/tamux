@@ -113,7 +113,9 @@ where
         let key = key.as_ref();
         let value = value.as_ref();
         match key {
-            "TAMUX_TUI_IMAGE_PROTOCOL" | "AMUX_TUI_IMAGE_PROTOCOL" => force = Some(value.to_string()),
+            "TAMUX_TUI_IMAGE_PROTOCOL" | "AMUX_TUI_IMAGE_PROTOCOL" => {
+                force = Some(value.to_string())
+            }
             "TERM" => term = Some(value.to_ascii_lowercase()),
             "TERM_PROGRAM" => term_program = Some(value.to_ascii_lowercase()),
             "KITTY_WINDOW_ID" => kitty_window_id = Some(value.to_string()),
@@ -129,7 +131,10 @@ where
         };
     }
 
-    if kitty_window_id.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+    if kitty_window_id
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
         return TerminalImageProtocol::Kitty;
     }
 
@@ -153,9 +158,8 @@ where
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    env.into_iter().any(|(key, value)| {
-        key.as_ref() == "TMUX" && !value.as_ref().trim().is_empty()
-    })
+    env.into_iter()
+        .any(|(key, value)| key.as_ref() == "TMUX" && !value.as_ref().trim().is_empty())
 }
 
 fn build_kitty_clear_sequence() -> String {
@@ -195,7 +199,10 @@ mod tests {
 
     #[test]
     fn detect_protocol_prefers_explicit_override() {
-        let env = [("TAMUX_TUI_IMAGE_PROTOCOL", "kitty"), ("TMUX", "/tmp/tmux-1000/default,1,0")];
+        let env = [
+            ("TAMUX_TUI_IMAGE_PROTOCOL", "kitty"),
+            ("TMUX", "/tmp/tmux-1000/default,1,0"),
+        ];
 
         assert_eq!(detect_protocol_from_env(env), TerminalImageProtocol::Kitty);
     }
@@ -213,7 +220,10 @@ mod tests {
         let sequence = build_kitty_display_sequence(&spec, true);
         let encoded_path = base64::engine::general_purpose::STANDARD.encode(spec.path.as_bytes());
 
-        assert!(sequence.contains("\u{1b}[7;11H"), "expected cursor move before placement, got {sequence:?}");
+        assert!(
+            sequence.contains("\u{1b}[7;11H"),
+            "expected cursor move before placement, got {sequence:?}"
+        );
         assert!(
             sequence.contains("\u{1b}_Ga=d,d=z,z=-1,q=2;\u{1b}\\"),
             "expected visible overlay cleanup before redraw, got {sequence:?}"

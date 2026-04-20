@@ -664,6 +664,10 @@ async fn provider_alternative_includes_configured_healthy_provider() {
 #[tokio::test]
 async fn provider_alternative_excludes_openai_subscription_without_auth() {
     let _env_guard = crate::agent::provider_auth_store::provider_auth_test_env_lock();
+    let _saved_env = crate::test_support::EnvGuard::new(&[
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+    ]);
     let temp_dir = TempDir::new().expect("temp dir");
     let db_path = temp_dir.path().join("provider-auth.db");
     std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);
@@ -686,9 +690,6 @@ async fn provider_alternative_excludes_openai_subscription_without_auth() {
     let (engine, _temp_dir) = make_test_engine(config).await;
 
     let suggestion = engine.suggest_alternative_provider(PROVIDER_ID_GROQ).await;
-
-    std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
-    std::env::remove_var("TAMUX_CODEX_CLI_AUTH_PATH");
     assert!(
         suggestion.is_none(),
         "OpenAI subscription auth must be present before suggesting it as an alternative"
@@ -698,6 +699,10 @@ async fn provider_alternative_excludes_openai_subscription_without_auth() {
 #[tokio::test]
 async fn provider_alternative_uses_candidate_default_model_for_empty_named_model() {
     let _env_guard = crate::agent::provider_auth_store::provider_auth_test_env_lock();
+    let _saved_env = crate::test_support::EnvGuard::new(&[
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+    ]);
     let temp_dir = TempDir::new().expect("temp dir");
     let db_path = temp_dir.path().join("provider-auth.db");
     std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);
@@ -724,9 +729,6 @@ async fn provider_alternative_uses_candidate_default_model_for_empty_named_model
     let suggestion = engine
         .suggest_alternative_provider(PROVIDER_ID_OPENAI)
         .await;
-
-    std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
-    std::env::remove_var("TAMUX_CODEX_CLI_AUTH_PATH");
     assert_eq!(resolved.model, "llama-3.3-70b-versatile");
     assert!(
         suggestion

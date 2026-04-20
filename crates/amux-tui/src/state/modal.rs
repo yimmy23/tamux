@@ -9,6 +9,7 @@ pub enum ModalKind {
     ThreadParticipants,
     ThreadPicker,
     GoalPicker,
+    GoalStepActionPicker,
     ProviderPicker,
     ModelPicker,
     RolePicker,

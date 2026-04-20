@@ -206,6 +206,117 @@ async fn hydrate_async_syncs_seeded_builtin_skills_into_catalog() {
 }
 
 #[tokio::test]
+async fn hydrate_does_not_wait_for_goal_run_projection_persistence() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-hydrate-background-persist";
+
+    engine.goal_runs.lock().await.push_back(GoalRun {
+        id: goal_run_id.to_string(),
+        title: "Hydrate goal persistence".to_string(),
+        goal: "Ensure hydrate returns before goal projections finish".to_string(),
+        client_request_id: None,
+        status: GoalRunStatus::Running,
+        priority: TaskPriority::Normal,
+        created_at: 4_000,
+        updated_at: 4_500,
+        started_at: Some(4_000),
+        completed_at: None,
+        thread_id: Some("thread-goal-hydrate".to_string()),
+        session_id: None,
+        current_step_index: 0,
+        current_step_title: Some("Investigate".to_string()),
+        current_step_kind: Some(GoalRunStepKind::Reason),
+        replan_count: 0,
+        max_replans: 1,
+        plan_summary: Some("One-step plan".to_string()),
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: None,
+        last_error: None,
+        failure_cause: None,
+        stopped_reason: None,
+        child_task_ids: Vec::new(),
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        active_task_id: None,
+        duration_ms: None,
+        steps: vec![GoalRunStep {
+            id: "step-1".to_string(),
+            position: 0,
+            title: "Investigate".to_string(),
+            instructions: "Inspect startup state".to_string(),
+            kind: GoalRunStepKind::Reason,
+            success_criteria: "Identify the blocking work".to_string(),
+            session_id: None,
+            status: GoalRunStepStatus::InProgress,
+            task_id: None,
+            summary: None,
+            error: None,
+            started_at: Some(4_010),
+            completed_at: None,
+        }],
+        events: Vec::new(),
+        dossier: None,
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        autonomy_level: crate::agent::AutonomyLevel::Supervised,
+        authorship_tag: None,
+    });
+    engine.persist_goal_runs().await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+    let _delay_guard = crate::agent::goal_dossier::set_goal_projection_write_delay_for_tests(
+        std::time::Duration::from_millis(250),
+    );
+
+    tokio::time::timeout(std::time::Duration::from_millis(100), rehydrated.hydrate())
+        .await
+        .expect("hydrate should not wait on delayed goal projection persistence")
+        .expect("hydrate should still succeed while goal persistence continues");
+
+    let hydrated = rehydrated
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should be available immediately after hydrate");
+    assert_eq!(
+        hydrated.status,
+        GoalRunStatus::Paused,
+        "interrupted goal runs should still be paused during hydrate"
+    );
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let persisted = rehydrated
+                .history
+                .get_goal_run(goal_run_id)
+                .await
+                .expect("read persisted goal run")
+                .expect("goal run should remain persisted");
+            if persisted.status == GoalRunStatus::Paused {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("background goal persistence should eventually finish");
+}
+
+#[tokio::test]
 async fn hydrate_restores_repo_watchers_without_duplicate_root_watchers() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

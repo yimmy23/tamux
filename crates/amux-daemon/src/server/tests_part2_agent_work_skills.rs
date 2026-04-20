@@ -191,6 +191,8 @@ async fn agent_work_load_does_not_block_config_or_operation_status_queries() {
 
 #[tokio::test]
 async fn skill_publish_async_request_does_not_block_ping() {
+    let _env_lock = crate::test_support::env_test_lock();
+    let _env_guard = crate::test_support::EnvGuard::new(&["TAMUX_REGISTRY_TOKEN"]);
     let (registry_url, registry_task) =
         spawn_test_registry_publish_server(Duration::from_secs(1)).await;
     let mut config = AgentConfig::default();
@@ -285,6 +287,8 @@ async fn skill_publish_async_request_does_not_block_ping() {
 
 #[tokio::test]
 async fn skill_publish_legacy_request_does_not_block_ping() {
+    let _env_lock = crate::test_support::env_test_lock();
+    let _env_guard = crate::test_support::EnvGuard::new(&["TAMUX_REGISTRY_TOKEN"]);
     let (registry_url, registry_task) =
         spawn_test_registry_publish_server(Duration::from_secs(1)).await;
     let mut config = AgentConfig::default();

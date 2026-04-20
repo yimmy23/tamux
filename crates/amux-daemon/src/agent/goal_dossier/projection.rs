@@ -3,6 +3,10 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+#[cfg(test)]
+static GOAL_PROJECTION_WRITE_DELAY_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Debug, Clone, Serialize)]
 struct GoalProofLedgerProjection {
     goal_run_id: String,
@@ -37,6 +41,32 @@ async fn write_text_file(path: &Path, contents: &str) -> anyhow::Result<()> {
     tokio::fs::write(&temp_path, contents).await?;
     tokio::fs::rename(&temp_path, path).await?;
     Ok(())
+}
+
+#[cfg(test)]
+pub(crate) struct GoalProjectionWriteDelayGuard {
+    previous_delay_ms: u64,
+}
+
+#[cfg(test)]
+impl Drop for GoalProjectionWriteDelayGuard {
+    fn drop(&mut self) {
+        GOAL_PROJECTION_WRITE_DELAY_MS.store(
+            self.previous_delay_ms,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn set_goal_projection_write_delay_for_tests(
+    delay: std::time::Duration,
+) -> GoalProjectionWriteDelayGuard {
+    let previous_delay_ms = GOAL_PROJECTION_WRITE_DELAY_MS.swap(
+        delay.as_millis().min(u64::MAX as u128) as u64,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    GoalProjectionWriteDelayGuard { previous_delay_ms }
 }
 
 fn proof_checks_for_goal_run(goal_run: &GoalRun) -> Vec<GoalProofCheck> {
@@ -88,6 +118,14 @@ pub(crate) async fn write_goal_projection_files(
     data_dir: &Path,
     goal_run: &GoalRun,
 ) -> anyhow::Result<()> {
+    #[cfg(test)]
+    {
+        let delay_ms = GOAL_PROJECTION_WRITE_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
+    }
+
     let projection_dir = goal_projection_dir(data_dir, &goal_run.id);
     tokio::fs::create_dir_all(&projection_dir).await?;
 

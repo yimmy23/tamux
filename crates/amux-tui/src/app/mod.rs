@@ -124,15 +124,51 @@ struct InputNotice {
 
 #[derive(Clone, Debug)]
 enum PendingConfirmAction {
-    RegenerateMessage { message_index: usize },
-    DeleteMessage { message_index: usize },
-    DeleteThread { thread_id: String, title: String },
-    StopThread { thread_id: String, title: String },
-    ResumeThread { thread_id: String, title: String },
-    DeleteGoalRun { goal_run_id: String, title: String },
-    StopGoalRun { goal_run_id: String, title: String },
-    ResumeGoalRun { goal_run_id: String, title: String },
-    ReuseModelAsStt { model_id: String },
+    RegenerateMessage {
+        message_index: usize,
+    },
+    DeleteMessage {
+        message_index: usize,
+    },
+    DeleteThread {
+        thread_id: String,
+        title: String,
+    },
+    StopThread {
+        thread_id: String,
+        title: String,
+    },
+    ResumeThread {
+        thread_id: String,
+        title: String,
+    },
+    DeleteGoalRun {
+        goal_run_id: String,
+        title: String,
+    },
+    StopGoalRun {
+        goal_run_id: String,
+        title: String,
+    },
+    ResumeGoalRun {
+        goal_run_id: String,
+        title: String,
+    },
+    RetryGoalStep {
+        goal_run_id: String,
+        goal_title: String,
+        step_index: usize,
+        step_title: String,
+    },
+    RerunGoalFromStep {
+        goal_run_id: String,
+        goal_title: String,
+        step_index: usize,
+        step_title: String,
+    },
+    ReuseModelAsStt {
+        model_id: String,
+    },
 }
 
 impl PendingConfirmAction {
@@ -162,6 +198,28 @@ impl PendingConfirmAction {
             PendingConfirmAction::ResumeGoalRun { title, .. } => {
                 format!("Resume goal run \"{title}\"?")
             }
+            PendingConfirmAction::RetryGoalStep {
+                goal_title,
+                step_index,
+                step_title,
+                ..
+            } => format!(
+                "Retry step {} \"{}\" in goal \"{}\"?",
+                step_index + 1,
+                step_title,
+                goal_title
+            ),
+            PendingConfirmAction::RerunGoalFromStep {
+                goal_title,
+                step_index,
+                step_title,
+                ..
+            } => format!(
+                "Rerun from step {} \"{}\" in goal \"{}\"?",
+                step_index + 1,
+                step_title,
+                goal_title
+            ),
             PendingConfirmAction::ReuseModelAsStt { .. } => {
                 "Selected model supports audio. Use it as the STT model too?".to_string()
             }
@@ -504,6 +562,12 @@ pub struct TuiModel {
     work_context_drag_current: Option<Position>,
     work_context_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
     work_context_drag_current_point: Option<widgets::chat::SelectionPoint>,
+
+    // Active mouse drag selection in the goal/task detail pane
+    task_view_drag_anchor: Option<Position>,
+    task_view_drag_current: Option<Position>,
+    task_view_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
+    task_view_drag_current_point: Option<widgets::chat::SelectionPoint>,
 }
 
 include!("model_impl_part1.rs");

@@ -612,6 +612,7 @@ impl TuiModel {
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
+        self.clear_task_view_drag_selection();
         self.pending_new_thread_target_agent = None;
 
         if !self
@@ -637,6 +638,7 @@ impl TuiModel {
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
+        self.clear_task_view_drag_selection();
         self.pending_new_thread_target_agent = None;
 
         let Some(thread_id) = self.chat.go_back_thread() else {
@@ -653,11 +655,9 @@ impl TuiModel {
 
     pub(super) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
         self.cleanup_concierge_on_navigate();
+        self.clear_task_view_drag_selection();
         if let sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } = &target {
-            self.send_daemon_command(DaemonCommand::RequestGoalRunDetail(goal_run_id.clone()));
-            self.send_daemon_command(DaemonCommand::RequestGoalRunCheckpoints(
-                goal_run_id.clone(),
-            ));
+            self.request_authoritative_goal_run_refresh(goal_run_id.clone());
         }
         self.request_task_view_context(&target);
         self.main_pane_view = MainPaneView::Task(target);
@@ -675,6 +675,124 @@ impl TuiModel {
     pub(super) fn sync_goal_picker_item_count(&mut self) {
         self.modal
             .set_picker_item_count(self.filtered_goal_runs().len() + 1);
+    }
+
+    pub(super) fn selected_goal_step_context(
+        &self,
+    ) -> Option<(String, String, usize, crate::state::task::GoalRunStep)> {
+        let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
+            goal_run_id,
+            step_id: Some(step_id),
+        }) = &self.main_pane_view
+        else {
+            return None;
+        };
+        let run = self.tasks.goal_run_by_id(goal_run_id)?;
+        let step = run.steps.iter().find(|step| step.id == *step_id)?.clone();
+        Some((run.id.clone(), run.title.clone(), step.order as usize, step))
+    }
+
+    pub(super) fn select_goal_step_in_active_run(&mut self, step_id: String) -> bool {
+        let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
+            &self.main_pane_view
+        else {
+            return false;
+        };
+        let Some(run) = self.tasks.goal_run_by_id(goal_run_id) else {
+            return false;
+        };
+        let Some(step) = run.steps.iter().find(|step| step.id == step_id) else {
+            return false;
+        };
+
+        self.main_pane_view = MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
+            goal_run_id: goal_run_id.clone(),
+            step_id: Some(step.id.clone()),
+        });
+        self.status_line = format!("Selected step {}: {}", step.order + 1, step.title);
+        true
+    }
+
+    pub(super) fn step_goal_step_selection(&mut self, delta: i32) -> bool {
+        let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
+            goal_run_id,
+            step_id,
+        }) = &self.main_pane_view
+        else {
+            return false;
+        };
+        let Some(run) = self.tasks.goal_run_by_id(goal_run_id) else {
+            return false;
+        };
+        let mut steps = run.steps.clone();
+        steps.sort_by_key(|step| step.order);
+        if steps.is_empty() {
+            return false;
+        }
+
+        let current_index = step_id
+            .as_ref()
+            .and_then(|selected| steps.iter().position(|step| step.id == *selected))
+            .or_else(|| {
+                steps.iter().position(|step| {
+                    step.order as usize == run.current_step_index
+                        || Some(step.title.as_str()) == run.current_step_title.as_deref()
+                })
+            })
+            .unwrap_or(0);
+        let next_index = if delta > 0 {
+            current_index
+                .saturating_add(delta as usize)
+                .min(steps.len().saturating_sub(1))
+        } else {
+            current_index.saturating_sub((-delta) as usize)
+        };
+        let next_step = &steps[next_index];
+        self.main_pane_view = MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
+            goal_run_id: goal_run_id.clone(),
+            step_id: Some(next_step.id.clone()),
+        });
+        self.status_line = format!("Selected step {}: {}", next_step.order + 1, next_step.title);
+        true
+    }
+
+    pub(super) fn request_selected_goal_step_retry_confirmation(&mut self) -> bool {
+        let Some((goal_run_id, goal_title, step_index, step)) = self.selected_goal_step_context()
+        else {
+            return false;
+        };
+        self.open_pending_action_confirm(PendingConfirmAction::RetryGoalStep {
+            goal_run_id,
+            goal_title,
+            step_index,
+            step_title: step.title,
+        });
+        true
+    }
+
+    pub(super) fn request_selected_goal_step_rerun_confirmation(&mut self) -> bool {
+        let Some((goal_run_id, goal_title, step_index, step)) = self.selected_goal_step_context()
+        else {
+            return false;
+        };
+        self.open_pending_action_confirm(PendingConfirmAction::RerunGoalFromStep {
+            goal_run_id,
+            goal_title,
+            step_index,
+            step_title: step.title,
+        });
+        true
+    }
+
+    pub(super) fn open_goal_step_action_picker(&mut self) -> bool {
+        if self.selected_goal_step_context().is_none() {
+            return false;
+        }
+        self.modal.reduce(modal::ModalAction::Push(
+            modal::ModalKind::GoalStepActionPicker,
+        ));
+        self.modal.set_picker_item_count(2);
+        true
     }
 
     pub(crate) fn open_queued_prompts_modal(&mut self) {

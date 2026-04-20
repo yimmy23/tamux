@@ -546,6 +546,11 @@ pub(crate) enum GoalAction {
         /// Goal run ID to resume.
         goal_run_id: String,
     },
+    /// Retry the latest failed step in one goal run.
+    Retry {
+        /// Goal run ID to retry.
+        goal_run_id: String,
+    },
     /// Delete one goal run.
     Delete {
         /// Goal run ID to delete.
@@ -835,6 +840,20 @@ mod tests {
                 assert_eq!(goal_run_id, "goal-123");
             }
             other => panic!("expected goal resume command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn goal_retry_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "goal", "retry", "goal-123"])
+            .expect("goal retry subcommand should parse");
+        match cli.command {
+            Some(Commands::Goal {
+                action: GoalAction::Retry { goal_run_id },
+            }) => {
+                assert_eq!(goal_run_id, "goal-123");
+            }
+            other => panic!("expected goal retry command, got {other:?}"),
         }
     }
 

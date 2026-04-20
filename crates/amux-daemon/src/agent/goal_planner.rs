@@ -643,3 +643,7 @@ fn collect_low_confidence_plan_steps(goal_run: &GoalRun) -> Vec<String> {
 #[cfg(test)]
 #[path = "tests/goal_planner.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/goal_planner_structured_fallback.rs"]
+mod structured_fallback_tests;

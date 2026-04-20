@@ -705,8 +705,12 @@ fn start_daemon_bridge(
                                     model,
                                 );
                             }
-                            DaemonCommand::ControlGoalRun { goal_run_id, action } => {
-                                let _ = client.control_goal_run(goal_run_id, action);
+                            DaemonCommand::ControlGoalRun {
+                                goal_run_id,
+                                action,
+                                step_index,
+                            } => {
+                                let _ = client.control_goal_run(goal_run_id, action, step_index);
                             }
                             DaemonCommand::DeleteGoalRun { goal_run_id } => {
                                 let _ = client.delete_goal_run(goal_run_id);

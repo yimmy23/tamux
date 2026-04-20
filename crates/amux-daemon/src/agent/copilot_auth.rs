@@ -199,6 +199,12 @@ mod tests {
     #[test]
     fn github_copilot_mode_ignores_env_tokens() {
         let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
+        let _env_guard = crate::test_support::EnvGuard::new(&[
+            "TAMUX_PROVIDER_AUTH_DB_PATH",
+            "COPILOT_GITHUB_TOKEN",
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+        ]);
         let root = tempfile::tempdir().expect("temp dir");
         std::env::set_var(
             "TAMUX_PROVIDER_AUTH_DB_PATH",
@@ -211,16 +217,12 @@ mod tests {
         let resolved = resolve_github_copilot_auth("", AuthSource::GithubCopilot);
 
         assert!(resolved.is_none());
-
-        std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
-        std::env::remove_var("COPILOT_GITHUB_TOKEN");
-        std::env::remove_var("GH_TOKEN");
-        std::env::remove_var("GITHUB_TOKEN");
     }
 
     #[test]
     fn api_key_mode_does_not_fallback_to_stored_browser_auth() {
         let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
+        let _env_guard = crate::test_support::EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH"]);
         let root = tempfile::tempdir().expect("temp dir");
         std::env::set_var(
             "TAMUX_PROVIDER_AUTH_DB_PATH",
@@ -239,7 +241,5 @@ mod tests {
         let resolved = resolve_github_copilot_auth("", AuthSource::ApiKey);
 
         assert!(resolved.is_none());
-
-        std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
     }
 }

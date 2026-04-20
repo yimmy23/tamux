@@ -263,16 +263,10 @@ fn build_lines(
             }
 
             section(&mut lines, "Preview", theme);
-            let image_preview_height = area
-                .height
-                .saturating_sub(lines.len() as u16)
-                .max(1) as usize;
-            let use_terminal_image = uses_terminal_graphics(
-                &entry.path,
-                entry.repo_root.as_deref(),
-                active_tab,
-                scroll,
-            );
+            let image_preview_height =
+                area.height.saturating_sub(lines.len() as u16).max(1) as usize;
+            let use_terminal_image =
+                uses_terminal_graphics(&entry.path, entry.repo_root.as_deref(), active_tab, scroll);
             if let Some(repo_root) = entry.repo_root.as_deref() {
                 if let Some(diff) = tasks.diff_for_path(repo_root, &entry.path) {
                     if diff.trim().is_empty() {
@@ -313,11 +307,7 @@ fn build_lines(
             } else {
                 if image_preview::is_previewable_image_path(&entry.path) {
                     if use_terminal_image {
-                        push_terminal_graphics_placeholder(
-                            &mut lines,
-                            image_preview_height,
-                            theme,
-                        );
+                        push_terminal_graphics_placeholder(&mut lines, image_preview_height, theme);
                     } else {
                         lines.extend(image_preview::render_image_preview_lines(
                             &entry.path,
@@ -654,14 +644,14 @@ pub fn hit_test(
         theme,
         scroll,
     )
-        .get(row_index)
-        .and_then(|line| {
-            if line.close_preview {
-                Some(WorkContextHitTarget::ClosePreview)
-            } else {
-                None
-            }
-        })
+    .get(row_index)
+    .and_then(|line| {
+        if line.close_preview {
+            Some(WorkContextHitTarget::ClosePreview)
+        } else {
+            None
+        }
+    })
 }
 
 pub fn render(

@@ -118,7 +118,8 @@ impl PreviewRuntime {
                     }
                 };
 
-                let result = build_cached_preview(&job.key.path, job.key.width, job.key.max_height_lines);
+                let result =
+                    build_cached_preview(&job.key.path, job.key.width, job.key.max_height_lines);
                 let mut store = lock_store(&inner.store);
                 store.finish_job(&job.key, result);
             });
@@ -246,8 +247,8 @@ fn build_cached_preview(
     width: usize,
     max_height_lines: usize,
 ) -> Result<CachedImagePreview, String> {
-    let reader = image::ImageReader::open(path)
-        .map_err(|_| "Failed to open image preview.".to_string())?;
+    let reader =
+        image::ImageReader::open(path).map_err(|_| "Failed to open image preview.".to_string())?;
     let decoded = reader
         .decode()
         .map_err(|_| "Failed to decode image preview.".to_string())?;
@@ -360,7 +361,13 @@ pub(crate) fn render_image_preview_lines(
     max_height_lines: usize,
     theme: &ThemeTokens,
 ) -> Vec<Line<'static>> {
-    render_image_preview_lines_with_runtime(preview_runtime(), raw_path, width, max_height_lines, theme)
+    render_image_preview_lines_with_runtime(
+        preview_runtime(),
+        raw_path,
+        width,
+        max_height_lines,
+        theme,
+    )
 }
 
 #[cfg(test)]
@@ -387,17 +394,10 @@ mod tests {
     #[test]
     fn render_image_preview_lines_queues_work_and_reuses_cached_result() {
         let runtime = PreviewRuntime::new();
-        let path = std::env::temp_dir().join(format!(
-            "tamux-image-preview-{}.png",
-            uuid::Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("tamux-image-preview-{}.png", uuid::Uuid::new_v4()));
         image::RgbaImage::from_fn(128, 128, |x, y| {
-            image::Rgba([
-                (x % 256) as u8,
-                (y % 256) as u8,
-                ((x + y) % 256) as u8,
-                255,
-            ])
+            image::Rgba([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8, 255])
         })
         .save(&path)
         .expect("fixture PNG should write");

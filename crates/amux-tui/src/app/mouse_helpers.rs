@@ -31,6 +31,13 @@ impl TuiModel {
         self.work_context_drag_current_point = None;
     }
 
+    pub(in super::super) fn clear_task_view_drag_selection(&mut self) {
+        self.task_view_drag_anchor = None;
+        self.task_view_drag_current = None;
+        self.task_view_drag_anchor_point = None;
+        self.task_view_drag_current_point = None;
+    }
+
     pub(in crate::app) fn current_detail_view_max_scroll(&self) -> usize {
         let area = self.pane_layout().chat;
         match &self.main_pane_view {
@@ -211,6 +218,49 @@ impl TuiModel {
                 self.request_delete_message(idx);
             }
             None => {}
+        }
+    }
+
+    pub(super) fn handle_task_view_click(&mut self, chat_area: Rect, mouse: Position) {
+        let MainPaneView::Task(target) = &self.main_pane_view else {
+            return;
+        };
+        let Some(hit) = widgets::task_view::hit_test(
+            chat_area,
+            &self.tasks,
+            target,
+            &self.theme,
+            self.task_view_scroll,
+            self.task_show_live_todos,
+            self.task_show_timeline,
+            self.task_show_files,
+            mouse,
+        ) else {
+            return;
+        };
+        match hit {
+            widgets::task_view::TaskViewHitTarget::GoalStep(step_id) => {
+                let _ = self.select_goal_step_in_active_run(step_id);
+            }
+            widgets::task_view::TaskViewHitTarget::WorkPath(path) => {
+                let Some(thread_id) = self.target_thread_id(target) else {
+                    return;
+                };
+                self.tasks.reduce(task::TaskAction::SelectWorkPath {
+                    thread_id: thread_id.clone(),
+                    path: Some(path),
+                });
+                self.request_preview_for_selected_path(&thread_id);
+            }
+            widgets::task_view::TaskViewHitTarget::ClosePreview => {
+                let Some(thread_id) = self.target_thread_id(target) else {
+                    return;
+                };
+                self.tasks.reduce(task::TaskAction::SelectWorkPath {
+                    thread_id,
+                    path: None,
+                });
+            }
         }
     }
 

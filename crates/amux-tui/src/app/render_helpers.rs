@@ -389,6 +389,74 @@ pub(super) fn render_chat_action_confirm_modal(
     frame.render_widget(Paragraph::new(action_line).centered(), layout[1]);
 }
 
+pub(super) fn render_goal_step_action_picker_modal(
+    frame: &mut Frame,
+    area: Rect,
+    goal_title: Option<&str>,
+    step_title: Option<&str>,
+    cursor: usize,
+    theme: &ThemeTokens,
+) {
+    use ratatui::style::{Color, Style};
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
+
+    let block = Block::default()
+        .title(" GOAL STEP ACTIONS ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .border_style(theme.accent_secondary);
+
+    let inner = block.inner(area);
+    frame.render_widget(Clear, area);
+    frame.render_widget(block, area);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    let context = vec![
+        Line::from(goal_title.unwrap_or("Goal step actions").to_string()),
+        Line::from(Span::styled(
+            format!("Selected step: {}", step_title.unwrap_or("unknown")),
+            theme.fg_dim,
+        )),
+    ];
+    frame.render_widget(Paragraph::new(context), layout[0]);
+
+    let items = ["Retry Step", "Rerun From Step"]
+        .iter()
+        .enumerate()
+        .map(|(index, label)| {
+            if index == cursor {
+                ListItem::new(Line::from(vec![Span::raw("> "), Span::raw(*label)]))
+                    .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
+            } else {
+                ListItem::new(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(*label, theme.fg_active),
+                ]))
+            }
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(List::new(items), layout[1]);
+
+    let hints = Line::from(vec![
+        Span::styled("↑↓", theme.fg_active),
+        Span::styled(" nav  ", theme.fg_dim),
+        Span::styled("Enter", theme.fg_active),
+        Span::styled(" select  ", theme.fg_dim),
+        Span::styled("Esc", theme.fg_active),
+        Span::styled(" close", theme.fg_dim),
+    ]);
+    frame.render_widget(Paragraph::new(hints), layout[2]);
+}
+
 pub(super) fn render_pinned_budget_exceeded_modal(
     frame: &mut Frame,
     area: Rect,
