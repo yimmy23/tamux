@@ -38,7 +38,9 @@ impl Default for GoalRoleBinding {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct GoalEvidenceRecord {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -52,7 +54,9 @@ pub struct GoalEvidenceRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct GoalProofCheck {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub state: GoalProjectionState,
@@ -84,6 +88,7 @@ pub struct GoalRunReport {
 pub struct GoalResumeDecision {
     #[serde(default)]
     pub action: GoalResumeAction,
+    #[serde(default)]
     pub reason_code: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -97,7 +102,9 @@ pub struct GoalResumeDecision {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct GoalDeliveryUnit {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub status: GoalProjectionState,

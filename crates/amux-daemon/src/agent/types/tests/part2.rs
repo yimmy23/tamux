@@ -756,3 +756,39 @@ use amux_shared::providers::{
         assert!(json.contains("android-verifier"));
         assert!(json.contains("\"stopped_reason\":\"manual stop after proof capture\""));
     }
+
+    #[test]
+    fn goal_dossier_deserializes_sparse_payloads_with_defaults() {
+        let dossier: GoalRunDossier = serde_json::from_str(
+            r#"{
+                "units": [
+                    {
+                        "status": "completed",
+                        "proof_checks": [{}],
+                        "evidence": [{}],
+                        "report": {
+                            "proof_checks": [{}],
+                            "evidence": [{}]
+                        }
+                    }
+                ],
+                "latest_resume_decision": {
+                    "action": "pause"
+                }
+            }"#,
+        )
+        .expect("sparse dossier payload should deserialize");
+
+        assert_eq!(dossier.units.len(), 1);
+        assert_eq!(dossier.units[0].id, "");
+        assert_eq!(dossier.units[0].title, "");
+        assert_eq!(dossier.units[0].proof_checks[0].id, "");
+        assert_eq!(dossier.units[0].evidence[0].title, "");
+        assert_eq!(
+            dossier
+                .latest_resume_decision
+                .expect("resume decision should exist")
+                .reason_code,
+            ""
+        );
+    }

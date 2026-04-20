@@ -549,6 +549,7 @@ pub(super) fn apply_schema_migrations(
     ensure_column(connection, "agent_tasks", "compensation_summary", "TEXT")?;
     ensure_column(connection, "goal_runs", "client_request_id", "TEXT")?;
     ensure_column(connection, "goal_runs", "failure_cause", "TEXT")?;
+    ensure_column(connection, "goal_runs", "stopped_reason", "TEXT")?;
     ensure_column(
         connection,
         "goal_runs",
@@ -569,6 +570,7 @@ pub(super) fn apply_schema_migrations(
     ensure_column(connection, "goal_runs", "compensation_summary", "TEXT")?;
     ensure_column(connection, "goal_runs", "active_task_id", "TEXT")?;
     ensure_column(connection, "goal_runs", "duration_ms", "INTEGER")?;
+    ensure_column(connection, "goal_runs", "dossier_json", "TEXT")?;
     ensure_column(
         connection,
         "goal_runs",

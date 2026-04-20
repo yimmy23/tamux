@@ -1,4 +1,8 @@
 use super::*;
+use crate::agent::types::{
+    GoalDeliveryUnit, GoalProjectionState, GoalResumeAction, GoalResumeDecision, GoalRoleBinding,
+    GoalRunDossier,
+};
 use crate::history::schema_helpers::table_has_column;
 
 #[tokio::test]
@@ -349,6 +353,7 @@ async fn goal_run_extended_metadata_round_trips() -> Result<()> {
         generated_skill_path: Some("skills/generated/goal-meta.md".to_string()),
         last_error: Some("waiting for approval".to_string()),
         failure_cause: Some("policy gate".to_string()),
+        stopped_reason: Some("operator requested stop".to_string()),
         child_task_ids: vec!["task-1".to_string(), "task-2".to_string()],
         child_task_count: 2,
         approval_count: 1,
@@ -376,12 +381,28 @@ async fn goal_run_extended_metadata_round_trips() -> Result<()> {
             completed_at: None,
         }],
         events: vec![],
-        dossier: None,
+        dossier: Some(GoalRunDossier {
+            units: vec![GoalDeliveryUnit {
+                id: "unit-1".to_string(),
+                title: "Implement guarded command".to_string(),
+                status: GoalProjectionState::Completed,
+                execution_binding: GoalRoleBinding::Builtin("swarog".to_string()),
+                verification_binding: GoalRoleBinding::Subagent("android-verifier".to_string()),
+                ..Default::default()
+            }],
+            latest_resume_decision: Some(GoalResumeDecision {
+                action: GoalResumeAction::Stop,
+                reason_code: "operator_stop".to_string(),
+                projection_state: GoalProjectionState::Completed,
+                ..Default::default()
+            }),
+            summary: Some("One unit completed and verified".to_string()),
+            ..Default::default()
+        }),
         total_prompt_tokens: 123,
         total_completion_tokens: 456,
         estimated_cost_usd: Some(0.42),
         autonomy_level: crate::agent::AutonomyLevel::Supervised,
-        stopped_reason: None,
         authorship_tag: Some(crate::agent::AuthorshipTag::Joint),
     };
 
@@ -409,6 +430,24 @@ async fn goal_run_extended_metadata_round_trips() -> Result<()> {
     );
     assert_eq!(loaded.active_task_id.as_deref(), Some("task-2"));
     assert_eq!(loaded.duration_ms, Some(888));
+    assert_eq!(
+        loaded.stopped_reason.as_deref(),
+        Some("operator requested stop")
+    );
+    let dossier = loaded.dossier.expect("dossier should round-trip");
+    assert_eq!(dossier.units.len(), 1);
+    assert_eq!(dossier.units[0].id, "unit-1");
+    assert_eq!(
+        dossier.units[0].verification_binding,
+        GoalRoleBinding::Subagent("android-verifier".to_string())
+    );
+    assert_eq!(
+        dossier
+            .latest_resume_decision
+            .expect("resume decision should round-trip")
+            .reason_code,
+        "operator_stop"
+    );
     assert_eq!(loaded.total_prompt_tokens, 123);
     assert_eq!(loaded.total_completion_tokens, 456);
     assert_eq!(loaded.estimated_cost_usd, Some(0.42));
@@ -472,6 +511,7 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
         .call(|conn| {
             Ok((
                 table_has_column(conn, "goal_runs", "failure_cause")?,
+                table_has_column(conn, "goal_runs", "stopped_reason")?,
                 table_has_column(conn, "goal_runs", "child_task_count")?,
                 table_has_column(conn, "goal_runs", "approval_count")?,
                 table_has_column(conn, "goal_runs", "awaiting_approval_id")?,
@@ -482,6 +522,7 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
                 table_has_column(conn, "goal_runs", "compensation_summary")?,
                 table_has_column(conn, "goal_runs", "active_task_id")?,
                 table_has_column(conn, "goal_runs", "duration_ms")?,
+                table_has_column(conn, "goal_runs", "dossier_json")?,
                 table_has_column(conn, "goal_runs", "total_prompt_tokens")?,
                 table_has_column(conn, "goal_runs", "total_completion_tokens")?,
                 table_has_column(conn, "goal_runs", "estimated_cost_usd")?,
@@ -508,6 +549,8 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
     assert!(cols.13);
     assert!(cols.14);
     assert!(cols.15);
+    assert!(cols.16);
+    assert!(cols.17);
 
     fs::remove_dir_all(root)?;
     Ok(())

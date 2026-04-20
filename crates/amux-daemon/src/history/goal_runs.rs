@@ -7,12 +7,17 @@ impl HistoryStore {
         let transaction = conn.transaction()?;
         let memory_updates_json = serde_json::to_string(&goal_run.memory_updates).call_err()?;
         let child_task_ids_json = serde_json::to_string(&goal_run.child_task_ids).call_err()?;
+        let dossier_json = goal_run
+            .dossier
+            .as_ref()
+            .map(|dossier| serde_json::to_string(dossier).call_err())
+            .transpose()?;
         let authorship_tag = goal_run.authorship_tag.map(authorship_tag_to_str);
 
         transaction.execute(
             "INSERT OR REPLACE INTO goal_runs \
-             (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37)",
+             (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)",
             params![
                 &goal_run.id,
                 &goal_run.title,
@@ -35,6 +40,7 @@ impl HistoryStore {
                 &goal_run.generated_skill_path,
                 &goal_run.last_error,
                 &goal_run.failure_cause,
+                &goal_run.stopped_reason,
                 child_task_ids_json,
                 goal_run.child_task_count as i64,
                 goal_run.approval_count as i64,
@@ -46,6 +52,7 @@ impl HistoryStore {
                 &goal_run.compensation_summary,
                 &goal_run.active_task_id,
                 goal_run.duration_ms.map(|value| value as i64),
+                dossier_json,
                 goal_run.total_prompt_tokens as i64,
                 goal_run.total_completion_tokens as i64,
                 goal_run.estimated_cost_usd,
@@ -168,13 +175,14 @@ impl HistoryStore {
         }
 
         let mut stmt = conn.prepare(
-            "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag \
+            "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag \
              FROM goal_runs ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
             let memory_updates_json: String = row.get(17)?;
-            let child_task_ids_json: String = row.get(21)?;
+            let dossier_json: Option<String> = row.get(33)?;
+            let child_task_ids_json: String = row.get(22)?;
             let child_task_ids = serde_json::from_str(&child_task_ids_json).unwrap_or_default();
             Ok(GoalRun {
                 id,
@@ -200,27 +208,29 @@ impl HistoryStore {
                 generated_skill_path: row.get(18)?,
                 last_error: row.get(19)?,
                 failure_cause: row.get(20)?,
-                stopped_reason: None,
+                stopped_reason: row.get(21)?,
                 child_task_ids,
-                child_task_count: row.get::<_, i64>(22)? as u32,
-                approval_count: row.get::<_, i64>(23)? as u32,
-                awaiting_approval_id: row.get(24)?,
-                policy_fingerprint: row.get(25)?,
-                approval_expires_at: row.get::<_, Option<i64>>(26)?.map(|value| value as u64),
-                containment_scope: row.get(27)?,
-                compensation_status: row.get(28)?,
-                compensation_summary: row.get(29)?,
-                active_task_id: row.get(30)?,
-                duration_ms: row.get::<_, Option<i64>>(31)?.map(|value| value as u64),
+                child_task_count: row.get::<_, i64>(23)? as u32,
+                approval_count: row.get::<_, i64>(24)? as u32,
+                awaiting_approval_id: row.get(25)?,
+                policy_fingerprint: row.get(26)?,
+                approval_expires_at: row.get::<_, Option<i64>>(27)?.map(|value| value as u64),
+                containment_scope: row.get(28)?,
+                compensation_status: row.get(29)?,
+                compensation_summary: row.get(30)?,
+                active_task_id: row.get(31)?,
+                duration_ms: row.get::<_, Option<i64>>(32)?.map(|value| value as u64),
                 steps: Vec::new(),
                 events: Vec::new(),
-                dossier: None,
-                total_prompt_tokens: row.get::<_, i64>(32)? as u64,
-                total_completion_tokens: row.get::<_, i64>(33)? as u64,
-                estimated_cost_usd: row.get(34)?,
-                autonomy_level: parse_autonomy_level(&row.get::<_, String>(35)?),
+                dossier: dossier_json
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str(json).ok()),
+                total_prompt_tokens: row.get::<_, i64>(34)? as u64,
+                total_completion_tokens: row.get::<_, i64>(35)? as u64,
+                estimated_cost_usd: row.get(36)?,
+                autonomy_level: parse_autonomy_level(&row.get::<_, String>(37)?),
                 authorship_tag: row
-                    .get::<_, Option<String>>(36)?
+                    .get::<_, Option<String>>(38)?
                     .map(|value| parse_authorship_tag(&value)),
             })
         })?;
