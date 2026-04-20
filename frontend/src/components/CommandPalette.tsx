@@ -41,6 +41,14 @@ export function CommandPalette({ style, className }: CommandPaletteProps = {}) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const shortcutFor = (action: string) => bindings.find((binding) => binding.action === action)?.combo;
+  const composeImagePrompt = (prompt = "") => {
+    useWorkspaceStore.setState({ agentPanelOpen: true, commandPaletteOpen: false });
+    window.setTimeout(() => {
+      const detail = prompt.trim() ? { prompt: prompt.trim() } : {};
+      window.dispatchEvent(new CustomEvent("tamux-agent-compose-image", { detail }));
+      window.dispatchEvent(new CustomEvent("amux-agent-compose-image", { detail }));
+    }, 0);
+  };
 
   const commands: Command[] = [
     { id: "split-h", label: "Split Horizontal", category: "Layout", shortcut: shortcutFor("splitHorizontal"), action: () => splitActive("horizontal") },
@@ -63,6 +71,7 @@ export function CommandPalette({ style, className }: CommandPaletteProps = {}) {
     { id: "find-in-buffer", label: "Find in Buffer", category: "View", shortcut: shortcutFor("toggleSearch"), action: toggleSearch },
     { id: "snippets", label: "Snippets", category: "Agent", shortcut: shortcutFor("toggleSnippets"), action: toggleSnippetPicker },
     { id: "agent-panel", label: "Mission Console", category: "Agent", shortcut: shortcutFor("toggleAgentPanel"), action: toggleAgentPanel },
+    { id: "image-prompt", label: "🖼 Image Prompt", category: "Agent", action: () => composeImagePrompt() },
     { id: "command-history", label: "Command History", category: "Agent", shortcut: shortcutFor("toggleCommandHistory"), action: toggleCommandHistory },
     { id: "system-monitor", label: "System Monitor", category: "View", shortcut: shortcutFor("toggleSystemMonitor"), action: toggleSystemMonitor },
     { id: "execution-canvas", label: "Execution Canvas", category: "View", shortcut: shortcutFor("toggleCanvas"), action: toggleCanvas },
@@ -79,7 +88,17 @@ export function CommandPalette({ style, className }: CommandPaletteProps = {}) {
     })),
   ];
 
-  const filtered = commands.filter(
+  const inlineImagePrompt = query.trim().startsWith("/image")
+    ? {
+        id: "image-inline-prompt",
+        label: query.trim() === "/image" ? "🖼 Image Prompt" : `🖼 Generate Image: ${query.trim().slice("/image".length).trim()}`,
+        category: "Agent",
+        action: () => composeImagePrompt(query.trim().slice("/image".length).trim()),
+      } satisfies Command
+    : null;
+  const commandItems = inlineImagePrompt ? [inlineImagePrompt, ...commands] : commands;
+
+  const filtered = commandItems.filter(
     (c) =>
       c.label.toLowerCase().includes(query.toLowerCase()) ||
       c.id.toLowerCase().includes(query.toLowerCase()) ||
@@ -115,7 +134,7 @@ export function CommandPalette({ style, className }: CommandPaletteProps = {}) {
 
   const executeAndClose = (command: Command) => {
     command.action();
-    toggle();
+    useWorkspaceStore.setState({ commandPaletteOpen: false });
   };
 
   return (
@@ -172,7 +191,7 @@ export function CommandPalette({ style, className }: CommandPaletteProps = {}) {
               }
             }
           }}
-          placeholder="Find commands, layouts, tools, or actions..."
+          placeholder="Find commands, or type /image <prompt>..."
           style={{
             width: "100%",
             padding: "var(--space-4)",

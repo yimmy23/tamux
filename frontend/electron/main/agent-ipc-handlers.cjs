@@ -330,6 +330,27 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
             return { error: err?.message || String(err) };
         }
     });
+    ipcMain.handle('agent-generate-image', async (_event, prompt, options) => {
+        try {
+            const payload = {
+                ...(options && typeof options === 'object' && !Array.isArray(options) ? options : {}),
+                prompt: typeof prompt === 'string' ? prompt : '',
+            };
+            const result = await sendAgentQuery({
+                type: 'generate-image',
+                args_json: JSON.stringify(payload),
+            }, 'image-generation-result', 120000);
+            if (result && typeof result === 'object' && typeof result.path === 'string' && result.path.trim()) {
+                return {
+                    ...result,
+                    file_url: pathToFileURL(result.path).href,
+                };
+            }
+            return result;
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
     ipcMain.handle('agent-activate-generated-tool', async (_event, toolName) => {
         try {
             return await sendAgentQuery({

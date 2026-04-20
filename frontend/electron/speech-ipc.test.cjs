@@ -28,6 +28,14 @@ function createHandlerHarness() {
     if (args[1] === "text-to-speech-result") {
       return { path: "/tmp/speech.mp3", mime_type: "audio/mpeg" };
     }
+    if (args[1] === "image-generation-result") {
+      return {
+        ok: true,
+        path: "/tmp/generated-image.png",
+        mime_type: "image/png",
+        thread_id: "thread-image",
+      };
+    }
     return { ok: true };
   };
 
@@ -60,11 +68,16 @@ test("preload exposes speech bridge methods", () => {
     preloadSrc,
     /agentTextToSpeech:\s*\(text, voice, options\)\s*=>\s*ipcRenderer\.invoke\('agent-text-to-speech', text, voice, options\)/,
   );
+  assert.match(
+    preloadSrc,
+    /agentGenerateImage:\s*\(prompt, options\)\s*=>\s*ipcRenderer\.invoke\('agent-generate-image', prompt, options\)/,
+  );
 });
 
 test("runtime allowlists speech query response types", () => {
   assert.ok(runtime.AGENT_QUERY_RESPONSE_TYPES.includes("speech-to-text-result"));
   assert.ok(runtime.AGENT_QUERY_RESPONSE_TYPES.includes("text-to-speech-result"));
+  assert.ok(runtime.AGENT_QUERY_RESPONSE_TYPES.includes("image-generation-result"));
 });
 
 test("agent IPC handlers route speech APIs through the daemon bridge", async () => {
@@ -72,6 +85,7 @@ test("agent IPC handlers route speech APIs through the daemon bridge", async () 
 
   assert.ok(handlers.has("agent-speech-to-text"));
   assert.ok(handlers.has("agent-text-to-speech"));
+  assert.ok(handlers.has("agent-generate-image"));
 
   const sttResult = await handlers.get("agent-speech-to-text")(null, "Zm9v", "audio/webm", {
     provider: "openai",
@@ -83,9 +97,21 @@ test("agent IPC handlers route speech APIs through the daemon bridge", async () 
     model: "gpt-4o-mini-tts",
     response_format: "mp3",
   });
+  const imageResult = await handlers.get("agent-generate-image")(null, "retro robot portrait", {
+    thread_id: "thread-image",
+    provider: "openai",
+    model: "gpt-image-1",
+  });
 
   assert.deepEqual(sttResult, { text: "transcribed hello" });
   assert.deepEqual(ttsResult, { path: "/tmp/speech.mp3", mime_type: "audio/mpeg", file_url: "file:///tmp/speech.mp3" });
+  assert.deepEqual(imageResult, {
+    ok: true,
+    path: "/tmp/generated-image.png",
+    mime_type: "image/png",
+    thread_id: "thread-image",
+    file_url: "file:///tmp/generated-image.png",
+  });
   assert.deepEqual(persistedAudio, [{ base64: "Zm9v", mimeType: "audio/webm" }]);
   assert.deepEqual(queries, [
     [
@@ -115,6 +141,19 @@ test("agent IPC handlers route speech APIs through the daemon bridge", async () 
       },
       "text-to-speech-result",
       30000,
+    ],
+    [
+      {
+        type: "generate-image",
+        args_json: JSON.stringify({
+          thread_id: "thread-image",
+          provider: "openai",
+          model: "gpt-image-1",
+          prompt: "retro robot portrait",
+        }),
+      },
+      "image-generation-result",
+      120000,
     ],
   ]);
 });

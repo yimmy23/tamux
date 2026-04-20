@@ -314,6 +314,15 @@ impl TuiModel {
         title: String,
         agent_name: Option<String>,
     ) {
+        let pending_local_activity = self
+            .chat
+            .active_thread_id()
+            .filter(|active_thread_id| active_thread_id.starts_with("local-"))
+            .and_then(|active_thread_id| {
+                self.thread_agent_activity
+                    .remove(active_thread_id)
+                    .map(|activity| (active_thread_id.to_string(), activity))
+            });
         if Self::is_hidden_agent_thread(&thread_id, Some(title.as_str())) {
             return;
         }
@@ -321,7 +330,7 @@ impl TuiModel {
         if is_internal {
             self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
                 crate::state::chat::AgentThread {
-                    id: thread_id,
+                    id: thread_id.clone(),
                     agent_name,
                     title,
                     ..Default::default()
@@ -338,12 +347,17 @@ impl TuiModel {
         if agent_name.is_some() {
             self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
                 crate::state::chat::AgentThread {
-                    id: thread_id,
+                    id: thread_id.clone(),
                     agent_name,
                     title,
                     ..Default::default()
                 },
             ));
+        }
+        if let Some((_local_thread_id, activity)) = pending_local_activity {
+            self.thread_agent_activity
+                .entry(thread_id.clone())
+                .or_insert(activity);
         }
         self.sync_open_thread_picker();
         self.sync_pending_approvals_from_tasks();

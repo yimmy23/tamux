@@ -6,7 +6,7 @@ import { getAgentBridge, shouldUseDaemonRuntime } from "@/lib/agentDaemonConfig"
 import { provisionAgentWorkspaceTerminals, provisionTerminalPaneInWorkspace, resolvePaneSessionId } from "@/lib/agentWorkspace";
 import { startGoalRun, goalRunSupportAvailable, type GoalRun } from "@/lib/goalRuns";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
-import { appendDaemonSystemMessage, normalizeBridgePayload } from "./daemonHelpers";
+import { appendDaemonSystemMessage, normalizeBridgePayload, reloadDaemonThreadIntoLocalState } from "./daemonHelpers";
 import { parseLeadingAgentDirective, type AgentDirective } from "./agentDirective";
 import type { BuiltinAgentSetupState } from "./types";
 
@@ -39,6 +39,14 @@ function builtinPersonaDisplayName(agentAlias: string): string {
   return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : agentAlias;
 }
 
+function parseImageGenerationPrompt(text: string): string | null {
+  const match = text.trim().match(/^\/image(?:\s+([\s\S]*))?$/);
+  if (!match) {
+    return null;
+  }
+  return (match[1] ?? "").trim();
+}
+
 export function useDaemonAgentActions({
   activePaneId,
   activeThreadId,
@@ -53,6 +61,9 @@ export function useDaemonAgentActions({
   goalRunsForTrace,
   latestDivergentSessionId,
   setActiveThread,
+  setDaemonTodosByThread,
+  setThreadDaemonId,
+  setThreadTodos,
   setLatestDivergentSessionId,
   setView,
 }: {
@@ -69,6 +80,9 @@ export function useDaemonAgentActions({
   goalRunsForTrace: GoalRun[];
   latestDivergentSessionId: string | null;
   setActiveThread: ReturnType<typeof useAgentStore.getState>["setActiveThread"];
+  setDaemonTodosByThread: Dispatch<SetStateAction<Record<string, import("@/lib/agentStore").AgentTodoItem[]>>>;
+  setThreadDaemonId: ReturnType<typeof useAgentStore.getState>["setThreadDaemonId"];
+  setThreadTodos: ReturnType<typeof useAgentStore.getState>["setThreadTodos"];
   setLatestDivergentSessionId: Dispatch<SetStateAction<string | null>>;
   setView: Dispatch<SetStateAction<import("./types").AgentChatPanelView>>;
 }) {
@@ -212,6 +226,96 @@ export function useDaemonAgentActions({
         ? payload.localContentBlocks
         : undefined;
       const currentThreadId = daemonLocalThreadRef.current ?? activeThreadId;
+      const imagePrompt = parseImageGenerationPrompt(text);
+
+      if (imagePrompt !== null) {
+        if (!amux?.agentGenerateImage) {
+          appendDaemonSystemMessage("Image generation is not available in this runtime.", currentThreadId);
+          return;
+        }
+        if (!imagePrompt) {
+          appendDaemonSystemMessage("Usage: /image <prompt>", currentThreadId);
+          return;
+        }
+
+        let localThreadId = currentThreadId;
+        if (!localThreadId) {
+          localThreadId = createThread({
+            workspaceId: activeWorkspace?.id ?? null,
+            surfaceId: activeWorkspace?.surfaces?.[0]?.id ?? null,
+            paneId: activePaneId ?? null,
+            title: imagePrompt.slice(0, 50) || "Image Prompt",
+          });
+          setActiveThread(localThreadId);
+          setView("chat");
+        }
+
+        if (localThreadId) {
+          daemonLocalThreadRef.current = localThreadId;
+          addMessage(localThreadId, {
+            role: "user",
+            content: `🖼 ${imagePrompt}`,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            isCompactionSummary: false,
+          });
+        }
+
+        const localThread = localThreadId
+          ? useAgentStore.getState().threads.find((entry) => entry.id === localThreadId)
+          : undefined;
+        const requestedDaemonThreadId = daemonThreadIdRef.current ?? localThread?.daemonThreadId ?? null;
+
+        try {
+          const response = await amux.agentGenerateImage(
+            imagePrompt,
+            requestedDaemonThreadId ? { thread_id: requestedDaemonThreadId } : undefined,
+          );
+          const result = normalizeBridgePayload(response);
+          if (result?.ok === false && typeof result?.error === "string") {
+            appendDaemonSystemMessage(`Failed to generate image: ${result.error}`, localThreadId);
+            return;
+          }
+
+          const resolvedDaemonThreadId = typeof result?.thread_id === "string"
+            ? result.thread_id
+            : requestedDaemonThreadId;
+          if (localThreadId && resolvedDaemonThreadId) {
+            const hydratedThread = useAgentStore.getState().threads.find((entry) => entry.id === localThreadId);
+            if (hydratedThread?.daemonThreadId !== resolvedDaemonThreadId) {
+              setThreadDaemonId(localThreadId, resolvedDaemonThreadId);
+            }
+            daemonThreadIdRef.current = resolvedDaemonThreadId;
+            daemonLocalThreadRef.current = localThreadId;
+            await reloadDaemonThreadIntoLocalState({
+              daemonThreadId: resolvedDaemonThreadId,
+              setThreadTodos,
+              setDaemonTodosByThread,
+            });
+            setActiveThread(localThreadId);
+            setView("chat");
+            return;
+          }
+
+          const generatedTarget = typeof result?.file_url === "string"
+            ? result.file_url
+            : typeof result?.path === "string"
+              ? result.path
+              : typeof result?.url === "string"
+                ? result.url
+                : null;
+          if (generatedTarget) {
+            appendDaemonSystemMessage(`Image generated: ${generatedTarget}`, localThreadId);
+          }
+        } catch (error) {
+          appendDaemonSystemMessage(
+            `Failed to generate image: ${error instanceof Error ? error.message : "unknown error"}`,
+            localThreadId,
+          );
+        }
+        return;
+      }
 
       if (trimmed === "!explain") {
         const latestGoalRun = [...goalRunsForTrace].sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))[0];
@@ -418,7 +522,10 @@ export function useDaemonAgentActions({
     goalRunsForTrace,
     latestDivergentSessionId,
     setActiveThread,
+    setDaemonTodosByThread,
     setLatestDivergentSessionId,
+    setThreadDaemonId,
+    setThreadTodos,
     setView,
     runDirective,
   ]);

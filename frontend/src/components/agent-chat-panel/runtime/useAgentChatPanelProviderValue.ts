@@ -356,6 +356,9 @@ export function useAgentChatPanelProviderValue(): {
     goalRunsForTrace,
     latestDivergentSessionId,
     setActiveThread,
+    setDaemonTodosByThread,
+    setThreadDaemonId,
+    setThreadTodos,
     setLatestDivergentSessionId,
     setView,
   });
@@ -435,14 +438,38 @@ export function useAgentChatPanelProviderValue(): {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
+  const inputIsImageCommand = useMemo(() => {
+    const trimmed = input.trim();
+    return trimmed === "/image" || trimmed.startsWith("/image ");
+  }, [input]);
+
   useEffect(() => {
-    if (isOpen && activeThreadId) {
+    if (isOpen && (activeThreadId || inputIsImageCommand)) {
       setView("chat");
       setTimeout(() => inputRef.current?.focus(), 100);
     } else if (isOpen) {
       setView("threads");
     }
-  }, [activeThreadId, isOpen]);
+  }, [activeThreadId, inputIsImageCommand, isOpen]);
+
+  useEffect(() => {
+    const handleComposeImage = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      const prompt = detail && typeof detail.prompt === "string" ? detail.prompt.trim() : "";
+      useWorkspaceStore.setState({ agentPanelOpen: true });
+      setChatBackView("threads");
+      setView("chat");
+      setInput(prompt ? `/image ${prompt}` : "/image ");
+      window.setTimeout(() => inputRef.current?.focus(), 50);
+    };
+
+    window.addEventListener("tamux-agent-compose-image", handleComposeImage);
+    window.addEventListener("amux-agent-compose-image", handleComposeImage);
+    return () => {
+      window.removeEventListener("tamux-agent-compose-image", handleComposeImage);
+      window.removeEventListener("amux-agent-compose-image", handleComposeImage);
+    };
+  }, []);
 
   const filteredThreads = searchQuery
     ? threads.filter(

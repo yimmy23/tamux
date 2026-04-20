@@ -276,6 +276,7 @@ const bridgeApi = {
     agentRunGeneratedTool: (toolName, argsJson) => ipcRenderer.invoke('agent-run-generated-tool', toolName, argsJson),
     agentSpeechToText: (base64Audio, mimeType, options) => ipcRenderer.invoke('agent-speech-to-text', base64Audio, mimeType, options),
     agentTextToSpeech: (text, voice, options) => ipcRenderer.invoke('agent-text-to-speech', text, voice, options),
+    agentGenerateImage: (prompt, options) => ipcRenderer.invoke('agent-generate-image', prompt, options),
     agentActivateGeneratedTool: (toolName) => ipcRenderer.invoke('agent-activate-generated-tool', toolName),
     agentPromoteGeneratedTool: (toolName) => ipcRenderer.invoke('agent-promote-generated-tool', toolName),
     agentRetireGeneratedTool: (toolName) => ipcRenderer.invoke('agent-retire-generated-tool', toolName),

@@ -386,6 +386,10 @@ fn default_command_items() -> Vec<CommandItem> {
             description: "Switch Svarog's model".into(),
         },
         CommandItem {
+            command: "image".into(),
+            description: "Compose an image generation prompt".into(),
+        },
+        CommandItem {
             command: "tools".into(),
             description: "Toggle tool categories".into(),
         },

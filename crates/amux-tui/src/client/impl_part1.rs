@@ -406,6 +406,7 @@ impl DaemonClient {
             | DaemonMessage::AgentGeneratedTools { .. }
             | DaemonMessage::AgentSpeechToTextResult { .. }
             | DaemonMessage::AgentTextToSpeechResult { .. }
+            | DaemonMessage::AgentGenerateImageResult { .. }
             | DaemonMessage::AgentOperatorProfileSessionCompleted { .. }
             | DaemonMessage::AgentError { .. }
             | DaemonMessage::GatewayBootstrap { .. }

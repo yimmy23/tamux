@@ -1285,6 +1285,130 @@ fn thread_detail_refresh_replaces_window_when_total_visible_messages_shrink() {
 }
 
 #[test]
+fn thread_detail_refresh_preserves_optimistic_local_tail_when_smaller_snapshot_matches() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 2,
+        loaded_message_start: 0,
+        loaded_message_end: 2,
+        messages: vec![
+            AgentMessage {
+                id: Some("msg-0".into()),
+                role: MessageRole::Assistant,
+                content: "Earlier reply".into(),
+                ..Default::default()
+            },
+            AgentMessage {
+                id: Some("msg-1".into()),
+                role: MessageRole::User,
+                content: "Previous prompt".into(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::User,
+            content: "Please inspect this image\n[image attachment]".into(),
+            ..Default::default()
+        },
+    });
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 2,
+        loaded_message_start: 0,
+        loaded_message_end: 2,
+        messages: vec![
+            AgentMessage {
+                id: Some("msg-0".into()),
+                role: MessageRole::Assistant,
+                content: "Earlier reply".into(),
+                ..Default::default()
+            },
+            AgentMessage {
+                id: Some("msg-1".into()),
+                role: MessageRole::User,
+                content: "Previous prompt".into(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .unwrap();
+    assert_eq!(thread.messages.len(), 3);
+    assert_eq!(
+        thread
+            .messages
+            .last()
+            .map(|message| message.content.as_str()),
+        Some("Please inspect this image\n[image attachment]"),
+        "stale detail refresh should not erase the optimistic local tail"
+    );
+    assert_eq!(thread.total_message_count, 3);
+    assert_eq!(thread.loaded_message_end, 3);
+}
+
+#[test]
+fn empty_thread_detail_does_not_wipe_existing_messages() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Thread".into(),
+        total_message_count: 1,
+        loaded_message_start: 0,
+        loaded_message_end: 1,
+        messages: vec![AgentMessage {
+            id: Some("msg-0".into()),
+            role: MessageRole::Assistant,
+            content: "First reply".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::User,
+            content: "Follow up".into(),
+            ..Default::default()
+        },
+    });
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Thread".into(),
+        agent_name: Some("Dola".into()),
+        ..Default::default()
+    }));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .unwrap();
+    assert_eq!(thread.messages.len(), 2);
+    assert_eq!(
+        thread
+            .messages
+            .last()
+            .map(|message| message.content.as_str()),
+        Some("Follow up")
+    );
+    assert_eq!(thread.agent_name.as_deref(), Some("Dola"));
+}
+
+#[test]
 fn thread_detail_refresh_replaces_window_when_overlapping_message_ids_shift() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadDetailReceived(AgentThread {

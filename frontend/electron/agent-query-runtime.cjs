@@ -50,6 +50,7 @@ const AGENT_QUERY_RESPONSE_TYPES = [
   'generated-tool-result',
   'speech-to-text-result',
   'text-to-speech-result',
+  'image-generation-result',
   'operator-model',
   'operator-model-reset',
   'operator-profile-session-started',

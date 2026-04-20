@@ -193,6 +193,10 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Attach file to message", theme.fg_dim),
         ]),
         Line::from(vec![
+            Span::styled("  /image <prompt>  ", theme.fg_active),
+            Span::styled("Generate an image into the current thread", theme.fg_dim),
+        ]),
+        Line::from(vec![
             Span::styled("  /view            ", theme.fg_active),
             Span::styled("Cycle transcript mode", theme.fg_dim),
         ]),

@@ -223,6 +223,11 @@ impl DaemonClient {
                     .send(ClientEvent::TextToSpeechResult { content })
                     .await;
             }
+            DaemonMessage::AgentGenerateImageResult { content } => {
+                let _ = event_tx
+                    .send(ClientEvent::GenerateImageResult { content })
+                    .await;
+            }
             DaemonMessage::AgentOperatorProfileSessionCompleted {
                 session_id,
                 updated_fields,

@@ -161,4 +161,5 @@ pub enum DaemonMessage {
     AgentThreadControlled { thread_id: String, action: String, ok: bool },
     AgentSpeechToTextResult { content: String },
     AgentTextToSpeechResult { content: String },
+    AgentGenerateImageResult { content: String },
 }

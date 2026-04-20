@@ -833,6 +833,9 @@ fn start_daemon_bridge(
                             DaemonCommand::TextToSpeech { args_json } => {
                                 let _ = client.text_to_speech(args_json);
                             }
+                            DaemonCommand::GenerateImage { args_json } => {
+                                let _ = client.generate_image(args_json);
+                            }
                             DaemonCommand::SetOperatorProfileConsent {
                                 consent_key,
                                 granted,

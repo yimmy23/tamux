@@ -231,6 +231,9 @@ pub enum DaemonCommand {
     TextToSpeech {
         args_json: String,
     },
+    GenerateImage {
+        args_json: String,
+    },
     SetOperatorProfileConsent {
         consent_key: String,
         granted: bool,

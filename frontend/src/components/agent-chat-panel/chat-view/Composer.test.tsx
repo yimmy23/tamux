@@ -41,4 +41,30 @@ describe("ChatComposer", () => {
 
     expect(html).toContain('placeholder="Preparing speech..."');
   });
+
+  it("renders image mode with an icon prefix and hides the raw slash command", () => {
+    const html = renderToStaticMarkup(
+      <ChatComposer
+        input="/image cinematic forest shrine"
+        setInput={() => {}}
+        attachments={[]}
+        setAttachments={() => {}}
+        inputRef={createRef<HTMLTextAreaElement>()}
+        onKeyDown={() => {}}
+        agentSettings={agentSettings}
+        isStreamingResponse={false}
+        isSynthesizingSpeech={false}
+        onStopStreaming={() => {}}
+        onSend={() => {}}
+        canStartGoalRun={false}
+        onStartGoalRun={() => {}}
+        onUpdateReasoningEffort={() => {}}
+      />,
+    );
+
+    expect(html).toContain("🖼");
+    expect(html).toContain('placeholder="Describe the image to generate..."');
+    expect(html).toContain("cinematic forest shrine");
+    expect(html).not.toContain("/image cinematic forest shrine");
+  });
 });

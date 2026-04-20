@@ -409,32 +409,41 @@
     }
 
     #[test]
-    fn vision_tools_are_gated_by_vision_toggle_and_audio_tools_are_available() {
+    fn generate_image_is_available_without_vision_for_image_generation_models() {
         let temp_dir = std::env::temp_dir();
 
-        let default_tools = get_available_tools(&AgentConfig::default(), &temp_dir, false);
-        assert!(default_tools
+        let mut config = AgentConfig::default();
+        config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+        config.model = "gpt-image-1".to_string();
+        config.tools.vision = false;
+
+        let tools = get_available_tools(&config, &temp_dir, false);
+        assert!(tools
             .iter()
             .all(|tool| tool.function.name != "analyze_image"));
-        assert!(default_tools
-            .iter()
-            .all(|tool| tool.function.name != "generate_image"));
-        assert!(default_tools
-            .iter()
-            .any(|tool| tool.function.name == "speech_to_text"));
-        assert!(default_tools
-            .iter()
-            .any(|tool| tool.function.name == "text_to_speech"));
-
-        let mut config = AgentConfig::default();
-        config.tools.vision = true;
-        let vision_tools = get_available_tools(&config, &temp_dir, false);
-        assert!(vision_tools
-            .iter()
-            .any(|tool| tool.function.name == "analyze_image"));
-        assert!(vision_tools
+        assert!(tools
             .iter()
             .any(|tool| tool.function.name == "generate_image"));
+        assert!(tools
+            .iter()
+            .any(|tool| tool.function.name == "speech_to_text"));
+        assert!(tools
+            .iter()
+            .any(|tool| tool.function.name == "text_to_speech"));
+    }
+
+    #[test]
+    fn analyze_image_is_available_when_active_model_has_vision_even_if_toggle_is_off() {
+        let temp_dir = std::env::temp_dir();
+        let mut config = AgentConfig::default();
+        config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+        config.model = "gpt-4o".to_string();
+        config.tools.vision = false;
+
+        let tools = get_available_tools(&config, &temp_dir, false);
+        assert!(tools
+            .iter()
+            .any(|tool| tool.function.name == "analyze_image"));
     }
 
     #[test]
@@ -466,7 +475,7 @@
         let mut config = AgentConfig::default();
         config.provider = amux_shared::providers::PROVIDER_ID_XAI.to_string();
         config.model = "grok-code-fast-1".to_string();
-        config.tools.vision = true;
+        config.tools.vision = false;
         config.extra.insert(
             "image".to_string(),
             serde_json::json!({
@@ -480,10 +489,10 @@
         let tools = get_available_tools(&config, &temp_dir, false);
         assert!(tools
             .iter()
-            .any(|tool| tool.function.name == "analyze_image"));
+            .any(|tool| tool.function.name == "generate_image"));
         assert!(tools
             .iter()
-            .any(|tool| tool.function.name == "generate_image"));
+            .all(|tool| tool.function.name != "analyze_image"));
     }
 
     #[test]

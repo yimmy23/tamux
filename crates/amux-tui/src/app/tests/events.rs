@@ -266,6 +266,39 @@ fn tts_request_surfaces_pending_footer_activity_until_audio_starts() {
     );
 }
 
+#[test]
+fn image_generation_result_refreshes_thread_and_work_context() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
+        chat::AgentThread {
+            id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+            ..Default::default()
+        },
+    ]));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.handle_client_event(ClientEvent::GenerateImageResult {
+        content: r#"{"ok":true,"thread_id":"thread-1","path":"/tmp/generated-image.png"}"#
+            .to_string(),
+    });
+
+    assert_eq!(
+        next_thread_request(&mut daemon_rx),
+        Some(("thread-1".to_string(), Some(100), Some(0)))
+    );
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::RequestThreadWorkContext(thread_id)) if thread_id == "thread-1"
+    ));
+    assert_eq!(
+        model.status_line,
+        "Image generated: /tmp/generated-image.png"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn text_to_speech_tool_result_autoplays_audio_in_chat_threads() {
@@ -4178,6 +4211,49 @@ fn new_subagent_conversation_done_clears_footer_activity_after_thread_creation()
         !model.assistant_busy(),
         "completed subagent reply should not leave the thread busy"
     );
+}
+
+#[test]
+fn new_subagent_conversation_keeps_thinking_after_thread_created_until_first_response() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.subagents.entries.push(crate::state::SubAgentEntry {
+        id: "domowoj".to_string(),
+        name: "Domowoj".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("testing".to_string()),
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        raw_json: None,
+    });
+
+    model.start_new_thread_view_for_agent(Some("domowoj"));
+    model.submit_prompt("inspect this".to_string());
+    assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-domowoj".to_string(),
+        title: "inspect this".to_string(),
+        agent_name: Some("Domowoj".to_string()),
+    });
+
+    assert_eq!(
+        model.footer_activity_text().as_deref(),
+        Some("thinking"),
+        "thread creation should preserve the pending footer activity until output starts"
+    );
+
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-domowoj".to_string(),
+        content: "done".to_string(),
+    });
+    assert_eq!(model.footer_activity_text().as_deref(), Some("writing"));
 }
 
 #[test]

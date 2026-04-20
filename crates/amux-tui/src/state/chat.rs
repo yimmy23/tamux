@@ -179,8 +179,76 @@ fn merge_thread_window(
     )
 }
 
+fn message_snapshot_matches(existing: &AgentMessage, incoming: &AgentMessage) -> bool {
+    match (existing.id.as_deref(), incoming.id.as_deref()) {
+        (Some(existing_id), Some(incoming_id)) => existing_id == incoming_id,
+        _ => {
+            existing.role == incoming.role
+                && existing.content == incoming.content
+                && existing.message_kind == incoming.message_kind
+                && existing.tool_call_id == incoming.tool_call_id
+                && existing.tool_name == incoming.tool_name
+                && existing.timestamp == incoming.timestamp
+        }
+    }
+}
+
+fn overlapping_thread_messages_match(existing: &AgentThread, incoming: &AgentThread) -> bool {
+    let existing_start = existing.loaded_message_start;
+    let existing_end = existing
+        .loaded_message_end
+        .max(existing_start + existing.messages.len());
+    let incoming_start = incoming.loaded_message_start;
+    let incoming_end = incoming
+        .loaded_message_end
+        .max(incoming_start + incoming.messages.len());
+    let overlap_start = existing_start.max(incoming_start);
+    let overlap_end = existing_end.min(incoming_end);
+
+    if overlap_start >= overlap_end {
+        return false;
+    }
+
+    (overlap_start..overlap_end).all(|absolute_index| {
+        let existing_message = existing.messages.get(absolute_index - existing_start);
+        let incoming_message = incoming.messages.get(absolute_index - incoming_start);
+        match (existing_message, incoming_message) {
+            (Some(existing_message), Some(incoming_message)) => {
+                message_snapshot_matches(existing_message, incoming_message)
+            }
+            _ => false,
+        }
+    })
+}
+
+fn has_optimistic_local_tail(existing: &AgentThread, incoming: &AgentThread) -> bool {
+    let existing_start = existing.loaded_message_start;
+    let existing_end = existing
+        .loaded_message_end
+        .max(existing_start + existing.messages.len());
+    let incoming_start = incoming.loaded_message_start;
+    let incoming_end = incoming
+        .loaded_message_end
+        .max(incoming_start + incoming.messages.len());
+
+    if existing_end <= incoming_end {
+        return false;
+    }
+
+    let tail_start = incoming_end.max(existing_start);
+    (tail_start..existing_end).any(|absolute_index| {
+        existing
+            .messages
+            .get(absolute_index - existing_start)
+            .is_some_and(|message| message.id.is_none())
+    })
+}
+
 fn should_replace_thread_window(existing: &AgentThread, incoming: &AgentThread) -> bool {
-    incoming.total_message_count < existing.total_message_count
+    !incoming.messages.is_empty()
+        && incoming.total_message_count < existing.total_message_count
+        && !(has_optimistic_local_tail(existing, incoming)
+            && overlapping_thread_messages_match(existing, incoming))
 }
 
 fn trim_thread_to_latest_page(thread: &mut AgentThread, page_size: usize) -> usize {

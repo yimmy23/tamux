@@ -333,6 +333,9 @@ pub enum ClientEvent {
     TextToSpeechResult {
         content: String,
     },
+    GenerateImageResult {
+        content: String,
+    },
     OperatorProfileSessionCompleted {
         session_id: String,
         updated_fields: Vec<String>,

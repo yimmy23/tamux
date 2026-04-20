@@ -88,6 +88,20 @@ function readSpeechToTextContent(result: unknown): string {
   return "";
 }
 
+function deriveImageComposerState(input: string): { isImageMode: boolean; displayValue: string } {
+  const trimmed = input.trimStart();
+  if (trimmed === "/image") {
+    return { isImageMode: true, displayValue: "" };
+  }
+  if (trimmed.startsWith("/image ")) {
+    return {
+      isImageMode: true,
+      displayValue: trimmed.slice("/image".length).trimStart(),
+    };
+  }
+  return { isImageMode: false, displayValue: input };
+}
+
 export function ChatComposer({
   input,
   setInput,
@@ -165,9 +179,12 @@ export function ChatComposer({
     && typeof MediaRecorder !== "undefined"
     && !!navigator.mediaDevices?.getUserMedia
     && !!(window.amux?.agentSpeechToText || window.tamux?.agentSpeechToText);
+  const { isImageMode, displayValue } = deriveImageComposerState(input);
   const composerPlaceholder = !agentSettings.enabled
     ? "Agent disabled — enable in Settings > Agent"
-    : isSynthesizingSpeech
+    : isImageMode
+      ? "Describe the image to generate..."
+      : isSynthesizingSpeech
       ? "Preparing speech..."
       : "Type a message... (Enter to send, Ctrl+Enter for newline)";
 
@@ -277,19 +294,26 @@ export function ChatComposer({
       >
         <span
           style={{
-            color: "#5ee7df",
+            color: isImageMode ? "#f6ad55" : "#5ee7df",
             fontFamily: "var(--font-mono)",
             fontSize: "var(--text-sm)",
             lineHeight: "24px",
             userSelect: "auto",
           }}
         >
-          &gt;
+          {isImageMode ? "🖼" : ">"}
         </span>
         <textarea
           ref={inputRef}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
+          value={displayValue}
+          onChange={(event) => {
+            if (isImageMode) {
+              const nextValue = event.target.value;
+              setInput(nextValue.length > 0 ? `/image ${nextValue}` : "");
+              return;
+            }
+            setInput(event.target.value);
+          }}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData?.files ?? []);
             if (files.length > 0) {

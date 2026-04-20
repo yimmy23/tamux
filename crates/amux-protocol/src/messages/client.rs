@@ -206,4 +206,5 @@ pub enum ClientMessage {
     AgentUnpinThreadMessageForCompaction { thread_id: String, message_id: String },
     AgentSpeechToText { args_json: String },
     AgentTextToSpeech { args_json: String },
+    AgentGenerateImage { args_json: String },
 }

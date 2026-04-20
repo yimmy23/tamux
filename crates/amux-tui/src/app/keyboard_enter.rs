@@ -30,6 +30,10 @@ impl TuiModel {
             self.attach_file(args);
             return true;
         }
+        if cmd == "image" {
+            self.submit_image_prompt(args.to_string());
+            return true;
+        }
         if cmd == "prompt" {
             let requested_agent = if args.trim().is_empty() {
                 None

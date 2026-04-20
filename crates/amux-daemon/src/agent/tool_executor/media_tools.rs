@@ -1015,6 +1015,186 @@ fn temp_output_path(prefix: &str, extension: &str) -> PathBuf {
     ))
 }
 
+fn thread_media_output_path(
+    agent_data_dir: &Path,
+    thread_id: &str,
+    prefix: &str,
+    extension: &str,
+) -> PathBuf {
+    agent_data_dir
+        .join("thread-files")
+        .join(thread_id)
+        .join(format!(
+            "{prefix}-{}.{}",
+            now_millis(),
+            extension.trim_start_matches('.')
+        ))
+}
+
+fn file_url_for_path(path: &Path) -> String {
+    format!("file://{}", path.display())
+}
+
+async fn move_generated_media_file(source: &Path, destination: &Path) -> Result<()> {
+    if let Some(parent) = destination.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    match tokio::fs::rename(source, destination).await {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            tokio::fs::copy(source, destination).await?;
+            tokio::fs::remove_file(source).await.ok();
+            Ok(())
+        }
+    }
+}
+
+async fn persist_generated_image_for_thread(
+    agent: &AgentEngine,
+    thread_id: &str,
+    prompt: &str,
+    result_json: &str,
+) -> Result<String> {
+    let payload: serde_json::Value = serde_json::from_str(result_json)?;
+    let provider = payload
+        .get("provider")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let model = payload
+        .get("model")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let revised_prompt = payload
+        .get("revised_prompt")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let mime_type = payload
+        .get("mime_type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("image/png")
+        .to_string();
+
+    let persisted_path = if let Some(path) = payload
+        .get("path")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let source = PathBuf::from(path);
+        let extension = source
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_string)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| file_extension_for_generated_mime(&mime_type, DEFAULT_IMAGE_OUTPUT_FORMAT));
+        let destination =
+            thread_media_output_path(&agent.data_dir, thread_id, "image", &extension);
+        move_generated_media_file(&source, &destination).await?;
+        Some(destination)
+    } else {
+        None
+    };
+
+    let image_url = persisted_path
+        .as_deref()
+        .map(file_url_for_path)
+        .or_else(|| {
+            payload
+                .get("url")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        });
+
+    let assistant_content = revised_prompt
+        .as_deref()
+        .filter(|value| value.trim() != prompt.trim())
+        .map(|value| format!("Generated image.\nRevised prompt: {value}"))
+        .unwrap_or_else(|| "Generated image.".to_string());
+
+    {
+        let mut threads = agent.threads.write().await;
+        let Some(thread) = threads.get_mut(thread_id) else {
+            anyhow::bail!("thread not found while persisting generated image");
+        };
+
+        thread.messages.push(AgentMessage::user(
+            format!("🖼 {}", prompt.trim()),
+            now_millis(),
+        ));
+        thread.messages.push(AgentMessage {
+            id: generate_message_id(),
+            role: MessageRole::Assistant,
+            content: assistant_content,
+            content_blocks: image_url
+                .clone()
+                .map(|url| {
+                    vec![AgentContentBlock::Image {
+                        url: Some(url),
+                        data_url: None,
+                        mime_type: Some(mime_type.clone()),
+                    }]
+                })
+                .unwrap_or_default(),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: Some(provider.clone()),
+            model: Some(model.clone()),
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: Some(current_agent_scope_id()),
+            author_agent_name: Some("assistant".to_string()),
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            structural_refs: Vec::new(),
+            pinned_for_compaction: false,
+            timestamp: now_millis(),
+        });
+        thread.updated_at = now_millis();
+    }
+    agent.persist_thread_by_id(thread_id).await;
+
+    if let Some(path) = persisted_path.as_deref() {
+        agent.record_file_work_context(
+            thread_id,
+            None,
+            "generate_image",
+            &path.to_string_lossy(),
+        )
+        .await;
+    }
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "ok": true,
+        "thread_id": thread_id,
+        "provider": provider,
+        "model": model,
+        "mime_type": mime_type,
+        "path": persisted_path.as_ref().map(|path| path.to_string_lossy().to_string()),
+        "file_url": persisted_path.as_deref().map(file_url_for_path),
+        "url": payload.get("url").and_then(|value| value.as_str()),
+        "revised_prompt": revised_prompt,
+    }))
+    .map_err(Into::into)
+}
+
 async fn execute_analyze_image(
     args: &serde_json::Value,
     agent: &AgentEngine,
@@ -1207,6 +1387,36 @@ async fn execute_generate_image(
     }
 
     anyhow::bail!("image generation returned neither 'b64_json' nor 'url'")
+}
+
+pub(crate) async fn execute_generate_image_for_ipc(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let prompt = args
+        .get("prompt")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'prompt' argument"))?
+        .to_string();
+    let requested_thread_id = args
+        .get("thread_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let (thread_id, is_new_thread) = agent
+        .get_or_create_thread(requested_thread_id, &prompt)
+        .await;
+    agent.ensure_thread_messages_loaded(&thread_id).await;
+
+    let upstream_result = execute_generate_image(args, agent, &agent.http_client).await?;
+    let persisted =
+        persist_generated_image_for_thread(agent, &thread_id, &prompt, &upstream_result).await?;
+    agent
+        .record_operator_message(&thread_id, &format!("🖼 {}", prompt), is_new_thread)
+        .await?;
+    Ok(persisted)
 }
 
 async fn execute_speech_to_text(
@@ -1810,5 +2020,74 @@ mod media_tools_tests {
         assert_eq!(provider_id, "custom");
         assert_eq!(provider_config.model, "flux-pro");
         assert_eq!(provider_config.base_url, "https://images.example/v1");
+    }
+
+    #[tokio::test]
+    async fn persist_generated_image_for_thread_records_messages_and_work_context() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let (thread_id, _) = engine.get_or_create_thread(None, "retro robot").await;
+
+        let temp_source = root.path().join("upstream-image.png");
+        tokio::fs::write(&temp_source, b"png-bytes")
+            .await
+            .expect("temp image should write");
+
+        let persisted = persist_generated_image_for_thread(
+            &engine,
+            &thread_id,
+            "retro robot",
+            &serde_json::json!({
+                "provider": "openai",
+                "model": "gpt-image-1",
+                "path": temp_source.to_string_lossy(),
+                "mime_type": "image/png",
+                "revised_prompt": "retro robot"
+            })
+            .to_string(),
+        )
+        .await
+        .expect("generated image should persist");
+        let persisted_value: serde_json::Value =
+            serde_json::from_str(&persisted).expect("result should deserialize");
+        let persisted_path = persisted_value
+            .get("path")
+            .and_then(|value| value.as_str())
+            .expect("persisted result should include final path");
+        assert!(
+            persisted_path.contains("/thread-files/"),
+            "expected generated image to move into thread files, got {persisted_path}"
+        );
+        assert!(
+            tokio::fs::metadata(persisted_path).await.is_ok(),
+            "persisted thread image should exist on disk"
+        );
+
+        let thread = engine
+            .get_thread_filtered(&thread_id, true, None, 0)
+            .await
+            .expect("thread should exist");
+        assert_eq!(thread.thread.messages.len(), 2);
+        assert_eq!(thread.thread.messages[0].role, MessageRole::User);
+        assert_eq!(thread.thread.messages[0].content, "🖼 retro robot");
+        assert_eq!(thread.thread.messages[1].role, MessageRole::Assistant);
+        assert_eq!(thread.thread.messages[1].provider.as_deref(), Some("openai"));
+        assert_eq!(thread.thread.messages[1].model.as_deref(), Some("gpt-image-1"));
+        assert!(matches!(
+            thread.thread.messages[1].content_blocks.first(),
+            Some(AgentContentBlock::Image { url: Some(url), mime_type: Some(mime_type), .. })
+                if url.starts_with("file://") && mime_type == "image/png"
+        ));
+
+        let context = engine
+            .thread_work_contexts
+            .read()
+            .await
+            .get(&thread_id)
+            .cloned()
+            .expect("work context should be recorded");
+        assert_eq!(context.entries.len(), 1);
+        assert_eq!(context.entries[0].source, "generate_image");
     }
 }

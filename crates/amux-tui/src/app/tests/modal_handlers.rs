@@ -3894,6 +3894,41 @@ fn slash_thread_with_agent_preselects_matching_source() {
 }
 
 #[test]
+fn slash_image_prompt_dispatches_generate_image_for_active_thread() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    assert!(model.execute_slash_command_line("/image retro robot portrait"));
+
+    loop {
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => {}
+            Ok(DaemonCommand::GenerateImage { args_json }) => {
+                let payload: serde_json::Value =
+                    serde_json::from_str(&args_json).expect("image payload should parse");
+                assert_eq!(
+                    payload.get("thread_id").and_then(|v| v.as_str()),
+                    Some("thread-1")
+                );
+                assert_eq!(
+                    payload.get("prompt").and_then(|v| v.as_str()),
+                    Some("retro robot portrait")
+                );
+                break;
+            }
+            other => panic!("expected generate-image command, got {:?}", other),
+        }
+    }
+}
+
+#[test]
 fn thread_picker_delete_requires_confirmation_before_sending_delete_thread() {
     let (mut model, mut daemon_rx) = make_model();
     model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![

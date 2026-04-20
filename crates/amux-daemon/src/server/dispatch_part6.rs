@@ -11,6 +11,7 @@ if matches!(
         ClientMessage::AgentExecuteMemoryTool{ .. } |
         ClientMessage::AgentSpeechToText{ .. } |
         ClientMessage::AgentTextToSpeech{ .. } |
+        ClientMessage::AgentGenerateImage{ .. } |
         ClientMessage::AgentGetCollaborationSessions{ .. } |
         ClientMessage::AgentGetDivergentSession{ .. } |
         ClientMessage::AgentListGeneratedTools |
@@ -406,6 +407,46 @@ if matches!(
                                 .send(DaemonMessage::AgentError {
                                     message: format!(
                                         "invalid text_to_speech arguments: {error}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGenerateImage { args_json } => {
+                    match serde_json::from_str::<serde_json::Value>(&args_json) {
+                        Ok(args) => {
+                            match crate::agent::tool_executor::execute_generate_image_for_ipc(
+                                &args,
+                                &agent,
+                            )
+                            .await
+                            {
+                                Ok(content) => {
+                                    framed
+                                        .send(DaemonMessage::AgentGenerateImageResult { content })
+                                        .await
+                                        .ok();
+                                }
+                                Err(error) => {
+                                    framed
+                                        .send(DaemonMessage::AgentError {
+                                            message: format!(
+                                                "failed to execute generate_image: {error}"
+                                            ),
+                                        })
+                                        .await
+                                        .ok();
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "invalid generate_image arguments: {error}"
                                     ),
                                 })
                                 .await

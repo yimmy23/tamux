@@ -426,6 +426,7 @@ declare global {
         agentRunGeneratedTool?: (toolName: string, argsJson: string) => Promise<unknown>;
         agentSpeechToText?: (base64Audio: string, mimeType?: string | null, options?: Record<string, unknown> | null) => Promise<unknown>;
         agentTextToSpeech?: (text: string, voice?: string | null, options?: Record<string, unknown> | null) => Promise<unknown>;
+        agentGenerateImage?: (prompt: string, options?: Record<string, unknown> | null) => Promise<unknown>;
         agentActivateGeneratedTool?: (toolName: string) => Promise<unknown>;
         agentPromoteGeneratedTool?: (toolName: string) => Promise<unknown>;
         agentRetireGeneratedTool?: (toolName: string) => Promise<unknown>;

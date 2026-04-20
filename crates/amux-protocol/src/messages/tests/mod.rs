@@ -443,6 +443,27 @@ fn client_message_roundtrips_agent_text_to_speech() {
 }
 
 #[test]
+fn client_message_roundtrips_agent_generate_image() {
+    let msg = ClientMessage::AgentGenerateImage {
+        args_json: serde_json::json!({
+            "thread_id": "thread-image",
+            "prompt": "cinematic neon city"
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentGenerateImage { args_json } => {
+            let payload: serde_json::Value = serde_json::from_str(&args_json).unwrap();
+            assert_eq!(payload["thread_id"], "thread-image");
+            assert_eq!(payload["prompt"], "cinematic neon city");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn daemon_message_roundtrips_agent_memory_tool_result() {
     let msg = DaemonMessage::AgentMemoryToolResult {
         content: serde_json::json!({
@@ -499,6 +520,29 @@ fn daemon_message_roundtrips_agent_text_to_speech_result() {
             let payload: serde_json::Value = serde_json::from_str(&content).unwrap();
             assert_eq!(payload["path"], "/tmp/speech.mp3");
             assert_eq!(payload["mime_type"], "audio/mpeg");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_generate_image_result() {
+    let msg = DaemonMessage::AgentGenerateImageResult {
+        content: serde_json::json!({
+            "thread_id": "thread-image",
+            "path": "/tmp/thread-image/result.png",
+            "mime_type": "image/png"
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentGenerateImageResult { content } => {
+            let payload: serde_json::Value = serde_json::from_str(&content).unwrap();
+            assert_eq!(payload["thread_id"], "thread-image");
+            assert_eq!(payload["path"], "/tmp/thread-image/result.png");
+            assert_eq!(payload["mime_type"], "image/png");
         }
         other => panic!("unexpected variant: {:?}", other),
     }

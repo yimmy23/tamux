@@ -1,20 +1,32 @@
-fn configured_image_generation_model(config: &AgentConfig) -> Option<&str> {
+fn configured_image_generation_setting<'a>(
+    config: &'a AgentConfig,
+    field: &str,
+) -> Option<&'a str> {
     config
         .extra
         .get("image")
         .and_then(|value| value.get("generation"))
-        .and_then(|value| value.get("model"))
+        .and_then(|value| value.get(field))
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .or_else(|| {
+            let legacy_key = format!("image_generation_{field}");
             config
                 .extra
-                .get("image_generation_model")
+                .get(&legacy_key)
                 .and_then(|value| value.as_str())
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
         })
+}
+
+fn configured_image_generation_provider(config: &AgentConfig) -> Option<&str> {
+    configured_image_generation_setting(config, "provider")
+}
+
+fn configured_image_generation_model(config: &AgentConfig) -> Option<&str> {
+    configured_image_generation_setting(config, "model")
 }
 
 fn add_available_tools_part_c(
@@ -136,24 +148,32 @@ fn add_available_tools_part_c(
         }),
     ));
 
-    if config.tools.vision {
-        let active_model_features = amux_shared::providers::derive_model_feature_capabilities(
-            &config.provider,
-            &config.model,
-            None,
-            false,
-        );
-        let image_generation_enabled = configured_image_generation_model(config)
-            .map(|model| {
-                amux_shared::providers::derive_model_feature_capabilities(
-                    &config.provider,
-                    model,
-                    None,
-                    false,
-                )
-                .image_generation
-            })
-            .unwrap_or(active_model_features.image_generation);
+    let active_model_features = amux_shared::providers::derive_model_feature_capabilities(
+        &config.provider,
+        &config.model,
+        None,
+        false,
+    );
+    let image_generation_enabled = configured_image_generation_model(config)
+        .map(|model| {
+            amux_shared::providers::derive_model_feature_capabilities(
+                configured_image_generation_provider(config).unwrap_or(&config.provider),
+                model,
+                None,
+                false,
+            )
+            .image_generation
+        })
+        .unwrap_or(active_model_features.image_generation);
+    let active_model_supports_image = crate::agent::types::model_supports(
+        &config.provider,
+        &config.model,
+        crate::agent::types::Modality::Image,
+    );
+    let image_analysis_enabled =
+        config.tools.vision || active_model_features.vision || active_model_supports_image;
+
+    if image_analysis_enabled {
         tools.push(tool_def(
             "analyze_image",
             "Analyze an image with the active or specified multimodal model. Accepts exactly one of `path`, `url`, `base64`, or `data_url`, then returns a textual analysis.",
@@ -174,26 +194,27 @@ fn add_available_tools_part_c(
             }),
         ));
 
-        if image_generation_enabled {
-            tools.push(tool_def(
-                "generate_image",
-                "Generate an image through an OpenAI-compatible image generation endpoint and return JSON with the saved artifact path or upstream URL.",
-                serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "prompt": { "type": "string", "description": "Image generation prompt" },
-                        "provider": { "type": "string", "description": "Optional provider override" },
-                        "model": { "type": "string", "description": "Optional model override" },
-                        "size": { "type": "string", "description": "Optional output size such as 1024x1024" },
-                        "quality": { "type": "string", "description": "Optional quality hint supported by the provider" },
-                        "style": { "type": "string", "description": "Optional style hint supported by the provider" },
-                        "background": { "type": "string", "description": "Optional background hint supported by the provider" },
-                        "output_format": { "type": "string", "description": "Desired image format for saved bytes, e.g. png, jpg, webp" }
-                    },
-                    "required": ["prompt"]
-                }),
-            ));
-        }
+    }
+
+    if image_generation_enabled {
+        tools.push(tool_def(
+            "generate_image",
+            "Generate an image through an OpenAI-compatible image generation endpoint and return JSON with the saved artifact path or upstream URL.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string", "description": "Image generation prompt" },
+                    "provider": { "type": "string", "description": "Optional provider override" },
+                    "model": { "type": "string", "description": "Optional model override" },
+                    "size": { "type": "string", "description": "Optional output size such as 1024x1024" },
+                    "quality": { "type": "string", "description": "Optional quality hint supported by the provider" },
+                    "style": { "type": "string", "description": "Optional style hint supported by the provider" },
+                    "background": { "type": "string", "description": "Optional background hint supported by the provider" },
+                    "output_format": { "type": "string", "description": "Desired image format for saved bytes, e.g. png, jpg, webp" }
+                },
+                "required": ["prompt"]
+            }),
+        ));
     }
 
     tools.push(tool_def(
