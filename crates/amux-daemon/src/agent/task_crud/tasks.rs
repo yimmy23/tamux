@@ -486,6 +486,7 @@ impl AgentEngine {
                             goal_run_id,
                             "operator denied low-confidence goal plan approval",
                             "approval",
+                            None,
                         )
                         .await;
                     }

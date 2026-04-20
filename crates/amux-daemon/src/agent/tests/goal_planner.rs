@@ -81,7 +81,189 @@ fn sample_goal_run(goal_run_id: &str) -> GoalRun {
         estimated_cost_usd: None,
         autonomy_level: super::autonomy::AutonomyLevel::Supervised,
         authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
     }
+}
+
+#[tokio::test]
+async fn start_goal_run_seeds_launch_assignment_snapshot_and_thread_routing_defaults() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-goal-launch-routing".to_string();
+
+    let goal_run = engine
+        .start_goal_run(
+            "validate mission control launch metadata".to_string(),
+            Some("mission control launch".to_string()),
+            Some(thread_id.clone()),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let config = engine.config.read().await;
+    let expected_provider =
+        resolve_active_provider_config(&config).expect("active provider should resolve");
+    let expected_assignment = GoalAgentAssignment {
+        role_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        enabled: true,
+        provider: config.provider.clone(),
+        model: expected_provider.model.clone(),
+        reasoning_effort: Some(expected_provider.reasoning_effort.clone()),
+        inherit_from_main: false,
+    };
+
+    assert_eq!(goal_run.root_thread_id.as_deref(), Some(thread_id.as_str()));
+    assert_eq!(
+        goal_run.active_thread_id.as_deref(),
+        Some(thread_id.as_str())
+    );
+    assert_eq!(goal_run.execution_thread_ids, vec![thread_id.clone()]);
+    assert_eq!(
+        goal_run.launch_assignment_snapshot,
+        vec![expected_assignment.clone()]
+    );
+    assert_eq!(goal_run.runtime_assignment_list, vec![expected_assignment]);
+
+    let serialized = goal_run_json(&goal_run);
+    assert_eq!(serialized["root_thread_id"], serde_json::json!(thread_id));
+    assert_eq!(serialized["active_thread_id"], serde_json::json!(thread_id));
+    assert_eq!(
+        serialized["execution_thread_ids"],
+        serde_json::json!([thread_id])
+    );
+    assert_eq!(
+        serialized["launch_assignment_snapshot"][0]["provider"],
+        serde_json::json!(config.provider.clone())
+    );
+}
+
+#[tokio::test]
+async fn sync_goal_run_with_task_advances_active_thread_and_execution_thread_list() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-thread-routing";
+    let mut goal_run = sample_goal_run(goal_run_id);
+    goal_run.root_thread_id = Some("thread-root".to_string());
+    goal_run.active_thread_id = Some("thread-root".to_string());
+    goal_run.execution_thread_ids = vec!["thread-root".to_string()];
+    goal_run.thread_id = Some("thread-root".to_string());
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let task = AgentTask {
+        id: "task-thread-routing".to_string(),
+        title: "step task".to_string(),
+        description: "step task".to_string(),
+        status: TaskStatus::InProgress,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: Some(now_millis()),
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some("thread-specialist".to_string()),
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("supervised goal".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: Some("android-verifier".to_string()),
+    };
+
+    engine.sync_goal_run_with_task(goal_run_id, &task).await;
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.thread_id.as_deref(), Some("thread-specialist"));
+    assert_eq!(
+        updated.active_thread_id.as_deref(),
+        Some("thread-specialist")
+    );
+    assert_eq!(
+        updated.execution_thread_ids,
+        vec!["thread-root".to_string(), "thread-specialist".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn fail_goal_run_advances_active_thread_and_execution_thread_list() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-thread-routing-failure";
+    let mut goal_run = sample_goal_run(goal_run_id);
+    goal_run.root_thread_id = Some("thread-root".to_string());
+    goal_run.active_thread_id = Some("thread-root".to_string());
+    goal_run.execution_thread_ids = vec!["thread-root".to_string()];
+    goal_run.thread_id = Some("thread-root".to_string());
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    engine
+        .fail_goal_run(
+            goal_run_id,
+            "specialist execution failed",
+            "execution",
+            Some("thread-specialist".to_string()),
+        )
+        .await;
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.thread_id.as_deref(), Some("thread-specialist"));
+    assert_eq!(
+        updated.active_thread_id.as_deref(),
+        Some("thread-specialist")
+    );
+    assert_eq!(
+        updated.execution_thread_ids,
+        vec!["thread-root".to_string(), "thread-specialist".to_string()]
+    );
 }
 
 #[tokio::test]
@@ -177,6 +359,7 @@ async fn fail_goal_run_settles_unresolved_goal_replan_trace() {
             goal_run_id,
             "managed command failed permanently",
             "execution",
+            None,
         )
         .await;
 
@@ -283,6 +466,7 @@ async fn fail_goal_run_appends_failure_factor_to_goal_replan_trace() {
             goal_run_id,
             "managed command failed permanently",
             "execution",
+            None,
         )
         .await;
 
@@ -850,6 +1034,11 @@ fn sample_goal_run_with_kind(
         estimated_cost_usd: None,
         autonomy_level: super::autonomy::AutonomyLevel::Aware,
         authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
     }
 }
 

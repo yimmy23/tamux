@@ -166,6 +166,27 @@ use self::llm_client::{send_completion_request, ApiContent, ApiMessage, RetryStr
 use self::tool_executor::{execute_tool, get_available_tools};
 use self::types::*;
 
+fn goal_run_apply_thread_routing(goal_run: &mut GoalRun, thread_id: Option<String>) {
+    let Some(thread_id) = thread_id.map(|value| value.trim().to_string()) else {
+        return;
+    };
+    if thread_id.is_empty() {
+        return;
+    }
+    if goal_run.root_thread_id.is_none() {
+        goal_run.root_thread_id = Some(thread_id.clone());
+    }
+    if !goal_run
+        .execution_thread_ids
+        .iter()
+        .any(|id| id == &thread_id)
+    {
+        goal_run.execution_thread_ids.push(thread_id.clone());
+    }
+    goal_run.active_thread_id = Some(thread_id.clone());
+    goal_run.thread_id = Some(thread_id);
+}
+
 // Public re-exports consumed by sibling modules in this bin crate.
 #[cfg(test)]
 pub(crate) use aline_startup::AlineStartupShortCircuitReason;

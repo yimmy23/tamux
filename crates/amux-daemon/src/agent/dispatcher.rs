@@ -34,7 +34,7 @@ impl AgentEngine {
                 if let Err(error) = result {
                     tracing::error!(goal_run_id = %goal_run_id, error = %error, "goal run advancement failed");
                     engine
-                        .fail_goal_run(&goal_run_id, &error.to_string(), "goal-run")
+                        .fail_goal_run(&goal_run_id, &error.to_string(), "goal-run", None)
                         .await;
                 }
                 engine.finish_goal_run_work(&goal_run_id).await;

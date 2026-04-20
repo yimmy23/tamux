@@ -147,6 +147,7 @@ impl AgentEngine {
         goal_run_id: &str,
         error: &str,
         phase: &str,
+        thread_id: Option<String>,
     ) {
         let cost_summary = {
             let trackers = self.cost_trackers.lock().await;
@@ -157,6 +158,7 @@ impl AgentEngine {
         {
             let mut goal_runs = self.goal_runs.lock().await;
             if let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) {
+                super::super::goal_run_apply_thread_routing(goal_run, thread_id);
                 goal_run.status = GoalRunStatus::Failed;
                 goal_run.completed_at = Some(now_millis());
                 goal_run.updated_at = now_millis();

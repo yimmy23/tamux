@@ -800,6 +800,7 @@ impl AgentEngine {
             let model = self.operator_model.read().await;
             SatisfactionAdaptationMode::from_label(&model.operator_satisfaction.label)
         };
+        let launch_assignment_snapshot = self.goal_launch_assignment_snapshot().await;
         let goal_run = GoalRun {
             id: format!("goal_{}", Uuid::new_v4()),
             title: normalized_title,
@@ -812,10 +813,15 @@ impl AgentEngine {
             started_at: None,
             completed_at: None,
             thread_id,
+            root_thread_id: None,
+            active_thread_id: None,
+            execution_thread_ids: Vec::new(),
             session_id,
             current_step_index: 0,
             current_step_title: None,
             current_step_kind: None,
+            launch_assignment_snapshot: launch_assignment_snapshot.clone(),
+            runtime_assignment_list: launch_assignment_snapshot,
             planner_owner_profile: None,
             current_step_owner_profile: None,
             replan_count: 0,
@@ -851,6 +857,8 @@ impl AgentEngine {
             authorship_tag: None,
         };
         let mut goal_run = goal_run;
+        let goal_thread_id = goal_run.thread_id.clone();
+        super::goal_run_apply_thread_routing(&mut goal_run, goal_thread_id);
         crate::agent::goal_dossier::refresh_goal_run_dossier(&mut goal_run);
 
         self.goal_runs.lock().await.push_back(goal_run.clone());

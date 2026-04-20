@@ -188,6 +188,7 @@ impl AgentEngine {
             goal_run.failure_cause = None;
             goal_run.awaiting_approval_id = None;
             goal_run.active_task_id = Some(updated_task.id.clone());
+            super::super::goal_run_apply_thread_routing(goal_run, updated_task.thread_id.clone());
             goal_run.current_step_owner_profile = current_step_owner_profile;
             goal_run.events.push(make_goal_run_event(
                 "verification",
@@ -244,10 +245,27 @@ impl AgentEngine {
                     GoalRunStatus::Running
                 };
                 let mut changed = goal_run.status != next_status;
+                let prior_thread_routing = (
+                    goal_run.thread_id.clone(),
+                    goal_run.root_thread_id.clone(),
+                    goal_run.active_thread_id.clone(),
+                    goal_run.execution_thread_ids.clone(),
+                );
                 goal_run.status = next_status;
                 goal_run.updated_at = now_millis();
                 goal_run.awaiting_approval_id = task.awaiting_approval_id.clone();
                 goal_run.active_task_id = Some(task.id.clone());
+                super::super::goal_run_apply_thread_routing(goal_run, task.thread_id.clone());
+                if prior_thread_routing
+                    != (
+                        goal_run.thread_id.clone(),
+                        goal_run.root_thread_id.clone(),
+                        goal_run.active_thread_id.clone(),
+                        goal_run.execution_thread_ids.clone(),
+                    )
+                {
+                    changed = true;
+                }
                 let next_current_step_owner_profile = Some(current_step_owner_profile.clone());
                 if goal_run.current_step_owner_profile != next_current_step_owner_profile {
                     changed = true;
@@ -390,9 +408,7 @@ impl AgentEngine {
             let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
                 anyhow::bail!("goal run missing after task completion");
             };
-            if let Some(thread_id) = task.thread_id.clone() {
-                goal_run.thread_id = Some(thread_id);
-            }
+            super::super::goal_run_apply_thread_routing(goal_run, task.thread_id.clone());
             let mut completed_step_id = None;
             let mut completed_summary = None;
             if let Some(step) = goal_run.steps.get_mut(goal_run.current_step_index) {
@@ -587,6 +603,7 @@ impl AgentEngine {
                 else {
                     anyhow::bail!("goal run disappeared during replan");
                 };
+                super::super::goal_run_apply_thread_routing(goal_run, task.thread_id.clone());
                 let default_session_id = goal_run.session_id.clone();
                 if let Some(step) = goal_run.steps.get_mut(goal_run.current_step_index) {
                     step.status = GoalRunStepStatus::Failed;
@@ -738,7 +755,8 @@ impl AgentEngine {
             None,
         )
         .await;
-        self.fail_goal_run(goal_run_id, &failure, "execution").await;
+        self.fail_goal_run(goal_run_id, &failure, "execution", task.thread_id.clone())
+            .await;
         Ok(())
     }
 }

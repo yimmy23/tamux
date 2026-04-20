@@ -53,6 +53,24 @@ fn goal_runtime_owner_profile(
     }
 }
 
+fn goal_agent_assignment(
+    role_id: String,
+    enabled: bool,
+    provider: String,
+    model: String,
+    reasoning_effort: Option<String>,
+    inherit_from_main: bool,
+) -> GoalAgentAssignment {
+    GoalAgentAssignment {
+        role_id,
+        enabled,
+        provider,
+        model,
+        reasoning_effort,
+        inherit_from_main,
+    }
+}
+
 fn sub_agent_matches_identifier(def: &SubAgentDefinition, identifier: &str) -> bool {
     def.id.eq_ignore_ascii_case(identifier)
         || def.name.eq_ignore_ascii_case(identifier)
@@ -63,6 +81,41 @@ fn sub_agent_matches_identifier(def: &SubAgentDefinition, identifier: &str) -> b
 }
 
 impl AgentEngine {
+    pub(crate) async fn goal_launch_assignment_snapshot(&self) -> Vec<GoalAgentAssignment> {
+        let config = self.config.read().await;
+        let resolved = resolve_active_provider_config(&config).unwrap_or_else(|_| ProviderConfig {
+            base_url: config.base_url.clone(),
+            model: config.model.clone(),
+            api_key: config.api_key.clone(),
+            assistant_id: config.assistant_id.clone(),
+            auth_source: config.auth_source,
+            api_transport: config.api_transport,
+            reasoning_effort: config.reasoning_effort.clone(),
+            context_window_tokens: config.context_window_tokens,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        });
+        vec![goal_agent_assignment(
+            crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+            true,
+            config.provider.clone(),
+            resolved.model,
+            Some(resolved.reasoning_effort),
+            false,
+        )]
+    }
+
     async fn planner_owner_profile(&self) -> GoalRuntimeOwnerProfile {
         let config = self.config.read().await;
         goal_runtime_owner_profile(
