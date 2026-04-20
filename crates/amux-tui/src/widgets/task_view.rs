@@ -7,8 +7,9 @@ use ratatui::widgets::Paragraph;
 mod sections;
 
 use sections::{
-    render_checkpoints, render_goal_dossier, render_live_todos, render_step_timeline, render_steps,
-    render_work_context,
+    render_checkpoints, render_delivery_units, render_dossier, render_live_todos,
+    render_proof_coverage, render_reports, render_resume_decision, render_step_timeline,
+    render_steps, render_work_context,
 };
 
 use crate::state::sidebar::SidebarItemTarget;
@@ -298,7 +299,11 @@ fn build_rows(
                 close_preview: false,
             });
             render_goal_summary(&mut rows, run, theme, width);
-            render_goal_dossier(&mut rows, run, theme, width);
+            render_dossier(&mut rows, run, theme, width);
+            render_resume_decision(&mut rows, run, theme, width);
+            render_delivery_units(&mut rows, run, theme, width);
+            render_proof_coverage(&mut rows, run, theme, width);
+            render_reports(&mut rows, run, theme, width);
             render_checkpoints(&mut rows, tasks, run, theme, width);
             if show_live_todos {
                 render_live_todos(&mut rows, tasks, run.thread_id.as_deref(), theme, width);

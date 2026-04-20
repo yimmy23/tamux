@@ -87,7 +87,6 @@ pub struct GoalRun {
     pub reflection_summary: Option<String>,
     pub memory_updates: Vec<String>,
     pub generated_skill_path: Option<String>,
-    pub dossier: GoalRunDossier,
     pub child_task_ids: Vec<String>,
     pub loaded_step_start: usize,
     pub loaded_step_end: usize,
@@ -99,58 +98,72 @@ pub struct GoalRun {
     pub older_page_request_cooldown_until_tick: Option<u64>,
     pub steps: Vec<GoalRunStep>,
     pub events: Vec<GoalRunEvent>,
+    pub dossier: Option<GoalRunDossier>,
     pub created_at: u64,
     pub updated_at: u64,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct GoalRunDossier {
-    pub projection_state: Option<String>,
-    pub projection_error: Option<String>,
-    pub summary: Option<String>,
-    pub delivery_units: Vec<GoalDeliveryUnit>,
-    pub execution_binding_label: Option<String>,
-    pub verification_binding_label: Option<String>,
-    pub proof_checks: Vec<GoalProofCheck>,
-    pub evidence: Vec<String>,
-    pub reports: Vec<GoalRunReport>,
-    pub latest_resume_decision: Option<GoalResumeDecision>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct GoalDeliveryUnit {
-    pub id: String,
-    pub label: String,
-    pub summary: Option<String>,
-    pub status: Option<String>,
-    pub kind: Option<String>,
-    pub path: Option<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct GoalProofCheck {
-    pub id: String,
-    pub label: String,
-    pub status: Option<String>,
-    pub summary: Option<String>,
-    pub evidence: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct GoalRunReport {
+pub struct GoalEvidenceRecord {
     pub id: String,
     pub title: String,
-    pub status: Option<String>,
+    pub source: Option<String>,
+    pub uri: Option<String>,
     pub summary: Option<String>,
-    pub details: Option<String>,
+    pub captured_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct GoalResumeDecision {
-    pub outcome: Option<String>,
+pub struct GoalProofCheckRecord {
+    pub id: String,
+    pub title: String,
+    pub state: String,
     pub summary: Option<String>,
-    pub rationale: Option<String>,
+    pub evidence_ids: Vec<String>,
+    pub resolved_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GoalRunReportRecord {
+    pub summary: String,
+    pub state: String,
+    pub notes: Vec<String>,
+    pub evidence: Vec<GoalEvidenceRecord>,
+    pub proof_checks: Vec<GoalProofCheckRecord>,
+    pub generated_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GoalResumeDecisionRecord {
+    pub action: String,
+    pub reason_code: String,
+    pub reason: Option<String>,
+    pub details: Vec<String>,
     pub decided_at: Option<u64>,
+    pub projection_state: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GoalDeliveryUnitRecord {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub execution_binding: String,
+    pub verification_binding: String,
+    pub summary: Option<String>,
+    pub proof_checks: Vec<GoalProofCheckRecord>,
+    pub evidence: Vec<GoalEvidenceRecord>,
+    pub report: Option<GoalRunReportRecord>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GoalRunDossier {
+    pub units: Vec<GoalDeliveryUnitRecord>,
+    pub projection_state: String,
+    pub latest_resume_decision: Option<GoalResumeDecisionRecord>,
+    pub report: Option<GoalRunReportRecord>,
+    pub summary: Option<String>,
+    pub projection_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -451,23 +464,7 @@ impl TaskState {
             }
 
             TaskAction::GoalRunListReceived(runs) => {
-                let existing_runs = self
-                    .goal_runs
-                    .drain(..)
-                    .map(|run| (run.id.clone(), run))
-                    .collect::<std::collections::HashMap<_, _>>();
-                self.goal_runs = runs
-                    .into_iter()
-                    .map(normalize_goal_run_ranges)
-                    .map(|run| {
-                        if let Some(mut existing) = existing_runs.get(&run.id).cloned() {
-                            merge_goal_run(&mut existing, run);
-                            existing
-                        } else {
-                            run
-                        }
-                    })
-                    .collect();
+                self.goal_runs = runs.into_iter().map(normalize_goal_run_ranges).collect();
             }
 
             TaskAction::GoalRunDetailReceived(run) | TaskAction::GoalRunUpdate(run) => {
@@ -706,8 +703,8 @@ fn merge_goal_run(existing: &mut GoalRun, incoming: GoalRun) {
     existing.reflection_summary = incoming.reflection_summary;
     existing.memory_updates = incoming.memory_updates;
     existing.generated_skill_path = incoming.generated_skill_path;
-    merge_goal_run_dossier(&mut existing.dossier, incoming.dossier);
     existing.child_task_ids = incoming.child_task_ids;
+    existing.dossier = merge_goal_run_dossier(existing.dossier.take(), incoming.dossier);
     existing.created_at = incoming.created_at;
     existing.updated_at = incoming.updated_at;
     existing.total_step_count = existing.total_step_count.max(incoming.total_step_count);
@@ -741,62 +738,34 @@ fn merge_goal_run(existing: &mut GoalRun, incoming: GoalRun) {
     existing.older_page_request_cooldown_until_tick = older_page_request_cooldown_until_tick;
 }
 
-fn merge_goal_run_dossier(existing: &mut GoalRunDossier, incoming: GoalRunDossier) {
-    if incoming.projection_state.is_some() {
-        existing.projection_state = incoming.projection_state;
+fn merge_goal_run_dossier(
+    existing: Option<GoalRunDossier>,
+    incoming: Option<GoalRunDossier>,
+) -> Option<GoalRunDossier> {
+    match (existing, incoming) {
+        (None, dossier) | (dossier, None) => dossier,
+        (Some(existing), Some(mut incoming)) => {
+            if incoming.units.is_empty() {
+                incoming.units = existing.units;
+            }
+            if incoming.projection_state.is_empty() {
+                incoming.projection_state = existing.projection_state;
+            }
+            if incoming.latest_resume_decision.is_none() {
+                incoming.latest_resume_decision = existing.latest_resume_decision;
+            }
+            if incoming.report.is_none() {
+                incoming.report = existing.report;
+            }
+            if incoming.summary.is_none() {
+                incoming.summary = existing.summary;
+            }
+            if incoming.projection_error.is_none() {
+                incoming.projection_error = existing.projection_error;
+            }
+            Some(incoming)
+        }
     }
-    if incoming.projection_error.is_some() {
-        existing.projection_error = incoming.projection_error;
-    }
-    if incoming.summary.is_some() {
-        existing.summary = incoming.summary;
-    }
-    if incoming.execution_binding_label.is_some() {
-        existing.execution_binding_label = incoming.execution_binding_label;
-    }
-    if incoming.verification_binding_label.is_some() {
-        existing.verification_binding_label = incoming.verification_binding_label;
-    }
-    if !incoming.delivery_units.is_empty() {
-        existing.delivery_units = incoming.delivery_units;
-    }
-    if !incoming.proof_checks.is_empty() {
-        existing.proof_checks = incoming.proof_checks;
-    }
-    if !incoming.evidence.is_empty() {
-        existing.evidence = incoming.evidence;
-    }
-    if !incoming.reports.is_empty() {
-        existing.reports = incoming.reports;
-    }
-    if let Some(incoming_decision) = incoming.latest_resume_decision {
-        existing.latest_resume_decision = Some(merge_resume_decision(
-            existing.latest_resume_decision.as_ref(),
-            incoming_decision,
-        ));
-    }
-}
-
-fn merge_resume_decision(
-    existing: Option<&GoalResumeDecision>,
-    mut incoming: GoalResumeDecision,
-) -> GoalResumeDecision {
-    let Some(existing) = existing else {
-        return incoming;
-    };
-    if incoming.outcome.is_none() {
-        incoming.outcome = existing.outcome.clone();
-    }
-    if incoming.summary.is_none() {
-        incoming.summary = existing.summary.clone();
-    }
-    if incoming.rationale.is_none() {
-        incoming.rationale = existing.rationale.clone();
-    }
-    if incoming.decided_at.is_none() {
-        incoming.decided_at = existing.decided_at;
-    }
-    incoming
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

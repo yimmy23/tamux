@@ -1249,6 +1249,104 @@ fn closing_chat_file_preview_returns_to_conversation() {
 }
 
 #[test]
+fn goal_view_renders_goal_run_dossier_sections() {
+    fn render_task_view(model: &mut TuiModel) -> String {
+        let backend = TestBackend::new(model.width, model.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+        terminal
+            .draw(|frame| model.render(frame))
+            .expect("task view render should succeed");
+
+        let chat_area = rendered_chat_area(model);
+        let buffer = terminal.backend().buffer();
+        (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+            .map(|y| {
+                (chat_area.x..chat_area.x.saturating_add(chat_area.width))
+                    .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    let mut model = build_model();
+    model.focus = FocusArea::Chat;
+    model.show_sidebar_override = Some(false);
+    model.task_show_live_todos = false;
+    model.task_show_timeline = false;
+    model.task_show_files = false;
+
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Instrument Titan".to_string(),
+            goal: "Ship the first dossier-aware goal view.".to_string(),
+            dossier: Some(task::GoalRunDossier {
+                projection_state: "in_progress".to_string(),
+                summary: Some("Execution is split into build and verification units.".to_string()),
+                latest_resume_decision: Some(task::GoalResumeDecisionRecord {
+                    action: "advance".to_string(),
+                    reason_code: "proof_pending".to_string(),
+                    reason: Some("Verification is queued before the next unit.".to_string()),
+                    details: vec!["Validator binding resolved to builtin:weles".to_string()],
+                    projection_state: "in_progress".to_string(),
+                    ..Default::default()
+                }),
+                report: Some(task::GoalRunReportRecord {
+                    summary: "Goal is moving forward with verifier handoff.".to_string(),
+                    state: "in_progress".to_string(),
+                    ..Default::default()
+                }),
+                units: vec![task::GoalDeliveryUnitRecord {
+                    id: "unit-1".to_string(),
+                    title: "Phone logging flow".to_string(),
+                    status: "completed".to_string(),
+                    execution_binding: "builtin:android".to_string(),
+                    verification_binding: "subagent:validator".to_string(),
+                    summary: Some("Compose UI writes the expected payload.".to_string()),
+                    proof_checks: vec![task::GoalProofCheckRecord {
+                        id: "proof-1".to_string(),
+                        title: "Flow emits MQTT payload".to_string(),
+                        state: "completed".to_string(),
+                        summary: Some("Observed payload matches contract.".to_string()),
+                        ..Default::default()
+                    }],
+                    evidence: vec![task::GoalEvidenceRecord {
+                        id: "ev-1".to_string(),
+                        title: "mqtt.log".to_string(),
+                        summary: Some("Captured matching payload from verifier run.".to_string()),
+                        ..Default::default()
+                    }],
+                    report: Some(task::GoalRunReportRecord {
+                        summary: "Implementation and proof completed.".to_string(),
+                        state: "completed".to_string(),
+                        notes: vec!["Verifier consumed builtin:weles binding".to_string()],
+                        ..Default::default()
+                    }),
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    let plain = render_task_view(&mut model);
+
+    assert!(plain.contains("Execution Dossier"), "{plain}");
+    assert!(plain.contains("Delivery Units"), "{plain}");
+    assert!(plain.contains("Proof Coverage"), "{plain}");
+    assert!(plain.contains("Reports"), "{plain}");
+    assert!(plain.contains("Resume Decision"), "{plain}");
+    assert!(plain.contains("Phone logging flow"), "{plain}");
+    assert!(plain.contains("execute via builtin:android"), "{plain}");
+    assert!(plain.contains("Verifier consumed builtin:weles binding"), "{plain}");
+}
+
+#[test]
 fn goal_view_scroll_up_moves_off_bottom_after_mouse_overscroll() {
     fn render_task_view(model: &mut TuiModel) -> Vec<String> {
         let backend = TestBackend::new(model.width, model.height);

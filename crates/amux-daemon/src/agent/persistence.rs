@@ -284,6 +284,16 @@ impl AgentEngine {
                 *self.thread_memory_injection_state_map().write().await =
                     thread_memory_injection_states;
                 *self.thread_structural_memories.write().await = thread_structural_memories;
+                let hydrated_thread_ids = self
+                    .thread_message_hydration_pending
+                    .read()
+                    .await
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for thread_id in hydrated_thread_ids {
+                    self.ensure_thread_messages_loaded(&thread_id).await;
+                }
                 let trimmed_playground_threads = self
                     .trim_persisted_participant_playground_threads_on_hydrate()
                     .await;

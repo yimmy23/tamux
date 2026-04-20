@@ -298,6 +298,7 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
         loaded_event_start: r.loaded_event_start,
         loaded_event_end: r.loaded_event_end,
         total_event_count: r.total_event_count,
+        dossier: r.dossier.map(convert_goal_run_dossier),
         events: r
             .events
             .into_iter()
@@ -315,6 +316,103 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
         updated_at: 0,
         older_page_pending: false,
         older_page_request_cooldown_until_tick: None,
+    }
+}
+
+fn convert_goal_evidence(record: crate::wire::GoalEvidenceRecord) -> task::GoalEvidenceRecord {
+    task::GoalEvidenceRecord {
+        id: record.id,
+        title: record.title,
+        source: record.source,
+        uri: record.uri,
+        summary: record.summary,
+        captured_at: record.captured_at,
+    }
+}
+
+fn convert_goal_proof_check(
+    record: crate::wire::GoalProofCheckRecord,
+) -> task::GoalProofCheckRecord {
+    task::GoalProofCheckRecord {
+        id: record.id,
+        title: record.title,
+        state: record.state,
+        summary: record.summary,
+        evidence_ids: record.evidence_ids,
+        resolved_at: record.resolved_at,
+    }
+}
+
+fn convert_goal_run_report(record: crate::wire::GoalRunReportRecord) -> task::GoalRunReportRecord {
+    task::GoalRunReportRecord {
+        summary: record.summary,
+        state: record.state,
+        notes: record.notes,
+        evidence: record
+            .evidence
+            .into_iter()
+            .map(convert_goal_evidence)
+            .collect(),
+        proof_checks: record
+            .proof_checks
+            .into_iter()
+            .map(convert_goal_proof_check)
+            .collect(),
+        generated_at: record.generated_at,
+    }
+}
+
+fn convert_goal_resume_decision(
+    record: crate::wire::GoalResumeDecisionRecord,
+) -> task::GoalResumeDecisionRecord {
+    task::GoalResumeDecisionRecord {
+        action: record.action,
+        reason_code: record.reason_code,
+        reason: record.reason,
+        details: record.details,
+        decided_at: record.decided_at,
+        projection_state: record.projection_state,
+    }
+}
+
+fn convert_goal_delivery_unit(
+    record: crate::wire::GoalDeliveryUnitRecord,
+) -> task::GoalDeliveryUnitRecord {
+    task::GoalDeliveryUnitRecord {
+        id: record.id,
+        title: record.title,
+        status: record.status,
+        execution_binding: record.execution_binding,
+        verification_binding: record.verification_binding,
+        summary: record.summary,
+        proof_checks: record
+            .proof_checks
+            .into_iter()
+            .map(convert_goal_proof_check)
+            .collect(),
+        evidence: record
+            .evidence
+            .into_iter()
+            .map(convert_goal_evidence)
+            .collect(),
+        report: record.report.map(convert_goal_run_report),
+    }
+}
+
+fn convert_goal_run_dossier(record: crate::wire::GoalRunDossier) -> task::GoalRunDossier {
+    task::GoalRunDossier {
+        units: record
+            .units
+            .into_iter()
+            .map(convert_goal_delivery_unit)
+            .collect(),
+        projection_state: record.projection_state,
+        latest_resume_decision: record
+            .latest_resume_decision
+            .map(convert_goal_resume_decision),
+        report: record.report.map(convert_goal_run_report),
+        summary: record.summary,
+        projection_error: record.projection_error,
     }
 }
 
