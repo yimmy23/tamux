@@ -142,6 +142,7 @@ const KIMI_MODELS: ModelDefinition[] = [
 
 const KIMI_CODING_MODELS: ModelDefinition[] = [
   { id: "kimi-for-coding", name: "Kimi for Coding", contextWindow: 262144 },
+  { id: "kimi-k2.6", name: "Kimi K2.6", contextWindow: 262144 },
   { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
   { id: "kimi-k2-turbo-preview", name: "Kimi K2 Turbo Preview", contextWindow: 262144 },
 ];
@@ -156,6 +157,7 @@ const ALIBABA_CODING_MODELS: ModelDefinition[] = [
   { id: "qwen3-coder-plus", name: "Qwen3 Coder Plus", contextWindow: 997952 },
   { id: "qwen3-coder-next", name: "Qwen3 Coder Next", contextWindow: 204800 },
   { id: "glm-5", name: "GLM-5", contextWindow: 202752 },
+  { id: "kimi-k2.6", name: "Kimi K2.6", contextWindow: 262144 },
   { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
   { id: "MiniMax-M2.5", name: "MiniMax M2.5", contextWindow: 205000 },
 ];
@@ -184,6 +186,7 @@ const OPENCODE_ZEN_MODELS: ModelDefinition[] = [
   { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 128000, modalities: M_TI },
   { id: "minimax-m2.5", name: "MiniMax M2.5", contextWindow: 205000 },
   { id: "glm-5", name: "GLM-5", contextWindow: 128000 },
+  { id: "kimi-k2.6", name: "Kimi K2.6", contextWindow: 262144 },
   { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
 ];
 

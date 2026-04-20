@@ -24,6 +24,12 @@ pub const ALIBABA_CODING_MODELS: &[ModelDefinition] = &[
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
+        id: "kimi-k2.6",
+        name: "Kimi K2.6",
+        context_window: 262144,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
         id: "kimi-k2.5",
         name: "Kimi K2.5",
         context_window: 262144,
@@ -207,6 +213,12 @@ pub const OPENCODE_ZEN_MODELS: &[ModelDefinition] = &[
         id: "glm-5",
         name: "GLM-5",
         context_window: 128000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "kimi-k2.6",
+        name: "Kimi K2.6",
+        context_window: 262144,
         modalities: TEXT_ONLY,
     },
     ModelDefinition {

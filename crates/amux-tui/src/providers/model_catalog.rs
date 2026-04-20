@@ -155,6 +155,7 @@ pub(super) fn known_models_for_provider_auth(
         ],
         PROVIDER_ID_KIMI_CODING_PLAN => &[
             ("kimi-for-coding", "Kimi for Coding", 262_144),
+            ("kimi-k2.6", "Kimi K2.6", 262_144),
             ("kimi-k2.5", "Kimi K2.5", 262_144),
             ("kimi-k2-turbo-preview", "Kimi K2 Turbo Preview", 262_144),
         ],
@@ -194,6 +195,7 @@ pub(super) fn known_models_for_provider_auth(
             ("qwen3-coder-plus", "Qwen3 Coder Plus", 997_952),
             ("qwen3-coder-next", "Qwen3 Coder Next", 204_800),
             ("glm-5", "GLM-5", 202_752),
+            ("kimi-k2.6", "Kimi K2.6", 262_144),
             ("kimi-k2.5", "Kimi K2.5", 262_144),
             ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
         ],

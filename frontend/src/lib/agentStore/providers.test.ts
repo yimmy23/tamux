@@ -303,6 +303,7 @@ describe("frontend curated media provider catalog", () => {
     ]);
     expect(getProviderModels("kimi-coding-plan").map((model) => model.id)).toEqual([
       "kimi-for-coding",
+      "kimi-k2.6",
       "kimi-k2.5",
       "kimi-k2-turbo-preview",
     ]);
@@ -311,8 +312,20 @@ describe("frontend curated media provider catalog", () => {
       "qwen3-coder-plus",
       "qwen3-coder-next",
       "glm-5",
+      "kimi-k2.6",
       "kimi-k2.5",
       "MiniMax-M2.5",
+    ]);
+    expect(getProviderModels("opencode-zen").map((model) => model.id)).toEqual([
+      "claude-opus-4-6",
+      "claude-sonnet-4-5",
+      "claude-sonnet-4",
+      "gpt-5.4",
+      "gpt-5.3-codex",
+      "minimax-m2.5",
+      "glm-5",
+      "kimi-k2.6",
+      "kimi-k2.5",
     ]);
   });
 
