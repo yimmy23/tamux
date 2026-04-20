@@ -54,6 +54,11 @@ fn sample_goal_run_for_structured_fallback(goal_run_id: &str) -> GoalRun {
         estimated_cost_usd: None,
         autonomy_level: AutonomyLevel::Supervised,
         authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
     }
 }
 

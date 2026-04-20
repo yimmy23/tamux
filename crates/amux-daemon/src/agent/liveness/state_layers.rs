@@ -241,6 +241,11 @@ mod tests {
             estimated_cost_usd: None,
             autonomy_level: Default::default(),
             authorship_tag: None,
+            launch_assignment_snapshot: Vec::new(),
+            runtime_assignment_list: Vec::new(),
+            root_thread_id: None,
+            active_thread_id: None,
+            execution_thread_ids: Vec::new(),
         }
     }
 

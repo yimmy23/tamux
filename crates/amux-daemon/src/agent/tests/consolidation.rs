@@ -215,6 +215,11 @@ async fn maybe_run_consolidation_if_idle_blocks_when_goal_run_is_awaiting_approv
         estimated_cost_usd: None,
         autonomy_level: Default::default(),
         authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
     };
     engine.goal_runs.lock().await.push_back(goal);
 

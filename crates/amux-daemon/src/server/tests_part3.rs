@@ -136,6 +136,11 @@ async fn agent_resolve_task_approval_keeps_connection_alive_for_goal_plan_review
         estimated_cost_usd: None,
         autonomy_level: crate::agent::AutonomyLevel::Aware,
         authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
     });
 
     conn.agent.tasks.lock().await.push_back(crate::agent::types::AgentTask {
@@ -287,6 +292,11 @@ async fn agent_resolve_task_approval_keeps_subscribed_connection_alive_for_goal_
         estimated_cost_usd: None,
         autonomy_level: crate::agent::AutonomyLevel::Aware,
         authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
     });
 
     conn.agent.tasks.lock().await.push_back(crate::agent::types::AgentTask {
