@@ -128,6 +128,89 @@ fn goal_sidebar_model() -> TuiModel {
     model
 }
 
+fn mission_control_thread_router_model(
+    active_thread_id: Option<&str>,
+    root_thread_id: Option<&str>,
+) -> TuiModel {
+    let mut model = build_model();
+    let thread_ids = [active_thread_id, root_thread_id];
+    for thread_id in thread_ids.into_iter().flatten() {
+        model
+            .chat
+            .reduce(chat::ChatAction::ThreadCreated {
+                thread_id: thread_id.to_string(),
+                title: format!("Thread {thread_id}"),
+            });
+        model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+            chat::AgentThread {
+                id: thread_id.to_string(),
+                title: format!("Thread {thread_id}"),
+                messages: vec![chat::AgentMessage {
+                    id: Some(format!("message-{thread_id}")),
+                    role: chat::MessageRole::Assistant,
+                    content: format!("Conversation for {thread_id}"),
+                    ..Default::default()
+                }],
+                loaded_message_end: 1,
+                total_message_count: 1,
+                ..Default::default()
+            },
+        ));
+    }
+
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal Title".to_string(),
+        thread_id: root_thread_id.map(str::to_string),
+        root_thread_id: root_thread_id.map(str::to_string),
+        active_thread_id: active_thread_id.map(str::to_string),
+        goal: "goal definition body".to_string(),
+        current_step_title: Some("Implement".to_string()),
+        steps: vec![
+            task::GoalRunStep {
+                id: "step-1".to_string(),
+                title: "Plan".to_string(),
+                order: 0,
+                ..Default::default()
+            },
+            task::GoalRunStep {
+                id: "step-2".to_string(),
+                title: "Implement".to_string(),
+                order: 1,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: Some("step-2".to_string()),
+    });
+    model.focus = FocusArea::Chat;
+    model.open_new_goal_view();
+    model.status_line.clear();
+    model
+}
+
+fn render_chat_plain(model: &mut TuiModel) -> String {
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("render should succeed");
+
+    let chat_area = rendered_chat_area(model);
+    let buffer = terminal.backend().buffer();
+    (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+        .map(|y| {
+            (chat_area.x..chat_area.x.saturating_add(chat_area.width))
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn goal_sidebar_defaults_to_steps_on_model_init() {
     let model = build_model();
@@ -369,6 +452,152 @@ fn goal_sidebar_task_back_to_goal_row_click_returns_to_goal() {
     assert!(matches!(
         model.main_pane_view,
         MainPaneView::Task(SidebarItemTarget::GoalRun { ref goal_run_id, .. }) if goal_run_id == "goal-1"
+    ));
+}
+
+#[test]
+fn mission_control_thread_router_open_active_thread_prefers_active_thread_id() {
+    let mut model =
+        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+
+    let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+
+    assert!(!handled);
+    assert_eq!(model.chat.active_thread_id(), Some("thread-active"));
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert!(render_chat_plain(&mut model).contains("Return to goal"));
+}
+
+#[test]
+fn mission_control_thread_router_fallback_to_root_thread_sets_status() {
+    let mut model = mission_control_thread_router_model(None, Some("thread-root"));
+
+    let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+
+    assert!(!handled);
+    assert_eq!(model.chat.active_thread_id(), Some("thread-root"));
+    assert_eq!(
+        model.status_line,
+        "Opened root goal thread as fallback because no active goal thread was available"
+    );
+}
+
+#[test]
+fn mission_control_thread_router_ignores_open_thread_shortcut_when_unavailable() {
+    let mut model = mission_control_thread_router_model(None, None);
+
+    let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
+    assert_eq!(model.chat.active_thread_id(), None);
+    assert_eq!(model.status_line, "");
+}
+
+#[test]
+fn threads_return_to_goal_exposes_return_to_goal_affordance_when_opened_from_mission_control() {
+    let mut model =
+        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+
+    let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+
+    assert!(!handled);
+    let plain = render_chat_plain(&mut model);
+    assert!(plain.contains("Return to goal"), "{plain}");
+}
+
+#[test]
+fn threads_return_to_goal_banner_keeps_conversation_mouse_targets_aligned() {
+    let mut model =
+        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+
+    let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+    assert!(!handled);
+
+    let conversation_area = model
+        .conversation_content_area()
+        .expect("conversation content area should be available");
+    let (selection_pos, expected_point) = (conversation_area.y
+        ..conversation_area.y.saturating_add(conversation_area.height))
+        .find_map(|row| {
+            (conversation_area.x..conversation_area.x.saturating_add(conversation_area.width))
+                .find_map(|column| {
+                    let pos = Position::new(column, row);
+                    widgets::chat::selection_point_from_mouse(
+                        conversation_area,
+                        &model.chat,
+                        &model.theme,
+                        model.tick_counter,
+                        pos,
+                    )
+                    .map(|point| (pos, point))
+                })
+        })
+        .expect("conversation content should expose a selectable point");
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: selection_pos.x,
+        row: selection_pos.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(model.chat_drag_anchor_point, Some(expected_point));
+}
+
+#[test]
+fn threads_return_to_goal_keyboard_restores_goal_run_and_step_selection() {
+    let mut model =
+        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+
+    let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+    assert!(!handled);
+
+    let handled = model.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(
+        model.main_pane_view,
+        MainPaneView::Task(SidebarItemTarget::GoalRun {
+            ref goal_run_id,
+            step_id: Some(ref step_id),
+        }) if goal_run_id == "goal-1" && step_id == "step-2"
+    ));
+}
+
+#[test]
+fn threads_return_to_goal_mouse_restores_goal_run_and_step_selection() {
+    let mut model =
+        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+
+    let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+    assert!(!handled);
+
+    let button = model
+        .conversation_return_to_goal_button_area()
+        .expect("return-to-goal button should be rendered");
+    let click_column = button.x.saturating_add(1);
+    let click_row = button.y;
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click_column,
+        row: click_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: click_column,
+        row: click_row,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert!(matches!(
+        model.main_pane_view,
+        MainPaneView::Task(SidebarItemTarget::GoalRun {
+            ref goal_run_id,
+            step_id: Some(ref step_id),
+        }) if goal_run_id == "goal-1" && step_id == "step-2"
     ));
 }
 

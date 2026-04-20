@@ -81,6 +81,12 @@ enum MainPaneView {
     GoalComposer,
 }
 
+#[derive(Clone, Debug, Default)]
+struct MissionControlNavigationState {
+    source_goal_target: Option<sidebar::SidebarItemTarget>,
+    return_to_goal_target: Option<sidebar::SidebarItemTarget>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum GoalSidebarSelectionAnchor {
     Step(String),
@@ -432,6 +438,7 @@ pub struct TuiModel {
     sidebar: sidebar::SidebarState,
     goal_sidebar: goal_sidebar::GoalSidebarState,
     goal_mission_control: goal_mission_control::GoalMissionControlState,
+    mission_control_navigation: MissionControlNavigationState,
     goal_sidebar_selection_anchor: Option<GoalSidebarSelectionAnchor>,
     tasks: task::TaskState,
     config: config::ConfigState,

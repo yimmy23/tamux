@@ -10,6 +10,7 @@ pub mod concierge;
 pub mod concierge_loading;
 pub mod file_preview;
 pub mod footer;
+pub mod goal_mission_control;
 pub mod goal_picker;
 pub mod goal_sidebar;
 pub mod header;

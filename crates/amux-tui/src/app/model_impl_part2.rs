@@ -289,6 +289,13 @@ impl TuiModel {
     }
 
     fn open_thread_conversation(&mut self, thread_id: String) {
+        if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
+            if let Some(target) = self.mission_control_source_goal_target() {
+                self.set_mission_control_return_to_goal_target(Some(target));
+            }
+        } else {
+            self.set_mission_control_return_to_goal_target(None);
+        }
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
@@ -306,6 +313,7 @@ impl TuiModel {
     }
 
     fn start_new_thread_view_for_agent(&mut self, target_agent_id: Option<&str>) {
+        self.set_mission_control_return_to_goal_target(None);
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
@@ -320,6 +328,7 @@ impl TuiModel {
     }
 
     fn begin_concierge_welcome_request(&mut self) {
+        self.set_mission_control_return_to_goal_target(None);
         self.ignore_pending_concierge_welcome = false;
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();

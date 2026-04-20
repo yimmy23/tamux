@@ -34,6 +34,84 @@ impl GoalActionPickerItem {
 }
 
 impl TuiModel {
+    pub(super) fn mission_control_navigation_state(&self) -> MissionControlNavigationState {
+        self.mission_control_navigation.clone()
+    }
+
+    pub(super) fn update_mission_control_navigation_state(
+        &mut self,
+        update: impl FnOnce(&mut MissionControlNavigationState),
+    ) {
+        update(&mut self.mission_control_navigation);
+    }
+
+    pub(super) fn mission_control_source_goal_target(&self) -> Option<sidebar::SidebarItemTarget> {
+        self.mission_control_navigation_state().source_goal_target
+    }
+
+    pub(super) fn set_mission_control_source_goal_target(
+        &mut self,
+        target: Option<sidebar::SidebarItemTarget>,
+    ) {
+        self.update_mission_control_navigation_state(|state| {
+            state.source_goal_target = target;
+        });
+    }
+
+    pub(super) fn mission_control_return_to_goal_target(
+        &self,
+    ) -> Option<sidebar::SidebarItemTarget> {
+        self.mission_control_navigation_state()
+            .return_to_goal_target
+    }
+
+    pub(super) fn set_mission_control_return_to_goal_target(
+        &mut self,
+        target: Option<sidebar::SidebarItemTarget>,
+    ) {
+        self.update_mission_control_navigation_state(|state| {
+            state.return_to_goal_target = target;
+        });
+    }
+
+    fn current_goal_target_for_mission_control(&self) -> Option<sidebar::SidebarItemTarget> {
+        match &self.main_pane_view {
+            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
+                goal_run_id,
+                step_id,
+            }) => Some(sidebar::SidebarItemTarget::GoalRun {
+                goal_run_id: goal_run_id.clone(),
+                step_id: step_id.clone(),
+            }),
+            MainPaneView::Task(sidebar::SidebarItemTarget::Task { task_id }) => {
+                self.parent_goal_target_for_task(task_id)
+            }
+            _ => None,
+        }
+    }
+
+    fn mission_control_goal_run(&self) -> Option<&task::GoalRun> {
+        let target = self.mission_control_source_goal_target()?;
+        let goal_run_id = target_goal_run_id(self, &target)?;
+        self.tasks.goal_run_by_id(&goal_run_id)
+    }
+
+    fn mission_control_thread_target(&self) -> Option<(String, bool)> {
+        let run = self.mission_control_goal_run()?;
+        run.active_thread_id
+            .clone()
+            .map(|thread_id| (thread_id, false))
+            .or_else(|| {
+                run.root_thread_id
+                    .clone()
+                    .map(|thread_id| (thread_id, true))
+            })
+    }
+
+    pub(super) fn mission_control_has_thread_target(&self) -> bool {
+        self.mission_control_thread_target().is_some()
+    }
+
     pub(super) fn sidebar_uses_goal_sidebar(&self) -> bool {
         matches!(
             self.main_pane_view,
@@ -890,6 +968,7 @@ impl TuiModel {
             return;
         }
 
+        self.set_mission_control_return_to_goal_target(None);
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
@@ -909,6 +988,7 @@ impl TuiModel {
     }
 
     pub(super) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
+        self.set_mission_control_return_to_goal_target(None);
         self.cleanup_concierge_on_navigate();
         self.clear_task_view_drag_selection();
         if let sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } = &target {
@@ -1270,6 +1350,8 @@ impl TuiModel {
     }
 
     pub(super) fn open_new_goal_view(&mut self) {
+        self.set_mission_control_source_goal_target(self.current_goal_target_for_mission_control());
+        self.set_mission_control_return_to_goal_target(None);
         self.cleanup_concierge_on_navigate();
         let fallback_profile = self.current_conversation_agent_profile();
         let fallback_main_assignment = task::GoalAgentAssignment {
@@ -1314,6 +1396,38 @@ impl TuiModel {
         self.set_input_text("");
         self.attachments.clear();
         self.status_line = "Mission Control preflight is ready".to_string();
+    }
+
+    pub(super) fn open_mission_control_goal_thread(&mut self) -> bool {
+        let Some((thread_id, used_root_fallback)) = self.mission_control_thread_target() else {
+            self.status_line = if self.mission_control_source_goal_target().is_some() {
+                "Mission Control source goal has no active or root thread".to_string()
+            } else {
+                "Mission Control has no source goal thread to open".to_string()
+            };
+            return false;
+        };
+
+        self.open_thread_conversation(thread_id.clone());
+        self.status_line = if used_root_fallback {
+            "Opened root goal thread as fallback because no active goal thread was available"
+                .to_string()
+        } else {
+            format!("Opened active goal thread {thread_id}")
+        };
+        true
+    }
+
+    pub(super) fn return_to_goal_from_mission_control(&mut self) -> bool {
+        let Some(target) = self.mission_control_return_to_goal_target() else {
+            return false;
+        };
+
+        self.set_mission_control_return_to_goal_target(None);
+        self.open_sidebar_target(target);
+        self.focus = FocusArea::Chat;
+        self.status_line = "Returned to goal".to_string();
+        true
     }
 
     pub(super) fn start_goal_run_from_prompt(&mut self, goal: String) {

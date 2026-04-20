@@ -75,6 +75,7 @@ impl TuiModel {
 
         let layout = self.pane_layout();
         let chat_area = layout.chat;
+        let conversation_chat_area = self.conversation_content_area().unwrap_or(chat_area);
         let sidebar_area = layout.sidebar.unwrap_or_default();
         let cursor_in_concierge =
             layout.concierge.height > 0 && contains_mouse(layout.concierge, mouse);
@@ -136,8 +137,14 @@ impl TuiModel {
                     } else {
                         self.chat.reduce(chat::ChatAction::ScrollChat(3));
                         if self.chat_drag_anchor.is_some() {
+                            let selection_area =
+                                if matches!(self.main_pane_view, MainPaneView::Conversation) {
+                                    conversation_chat_area
+                                } else {
+                                    chat_area
+                                };
                             self.chat_selection_snapshot = widgets::chat::build_selection_snapshot(
-                                chat_area,
+                                selection_area,
                                 &self.chat,
                                 &self.theme,
                                 self.tick_counter,
@@ -215,8 +222,14 @@ impl TuiModel {
                     } else {
                         self.chat.reduce(chat::ChatAction::ScrollChat(-3));
                         if self.chat_drag_anchor.is_some() {
+                            let selection_area =
+                                if matches!(self.main_pane_view, MainPaneView::Conversation) {
+                                    conversation_chat_area
+                                } else {
+                                    chat_area
+                                };
                             self.chat_selection_snapshot = widgets::chat::build_selection_snapshot(
-                                chat_area,
+                                selection_area,
                                 &self.chat,
                                 &self.theme,
                                 self.tick_counter,
@@ -261,6 +274,31 @@ impl TuiModel {
                     }
                 } else if cursor_in_chat {
                     self.focus = FocusArea::Chat;
+                    if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
+                        if matches!(
+                            widgets::goal_mission_control::hit_test(
+                                chat_area,
+                                Position::new(mouse.column, mouse.row),
+                                self.mission_control_has_thread_target(),
+                            ),
+                            Some(
+                                widgets::goal_mission_control::GoalMissionControlHitTarget::OpenActiveThread
+                            )
+                        ) {
+                            let _ = self.open_mission_control_goal_thread();
+                            self.input.set_mode(input::InputMode::Insert);
+                            return;
+                        }
+                    } else if matches!(self.main_pane_view, MainPaneView::Conversation) {
+                        if self
+                            .conversation_return_to_goal_button_area()
+                            .is_some_and(|rect| contains_mouse(rect, mouse))
+                        {
+                            let _ = self.return_to_goal_from_mission_control();
+                            self.input.set_mode(input::InputMode::Insert);
+                            return;
+                        }
+                    }
                     if matches!(self.main_pane_view, MainPaneView::Collaboration) {
                         if let Some(hit) = widgets::collaboration_view::hit_test(
                             chat_area,
@@ -345,13 +383,13 @@ impl TuiModel {
                         }
                         let pos = Position::new(mouse.column, mouse.row);
                         if pos.x
-                            == chat_area
+                            == conversation_chat_area
                                 .x
-                                .saturating_add(chat_area.width)
+                                .saturating_add(conversation_chat_area.width)
                                 .saturating_sub(1)
                         {
                             if let Some(layout) = widgets::chat::scrollbar_layout(
-                                chat_area,
+                                conversation_chat_area,
                                 &self.chat,
                                 &self.theme,
                                 self.tick_counter,
@@ -377,7 +415,7 @@ impl TuiModel {
                                     };
                                     if let Some(target) =
                                         widgets::chat::scrollbar_scroll_offset_for_pointer(
-                                            chat_area,
+                                            conversation_chat_area,
                                             &self.chat,
                                             &self.theme,
                                             self.tick_counter,
@@ -396,7 +434,7 @@ impl TuiModel {
                         }
                         if matches!(
                             widgets::chat::hit_test(
-                                chat_area,
+                                conversation_chat_area,
                                 &self.chat,
                                 &self.theme,
                                 self.tick_counter,
@@ -407,12 +445,12 @@ impl TuiModel {
                             )
                         ) {
                             self.clear_chat_drag_selection();
-                            self.handle_chat_click(chat_area, pos);
+                            self.handle_chat_click(conversation_chat_area, pos);
                             self.input.set_mode(input::InputMode::Insert);
                             return;
                         }
                         self.chat_selection_snapshot = widgets::chat::build_selection_snapshot(
-                            chat_area,
+                            conversation_chat_area,
                             &self.chat,
                             &self.theme,
                             self.tick_counter,
@@ -578,7 +616,7 @@ impl TuiModel {
                 if let Some(grab_offset) = self.chat_scrollbar_drag_grab_offset {
                     if matches!(self.main_pane_view, MainPaneView::Conversation) {
                         if let Some(target) = widgets::chat::scrollbar_scroll_offset_for_pointer(
-                            chat_area,
+                            conversation_chat_area,
                             &self.chat,
                             &self.theme,
                             self.tick_counter,
@@ -593,13 +631,13 @@ impl TuiModel {
                     && matches!(self.main_pane_view, MainPaneView::Conversation)
                 {
                     let mut scrolled = false;
-                    if mouse.row <= chat_area.y.saturating_add(1) {
+                    if mouse.row <= conversation_chat_area.y.saturating_add(1) {
                         self.chat.reduce(chat::ChatAction::ScrollChat(1));
                         scrolled = true;
                     } else if mouse.row
-                        >= chat_area
+                        >= conversation_chat_area
                             .y
-                            .saturating_add(chat_area.height)
+                            .saturating_add(conversation_chat_area.height)
                             .saturating_sub(2)
                     {
                         self.chat.reduce(chat::ChatAction::ScrollChat(-1));
@@ -607,7 +645,7 @@ impl TuiModel {
                     }
                     if scrolled || self.chat_selection_snapshot.is_none() {
                         self.chat_selection_snapshot = widgets::chat::build_selection_snapshot(
-                            chat_area,
+                            conversation_chat_area,
                             &self.chat,
                             &self.theme,
                             self.tick_counter,
@@ -700,7 +738,7 @@ impl TuiModel {
                     else {
                         if cursor_in_chat {
                             self.handle_chat_click(
-                                chat_area,
+                                conversation_chat_area,
                                 Position::new(mouse.column, mouse.row),
                             );
                         }
@@ -719,7 +757,7 @@ impl TuiModel {
                             self.status_line = "Copied selection to clipboard".to_string();
                         }
                     } else if cursor_in_chat {
-                        self.handle_chat_click(chat_area, anchor);
+                        self.handle_chat_click(conversation_chat_area, anchor);
                     }
                 } else if let Some(anchor) = self.task_view_drag_anchor.take() {
                     let current = self

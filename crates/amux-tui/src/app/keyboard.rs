@@ -403,6 +403,13 @@ impl TuiModel {
                 self.sync_goal_picker_item_count();
                 self.focus = FocusArea::Chat;
             }
+            KeyCode::Char('o')
+                if ctrl
+                    && matches!(self.main_pane_view, MainPaneView::GoalComposer)
+                    && self.mission_control_has_thread_target() =>
+            {
+                let _ = self.open_mission_control_goal_thread();
+            }
             KeyCode::Char('n') if ctrl => {
                 self.toggle_notifications_modal();
             }
@@ -710,6 +717,13 @@ impl TuiModel {
                     && self.sidebar.active_tab() == sidebar::SidebarTab::Pinned =>
             {
                 self.unpin_selected_sidebar_message();
+            }
+            KeyCode::Char('b')
+                if self.focus == FocusArea::Chat
+                    && matches!(self.main_pane_view, MainPaneView::Conversation)
+                    && self.mission_control_return_to_goal_target().is_some() =>
+            {
+                let _ = self.return_to_goal_from_mission_control();
             }
             // Dismiss selected audit entry with 'd' key (BEAT-07)
             KeyCode::Char('d')

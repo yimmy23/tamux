@@ -197,7 +197,7 @@ impl TuiModel {
             return None;
         }
 
-        let chat_area = self.pane_layout().chat;
+        let chat_area = self.conversation_content_area()?;
         let summary_height = if self.active_auto_response_suggestion().is_some()
             || self.active_always_auto_response_participant().is_some()
         {
@@ -210,6 +210,50 @@ impl TuiModel {
             .constraints([Constraint::Length(summary_height), Constraint::Min(1)])
             .split(chat_area);
         Some(chunks[0])
+    }
+
+    pub(super) fn conversation_content_area(&self) -> Option<Rect> {
+        if !matches!(self.main_pane_view, MainPaneView::Conversation) {
+            return None;
+        }
+
+        let chat_area = self.pane_layout().chat;
+        if self.conversation_return_to_goal_area().is_some() {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(1)])
+                .split(chat_area);
+            Some(chunks[1])
+        } else {
+            Some(chat_area)
+        }
+    }
+
+    fn conversation_return_to_goal_area(&self) -> Option<Rect> {
+        if !matches!(self.main_pane_view, MainPaneView::Conversation) {
+            return None;
+        }
+        if self.should_show_provider_onboarding()
+            || self.should_show_local_landing()
+            || self.should_show_concierge_hero_loading()
+            || self.should_show_thread_loading()
+            || self.mission_control_return_to_goal_target().is_none()
+        {
+            return None;
+        }
+
+        let chat_area = self.pane_layout().chat;
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(1)])
+            .split(chat_area);
+        Some(chunks[0])
+    }
+
+    pub(super) fn conversation_return_to_goal_button_area(&self) -> Option<Rect> {
+        widgets::goal_mission_control::return_to_goal_button_area(
+            self.conversation_return_to_goal_area()?,
+        )
     }
 
     fn configured_model_label(model: &str, custom_model_name: &str) -> String {
@@ -770,6 +814,20 @@ impl TuiModel {
             return;
         }
 
+        let mut area = area;
+        if let Some(return_area) = self.conversation_return_to_goal_area() {
+            widgets::goal_mission_control::render_return_to_goal_banner(
+                frame,
+                return_area,
+                &self.theme,
+            );
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(1)])
+                .split(area);
+            area = chunks[1];
+        }
+
         let has_auto_response = self.active_auto_response_suggestion().is_some()
             || self.active_always_auto_response_participant().is_some();
         let participant_summary = self.chat.active_thread().and_then(|thread| {
@@ -1138,6 +1196,7 @@ impl TuiModel {
                         frame,
                         layout.chat,
                         &self.goal_mission_control,
+                        self.mission_control_has_thread_target(),
                         &self.theme,
                     )
                 }
@@ -1260,6 +1319,7 @@ impl TuiModel {
                         frame,
                         layout.chat,
                         &self.goal_mission_control,
+                        self.mission_control_has_thread_target(),
                         &self.theme,
                     )
                 }
