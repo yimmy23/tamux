@@ -654,29 +654,141 @@ impl TuiModel {
         })
     }
 
-    fn goal_run_header_profile(&self) -> Option<ConversationAgentProfile> {
+    fn goal_assignment_to_header_profile(
+        assignment: &task::GoalAgentAssignment,
+    ) -> Option<ConversationAgentProfile> {
+        let provider = assignment.provider.trim();
+        let model = assignment.model.trim();
+        if provider.is_empty() || model.is_empty() {
+            return None;
+        }
+
+        let normalized_role = assignment.role_id.trim().to_ascii_lowercase();
+        let agent_label = if normalized_role == amux_protocol::AGENT_ID_SWAROG {
+            "Swarog".to_string()
+        } else if normalized_role == amux_protocol::AGENT_ID_RAROG {
+            amux_protocol::AGENT_NAME_RAROG.to_string()
+        } else {
+            normalized_role
+                .split(['-', '_'])
+                .filter(|segment| !segment.is_empty())
+                .map(|segment| {
+                    let mut chars = segment.chars();
+                    let Some(first) = chars.next() else {
+                        return String::new();
+                    };
+                    let mut title = String::new();
+                    title.push(first.to_ascii_uppercase());
+                    title.push_str(chars.as_str());
+                    title
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+
+        Some(ConversationAgentProfile {
+            agent_label,
+            provider: provider.to_string(),
+            model: model.to_string(),
+            reasoning_effort: assignment
+                .reasoning_effort
+                .clone()
+                .filter(|value| !value.trim().is_empty()),
+        })
+    }
+
+    fn goal_run_header_run(&self) -> Option<&task::GoalRun> {
         let MainPaneView::Task(SidebarItemTarget::GoalRun { goal_run_id, .. }) =
             &self.main_pane_view
         else {
             return None;
         };
 
-        let profile = self
-            .tasks
-            .goal_run_by_id(goal_run_id)
-            .and_then(|run| {
-                run.current_step_owner_profile
+        self.tasks.goal_run_by_id(goal_run_id)
+    }
+
+    fn goal_run_header_thread(&self, run: &task::GoalRun) -> Option<&chat::AgentThread> {
+        [
+            run.active_thread_id.as_deref(),
+            run.root_thread_id.as_deref(),
+            run.thread_id.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(|thread_id| {
+            self.chat
+                .threads()
+                .iter()
+                .find(|thread| thread.id == thread_id)
+        })
+    }
+
+    fn goal_run_launch_header_profile(
+        &self,
+        run: &task::GoalRun,
+    ) -> Option<ConversationAgentProfile> {
+        run.launch_assignment_snapshot
+            .iter()
+            .find(|assignment| assignment.role_id == amux_protocol::AGENT_ID_SWAROG)
+            .or_else(|| run.launch_assignment_snapshot.first())
+            .and_then(Self::goal_assignment_to_header_profile)
+    }
+
+    fn goal_run_owner_header_profile(
+        &self,
+        run: &task::GoalRun,
+    ) -> Option<ConversationAgentProfile> {
+        run.current_step_owner_profile
+            .as_ref()
+            .and_then(Self::goal_runtime_owner_profile_to_header_profile)
+            .or_else(|| {
+                run.planner_owner_profile
                     .as_ref()
                     .and_then(Self::goal_runtime_owner_profile_to_header_profile)
-                    .or_else(|| {
-                        run.planner_owner_profile
-                            .as_ref()
-                            .and_then(Self::goal_runtime_owner_profile_to_header_profile)
-                    })
             })
-            .unwrap_or_else(|| self.svarog_profile());
+    }
 
-        Some(profile)
+    fn goal_run_runtime_thread_profile(
+        &self,
+        run: &task::GoalRun,
+    ) -> Option<ConversationAgentProfile> {
+        let thread = self.goal_run_header_thread(run)?;
+        if thread.runtime_provider.is_none()
+            && thread.runtime_model.is_none()
+            && thread.runtime_reasoning_effort.is_none()
+        {
+            return None;
+        }
+
+        let fallback = self
+            .goal_run_owner_header_profile(run)
+            .or_else(|| self.goal_run_launch_header_profile(run))
+            .unwrap_or_else(|| self.svarog_profile());
+        Some(ConversationAgentProfile {
+            agent_label: thread
+                .agent_name
+                .as_deref()
+                .filter(|name| !name.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or(fallback.agent_label),
+            provider: thread.runtime_provider.clone().unwrap_or(fallback.provider),
+            model: thread.runtime_model.clone().unwrap_or(fallback.model),
+            reasoning_effort: thread
+                .runtime_reasoning_effort
+                .clone()
+                .or(fallback.reasoning_effort),
+        })
+    }
+
+    fn goal_run_header_profile(&self) -> Option<ConversationAgentProfile> {
+        let run = self.goal_run_header_run()?;
+
+        Some(
+            self.goal_run_runtime_thread_profile(run)
+                .or_else(|| self.goal_run_owner_header_profile(run))
+                .or_else(|| self.goal_run_launch_header_profile(run))
+                .unwrap_or_else(|| self.svarog_profile()),
+        )
     }
 
     fn current_header_profile_for_active_pane(&self) -> ConversationAgentProfile {
@@ -720,21 +832,8 @@ impl TuiModel {
     }
 
     fn goal_run_usage_thread(&self) -> Option<&chat::AgentThread> {
-        let MainPaneView::Task(SidebarItemTarget::GoalRun { goal_run_id, .. }) =
-            &self.main_pane_view
-        else {
-            return None;
-        };
-
-        let thread_id = self
-            .tasks
-            .goal_run_by_id(goal_run_id)?
-            .thread_id
-            .as_deref()?;
-        self.chat
-            .threads()
-            .iter()
-            .find(|thread| thread.id == thread_id)
+        self.goal_run_header_run()
+            .and_then(|run| self.goal_run_header_thread(run))
     }
 
     fn current_header_usage_thread(&self) -> Option<&chat::AgentThread> {
@@ -778,21 +877,21 @@ impl TuiModel {
         profile: &ConversationAgentProfile,
         thread: Option<&chat::AgentThread>,
     ) -> widgets::header::HeaderUsageDisplay {
+        let context_window_tokens =
+            self.current_header_context_window_tokens(profile).max(1) as u64;
+        let compaction_target_tokens =
+            self.current_header_context_target_tokens(profile).max(1) as u64;
         let Some(thread) = thread else {
             return widgets::header::HeaderUsageDisplay {
                 total_thread_tokens: 0,
                 current_tokens: 0,
-                context_window_tokens: 0,
-                compaction_target_tokens: 0,
+                context_window_tokens,
+                compaction_target_tokens,
                 utilization_pct: 0,
                 total_cost_usd: None,
             };
         };
 
-        let context_window_tokens =
-            self.current_header_context_window_tokens(profile).max(1) as u64;
-        let compaction_target_tokens =
-            self.current_header_context_target_tokens(profile).max(1) as u64;
         let start = Self::active_compaction_window_start(thread);
         let total_thread_tokens = thread.total_input_tokens + thread.total_output_tokens;
         let current_tokens = thread.messages[start..]

@@ -2208,6 +2208,22 @@ fn make_goal_run_for_header_tests(
     }
 }
 
+fn make_goal_assignment(
+    role_id: &str,
+    provider: &str,
+    model: &str,
+    reasoning_effort: Option<&str>,
+) -> task::GoalAgentAssignment {
+    task::GoalAgentAssignment {
+        role_id: role_id.to_string(),
+        enabled: true,
+        provider: provider.to_string(),
+        model: model.to_string(),
+        reasoning_effort: reasoning_effort.map(str::to_string),
+        inherit_from_main: false,
+    }
+}
+
 #[test]
 fn header_uses_goal_current_step_owner_profile_for_goal_run_pane() {
     let mut model = make_model();
@@ -2256,6 +2272,110 @@ fn header_uses_goal_current_step_owner_profile_for_goal_run_pane() {
 }
 
 #[test]
+fn mission_control_header_prefers_active_execution_thread_runtime_and_usage() {
+    let mut model = make_model();
+    model.config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
+    model.config.auth_source = "github_copilot".to_string();
+    model.config.model = "gpt-5.4".to_string();
+    model.config.context_window_tokens = 400_000;
+
+    for (thread_id, title, input_tokens, output_tokens, cost, provider, model_id, effort) in [
+        (
+            "thread-root",
+            "Root Thread",
+            40_u64,
+            60_u64,
+            Some(1.0_f64),
+            "openai",
+            "gpt-5.4",
+            Some("medium"),
+        ),
+        (
+            "thread-active",
+            "Active Thread",
+            10_u64,
+            20_u64,
+            Some(0.25_f64),
+            "alibaba-coding-plan",
+            "MiniMax-M2.5",
+            Some("high"),
+        ),
+    ] {
+        model.handle_client_event(ClientEvent::ThreadCreated {
+            thread_id: thread_id.to_string(),
+            title: title.to_string(),
+            agent_name: Some("Swarog".to_string()),
+        });
+        model.handle_thread_detail_event(crate::wire::AgentThread {
+            id: thread_id.to_string(),
+            title: title.to_string(),
+            messages: vec![crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::Assistant,
+                content: format!("{title} output"),
+                cost,
+                input_tokens,
+                output_tokens,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            }],
+            total_input_tokens: input_tokens,
+            total_output_tokens: output_tokens,
+            loaded_message_start: 0,
+            loaded_message_end: 1,
+            total_message_count: 1,
+            created_at: 1,
+            updated_at: 1,
+            ..Default::default()
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread(thread_id.to_string()));
+        if let Some(thread) = model.chat.active_thread_mut() {
+            thread.runtime_provider = Some(provider.to_string());
+            thread.runtime_model = Some(model_id.to_string());
+            thread.runtime_reasoning_effort = effort.map(str::to_string);
+        }
+    }
+
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-mission-control-active".to_string(),
+        step_id: None,
+    });
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-mission-control-active".to_string(),
+            title: "Goal".to_string(),
+            thread_id: Some("thread-root".to_string()),
+            root_thread_id: Some("thread-root".to_string()),
+            active_thread_id: Some("thread-active".to_string()),
+            planner_owner_profile: Some(make_goal_owner_profile(
+                "Planner Owner",
+                "planner-provider",
+                "planner-model",
+                Some("low"),
+            )),
+            current_step_owner_profile: Some(make_goal_owner_profile(
+                "Current Step Owner",
+                "step-provider",
+                "step-model",
+                Some("medium"),
+            )),
+            ..Default::default()
+        }));
+
+    let profile = model.current_header_agent_profile();
+    assert_eq!(profile.provider, "alibaba-coding-plan");
+    assert_eq!(profile.model, "MiniMax-M2.5");
+    assert_eq!(profile.reasoning_effort.as_deref(), Some("high"));
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(usage.total_thread_tokens, 30);
+    assert_eq!(usage.total_cost_usd, Some(0.25));
+    assert_eq!(usage.context_window_tokens, 205_000);
+}
+
+#[test]
 fn header_falls_back_to_goal_planner_owner_profile_for_goal_run_pane() {
     let mut model = make_model();
     model.handle_client_event(ClientEvent::ThreadCreated {
@@ -2295,6 +2415,159 @@ fn header_falls_back_to_goal_planner_owner_profile_for_goal_run_pane() {
     assert_eq!(profile.provider, "planner-provider");
     assert_eq!(profile.model, "planner-model");
     assert_eq!(profile.reasoning_effort.as_deref(), Some("planner-effort"));
+}
+
+#[test]
+fn mission_control_header_falls_back_to_root_thread_runtime_when_active_thread_missing() {
+    let mut model = make_model();
+    model.config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
+    model.config.auth_source = "github_copilot".to_string();
+    model.config.model = "gpt-5.4".to_string();
+    model.config.context_window_tokens = 400_000;
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-root-fallback".to_string(),
+        title: "Root Thread".to_string(),
+        agent_name: Some("Swarog".to_string()),
+    });
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-root-fallback".to_string(),
+        title: "Root Thread".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::Assistant,
+            content: "Root output".to_string(),
+            cost: Some(0.5),
+            input_tokens: 12,
+            output_tokens: 18,
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        total_input_tokens: 12,
+        total_output_tokens: 18,
+        loaded_message_start: 0,
+        loaded_message_end: 1,
+        total_message_count: 1,
+        created_at: 1,
+        updated_at: 1,
+        ..Default::default()
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-root-fallback".to_string(),
+    ));
+    if let Some(thread) = model.chat.active_thread_mut() {
+        thread.runtime_provider = Some("alibaba-coding-plan".to_string());
+        thread.runtime_model = Some("MiniMax-M2.5".to_string());
+        thread.runtime_reasoning_effort = Some("high".to_string());
+    }
+
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-root-fallback".to_string(),
+        step_id: None,
+    });
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-root-fallback".to_string(),
+            title: "Goal".to_string(),
+            thread_id: Some("thread-legacy".to_string()),
+            root_thread_id: Some("thread-root-fallback".to_string()),
+            active_thread_id: None,
+            ..Default::default()
+        }));
+
+    let profile = model.current_header_agent_profile();
+    assert_eq!(profile.provider, "alibaba-coding-plan");
+    assert_eq!(profile.model, "MiniMax-M2.5");
+    assert_eq!(profile.reasoning_effort.as_deref(), Some("high"));
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(usage.total_thread_tokens, 30);
+    assert_eq!(usage.total_cost_usd, Some(0.5));
+    assert_eq!(usage.context_window_tokens, 205_000);
+}
+
+#[test]
+fn mission_control_header_context_window_tracks_active_execution_thread_changes() {
+    let mut model = make_model();
+    model.config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
+    model.config.auth_source = "github_copilot".to_string();
+    model.config.model = "gpt-5.4".to_string();
+    model.config.context_window_tokens = 400_000;
+
+    for (thread_id, title, provider, model_id) in [
+        ("thread-root-window", "Root Thread", "openai", "gpt-5.4"),
+        (
+            "thread-active-window",
+            "Active Thread",
+            "alibaba-coding-plan",
+            "MiniMax-M2.5",
+        ),
+    ] {
+        model.handle_client_event(ClientEvent::ThreadCreated {
+            thread_id: thread_id.to_string(),
+            title: title.to_string(),
+            agent_name: Some("Swarog".to_string()),
+        });
+        model.handle_thread_detail_event(crate::wire::AgentThread {
+            id: thread_id.to_string(),
+            title: title.to_string(),
+            messages: vec![crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::Assistant,
+                content: format!("{title} output"),
+                input_tokens: 10,
+                output_tokens: 10,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            }],
+            total_input_tokens: 10,
+            total_output_tokens: 10,
+            loaded_message_start: 0,
+            loaded_message_end: 1,
+            total_message_count: 1,
+            created_at: 1,
+            updated_at: 1,
+            ..Default::default()
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread(thread_id.to_string()));
+        if let Some(thread) = model.chat.active_thread_mut() {
+            thread.runtime_provider = Some(provider.to_string());
+            thread.runtime_model = Some(model_id.to_string());
+        }
+    }
+
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-window-switch".to_string(),
+        step_id: None,
+    });
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-window-switch".to_string(),
+            title: "Goal".to_string(),
+            thread_id: Some("thread-root-window".to_string()),
+            root_thread_id: Some("thread-root-window".to_string()),
+            active_thread_id: Some("thread-root-window".to_string()),
+            ..Default::default()
+        }));
+
+    let initial = model.current_header_usage_summary();
+    assert_eq!(initial.context_window_tokens, 1_000_000);
+
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-window-switch".to_string(),
+            title: "Goal".to_string(),
+            thread_id: Some("thread-root-window".to_string()),
+            root_thread_id: Some("thread-root-window".to_string()),
+            active_thread_id: Some("thread-active-window".to_string()),
+            ..Default::default()
+        }));
+
+    let updated = model.current_header_usage_summary();
+    assert_eq!(updated.context_window_tokens, 205_000);
 }
 
 #[test]
@@ -2347,6 +2620,43 @@ fn header_goal_run_pane_ignores_unrelated_conversation_runtime_metadata() {
     assert_eq!(profile.provider, "step-provider");
     assert_eq!(profile.model, "step-model");
     assert_eq!(profile.reasoning_effort.as_deref(), Some("step-effort"));
+}
+
+#[test]
+fn mission_control_header_falls_back_to_launch_snapshot_before_generic_defaults() {
+    let mut model = make_model();
+    model.config.provider = "provider-generic".to_string();
+    model.config.model = "model-generic".to_string();
+    model.config.reasoning_effort = "low".to_string();
+    model.config.context_window_tokens = 400_000;
+
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-launch-snapshot".to_string(),
+        step_id: None,
+    });
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-launch-snapshot".to_string(),
+            title: "Goal".to_string(),
+            launch_assignment_snapshot: vec![make_goal_assignment(
+                amux_protocol::AGENT_ID_SWAROG,
+                "alibaba-coding-plan",
+                "MiniMax-M2.5",
+                Some("high"),
+            )],
+            ..Default::default()
+        }));
+
+    let profile = model.current_header_agent_profile();
+    assert_eq!(profile.agent_label, "Swarog");
+    assert_eq!(profile.provider, "alibaba-coding-plan");
+    assert_eq!(profile.model, "MiniMax-M2.5");
+    assert_eq!(profile.reasoning_effort.as_deref(), Some("high"));
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(usage.total_thread_tokens, 0);
+    assert_eq!(usage.context_window_tokens, 205_000);
 }
 
 #[test]
@@ -2442,6 +2752,10 @@ fn header_uses_goal_thread_usage_when_goal_run_thread_exists() {
 #[test]
 fn header_goal_run_usage_defaults_when_goal_thread_missing() {
     let mut model = make_model();
+    model.config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
+    model.config.auth_source = "github_copilot".to_string();
+    model.config.model = "gpt-5.4".to_string();
+    model.config.context_window_tokens = 400_000;
     model.handle_client_event(ClientEvent::ThreadCreated {
         thread_id: "thread-active".to_string(),
         title: "Active Thread".to_string(),
@@ -2492,7 +2806,8 @@ fn header_goal_run_usage_defaults_when_goal_thread_missing() {
     assert_eq!(usage.total_thread_tokens, 0);
     assert_eq!(usage.current_tokens, 0);
     assert_eq!(usage.total_cost_usd, None);
-    assert_eq!(usage.compaction_target_tokens, 0);
+    assert_eq!(usage.context_window_tokens, 400_000);
+    assert!(usage.compaction_target_tokens > 0);
     assert_eq!(usage.utilization_pct, 0);
 }
 
