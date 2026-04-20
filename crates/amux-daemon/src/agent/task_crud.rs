@@ -836,6 +836,8 @@ impl AgentEngine {
                 .unwrap_or_default(),
             authorship_tag: None,
         };
+        let mut goal_run = goal_run;
+        crate::agent::goal_dossier::refresh_goal_run_dossier(&mut goal_run);
 
         self.goal_runs.lock().await.push_back(goal_run.clone());
         if let Some(client_surface) = client_surface {
@@ -1261,6 +1263,11 @@ impl AgentEngine {
             .await
         {
             tracing::warn!(goal_run_id = %goal_run_id, %error, "failed to delete goal checkpoints");
+        }
+        if let Err(error) =
+            crate::agent::goal_dossier::remove_goal_run_projection(self, goal_run_id).await
+        {
+            tracing::warn!(goal_run_id = %goal_run_id, %error, "failed to remove goal projection directory");
         }
         for task_id in related_task_ids {
             if let Err(error) = self.history.delete_agent_task(&task_id).await {

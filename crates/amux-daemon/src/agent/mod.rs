@@ -47,6 +47,7 @@ mod forge;
 mod gateway_health;
 mod gateway_loop;
 pub(crate) mod gene_pool;
+pub(crate) mod goal_dossier;
 mod goal_llm;
 mod goal_parsing;
 mod goal_planner;

@@ -300,6 +300,7 @@ fn collect_plan_issues_catches_empty_summary() {
 
 include!("tests/skill_mesh.rs");
 include!("tests/skill_mesh_compiler.rs");
+include!("tests/goal_dossier.rs");
 
 #[test]
 fn retry_goal_run_step_resets_selected_step() {

@@ -233,14 +233,39 @@ impl AgentEngine {
     }
 
     pub(in crate::agent) async fn persist_goal_runs(&self) {
-        let mut goal_runs = self.goal_runs.lock().await;
-        for goal_run in goal_runs.iter_mut() {
-            if let Err(e) = self.history.upsert_goal_run(goal_run).await {
-                tracing::warn!(goal_run_id = %goal_run.id, "failed to persist goal run to sqlite: {e}");
+        let goal_runs_snapshot = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            for goal_run in goal_runs.iter_mut() {
+                crate::agent::goal_dossier::refresh_goal_run_dossier(goal_run);
+                if let Err(e) = self.history.upsert_goal_run(goal_run).await {
+                    tracing::warn!(goal_run_id = %goal_run.id, "failed to persist goal run to sqlite: {e}");
+                }
             }
-        }
-        if let Err(e) = persist_json(&self.data_dir.join("goal-runs.json"), &*goal_runs).await {
+            goal_runs.iter().cloned().collect::<Vec<_>>()
+        };
+
+        if let Err(e) =
+            persist_json(&self.data_dir.join("goal-runs.json"), &goal_runs_snapshot).await
+        {
             tracing::warn!("failed to persist goal runs: {e}");
+        }
+
+        for goal_run in goal_runs_snapshot {
+            if let Err(error) =
+                crate::agent::goal_dossier::write_goal_run_projection(self, &goal_run).await
+            {
+                tracing::warn!(
+                    goal_run_id = %goal_run.id,
+                    error = %error,
+                    "failed to persist goal projection files"
+                );
+                crate::agent::goal_dossier::record_goal_projection_failure(
+                    self,
+                    &goal_run.id,
+                    error.to_string(),
+                )
+                .await;
+            }
         }
     }
 

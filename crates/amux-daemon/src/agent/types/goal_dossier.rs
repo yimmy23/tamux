@@ -134,4 +134,6 @@ pub struct GoalRunDossier {
     pub report: Option<GoalRunReport>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projection_error: Option<String>,
 }

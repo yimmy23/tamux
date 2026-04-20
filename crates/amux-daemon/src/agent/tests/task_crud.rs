@@ -1092,6 +1092,31 @@ async fn start_goal_run_records_goal_start_episode_with_archived_fields() {
 }
 
 #[tokio::test]
+async fn goal_projection_delete_goal_run_removes_projection_directory() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let goal = engine
+        .start_goal_run(
+            "build titan shell".to_string(),
+            Some("Build Titan".to_string()),
+            Some("thread-goal-delete".to_string()),
+            Some("session-goal-delete".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let projection_dir = root.path().join(".tamux/goals").join(&goal.id);
+    assert!(projection_dir.exists());
+
+    assert!(engine.delete_goal_run(&goal.id).await);
+    assert!(!projection_dir.exists());
+}
+
+#[tokio::test]
 async fn repeated_goal_start_creates_retry_link_to_previous_related_episode() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
