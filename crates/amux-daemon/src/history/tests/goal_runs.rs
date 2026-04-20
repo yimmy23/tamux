@@ -595,6 +595,56 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
             CREATE INDEX IF NOT EXISTS idx_goal_runs_status ON goal_runs(status, updated_at DESC);
             ",
             )?;
+            conn.execute(
+                "INSERT INTO goal_runs (
+                    id,
+                    title,
+                    goal,
+                    client_request_id,
+                    status,
+                    priority,
+                    created_at,
+                    updated_at,
+                    started_at,
+                    completed_at,
+                    thread_id,
+                    session_id,
+                    current_step_index,
+                    replan_count,
+                    max_replans,
+                    plan_summary,
+                    reflection_summary,
+                    memory_updates_json,
+                    generated_skill_path,
+                    last_error,
+                    child_task_ids_json
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21
+                )",
+                rusqlite::params![
+                    "goal-legacy",
+                    "legacy title",
+                    "legacy goal",
+                    Option::<String>::None,
+                    "running",
+                    "normal",
+                    10_i64,
+                    20_i64,
+                    Option::<i64>::None,
+                    Option::<i64>::None,
+                    Some("thread-legacy"),
+                    Option::<String>::None,
+                    0_i64,
+                    0_i64,
+                    2_i64,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    "[]",
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    "[]",
+                ],
+            )?;
             Ok(())
         })
         .await
@@ -661,6 +711,22 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
     assert!(cols.22);
     assert!(cols.23);
     assert!(cols.24);
+
+    let legacy_goal = store
+        .list_goal_runs()
+        .await?
+        .into_iter()
+        .find(|goal_run| goal_run.id == "goal-legacy")
+        .expect("legacy goal should remain readable after migration");
+    assert_eq!(legacy_goal.root_thread_id.as_deref(), Some("thread-legacy"));
+    assert_eq!(
+        legacy_goal.active_thread_id.as_deref(),
+        Some("thread-legacy")
+    );
+    assert_eq!(
+        legacy_goal.execution_thread_ids,
+        vec!["thread-legacy".to_string()]
+    );
 
     fs::remove_dir_all(root)?;
     Ok(())

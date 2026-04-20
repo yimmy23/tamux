@@ -34,10 +34,13 @@ fn deserialize_goal_run_thread_ids(
     thread_id: &Option<String>,
     execution_thread_ids_json: Option<String>,
 ) -> Vec<String> {
-    match execution_thread_ids_json {
-        Some(json) => serde_json::from_str(&json).unwrap_or_default(),
-        None => thread_id.clone().into_iter().collect(),
+    let execution_thread_ids: Vec<String> = execution_thread_ids_json
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    if execution_thread_ids.is_empty() {
+        return thread_id.clone().into_iter().collect();
     }
+    execution_thread_ids
 }
 
 impl HistoryStore {
