@@ -32,6 +32,8 @@
     #[test]
     fn local_landing_shows_only_for_empty_conversation_state() {
         let mut model = build_model();
+        model.connected = true;
+        model.agent_config_loaded = true;
 
         assert!(model.should_show_local_landing());
 
@@ -64,8 +66,35 @@
     }
 
     #[test]
+    fn daemon_connection_loading_shows_for_disconnected_empty_conversation_state() {
+        let model = build_model();
+
+        assert!(model.should_show_daemon_connection_loading());
+        assert!(!model.should_show_local_landing());
+    }
+
+    #[test]
+    fn daemon_connection_loading_persists_until_config_is_loaded() {
+        let mut model = build_model();
+        model.connected = true;
+        model.agent_config_loaded = false;
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread-1".to_string(),
+            title: "Recovered Thread".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+        assert!(model.should_show_daemon_connection_loading());
+        assert!(!model.should_show_local_landing());
+    }
+
+    #[test]
     fn local_landing_yields_to_concierge_loading() {
         let mut model = build_model();
+        model.connected = true;
+        model.agent_config_loaded = true;
         model.concierge.loading = true;
 
         assert!(model.should_show_concierge_hero_loading());
@@ -94,6 +123,8 @@
     #[test]
     fn thread_loading_renders_dedicated_rarog_animation() {
         let mut model = build_model();
+        model.connected = true;
+        model.agent_config_loaded = true;
         model.width = 100;
         model.height = 40;
         model.focus = FocusArea::Chat;
@@ -137,6 +168,43 @@
     }
 
     #[test]
+    fn daemon_connection_loading_renders_svarog_landing_with_waiting_copy() {
+        let mut model = build_model();
+        model.width = 100;
+        model.height = 40;
+        model.focus = FocusArea::Chat;
+
+        let backend = TestBackend::new(model.width, model.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+        terminal
+            .draw(|frame| model.render(frame))
+            .expect("daemon connection loading render should succeed");
+
+        let buffer = terminal.backend().buffer();
+        let rendered = (0..model.height)
+            .map(|y| {
+                (0..model.width)
+                    .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            rendered.contains("Waiting for daemon connection"),
+            "disconnected landing should show connection waiting copy"
+        );
+        assert!(
+            rendered.contains("Warming the forge"),
+            "disconnected landing should render animated connection-stage copy"
+        );
+        assert!(
+            !rendered.contains("Type to begin."),
+            "disconnected landing should not present the ready-to-type prompt"
+        );
+    }
+
+    #[test]
     fn anticipatory_banner_is_suppressed_while_concierge_welcome_is_active() {
         let mut model = build_model();
         model
@@ -160,6 +228,8 @@
     #[test]
     fn local_landing_full_render_does_not_panic_at_width_100() {
         let mut model = build_model();
+        model.connected = true;
+        model.agent_config_loaded = true;
         model.width = 100;
         model.height = 40;
         model.focus = FocusArea::Input;
@@ -174,6 +244,8 @@
     #[test]
     fn local_landing_full_render_does_not_panic_at_width_80() {
         let mut model = build_model();
+        model.connected = true;
+        model.agent_config_loaded = true;
         model.width = 80;
         model.height = 24;
         model.focus = FocusArea::Input;

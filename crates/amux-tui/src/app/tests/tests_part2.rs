@@ -282,6 +282,8 @@
         let (_daemon_tx, daemon_rx) = mpsc::channel();
         let (cmd_tx, mut cmd_rx) = unbounded_channel();
         let mut model = TuiModel::new(daemon_rx, cmd_tx);
+        model.connected = true;
+        model.agent_config_loaded = true;
         model.concierge.loading = false;
         model.chat.reduce(chat::ChatAction::ThreadCreated {
             thread_id: "concierge".to_string(),
@@ -320,6 +322,8 @@
         let (_daemon_tx, daemon_rx) = mpsc::channel();
         let (cmd_tx, mut cmd_rx) = unbounded_channel();
         let mut model = TuiModel::new(daemon_rx, cmd_tx);
+        model.connected = true;
+        model.agent_config_loaded = true;
         model.chat.reduce(chat::ChatAction::ThreadCreated {
             thread_id: "concierge".to_string(),
             title: "Concierge".to_string(),

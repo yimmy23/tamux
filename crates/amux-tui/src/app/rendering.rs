@@ -255,6 +255,7 @@ impl TuiModel {
             return None;
         }
         if self.should_show_provider_onboarding()
+            || self.should_show_daemon_connection_loading()
             || self.should_show_local_landing()
             || self.should_show_concierge_hero_loading()
             || self.should_show_thread_loading()
@@ -306,6 +307,7 @@ impl TuiModel {
             return None;
         }
         if self.should_show_provider_onboarding()
+            || self.should_show_daemon_connection_loading()
             || self.should_show_local_landing()
             || self.should_show_concierge_hero_loading()
             || self.should_show_thread_loading()
@@ -956,6 +958,16 @@ impl TuiModel {
 
         if self.should_show_provider_onboarding() {
             widgets::onboarding::render(frame, area, &self.config, &self.theme);
+            return;
+        }
+
+        if self.should_show_daemon_connection_loading() {
+            widgets::landing::render_connection_waiting(
+                frame,
+                area,
+                &self.theme,
+                self.tick_counter,
+            );
             return;
         }
 

@@ -15,7 +15,7 @@ impl ConciergeEngine {
         let content = if detail_level == ConciergeDetailLevel::Minimal {
             minimal_welcome_content(context)
         } else {
-            match self.call_llm_for_welcome(detail_level, context).await {
+            match self.call_llm_for_welcome(detail_level, context, true).await {
                 Ok(response) => strip_trailing_actions(&response),
                 Err(e) => {
                     tracing::warn!("concierge LLM call failed, falling back to template: {e}");
@@ -63,6 +63,7 @@ impl ConciergeEngine {
         &self,
         detail_level: ConciergeDetailLevel,
         context: &WelcomeContext,
+        emit_partial_progress: bool,
     ) -> Result<String> {
         let config = self.config.read().await;
         let provider_config = fast_concierge_provider_config(&resolve_concierge_provider(&config)?);
@@ -110,10 +111,20 @@ impl ConciergeEngine {
         );
 
         let mut full_content = String::new();
+        let mut last_emitted_partial = String::new();
         let mut stream = std::pin::pin!(stream);
         while let Some(chunk) = stream.next().await {
             match chunk {
-                Ok(CompletionChunk::Delta { content, .. }) => full_content.push_str(&content),
+                Ok(CompletionChunk::Delta { content, .. }) => {
+                    full_content.push_str(&content);
+                    if emit_partial_progress {
+                        self.emit_partial_welcome_progress(
+                            detail_level,
+                            &full_content,
+                            &mut last_emitted_partial,
+                        );
+                    }
+                }
                 Ok(CompletionChunk::Done { content, .. }) => {
                     self.record_llm_outcome(&provider_id, true).await;
                     if !content.is_empty() {
@@ -138,6 +149,27 @@ impl ConciergeEngine {
         }
 
         Ok(full_content)
+    }
+
+    fn emit_partial_welcome_progress(
+        &self,
+        detail_level: ConciergeDetailLevel,
+        full_content: &str,
+        last_emitted_partial: &mut String,
+    ) {
+        let partial_content = full_content.trim_end();
+        if partial_content.trim().is_empty() || partial_content == last_emitted_partial {
+            return;
+        }
+
+        let _ = self.event_tx.send(AgentEvent::ConciergeWelcome {
+            thread_id: CONCIERGE_THREAD_ID.to_string(),
+            content: partial_content.to_string(),
+            detail_level,
+            actions: Vec::new(),
+        });
+        last_emitted_partial.clear();
+        last_emitted_partial.push_str(partial_content);
     }
 
     fn build_llm_prompt(

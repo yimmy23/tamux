@@ -45,6 +45,7 @@ export type AgentChatPanelRuntimeValue = {
   updateAgentSetting: AgentStoreState["updateAgentSetting"];
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  refreshThreadList: () => Promise<void>;
   messages: AgentMessage[];
   todos: AgentTodoItem[];
   daemonTodosByThread: Record<string, AgentTodoItem[]>;

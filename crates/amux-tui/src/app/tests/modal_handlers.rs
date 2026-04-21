@@ -4617,6 +4617,52 @@ fn selected_goal_step_shift_r_opens_rerun_confirmation() {
 }
 
 #[test]
+fn selected_goal_step_shift_r_lowercase_key_opens_rerun_confirmation() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(
+        make_goal_run_with_steps(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Failed,
+            vec![
+                task::GoalRunStep {
+                    id: "step-1".to_string(),
+                    title: "Plan".to_string(),
+                    order: 0,
+                    status: Some(task::GoalRunStatus::Completed),
+                    ..Default::default()
+                },
+                task::GoalRunStep {
+                    id: "step-2".to_string(),
+                    title: "Deploy".to_string(),
+                    order: 1,
+                    status: Some(task::GoalRunStatus::Failed),
+                    ..Default::default()
+                },
+            ],
+        ),
+    ));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: Some("step-2".to_string()),
+    });
+
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::SHIFT);
+
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert_eq!(
+        model
+            .pending_chat_action_confirm
+            .as_ref()
+            .map(PendingConfirmAction::modal_body)
+            .as_deref(),
+        Some("Rerun from step 2 \"Deploy\" in goal \"Goal One\"?")
+    );
+}
+
+#[test]
 fn selected_goal_step_action_menu_can_send_retry_step() {
     let (mut model, mut daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
@@ -4677,6 +4723,78 @@ fn selected_goal_step_action_menu_can_send_retry_step() {
             step_index: Some(1),
         } if goal_run_id == "goal-1" && action == "retry_step"
     ));
+}
+
+#[test]
+fn thread_picker_shift_r_requests_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model.sync_thread_picker_item_count();
+
+    let handled = model.handle_key_modal(
+        KeyCode::Char('R'),
+        KeyModifiers::SHIFT,
+        modal::ModalKind::ThreadPicker,
+    );
+
+    assert!(!handled);
+    assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+}
+
+#[test]
+fn thread_picker_shift_r_lowercase_key_requests_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model.sync_thread_picker_item_count();
+
+    let handled = model.handle_key_modal(
+        KeyCode::Char('r'),
+        KeyModifiers::SHIFT,
+        modal::ModalKind::ThreadPicker,
+    );
+
+    assert!(!handled);
+    assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+}
+
+#[test]
+fn goal_picker_shift_r_requests_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+
+    let handled = model.handle_key_modal(
+        KeyCode::Char('R'),
+        KeyModifiers::SHIFT,
+        modal::ModalKind::GoalPicker,
+    );
+
+    assert!(!handled);
+    assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+}
+
+#[test]
+fn goal_picker_shift_r_lowercase_key_requests_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+
+    let handled = model.handle_key_modal(
+        KeyCode::Char('r'),
+        KeyModifiers::SHIFT,
+        modal::ModalKind::GoalPicker,
+    );
+
+    assert!(!handled);
+    assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
 }
 
 #[test]
@@ -5535,6 +5653,62 @@ fn sample_notification(read_at: Option<i64>) -> amux_protocol::InboxNotification
         actions: Vec::new(),
         metadata_json: None,
     }
+}
+
+#[test]
+fn notifications_modal_shift_r_lowercase_marks_all_read() {
+    let (mut model, _daemon_rx) = make_model();
+    let mut unread = sample_notification(None);
+    unread.id = "n-unread".to_string();
+    let mut still_read = sample_notification(Some(5));
+    still_read.id = "n-read".to_string();
+    model
+        .notifications
+        .reduce(crate::state::NotificationsAction::Replace(vec![
+            unread, still_read,
+        ]));
+    model.toggle_notifications_modal();
+
+    let handled = model.handle_key_modal(
+        KeyCode::Char('r'),
+        KeyModifiers::SHIFT,
+        modal::ModalKind::Notifications,
+    );
+
+    assert!(!handled);
+    assert_eq!(model.notifications.unread_count(), 0);
+}
+
+#[test]
+fn notifications_modal_shift_a_lowercase_archives_read() {
+    let (mut model, _daemon_rx) = make_model();
+    let mut unread = sample_notification(None);
+    unread.id = "n-unread".to_string();
+    unread.updated_at = 10;
+    let mut read = sample_notification(Some(5));
+    read.id = "n-read".to_string();
+    read.updated_at = 5;
+    model
+        .notifications
+        .reduce(crate::state::NotificationsAction::Replace(vec![
+            unread, read,
+        ]));
+    model.toggle_notifications_modal();
+
+    let handled = model.handle_key_modal(
+        KeyCode::Char('a'),
+        KeyModifiers::SHIFT,
+        modal::ModalKind::Notifications,
+    );
+
+    assert!(!handled);
+    let active_ids = model
+        .notifications
+        .active_items()
+        .into_iter()
+        .map(|item| item.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(active_ids, vec!["n-unread".to_string()]);
 }
 
 #[test]

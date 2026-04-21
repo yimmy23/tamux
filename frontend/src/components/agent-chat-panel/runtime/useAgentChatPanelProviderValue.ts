@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { abortThreadStream, useAgentStore } from "@/lib/agentStore";
+import { abortThreadStream, buildHydratedRemoteThread, useAgentStore } from "@/lib/agentStore";
 import { getAgentBridge, shouldUseDaemonRuntime } from "@/lib/agentDaemonConfig";
 import { fetchAgentRuns, isSubagentRun, type AgentRun } from "@/lib/agentRuns";
 import { fetchThreadTodos } from "@/lib/agentTodos";
@@ -587,6 +587,103 @@ export function useAgentChatPanelProviderValue(): {
     workspaces,
   ]);
 
+  const refreshThreadList = useCallback(async () => {
+    const amux = getAgentBridge();
+    if (!amux?.agentListThreads) {
+      return;
+    }
+
+    const remoteThreads = await amux.agentListThreads().catch(() => []);
+    if (!Array.isArray(remoteThreads)) {
+      return;
+    }
+
+    const agentName = useAgentStore.getState().agentSettings.agent_name;
+    useAgentStore.setState((state) => {
+      const existingByDaemonThreadId = new Map(
+        state.threads
+          .filter((thread) => typeof thread.daemonThreadId === "string" && thread.daemonThreadId)
+          .map((thread) => [thread.daemonThreadId as string, thread]),
+      );
+      const nextThreads: AgentThread[] = [];
+      const nextMessages = { ...state.messages };
+      const nextTodos = { ...state.todos };
+      const seenDaemonThreadIds = new Set<string>();
+
+      for (const remoteThread of remoteThreads) {
+        const hydrated = buildHydratedRemoteThread(remoteThread ?? {}, agentName);
+        if (!hydrated?.thread.daemonThreadId) {
+          continue;
+        }
+
+        const daemonThreadId = hydrated.thread.daemonThreadId;
+        if (seenDaemonThreadIds.has(daemonThreadId)) {
+          continue;
+        }
+        seenDaemonThreadIds.add(daemonThreadId);
+
+        const existing = existingByDaemonThreadId.get(daemonThreadId);
+        if (existing) {
+          nextThreads.push({
+            ...existing,
+            ...hydrated.thread,
+            id: existing.id,
+            workspaceId: existing.workspaceId,
+            surfaceId: existing.surfaceId,
+            paneId: existing.paneId,
+          });
+          if (!(existing.id in nextMessages)) {
+            nextMessages[existing.id] = hydrated.messages.map((message) => ({
+              ...message,
+              threadId: existing.id,
+            }));
+          }
+          if (!(existing.id in nextTodos)) {
+            nextTodos[existing.id] = [];
+          }
+          continue;
+        }
+
+        nextThreads.push(hydrated.thread);
+        nextMessages[hydrated.thread.id] = hydrated.messages;
+        nextTodos[hydrated.thread.id] = [];
+      }
+
+      for (const localThread of state.threads) {
+        if (!localThread.daemonThreadId) {
+          nextThreads.push(localThread);
+        }
+      }
+
+      nextThreads.sort((left, right) => right.updatedAt - left.updatedAt);
+      const validThreadIds = new Set(nextThreads.map((thread) => thread.id));
+
+      for (const threadId of Object.keys(nextMessages)) {
+        if (!validThreadIds.has(threadId)) {
+          delete nextMessages[threadId];
+        }
+      }
+      for (const threadId of Object.keys(nextTodos)) {
+        if (!validThreadIds.has(threadId)) {
+          delete nextTodos[threadId];
+        }
+      }
+
+      return {
+        threads: nextThreads,
+        messages: nextMessages,
+        todos: nextTodos,
+        activeThreadId:
+          state.activeThreadId && validThreadIds.has(state.activeThreadId)
+            ? state.activeThreadId
+            : null,
+        threadHistoryStack: state.threadHistoryStack.filter((threadId) =>
+          validThreadIds.has(threadId),
+        ),
+      };
+    });
+  }, []);
+
   const sendMessage = useCallback((payload: { text: string; contentBlocksJson?: string | null; localContentBlocks?: import("@/lib/agentStore/types").AgentContentBlock[] }) => {
     if (!payload.text) return;
     if (shouldUseDaemonRuntime(agentSettings.agent_backend) && sendDaemonMessage(payload)) {
@@ -732,6 +829,7 @@ export function useAgentChatPanelProviderValue(): {
     updateAgentSetting,
     searchQuery,
     setSearchQuery,
+    refreshThreadList,
     messages,
     todos,
     daemonTodosByThread,
@@ -835,6 +933,7 @@ export function useAgentChatPanelProviderValue(): {
     searchQuery,
     canOpenSpawnedThread,
     openSpawnedThread,
+    refreshThreadList,
     setActiveThread,
     setSearchQuery,
     snippets,

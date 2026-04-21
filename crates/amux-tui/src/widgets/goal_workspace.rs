@@ -198,7 +198,9 @@ pub fn selected_text(
 }
 
 fn render_summary(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
-    let block = Block::default().title(" Goal Mission Control ").borders(Borders::ALL);
+    let block = Block::default()
+        .title(" Goal Mission Control ")
+        .borders(Borders::ALL);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let text = Line::from(vec![
@@ -241,18 +243,14 @@ fn render_plan(
     );
 }
 
-fn render_placeholder(
-    frame: &mut Frame,
-    area: Rect,
-    title: &str,
-    body: &str,
-    theme: &ThemeTokens,
-) {
+fn render_placeholder(frame: &mut Frame, area: Rect, title: &str, body: &str, theme: &ThemeTokens) {
     let block = Block::default().title(title).borders(Borders::ALL);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(
-        Paragraph::new(body).style(theme.fg_dim).wrap(Wrap { trim: false }),
+        Paragraph::new(body)
+            .style(theme.fg_dim)
+            .wrap(Wrap { trim: false }),
         inner,
     );
 }
@@ -264,7 +262,9 @@ fn render_timeline(
     goal_run_id: &str,
     theme: &ThemeTokens,
 ) {
-    let block = Block::default().title(" Run timeline ").borders(Borders::ALL);
+    let block = Block::default()
+        .title(" Run timeline ")
+        .borders(Borders::ALL);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -291,7 +291,10 @@ fn render_timeline(
     }
 
     if lines.is_empty() {
-        lines.push(Line::from(Span::styled("No timeline available.", theme.fg_dim)));
+        lines.push(Line::from(Span::styled(
+            "No timeline available.",
+            theme.fg_dim,
+        )));
     }
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
@@ -312,14 +315,22 @@ fn render_details(
         .selected_plan_item()
         .and_then(|selection| match selection {
             crate::state::goal_workspace::GoalPlanSelection::Step { step_id }
-            | crate::state::goal_workspace::GoalPlanSelection::Todo { step_id, .. } => Some(step_id.as_str()),
+            | crate::state::goal_workspace::GoalPlanSelection::Todo { step_id, .. } => {
+                Some(step_id.as_str())
+            }
         })
         .and_then(|step_id| {
-            tasks.goal_steps_in_display_order(goal_run_id)
+            tasks
+                .goal_steps_in_display_order(goal_run_id)
                 .into_iter()
                 .find(|step| step.id == step_id)
         })
-        .or_else(|| tasks.goal_steps_in_display_order(goal_run_id).into_iter().next());
+        .or_else(|| {
+            tasks
+                .goal_steps_in_display_order(goal_run_id)
+                .into_iter()
+                .next()
+        });
 
     let mut lines = Vec::new();
     if let Some(step) = selected_step {

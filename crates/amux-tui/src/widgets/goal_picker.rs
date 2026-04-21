@@ -150,6 +150,8 @@ pub fn render(
         hints.push(Span::styled("Ctrl+S", theme.fg_active));
         hints.push(Span::styled(" pause/resume  ", theme.fg_dim));
     }
+    hints.push(Span::styled("Shift+R", theme.fg_active));
+    hints.push(Span::styled(" refresh  ", theme.fg_dim));
     hints.push(Span::styled("Esc", theme.fg_active));
     hints.push(Span::styled(" close", theme.fg_dim));
     let hints = Line::from(hints);

@@ -1,4 +1,92 @@
 impl TuiModel {
+    fn send_continue_message(&mut self, thread_id: String) {
+        self.send_daemon_command(DaemonCommand::SendMessage {
+            thread_id: Some(thread_id),
+            content: "continue".to_string(),
+            content_blocks_json: None,
+            session_id: self.default_session_id.clone(),
+            target_agent_id: None,
+        });
+    }
+
+    fn capture_pending_reconnect_restore(&mut self) {
+        if self.pending_reconnect_restore.is_some() {
+            return;
+        }
+
+        let Some(thread) = self.chat.active_thread() else {
+            return;
+        };
+        if thread.id == "concierge"
+            || Self::is_internal_agent_thread(&thread.id, Some(thread.title.as_str()))
+            || Self::is_hidden_agent_thread(&thread.id, Some(thread.title.as_str()))
+        {
+            return;
+        }
+
+        self.pending_reconnect_restore = Some(PendingReconnectRestore {
+            thread_id: thread.id.clone(),
+            should_resume: self.assistant_busy(),
+        });
+    }
+
+    fn begin_pending_reconnect_restore(&mut self) -> bool {
+        let Some(pending) = self.pending_reconnect_restore.clone() else {
+            return false;
+        };
+
+        self.set_mission_control_return_to_goal_target(None);
+        self.clear_chat_drag_selection();
+        self.clear_work_context_drag_selection();
+        self.clear_task_view_drag_selection();
+        self.concierge
+            .reduce(crate::state::ConciergeAction::WelcomeDismissed);
+        self.chat.reduce(chat::ChatAction::DismissConciergeWelcome);
+        self.concierge
+            .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
+        self.set_main_pane_conversation(FocusArea::Chat);
+        self.chat
+            .reduce(chat::ChatAction::SelectThread(pending.thread_id.clone()));
+        self.request_authoritative_thread_refresh(pending.thread_id.clone(), true);
+        self.status_line = "Restoring thread after reconnect...".to_string();
+        true
+    }
+
+    fn fallback_pending_reconnect_restore(&mut self) -> bool {
+        let Some(pending) = self.pending_reconnect_restore.as_ref() else {
+            return false;
+        };
+        let thread_exists = self
+            .chat
+            .threads()
+            .iter()
+            .any(|thread| thread.id == pending.thread_id);
+        if thread_exists {
+            return false;
+        }
+
+        self.pending_reconnect_restore = None;
+        if self.connected && self.agent_config_loaded {
+            self.request_concierge_welcome();
+        }
+        true
+    }
+
+    fn finish_pending_reconnect_restore(&mut self, thread_id: &str) {
+        let Some(pending) = self.pending_reconnect_restore.clone() else {
+            return;
+        };
+        if pending.thread_id != thread_id {
+            return;
+        }
+
+        self.pending_reconnect_restore = None;
+        if pending.should_resume {
+            self.send_continue_message(thread_id.to_string());
+            self.status_line = "Resuming thread after reconnect...".to_string();
+        }
+    }
+
     fn goal_sidebar_items_for_tab(
         &self,
         goal_run_id: &str,
@@ -329,6 +417,7 @@ impl TuiModel {
 
     fn begin_concierge_welcome_request(&mut self) {
         self.set_mission_control_return_to_goal_target(None);
+        self.pending_reconnect_restore = None;
         self.ignore_pending_concierge_welcome = false;
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
@@ -697,13 +786,7 @@ impl TuiModel {
                 self.status_line = "Stopping thread...".to_string();
             }
             PendingConfirmAction::ResumeThread { thread_id, .. } => {
-                self.send_daemon_command(DaemonCommand::SendMessage {
-                    thread_id: Some(thread_id),
-                    content: "continue".to_string(),
-                    content_blocks_json: None,
-                    session_id: self.default_session_id.clone(),
-                    target_agent_id: None,
-                });
+                self.send_continue_message(thread_id);
                 self.status_line = "Resuming thread...".to_string();
             }
             PendingConfirmAction::DeleteGoalRun { goal_run_id, .. } => {

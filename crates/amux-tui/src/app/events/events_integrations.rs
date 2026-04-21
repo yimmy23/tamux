@@ -220,6 +220,7 @@ impl TuiModel {
         content: String,
         actions: Vec<crate::state::ConciergeActionVm>,
     ) {
+        let welcome_complete = !actions.is_empty();
         if self.ignore_pending_concierge_welcome {
             self.concierge
                 .reduce(crate::state::ConciergeAction::WelcomeDismissed);
@@ -228,7 +229,9 @@ impl TuiModel {
         }
         if self.concierge.is_same_welcome(&content, &actions) {
             self.concierge
-                .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
+                .reduce(crate::state::ConciergeAction::WelcomeLoading(
+                    !welcome_complete,
+                ));
             return;
         }
         self.ignore_pending_concierge_welcome = false;
@@ -238,6 +241,10 @@ impl TuiModel {
                 content: content.clone(),
                 actions: actions.clone(),
             });
+        self.concierge
+            .reduce(crate::state::ConciergeAction::WelcomeLoading(
+                !welcome_complete,
+            ));
 
         let concierge_thread_id = "concierge".to_string();
         let existing_thread = self

@@ -14,6 +14,7 @@ interface GoalRunPanelProps {
   setNewGoalSessionId: Dispatch<SetStateAction<string>>;
   goalStartError: string | null;
   onAddGoalRun: () => void;
+  onRefreshGoalRuns: () => void;
   activeGoalRuns: GoalRun[];
   historicalGoalRuns: GoalRun[];
   completedGoalRuns: GoalRun[];
@@ -49,6 +50,7 @@ export function GoalRunPanel({
   setNewGoalSessionId,
   goalStartError,
   onAddGoalRun,
+  onRefreshGoalRuns,
   activeGoalRuns,
   historicalGoalRuns,
   completedGoalRuns,
@@ -71,10 +73,25 @@ export function GoalRunPanel({
 }: GoalRunPanelProps) {
   return (
     <>
-      <SectionTitle
-        title="Goal Runners"
-        subtitle="Durable autonomous jobs that plan, execute, reflect, and learn over time"
-      />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: "var(--space-3)",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ flex: "1 1 320px" }}>
+          <SectionTitle
+            title="Goal Runners"
+            subtitle="Durable autonomous jobs that plan, execute, reflect, and learn over time"
+          />
+        </div>
+        <div style={{ paddingTop: "var(--space-4)" }}>
+          <ActionButton onClick={onRefreshGoalRuns}>Refresh</ActionButton>
+        </div>
+      </div>
 
       {goalRunsSupported ? (
         <>

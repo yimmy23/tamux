@@ -98,7 +98,10 @@ impl TuiModel {
         self.invalidate_active_header_runtime_profile_if_profile_changed(&before_profile);
         self.agent_config_loaded = true;
         if self.connected && !was_loaded {
-            self.request_concierge_welcome();
+            let restored_thread = self.begin_pending_reconnect_restore();
+            if !restored_thread {
+                self.request_concierge_welcome();
+            }
             self.send_daemon_command(DaemonCommand::RefreshServices);
             self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
             self.send_daemon_command(DaemonCommand::GetOpenAICodexAuthStatus);

@@ -12,6 +12,11 @@ fn is_settings_textarea_submit_key(code: KeyCode, modifiers: KeyModifiers) -> bo
         || (code == KeyCode::Char('s') && modifiers.contains(KeyModifiers::CONTROL))
 }
 
+fn matches_shift_char(code: KeyCode, modifiers: KeyModifiers, expected: char) -> bool {
+    modifiers.contains(KeyModifiers::SHIFT)
+        && matches!(code, KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&expected))
+}
+
 impl TuiModel {
     pub(crate) fn begin_custom_model_edit(&mut self) {
         enter::begin_custom_model_edit(self);
@@ -116,7 +121,7 @@ impl TuiModel {
                         self.toggle_notification_expand(id);
                     }
                 }
-                KeyCode::Char('r') => {
+                KeyCode::Char('r') if !modifiers.contains(KeyModifiers::SHIFT) => {
                     if let Some(id) = self
                         .notifications
                         .selected_item()
@@ -125,7 +130,7 @@ impl TuiModel {
                         self.mark_notification_read(&id);
                     }
                 }
-                KeyCode::Char('a') => {
+                KeyCode::Char('a') if !modifiers.contains(KeyModifiers::SHIFT) => {
                     if let Some(id) = self
                         .notifications
                         .selected_item()
@@ -153,10 +158,10 @@ impl TuiModel {
                         self.execute_notification_action(&notification_id, "", Some(0));
                     }
                 }
-                KeyCode::Char('A') if modifiers.contains(KeyModifiers::SHIFT) => {
+                KeyCode::Char(ch) if matches_shift_char(KeyCode::Char(ch), modifiers, 'a') => {
                     self.archive_read_notifications();
                 }
-                KeyCode::Char('R') if modifiers.contains(KeyModifiers::SHIFT) => {
+                KeyCode::Char(ch) if matches_shift_char(KeyCode::Char(ch), modifiers, 'r') => {
                     self.mark_all_notifications_read();
                 }
                 _ => {}
@@ -1416,6 +1421,16 @@ impl TuiModel {
                 if let Some(action) = self.selected_goal_picker_toggle_action() {
                     self.open_pending_action_confirm(action);
                 }
+            }
+            KeyCode::Char(ch)
+                if matches_shift_char(KeyCode::Char(ch), modifiers, 'r')
+                    && matches!(
+                        kind,
+                        modal::ModalKind::ThreadPicker | modal::ModalKind::GoalPicker
+                    ) =>
+            {
+                self.send_daemon_command(DaemonCommand::Refresh);
+                self.status_line = "Refreshing thread and goal lists".to_string();
             }
             KeyCode::Down => self.modal.reduce(modal::ModalAction::Navigate(1)),
             KeyCode::Up => self.modal.reduce(modal::ModalAction::Navigate(-1)),

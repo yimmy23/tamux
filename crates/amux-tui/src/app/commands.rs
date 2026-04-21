@@ -331,7 +331,10 @@ impl TuiModel {
         };
         let changed = self.select_goal_step_in_active_run(step_id);
         let items = self.goal_workspace_plan_items();
-        let row = items.iter().position(|candidate| candidate == &item).unwrap_or(0);
+        let row = items
+            .iter()
+            .position(|candidate| candidate == &item)
+            .unwrap_or(0);
         self.goal_workspace.set_selected_plan_row(row);
         self.goal_workspace.set_selected_plan_item(Some(item));
         self.clamp_goal_workspace_plan_scroll_to_selection();
@@ -359,7 +362,10 @@ impl TuiModel {
                     Constraint::Min(24),
                 ])
                 .split(layout[1]);
-            Block::default().borders(Borders::ALL).inner(columns[0]).height as usize
+            Block::default()
+                .borders(Borders::ALL)
+                .inner(columns[0])
+                .height as usize
         };
         if viewport_height == 0 {
             self.goal_workspace.set_plan_scroll(0);
@@ -430,11 +436,10 @@ impl TuiModel {
                     false
                 }
             }
-            crate::state::goal_workspace::GoalPlanSelection::Todo { step_id, .. } => {
-                self.select_goal_workspace_plan_item(
+            crate::state::goal_workspace::GoalPlanSelection::Todo { step_id, .. } => self
+                .select_goal_workspace_plan_item(
                     crate::state::goal_workspace::GoalPlanSelection::Step { step_id },
-                )
-            }
+                ),
         }
     }
 

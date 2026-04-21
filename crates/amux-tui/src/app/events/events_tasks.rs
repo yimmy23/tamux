@@ -294,6 +294,9 @@ impl TuiModel {
             .reduce(chat::ChatAction::ThreadListReceived(threads));
         self.sync_open_thread_picker();
         self.sync_pending_approvals_from_tasks();
+        if self.fallback_pending_reconnect_restore() {
+            return;
+        }
         if let Some(thread_id) = active_thread_id
             .as_ref()
             .filter(|_| should_refresh_active_thread)
@@ -439,6 +442,7 @@ impl TuiModel {
         self.sync_open_thread_picker();
         self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id.clone()));
+        self.finish_pending_reconnect_restore(&thread_id);
         let _ = self.maybe_request_auto_response_for_open_thread(&thread_id);
         let _ = self.maybe_auto_send_always_auto_response();
     }

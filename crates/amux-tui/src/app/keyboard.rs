@@ -4,6 +4,11 @@ use super::*;
 mod enter;
 
 impl TuiModel {
+    fn matches_shift_char(code: KeyCode, modifiers: KeyModifiers, expected: char) -> bool {
+        modifiers.contains(KeyModifiers::SHIFT)
+            && matches!(code, KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&expected))
+    }
+
     fn pinned_shortcut_scope_active(&self) -> bool {
         !self.sidebar_uses_goal_sidebar()
             && self.sidebar_visible()
@@ -837,14 +842,16 @@ impl TuiModel {
             }
             KeyCode::Char('r')
                 if self.focus == FocusArea::Chat
+                    && !modifiers.contains(KeyModifiers::SHIFT)
                     && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
             {
                 if self.request_selected_goal_step_retry_confirmation() {
                     self.status_line = "Retry selected goal step?".to_string();
                 }
             }
-            KeyCode::Char('R')
+            KeyCode::Char(ch)
                 if self.focus == FocusArea::Chat
+                    && Self::matches_shift_char(KeyCode::Char(ch), modifiers, 'r')
                     && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
             {
                 if self.request_selected_goal_step_rerun_confirmation() {

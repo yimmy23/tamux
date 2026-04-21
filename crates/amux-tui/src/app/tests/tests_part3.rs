@@ -246,6 +246,8 @@ fn concierge_mouse_click_executes_visible_action() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();
     let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.connected = true;
+    model.agent_config_loaded = true;
     model.focus = FocusArea::Chat;
     model.chat.reduce(chat::ChatAction::ThreadCreated {
         thread_id: "concierge".to_string(),
@@ -312,6 +314,8 @@ fn dismissing_concierge_welcome_returns_to_local_landing() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();
     let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.connected = true;
+    model.agent_config_loaded = true;
     model.focus = FocusArea::Chat;
     model.chat.reduce(chat::ChatAction::ThreadCreated {
         thread_id: "concierge".to_string(),

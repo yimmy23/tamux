@@ -1,6 +1,16 @@
 use super::*;
 
 impl TuiModel {
+    fn last_error_is_transport_disconnect(&self) -> bool {
+        self.last_error.as_ref().is_some_and(|message| {
+            let normalized = message.to_ascii_lowercase();
+            normalized.starts_with("send error:")
+                || normalized.starts_with("keepalive send error:")
+                || normalized.starts_with("connection error:")
+                || normalized.starts_with("connection lost:")
+        })
+    }
+
     pub(in crate::app) fn handle_connected_event(&mut self) {
         self.connected = true;
         self.agent_config_loaded = false;
@@ -12,6 +22,8 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_disconnected_event(&mut self) {
+        let clear_transport_error = self.last_error_is_transport_disconnect();
+        self.capture_pending_reconnect_restore();
         self.connected = false;
         self.agent_config_loaded = false;
         self.last_attention_surface = None;
@@ -26,10 +38,18 @@ impl TuiModel {
         self.chat.reduce(chat::ChatAction::ResetStreaming);
         self.clear_pending_stop();
         self.clear_openai_auth_modal_state();
+        if clear_transport_error {
+            self.last_error = None;
+            self.error_active = false;
+            if self.modal.top() == Some(crate::state::modal::ModalKind::ErrorViewer) {
+                self.close_top_modal();
+            }
+        }
         self.status_line = "Disconnected from daemon".to_string();
     }
 
     pub(in crate::app) fn handle_reconnecting_event(&mut self, delay_secs: u64) {
+        self.capture_pending_reconnect_restore();
         self.connected = false;
         self.last_attention_surface = None;
         self.default_session_id = None;

@@ -81,6 +81,7 @@ impl TuiModel {
             pending_new_thread_target_agent: None,
             pending_builtin_persona_setup: None,
             thread_loading_id: None,
+            pending_reconnect_restore: None,
             pending_goal_hydration_refreshes: std::collections::HashSet::new(),
             ignore_pending_concierge_welcome: false,
             gateway_statuses: Vec::new(),
@@ -1001,8 +1002,17 @@ impl TuiModel {
         self.concierge.loading || !self.chat.active_actions().is_empty()
     }
 
+    fn should_show_daemon_connection_loading(&self) -> bool {
+        (!self.connected || !self.agent_config_loaded)
+            && matches!(self.main_pane_view, MainPaneView::Conversation)
+            && !self.should_show_operator_profile_onboarding()
+            && !self.should_show_provider_onboarding()
+    }
+
     fn should_show_local_landing(&self) -> bool {
-        matches!(self.main_pane_view, MainPaneView::Conversation)
+        self.connected
+            && self.agent_config_loaded
+            && matches!(self.main_pane_view, MainPaneView::Conversation)
             && self.chat.active_thread().is_none()
             && !self.chat.is_streaming()
             && !self.concierge.loading

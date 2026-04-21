@@ -440,6 +440,12 @@ struct OperatorProfileOnboardingState {
     warning: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingReconnectRestore {
+    thread_id: String,
+    should_resume: bool,
+}
+
 pub struct TuiModel {
     // State modules
     chat: chat::ChatState,
@@ -553,6 +559,7 @@ pub struct TuiModel {
 
     // Thread currently awaiting full detail from the daemon.
     thread_loading_id: Option<String>,
+    pending_reconnect_restore: Option<PendingReconnectRestore>,
     pending_goal_hydration_refreshes: std::collections::HashSet<String>,
 
     // Ignore a stale concierge welcome that arrives after the user navigated away.

@@ -130,7 +130,10 @@ fn goal_workspace_hit_test_distinguishes_step_and_todo_rows() {
     let step_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(2, 5));
     let todo_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(4, 6));
 
-    assert_eq!(step_hit, Some(GoalWorkspaceHitTarget::PlanStep("step-1".into())));
+    assert_eq!(
+        step_hit,
+        Some(GoalWorkspaceHitTarget::PlanStep("step-1".into()))
+    );
     assert_eq!(
         todo_hit,
         Some(GoalWorkspaceHitTarget::PlanTodo {

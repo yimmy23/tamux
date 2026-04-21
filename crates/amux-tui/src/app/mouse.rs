@@ -128,17 +128,19 @@ impl TuiModel {
                                     &self.goal_workspace,
                                     pos,
                                 ),
-                                MainPaneView::Task(target) => widgets::task_view::selection_point_from_mouse(
-                                    chat_area,
-                                    &self.tasks,
-                                    target,
-                                    &self.theme,
-                                    self.task_view_scroll,
-                                    self.task_show_live_todos,
-                                    self.task_show_timeline,
-                                    self.task_show_files,
-                                    pos,
-                                ),
+                                MainPaneView::Task(target) => {
+                                    widgets::task_view::selection_point_from_mouse(
+                                        chat_area,
+                                        &self.tasks,
+                                        target,
+                                        &self.theme,
+                                        self.task_view_scroll,
+                                        self.task_show_live_todos,
+                                        self.task_show_timeline,
+                                        self.task_show_files,
+                                        pos,
+                                    )
+                                }
                                 _ => None,
                             };
                         }
@@ -221,17 +223,19 @@ impl TuiModel {
                                     &self.goal_workspace,
                                     pos,
                                 ),
-                                MainPaneView::Task(target) => widgets::task_view::selection_point_from_mouse(
-                                    chat_area,
-                                    &self.tasks,
-                                    target,
-                                    &self.theme,
-                                    self.task_view_scroll,
-                                    self.task_show_live_todos,
-                                    self.task_show_timeline,
-                                    self.task_show_files,
-                                    pos,
-                                ),
+                                MainPaneView::Task(target) => {
+                                    widgets::task_view::selection_point_from_mouse(
+                                        chat_area,
+                                        &self.tasks,
+                                        target,
+                                        &self.theme,
+                                        self.task_view_scroll,
+                                        self.task_show_live_todos,
+                                        self.task_show_timeline,
+                                        self.task_show_files,
+                                        pos,
+                                    )
+                                }
                                 _ => None,
                             };
                         }
@@ -749,17 +753,19 @@ impl TuiModel {
                             &self.goal_workspace,
                             pos,
                         ),
-                        MainPaneView::Task(target) => widgets::task_view::selection_point_from_mouse(
-                            chat_area,
-                            &self.tasks,
-                            target,
-                            &self.theme,
-                            self.task_view_scroll,
-                            self.task_show_live_todos,
-                            self.task_show_timeline,
-                            self.task_show_files,
-                            pos,
-                        ),
+                        MainPaneView::Task(target) => {
+                            widgets::task_view::selection_point_from_mouse(
+                                chat_area,
+                                &self.tasks,
+                                target,
+                                &self.theme,
+                                self.task_view_scroll,
+                                self.task_show_live_todos,
+                                self.task_show_timeline,
+                                self.task_show_files,
+                                pos,
+                            )
+                        }
                         _ => None,
                     };
                 }

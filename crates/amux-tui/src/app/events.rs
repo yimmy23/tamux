@@ -8,13 +8,13 @@ mod events_status;
 mod events_tasks;
 
 impl TuiModel {
-    fn is_internal_agent_thread(thread_id: &str, title: Option<&str>) -> bool {
+    pub(in crate::app) fn is_internal_agent_thread(thread_id: &str, title: Option<&str>) -> bool {
         let normalized_id = thread_id.trim().to_ascii_lowercase();
         let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
         normalized_id.starts_with("dm:") || normalized_title.starts_with("internal dm")
     }
 
-    fn is_hidden_agent_thread(thread_id: &str, title: Option<&str>) -> bool {
+    pub(in crate::app) fn is_hidden_agent_thread(thread_id: &str, title: Option<&str>) -> bool {
         let normalized_id = thread_id.trim().to_ascii_lowercase();
         let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
         normalized_id.starts_with("handoff:")
@@ -171,7 +171,9 @@ impl TuiModel {
             ClientEvent::ThreadDetail(Some(thread)) => {
                 self.handle_thread_detail_event(thread);
             }
-            ClientEvent::ThreadDetail(None) => {}
+            ClientEvent::ThreadDetail(None) => {
+                let _ = self.fallback_pending_reconnect_restore();
+            }
             ClientEvent::ThreadCreated {
                 thread_id,
                 title,

@@ -1,17 +1,57 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AgentThread } from "../../lib/agentStore";
-import { DEFAULT_PAGE_SIZE, iconButtonStyle, inputStyle, PageSizeSelect, PaginationControls } from "./shared";
+import { ActionButton, DEFAULT_PAGE_SIZE, iconButtonStyle, inputStyle, PageSizeSelect, PaginationControls } from "./shared";
+
+export function ThreadListToolbar({
+    searchQuery,
+    onSearch,
+    onRefresh,
+    dateFilter,
+    onDateFilterChange,
+    pageSize,
+    onPageSizeChange,
+}: {
+    searchQuery: string;
+    onSearch: (query: string) => void;
+    onRefresh: () => void;
+    dateFilter: string;
+    onDateFilterChange: (value: string) => void;
+    pageSize: number;
+    onPageSizeChange: (value: number) => void;
+}) {
+    return (
+        <div style={{ marginBottom: "var(--space-3)", display: "flex", gap: "var(--space-3)", flexWrap: "wrap", alignItems: "center" }}>
+            <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearch(e.target.value)}
+                placeholder="Search threads..."
+                style={{ ...inputStyle, minWidth: 220 }}
+            />
+            <input
+                type="date"
+                value={dateFilter}
+                onChange={(event) => onDateFilterChange(event.target.value)}
+                style={{ ...inputStyle, flex: "0 0 auto", minWidth: 170 }}
+            />
+            <PageSizeSelect value={pageSize} onChange={onPageSizeChange} />
+            <ActionButton onClick={onRefresh}>Refresh</ActionButton>
+        </div>
+    );
+}
 
 export function ThreadList({
     threads,
     searchQuery,
     onSearch,
+    onRefresh,
     onSelect,
     onDelete,
 }: {
     threads: AgentThread[];
     searchQuery: string;
     onSearch: (q: string) => void;
+    onRefresh: () => void;
     onSelect: (t: AgentThread) => void;
     onDelete: (id: string) => void;
 }) {
@@ -41,22 +81,15 @@ export function ThreadList({
 
     return (
         <div style={{ height: "100%", overflow: "auto", padding: "var(--space-3)" }}>
-            <div style={{ marginBottom: "var(--space-3)", display: "flex", gap: "var(--space-3)", flexWrap: "wrap", alignItems: "center" }}>
-                <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => onSearch(e.target.value)}
-                    placeholder="Search threads..."
-                    style={{ ...inputStyle, minWidth: 220 }}
-                />
-                <input
-                    type="date"
-                    value={dateFilter}
-                    onChange={(event) => setDateFilter(event.target.value)}
-                    style={{ ...inputStyle, flex: "0 0 auto", minWidth: 170 }}
-                />
-                <PageSizeSelect value={pageSize} onChange={setPageSize} />
-            </div>
+            <ThreadListToolbar
+                searchQuery={searchQuery}
+                onSearch={onSearch}
+                onRefresh={onRefresh}
+                dateFilter={dateFilter}
+                onDateFilterChange={setDateFilter}
+                pageSize={pageSize}
+                onPageSizeChange={setPageSize}
+            />
 
             {filteredThreads.length === 0 && (
                 <div className="amux-empty-state">

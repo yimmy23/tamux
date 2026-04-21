@@ -291,7 +291,10 @@ fn goal_step_todos_prefer_latest_event_snapshot_for_step() {
     }));
 
     let todos = state.goal_step_todos("goal-1", 0);
-    let todo_ids = todos.iter().map(|todo| todo.id.as_str()).collect::<Vec<_>>();
+    let todo_ids = todos
+        .iter()
+        .map(|todo| todo.id.as_str())
+        .collect::<Vec<_>>();
 
     assert_eq!(todo_ids, vec!["todo-1", "todo-2"]);
     assert_eq!(todos[0].content, "latest snapshot item");

@@ -218,13 +218,14 @@ function AgentChatPanelThreadBrowserSurface({
 }: {
   browserView: "threads" | "internal" | "gateway";
 }) {
-  const { filteredThreads, searchQuery, setSearchQuery, setActiveThread, setView, setChatBackView, deleteThread } = useAgentChatPanelRuntime();
+  const { filteredThreads, searchQuery, setSearchQuery, refreshThreadList, setActiveThread, setView, setChatBackView, deleteThread } = useAgentChatPanelRuntime();
 
   return (
     <ThreadList
       threads={filteredThreads}
       searchQuery={searchQuery}
       onSearch={setSearchQuery}
+      onRefresh={() => void refreshThreadList()}
       onSelect={(thread) => {
         setActiveThread(thread.id);
         setChatBackView(browserView);

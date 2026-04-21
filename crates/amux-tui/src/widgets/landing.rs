@@ -87,6 +87,13 @@ const WELES_FRESCO_STATIC: &[&str] = &[
     "                                                                        ",
 ];
 
+const CONNECTION_WAIT_STAGES: [&str; 4] = [
+    "Warming the forge",
+    "Listening for daemon heartbeat",
+    "Rejoining the local control plane",
+    "Preparing the first thread spark",
+];
+
 fn fresco_for_agent(agent_label: &str) -> &'static [&'static str] {
     match agent_label {
         "Rarog" => RAROG_FRESCO_STATIC,
@@ -100,6 +107,19 @@ fn copy_for_agent(agent_label: &str) -> (&'static str, &'static str) {
         "Rarog" => ("Cinders turn.", "Rarog watches the seam."),
         "Weles" => ("The ward is drawn.", "Weles weighs the path."),
         _ => ("Fire is lit.", "Svarog tends the forge."),
+    }
+}
+
+fn connection_stage_label(tick: u64) -> &'static str {
+    CONNECTION_WAIT_STAGES[((tick / 24) % CONNECTION_WAIT_STAGES.len() as u64) as usize]
+}
+
+fn connection_wait_suffix(tick: u64) -> &'static str {
+    match (tick / 8) % 4 {
+        0 => "",
+        1 => ".",
+        2 => "..",
+        _ => "...",
     }
 }
 
@@ -179,13 +199,49 @@ fn centered_line_rect(content_area: Rect, row: u16, line: &Line<'_>) -> Rect {
 }
 
 pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens, agent_label: &str) {
+    let (lead_copy, agent_copy) = copy_for_agent(agent_label);
+    let body_line = Line::from(vec![
+        Span::styled(lead_copy, theme.fg_dim),
+        Span::raw("  "),
+        Span::styled(agent_copy, theme.accent_secondary),
+        Span::raw("  "),
+        Span::styled("Type to begin.", theme.fg_dim),
+    ]);
+    let footer_line = Line::from(vec![
+        Span::styled("Ctrl+P", theme.accent_primary),
+        Span::styled(" command palette  ", theme.fg_dim),
+        Span::styled("Ctrl+T", theme.accent_primary),
+        Span::styled(" threads", theme.fg_dim),
+    ]);
+    render_with_lines(frame, area, theme, agent_label, body_line, footer_line);
+}
+
+pub fn render_connection_waiting(frame: &mut Frame, area: Rect, theme: &ThemeTokens, tick: u64) {
+    let body_line = Line::from(vec![
+        Span::styled("Waiting for daemon connection", theme.accent_secondary),
+        Span::styled(connection_wait_suffix(tick), theme.accent_secondary),
+    ]);
+    let footer_line = Line::from(vec![
+        Span::styled(connection_stage_label(tick), theme.fg_dim),
+        Span::raw("  "),
+        Span::styled("Svarog keeps the forge warm.", theme.fg_dim),
+    ]);
+    render_with_lines(frame, area, theme, "Svarog", body_line, footer_line);
+}
+
+fn render_with_lines(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &ThemeTokens,
+    agent_label: &str,
+    body_line: Line<'static>,
+    footer_line: Line<'static>,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
 
     let mut lines: Vec<Line<'static>> = Vec::new();
-
-    let (lead_copy, agent_copy) = copy_for_agent(agent_label);
 
     for row in fresco_for_agent(agent_label) {
         lines.push(Line::from(Span::styled(
@@ -215,20 +271,9 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens, agent_label: &
     //     theme.fg_dim,
     // )));
     lines.push(Line::raw(""));
-    lines.push(Line::from(vec![
-        Span::styled(lead_copy, theme.fg_dim),
-        Span::raw("  "),
-        Span::styled(agent_copy, theme.accent_secondary),
-        Span::raw("  "),
-        Span::styled("Type to begin.", theme.fg_dim),
-    ]));
+    lines.push(body_line);
     lines.push(Line::raw(""));
-    lines.push(Line::from(vec![
-        Span::styled("Ctrl+P", theme.accent_primary),
-        Span::styled(" command palette  ", theme.fg_dim),
-        Span::styled("Ctrl+T", theme.accent_primary),
-        Span::styled(" threads", theme.fg_dim),
-    ]));
+    lines.push(footer_line);
 
     let content_area = centered_content_rect(area, &lines);
     for (row, line) in lines.iter().enumerate() {

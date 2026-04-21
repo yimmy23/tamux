@@ -1,3 +1,5 @@
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
 #[tokio::test]
 async fn concierge_welcome_request_does_not_block_ping() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -15,6 +17,7 @@ async fn concierge_welcome_request_does_not_block_ping() {
     config.api_key = "test-key".to_string();
     config.model = "gpt-5.4".to_string();
     config.concierge.detail_level = crate::agent::types::ConciergeDetailLevel::ContextSummary;
+    config.tier.onboarding_completed = true;
 
     let mut conn = spawn_test_connection_with_config(config).await;
 
@@ -52,6 +55,111 @@ async fn concierge_welcome_request_does_not_block_ping() {
     assert!(
         pong_received,
         "ping should not be blocked behind concierge welcome generation"
+    );
+
+    accept_task.abort();
+    conn.shutdown().await;
+}
+
+#[tokio::test]
+async fn concierge_welcome_streams_partial_content_before_completion() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind fake llm listener");
+    let addr = listener.local_addr().expect("listener addr");
+    let accept_task = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept concierge request");
+        let mut request_buf = [0u8; 4096];
+        let _ = stream.read(&mut request_buf).await;
+
+        let chunk_one = "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_partial\"}}\n\n";
+        let chunk_two =
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Partial welcome\"}\n\n";
+        let chunk_three = "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_partial\",\"usage\":{\"input_tokens\":7,\"output_tokens\":3}}}\n\n";
+        let done = "data: [DONE]\n\n";
+        let body_len = chunk_one.len() + chunk_two.len() + chunk_three.len() + done.len();
+
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {body_len}\r\nconnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("write response head");
+        stream.write_all(chunk_one.as_bytes()).await.expect("write created event");
+        stream
+            .write_all(chunk_two.as_bytes())
+            .await
+            .expect("write partial delta");
+        stream.flush().await.expect("flush partial delta");
+
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        stream
+            .write_all(chunk_three.as_bytes())
+            .await
+            .expect("write final chunk");
+        stream
+            .write_all(done.as_bytes())
+            .await
+            .expect("write stream terminator");
+        stream.flush().await.expect("flush final stream");
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = format!("http://{addr}");
+    config.api_key = "test-key".to_string();
+    config.model = "gpt-5.4".to_string();
+    config.concierge.detail_level = crate::agent::types::ConciergeDetailLevel::ContextSummary;
+    config.tier.onboarding_completed = true;
+
+    let mut conn = spawn_test_connection_with_config(config).await;
+    conn.framed
+        .send(ClientMessage::AgentSubscribe)
+        .await
+        .expect("subscribe to agent events");
+    conn.framed
+        .send(ClientMessage::AgentRequestConciergeWelcome)
+        .await
+        .expect("request concierge welcome");
+
+    let partial_event = timeout(Duration::from_millis(250), async {
+        loop {
+            match conn.recv_with_timeout(Duration::from_millis(250)).await {
+                DaemonMessage::AgentEvent { event_json } => {
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(&event_json).expect("parse concierge event");
+                    if parsed.get("type").and_then(|value| value.as_str())
+                        == Some("concierge_welcome")
+                    {
+                        return parsed;
+                    }
+                }
+                DaemonMessage::OperationAccepted { kind, .. } => {
+                    assert_eq!(kind, "concierge_welcome");
+                }
+                other => panic!("expected concierge partial event, got {other:?}"),
+            }
+        }
+    })
+    .await
+    .expect("partial concierge welcome should arrive before completion");
+
+    assert_eq!(
+        partial_event
+            .get("content")
+            .and_then(|value| value.as_str()),
+        Some("Partial welcome")
+    );
+    assert_eq!(
+        partial_event
+            .get("actions")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0)
     );
 
     accept_task.abort();

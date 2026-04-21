@@ -408,6 +408,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
         setNewGoalSessionId={setNewGoalSessionId}
         goalStartError={goalStartError}
         onAddGoalRun={() => void addGoalRun()}
+        onRefreshGoalRuns={() => void refreshGoalRuns()}
         activeGoalRuns={activeGoalRuns}
         historicalGoalRuns={historicalGoalRuns}
         completedGoalRuns={completedGoalRuns}
