@@ -16,7 +16,7 @@ use crate::agent::background_workers::protocol::{
 use crate::agent::background_workers::run_background_worker_command;
 use crate::agent::engine::AgentEngine;
 use crate::agent::types::RoutingMode;
-use crate::agent::TaskStatus;
+use crate::agent::{GoalResolvedAgentTarget, ResolvedGoalLocalAgent, TaskStatus};
 
 /// Maximum handoff depth before escalating to operator (HAND-08).
 const MAX_HANDOFF_DEPTH: u8 = 3;
@@ -38,6 +38,190 @@ fn validate_match_threshold(threshold: f64) -> Result<()> {
 }
 
 impl AgentEngine {
+    async fn route_goal_local_handoff(
+        &self,
+        task_description: &str,
+        capability_tags: &[String],
+        parent_task_id: Option<&str>,
+        goal_run_id: Option<&str>,
+        thread_id: &str,
+        acceptance_criteria_str: &str,
+        current_depth: u8,
+        agent: &ResolvedGoalLocalAgent,
+    ) -> Result<HandoffResult> {
+        if current_depth >= MAX_HANDOFF_DEPTH {
+            anyhow::bail!(
+                "Handoff depth limit ({MAX_HANDOFF_DEPTH} hops) reached -- escalating to operator"
+            );
+        }
+
+        let bundle = self
+            .assemble_context_bundle(
+                task_description,
+                parent_task_id,
+                goal_run_id,
+                thread_id,
+                acceptance_criteria_str,
+                current_depth,
+            )
+            .await
+            .context("assembling context bundle for goal-local handoff")?;
+        let bundle_tokens = bundle.estimated_tokens;
+        let handoff_log_id = Uuid::new_v4().to_string();
+        let bundle_json = serde_json::to_string(&bundle).unwrap_or_else(|_| "{}".to_string());
+        let criteria_json = serde_json::to_string(&AcceptanceCriteria {
+            description: acceptance_criteria_str.to_string(),
+            structural_checks: vec!["non_empty".to_string()],
+            require_llm_validation: false,
+        })
+        .unwrap_or_else(|_| "{}".to_string());
+        let capability_tags_json =
+            serde_json::to_string(capability_tags).unwrap_or_else(|_| "[]".to_string());
+
+        if let Err(e) = self
+            .log_handoff_detail(
+                &handoff_log_id,
+                parent_task_id.unwrap_or("none"),
+                &agent.role_id,
+                None,
+                task_description,
+                &criteria_json,
+                &bundle_json,
+                &capability_tags_json,
+                current_depth,
+                "dispatched",
+                None,
+                RoutingMethod::Deterministic.as_str(),
+                1.0,
+                false,
+            )
+            .await
+        {
+            tracing::warn!("handoff broker: failed to log goal-local detail: {e}");
+        }
+
+        if let Err(e) = self
+            .record_handoff_audit(
+                parent_task_id.unwrap_or("none"),
+                &agent.role_id,
+                "pending",
+                task_description,
+                "dispatched",
+                None,
+                None,
+                &handoff_log_id,
+                RoutingMethod::Deterministic.as_str(),
+                &capability_tags_json,
+                1.0,
+                false,
+            )
+            .await
+        {
+            tracing::warn!("handoff broker: failed to record goal-local audit: {e}");
+        }
+
+        let full_description = format!(
+            "[Handoff to {} ({})]\n\n\
+             ## Task\n{}\n\n\
+             ## Acceptance Criteria\n{}\n",
+            agent.agent_label, agent.role_id, task_description, acceptance_criteria_str
+        );
+
+        let task = self
+            .enqueue_task(
+                format!(
+                    "[{}] {}",
+                    agent.role_id,
+                    crate::agent::goal_parsing::summarize_text(task_description, 72)
+                ),
+                full_description,
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "handoff",
+                goal_run_id.map(str::to_string),
+                parent_task_id.map(str::to_string),
+                Some(thread_id.to_string()),
+                None,
+            )
+            .await;
+        let updated_task = self
+            .apply_goal_resolved_target_to_task(
+                task.id.as_str(),
+                Some(&GoalResolvedAgentTarget::GoalLocal(agent.clone())),
+            )
+            .await
+            .unwrap_or(task);
+        let task_id = updated_task.id.clone();
+
+        if let Err(e) = self.bind_handoff_task_id(&handoff_log_id, &task_id).await {
+            tracing::warn!("handoff broker: failed to bind goal-local handoff task id: {e}");
+        }
+        if let Err(e) = self
+            .update_handoff_outcome(&handoff_log_id, "dispatched", None, None)
+            .await
+        {
+            tracing::warn!("handoff broker: failed to update goal-local handoff outcome: {e}");
+        }
+
+        Ok(HandoffResult {
+            task_id,
+            specialist_profile_id: agent.role_id.clone(),
+            specialist_name: agent.agent_label.clone(),
+            handoff_log_id,
+            context_bundle_tokens: bundle_tokens,
+            routing_method: RoutingMethod::Deterministic,
+            routing_score: 1.0,
+            fallback_used: false,
+            routing_rationale: format!("goal-local routing selected {}", agent.agent_label),
+            specialization_diagnostics: serde_json::json!({
+                "goal_local": true,
+                "role_id": agent.role_id,
+            }),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn route_handoff_to_target(
+        &self,
+        task_description: &str,
+        capability_tags: &[String],
+        parent_task_id: Option<&str>,
+        goal_run_id: Option<&str>,
+        thread_id: &str,
+        acceptance_criteria_str: &str,
+        current_depth: u8,
+        resolved_target: Option<&GoalResolvedAgentTarget>,
+    ) -> Result<HandoffResult> {
+        if let Some(GoalResolvedAgentTarget::GoalLocal(agent)) = resolved_target {
+            return self
+                .route_goal_local_handoff(
+                    task_description,
+                    capability_tags,
+                    parent_task_id,
+                    goal_run_id,
+                    thread_id,
+                    acceptance_criteria_str,
+                    current_depth,
+                    agent,
+                )
+                .await;
+        }
+
+        self.route_handoff(
+            task_description,
+            capability_tags,
+            parent_task_id,
+            goal_run_id,
+            thread_id,
+            acceptance_criteria_str,
+            current_depth,
+        )
+        .await
+    }
+
     /// Assemble a context bundle for a specialist handoff.
     ///
     /// Pulls episodic refs, negative constraints, parent context summary,

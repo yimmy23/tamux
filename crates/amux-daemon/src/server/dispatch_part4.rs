@@ -226,6 +226,7 @@ if matches!(
                     session_id,
                     priority,
                     client_request_id,
+                    launch_assignments,
                     autonomy_level,
                     client_surface,
                 } => {
@@ -239,6 +240,23 @@ if matches!(
                             client_request_id,
                             autonomy_level,
                             client_surface,
+                            if launch_assignments.is_empty() {
+                                None
+                            } else {
+                                Some(
+                                    launch_assignments
+                                        .into_iter()
+                                        .map(|assignment| crate::agent::types::GoalAgentAssignment {
+                                            role_id: assignment.role_id,
+                                            enabled: assignment.enabled,
+                                            provider: assignment.provider,
+                                            model: assignment.model,
+                                            reasoning_effort: assignment.reasoning_effort,
+                                            inherit_from_main: assignment.inherit_from_main,
+                                        })
+                                        .collect(),
+                                )
+                            },
                         )
                         .await;
                     if let Some(thread_id) = goal_run.thread_id.clone() {

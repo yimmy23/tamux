@@ -303,7 +303,7 @@ fn concierge_mouse_click_executes_visible_action() {
         other => panic!("expected thread request command, got {:?}", other),
     }
     assert_eq!(model.focus, FocusArea::Input);
-    assert_eq!(model.input.buffer(), "/goal ");
+    assert_eq!(model.input.buffer(), "/new-goal ");
     assert!(model.chat.active_actions().is_empty());
 }
 

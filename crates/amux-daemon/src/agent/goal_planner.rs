@@ -126,7 +126,7 @@ impl AgentEngine {
         )
     }
 
-    async fn current_step_owner_profile_for_task(
+    pub(crate) async fn current_step_owner_profile_for_task(
         &self,
         task: &AgentTask,
     ) -> GoalRuntimeOwnerProfile {
@@ -463,13 +463,14 @@ impl AgentEngine {
         }
 
         let step = snapshot.steps[snapshot.current_step_index].clone();
+        let resolved_execution_target = self.resolve_goal_execution_target(&snapshot, &step).await;
 
         // If this is a Specialist step, route through the handoff broker
         // instead of the normal task enqueue path.
         let task = if let GoalRunStepKind::Specialist(ref role) = step.kind {
             let thread_id = snapshot.thread_id.clone().unwrap_or_default();
             match self
-                .route_handoff(
+                .route_handoff_to_target(
                     &step.instructions,
                     &[role.clone()],
                     None, // parent_task_id
@@ -477,6 +478,7 @@ impl AgentEngine {
                     &thread_id,
                     &step.success_criteria,
                     0, // depth starts at 0 for goal-originated handoffs
+                    resolved_execution_target.as_ref(),
                 )
                 .await
             {
@@ -659,6 +661,10 @@ impl AgentEngine {
             )
             .await
         };
+        let task = self
+            .apply_goal_resolved_target_to_task(task.id.as_str(), resolved_execution_target.as_ref())
+            .await
+            .unwrap_or(task);
 
         let requires_ack = super::autonomy::requires_acknowledgment(snapshot.autonomy_level);
         let autonomy_acknowledgment_id = requires_ack.then(|| {
@@ -692,8 +698,11 @@ impl AgentEngine {
             current_task.clone()
         };
         let current_step_owner_profile = Some(
-            self.current_step_owner_profile_for_task(&current_task_snapshot)
-                .await,
+            self.goal_owner_profile_for_task_target(
+                &current_task_snapshot,
+                resolved_execution_target.as_ref(),
+            )
+            .await,
         );
         let updated = {
             let mut goal_runs = self.goal_runs.lock().await;

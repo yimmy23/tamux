@@ -407,7 +407,7 @@ fn default_command_items() -> Vec<CommandItem> {
             description: "New conversation".into(),
         },
         CommandItem {
-            command: "goal".into(),
+            command: "new-goal".into(),
             description: "Open Goal Runner view".into(),
         },
         CommandItem {

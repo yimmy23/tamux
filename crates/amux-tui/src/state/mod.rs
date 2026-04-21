@@ -67,6 +67,7 @@ pub enum DaemonCommand {
         goal: String,
         thread_id: Option<String>,
         session_id: Option<String>,
+        launch_assignments: Vec<crate::state::task::GoalAgentAssignment>,
     },
     ExplainAction {
         action_id: String,

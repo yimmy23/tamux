@@ -123,6 +123,77 @@ impl TuiModel {
             ));
     }
 
+    fn upsert_goal_run_backed_approval(&mut self, run: &task::GoalRun) {
+        let Some(approval_id) = run.awaiting_approval_id.as_deref() else {
+            return;
+        };
+        let existing = self.approval.approval_by_id(approval_id).cloned();
+        let thread_rationale = self.approval_rationale_for_thread(run.thread_id.as_deref());
+        let fallback_command = run
+            .current_step_title
+            .as_ref()
+            .map(|title| format!("review goal step: {title}"))
+            .unwrap_or_else(|| "review goal approval".to_string());
+        let fallback_blast_radius = run
+            .current_step_title
+            .clone()
+            .unwrap_or_else(|| "goal run".to_string());
+
+        self.approval
+            .reduce(crate::state::ApprovalAction::ApprovalRequired(
+                crate::state::PendingApproval {
+                    approval_id: approval_id.to_string(),
+                    task_id: existing
+                        .as_ref()
+                        .map(|approval| approval.task_id.clone())
+                        .filter(|task_id| !task_id.trim().is_empty())
+                        .or_else(|| run.child_task_ids.first().cloned())
+                        .unwrap_or_else(|| run.id.clone()),
+                    task_title: existing
+                        .as_ref()
+                        .and_then(|approval| approval.task_title.clone())
+                        .or_else(|| Some(run.title.clone()).filter(|title| !title.trim().is_empty())),
+                    thread_id: run.thread_id.clone(),
+                    thread_title: existing
+                        .as_ref()
+                        .and_then(|approval| approval.thread_title.clone())
+                        .or_else(|| self.thread_title_for_id(run.thread_id.as_deref())),
+                    workspace_id: existing
+                        .as_ref()
+                        .and_then(|approval| approval.workspace_id.clone())
+                        .or_else(|| self.current_workspace_id().map(str::to_string)),
+                    rationale: existing
+                        .as_ref()
+                        .and_then(|approval| approval.rationale.clone())
+                        .or(thread_rationale),
+                    reasons: existing
+                        .as_ref()
+                        .map(|approval| approval.reasons.clone())
+                        .unwrap_or_default(),
+                    command: existing
+                        .as_ref()
+                        .and_then(|approval| {
+                            (approval.command != "Awaiting approval details from daemon")
+                                .then(|| approval.command.clone())
+                        })
+                        .unwrap_or(fallback_command),
+                    risk_level: existing
+                        .as_ref()
+                        .map(|approval| approval.risk_level)
+                        .unwrap_or(crate::state::RiskLevel::Medium),
+                    blast_radius: existing
+                        .as_ref()
+                        .map(|approval| approval.blast_radius.clone())
+                        .unwrap_or(fallback_blast_radius),
+                    received_at: existing
+                        .as_ref()
+                        .map(|approval| approval.received_at)
+                        .unwrap_or_else(|| Self::current_unix_ms().max(0) as u64),
+                    seen_at: existing.as_ref().and_then(|approval| approval.seen_at),
+                },
+            ));
+    }
+
     fn sync_pending_approvals_from_tasks(&mut self) {
         let tasks = self.tasks.tasks().to_vec();
         for task in &tasks {
@@ -130,6 +201,15 @@ impl TuiModel {
             // the daemon can cap or omit tasks that still have a live approval event.
             if task.awaiting_approval_id.is_some() {
                 self.upsert_task_backed_approval(task);
+            }
+        }
+    }
+
+    fn sync_pending_approvals_from_goal_runs(&mut self) {
+        let goal_runs = self.tasks.goal_runs().to_vec();
+        for goal_run in &goal_runs {
+            if goal_run.awaiting_approval_id.is_some() {
+                self.upsert_goal_run_backed_approval(goal_run);
             }
         }
     }
@@ -147,6 +227,27 @@ impl TuiModel {
                 continue;
             };
             if next_task.awaiting_approval_id.as_deref() != Some(previous_approval_id) {
+                self.approval
+                    .reduce(crate::state::ApprovalAction::ClearResolved(
+                        previous_approval_id.to_string(),
+                    ));
+            }
+        }
+    }
+
+    fn clear_replaced_goal_run_approvals(
+        &mut self,
+        previous_runs: &[task::GoalRun],
+        next_runs: &[task::GoalRun],
+    ) {
+        for previous_run in previous_runs {
+            let Some(previous_approval_id) = previous_run.awaiting_approval_id.as_deref() else {
+                continue;
+            };
+            let Some(next_run) = next_runs.iter().find(|run| run.id == previous_run.id) else {
+                continue;
+            };
+            if next_run.awaiting_approval_id.as_deref() != Some(previous_approval_id) {
                 self.approval
                     .reduce(crate::state::ApprovalAction::ClearResolved(
                         previous_approval_id.to_string(),
@@ -456,6 +557,7 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_goal_run_list_event(&mut self, runs: Vec<crate::wire::GoalRun>) {
+        let previous_runs = self.tasks.goal_runs().to_vec();
         let runs: Vec<_> = runs.into_iter().map(conversion::convert_goal_run).collect();
         let present_goal_run_ids = runs
             .iter()
@@ -463,6 +565,8 @@ impl TuiModel {
             .collect::<std::collections::HashSet<_>>();
         self.tasks
             .reduce(task::TaskAction::GoalRunListReceived(runs.clone()));
+        self.clear_replaced_goal_run_approvals(&previous_runs, &runs);
+        self.sync_pending_approvals_from_goal_runs();
         self.pending_goal_hydration_refreshes
             .retain(|goal_run_id| present_goal_run_ids.contains(goal_run_id));
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
@@ -484,6 +588,10 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_goal_run_detail_event(&mut self, run: crate::wire::GoalRun) {
+        let previous_approval_id = self
+            .tasks
+            .goal_run_by_id(&run.id)
+            .and_then(|goal_run| goal_run.awaiting_approval_id.clone());
         let should_preserve_prepend_anchor = matches!(
             &self.main_pane_view,
             MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. })
@@ -504,6 +612,20 @@ impl TuiModel {
         let goal_run_id = converted.id.clone();
         self.tasks
             .reduce(task::TaskAction::GoalRunDetailReceived(converted));
+        if let Some(previous_approval_id) = previous_approval_id.filter(|approval_id| {
+            self.tasks
+                .goal_run_by_id(&goal_run_id)
+                .and_then(|goal_run| goal_run.awaiting_approval_id.as_deref())
+                != Some(approval_id.as_str())
+        }) {
+            self.approval
+                .reduce(crate::state::ApprovalAction::ClearResolved(
+                    previous_approval_id,
+                ));
+        }
+        if let Some(goal_run) = self.tasks.goal_run_by_id(&goal_run_id).cloned() {
+            self.upsert_goal_run_backed_approval(&goal_run);
+        }
         self.clear_goal_hydration_refresh(&goal_run_id);
         if should_preserve_prepend_anchor {
             let after_max_scroll = self.current_detail_view_max_scroll();
@@ -516,6 +638,10 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_goal_run_update_event(&mut self, run: crate::wire::GoalRun) {
+        let previous_approval_id = self
+            .tasks
+            .goal_run_by_id(&run.id)
+            .and_then(|goal_run| goal_run.awaiting_approval_id.clone());
         let run = conversion::convert_goal_run(run);
         let active_goal_run_id = match &self.main_pane_view {
             MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) => {
@@ -525,6 +651,18 @@ impl TuiModel {
         };
         self.tasks
             .reduce(task::TaskAction::GoalRunUpdate(run.clone()));
+        if let Some(previous_approval_id) = previous_approval_id.filter(|approval_id| {
+            self.tasks
+                .goal_run_by_id(&run.id)
+                .and_then(|goal_run| goal_run.awaiting_approval_id.as_deref())
+                != Some(approval_id.as_str())
+        }) {
+            self.approval
+                .reduce(crate::state::ApprovalAction::ClearResolved(
+                    previous_approval_id,
+                ));
+        }
+        self.upsert_goal_run_backed_approval(&run);
         if active_goal_run_id.as_deref() == Some(run.id.as_str()) {
             self.schedule_goal_hydration_refresh(run.id.clone());
         }

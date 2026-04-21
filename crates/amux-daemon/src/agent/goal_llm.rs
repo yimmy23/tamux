@@ -111,6 +111,10 @@ impl AgentEngine {
              Goal:\n{}",
             goal_run.title, goal_run.goal
         );
+        prompt.push_str("\n\n");
+        prompt.push_str(&crate::agent::goal_dossier::goal_inventory_prompt_block(
+            &goal_run.id,
+        ));
 
         match adaptation_mode {
             SatisfactionAdaptationMode::Minimal => prompt.push_str(
@@ -136,6 +140,15 @@ impl AgentEngine {
                 "- Repeated fallback patterns show these tools recovered better than the earlier failing path: {}. Prefer them earlier when they fit, and justify the switch explicitly.\n",
                 preferred_fallback_tools.join(", ")
             ));
+        }
+        let goal_local_agents =
+            goal_local_agent_prompt_block(&goal_run.launch_assignment_snapshot);
+        if !goal_local_agents.is_empty() {
+            prompt.push_str("\nGoal-local agents:\n");
+            prompt.push_str(&goal_local_agents);
+            prompt.push_str(
+                "\nPrefer these goal-local roles when they fit the task. If no local role fits, global subagents may still be used.\n",
+            );
         }
 
         if !episodic_context.is_empty() {

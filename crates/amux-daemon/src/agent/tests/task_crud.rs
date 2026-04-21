@@ -1762,6 +1762,7 @@ async fn start_goal_run_records_goal_start_episode_with_archived_fields() {
             None,
             None,
             None,
+            None,
         )
         .await;
 
@@ -1809,6 +1810,7 @@ async fn goal_projection_delete_goal_run_removes_projection_directory() {
             None,
             None,
             None,
+            None,
         )
         .await;
 
@@ -1834,6 +1836,7 @@ async fn repeated_goal_start_creates_retry_link_to_previous_related_episode() {
             None,
             None,
             None,
+            None,
         )
         .await;
     engine
@@ -1849,6 +1852,7 @@ async fn repeated_goal_start_creates_retry_link_to_previous_related_episode() {
             Some("session-epis-3".to_string()),
             None,
             Some("req-2".to_string()),
+            None,
             None,
         )
         .await;
@@ -1888,6 +1892,7 @@ async fn repeated_goal_start_does_not_link_across_persona_scopes() {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         engine
@@ -1906,6 +1911,7 @@ async fn repeated_goal_start_does_not_link_across_persona_scopes() {
                 Some("session-epis-scope-2".to_string()),
                 None,
                 Some("req-persona-b".to_string()),
+                None,
                 None,
             )
             .await;
@@ -1948,6 +1954,7 @@ async fn suppressed_session_id_skips_goal_start_episode_recording() {
             None,
             None,
             None,
+            None,
         )
         .await;
 
@@ -1979,6 +1986,7 @@ async fn strained_satisfaction_clamps_new_goal_run_max_replans() {
             Some("Satisfaction clamp".to_string()),
             Some("thread-satisfaction-goal".to_string()),
             Some("session-satisfaction-goal".to_string()),
+            None,
             None,
             None,
             None,

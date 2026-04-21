@@ -256,6 +256,27 @@ pub(super) async fn write_goal_run_projection(
     projection::write_goal_projection_files(&engine.data_dir, goal_run).await
 }
 
+pub(crate) fn goal_inventory_prompt_block(goal_run_id: &str) -> String {
+    let inventory_root = projection::goal_inventory_relative_dir(goal_run_id);
+    let specs_dir = projection::goal_inventory_relative_specs_dir(goal_run_id);
+    let plans_dir = projection::goal_inventory_relative_plans_dir(goal_run_id);
+    let execution_dir = projection::goal_inventory_relative_execution_dir(goal_run_id);
+
+    format!(
+        "## Goal Artifact Inventory\n\
+         - inventory root: {inventory_root}/\n\
+         - specs dir: {specs_dir}/\n\
+         - plans dir: {plans_dir}/\n\
+         - execution dir: {execution_dir}/\n\
+         - Place durable goal-run artifacts only in this inventory subtree.\n\
+         - Default ambiguous artifacts to the execution dir.",
+        inventory_root = inventory_root.display(),
+        specs_dir = specs_dir.display(),
+        plans_dir = plans_dir.display(),
+        execution_dir = execution_dir.display(),
+    )
+}
+
 #[cfg(test)]
 pub(crate) fn set_goal_projection_write_delay_for_tests(
     delay: std::time::Duration,

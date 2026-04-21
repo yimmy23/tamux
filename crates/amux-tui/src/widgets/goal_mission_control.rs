@@ -193,7 +193,7 @@ fn render_role_assignments_section(
         theme.accent_secondary,
     )));
     lines.push(Line::from(Span::styled(
-        "Use ↑↓ to select, P provider, M model, E effort, R role, S save default.",
+        "Use ↑↓ to select, A add, P provider, M model, E effort, R role, S save default.",
         theme.fg_dim,
     )));
 
@@ -307,6 +307,8 @@ fn render_footer(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
     let footer = Line::from(vec![
         Span::styled("Enter", theme.fg_active),
         Span::styled(" launch  ", theme.fg_dim),
+        Span::styled("A", theme.fg_active),
+        Span::styled(" add agent  ", theme.fg_dim),
         Span::styled("Tab", theme.fg_active),
         Span::styled(" prompt/roster  ", theme.fg_dim),
         Span::styled("Ctrl+O", theme.fg_active),

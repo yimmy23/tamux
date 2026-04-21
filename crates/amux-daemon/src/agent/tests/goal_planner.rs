@@ -20,6 +20,17 @@ fn runtime_owner_profile(
     }
 }
 
+fn sample_goal_assignment(role_id: &str, provider: &str, model: &str) -> GoalAgentAssignment {
+    GoalAgentAssignment {
+        role_id: role_id.to_string(),
+        enabled: true,
+        provider: provider.to_string(),
+        model: model.to_string(),
+        reasoning_effort: Some("medium".to_string()),
+        inherit_from_main: false,
+    }
+}
+
 fn sample_goal_run(goal_run_id: &str) -> GoalRun {
     GoalRun {
         id: goal_run_id.to_string(),
@@ -105,6 +116,7 @@ async fn start_goal_run_seeds_launch_assignment_snapshot_and_thread_routing_defa
             None,
             None,
             None,
+            None,
         )
         .await;
 
@@ -143,6 +155,48 @@ async fn start_goal_run_seeds_launch_assignment_snapshot_and_thread_routing_defa
         serialized["launch_assignment_snapshot"][0]["provider"],
         serde_json::json!(config.provider.clone())
     );
+}
+
+#[tokio::test]
+async fn start_goal_run_uses_provided_launch_assignment_snapshot_when_present() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let launch_assignments = vec![
+        GoalAgentAssignment {
+            role_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+            enabled: true,
+            provider: "openai".to_string(),
+            model: "gpt-5.4".to_string(),
+            reasoning_effort: Some("medium".to_string()),
+            inherit_from_main: false,
+        },
+        GoalAgentAssignment {
+            role_id: "planning".to_string(),
+            enabled: true,
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            reasoning_effort: Some("high".to_string()),
+            inherit_from_main: false,
+        },
+    ];
+
+    let goal_run = engine
+        .start_goal_run_with_surface(
+            "validate launch roster".to_string(),
+            Some("launch roster".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(launch_assignments.clone()),
+        )
+        .await;
+
+    assert_eq!(goal_run.launch_assignment_snapshot, launch_assignments);
+    assert_eq!(goal_run.runtime_assignment_list, goal_run.launch_assignment_snapshot);
 }
 
 #[tokio::test]
@@ -1043,6 +1097,169 @@ fn sample_goal_run_with_kind(
 }
 
 #[tokio::test]
+async fn enqueue_goal_run_step_applies_goal_local_overrides_for_builtin_binding() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-local-command";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Break work into a release plan",
+    );
+    goal_run.launch_assignment_snapshot =
+        vec![sample_goal_assignment("planning", "openai", "gpt-5.4-mini")];
+    goal_run.runtime_assignment_list = goal_run.launch_assignment_snapshot.clone();
+    goal_run.dossier = Some(GoalRunDossier {
+        units: vec![GoalDeliveryUnit {
+            id: "step-1".to_string(),
+            title: "step-1".to_string(),
+            status: GoalProjectionState::Pending,
+            execution_binding: GoalRoleBinding::Builtin("planning".to_string()),
+            verification_binding: GoalRoleBinding::Builtin(
+                crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+            ),
+            summary: None,
+            proof_checks: Vec::new(),
+            evidence: Vec::new(),
+            report: None,
+        }],
+        ..Default::default()
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    engine
+        .enqueue_goal_run_step(goal_run_id)
+        .await
+        .expect("enqueue should succeed");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should still exist");
+    let task_id = updated.steps[0]
+        .task_id
+        .clone()
+        .expect("step should link a task");
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == task_id)
+        .cloned()
+        .expect("goal task should exist");
+
+    assert_eq!(task.override_provider.as_deref(), Some("openai"));
+    assert_eq!(task.override_model.as_deref(), Some("gpt-5.4-mini"));
+    assert!(task.sub_agent_def_id.is_none());
+}
+
+#[tokio::test]
+async fn enqueue_goal_run_specialist_step_uses_goal_local_assignment_overrides() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-local-specialist";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Specialist("planning".to_string()),
+        "Break work into a release plan",
+    );
+    goal_run.launch_assignment_snapshot =
+        vec![sample_goal_assignment("planning", "openai", "gpt-5.4-mini")];
+    goal_run.runtime_assignment_list = goal_run.launch_assignment_snapshot.clone();
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    engine
+        .enqueue_goal_run_step(goal_run_id)
+        .await
+        .expect("enqueue should succeed");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should still exist");
+    let task_id = updated.steps[0]
+        .task_id
+        .clone()
+        .expect("step should link a task");
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == task_id)
+        .cloned()
+        .expect("goal task should exist");
+
+    assert_eq!(task.source, "handoff");
+    assert_eq!(task.override_model.as_deref(), Some("gpt-5.4-mini"));
+    assert!(task.sub_agent_def_id.is_none());
+    assert!(
+        engine
+            .resolve_handoff_log_id_by_task_id(&task.id)
+            .await
+            .expect("handoff lookup should succeed")
+            .is_some(),
+        "goal-local specialist should still persist handoff linkage"
+    );
+}
+
+#[tokio::test]
+async fn current_step_owner_profile_reports_goal_local_agent_details() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-local-owner-profile";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Break work into a release plan",
+    );
+    goal_run.launch_assignment_snapshot =
+        vec![sample_goal_assignment("planning", "openai", "gpt-5.4-mini")];
+    goal_run.runtime_assignment_list = goal_run.launch_assignment_snapshot.clone();
+    goal_run.dossier = Some(GoalRunDossier {
+        units: vec![GoalDeliveryUnit {
+            id: "step-1".to_string(),
+            title: "step-1".to_string(),
+            status: GoalProjectionState::Pending,
+            execution_binding: GoalRoleBinding::Builtin("planning".to_string()),
+            verification_binding: GoalRoleBinding::Builtin(
+                crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+            ),
+            summary: None,
+            proof_checks: Vec::new(),
+            evidence: Vec::new(),
+            report: None,
+        }],
+        ..Default::default()
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    engine
+        .enqueue_goal_run_step(goal_run_id)
+        .await
+        .expect("enqueue should succeed");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should still exist");
+    let owner = updated
+        .current_step_owner_profile
+        .expect("goal should expose local owner profile");
+    assert_eq!(owner.agent_label, "Planning");
+    assert_eq!(owner.provider, "openai");
+    assert_eq!(owner.model, "gpt-5.4-mini");
+    assert_eq!(owner.reasoning_effort.as_deref(), Some("medium"));
+}
+
+#[tokio::test]
 async fn implementation_completion_queues_verifier_before_advancing_goal_step() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -1185,6 +1402,129 @@ async fn implementation_completion_queues_verifier_before_advancing_goal_step() 
             .state,
         GoalProjectionState::InProgress
     );
+}
+
+#[tokio::test]
+async fn verification_binding_uses_goal_local_assignment_overrides() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-local-verification";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Build the Android artifact",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-impl".to_string());
+    goal_run.launch_assignment_snapshot =
+        vec![sample_goal_assignment("verifier", "openai", "gpt-5.4-mini")];
+    goal_run.runtime_assignment_list = goal_run.launch_assignment_snapshot.clone();
+    goal_run.dossier = Some(GoalRunDossier {
+        units: vec![GoalDeliveryUnit {
+            id: "step-1".to_string(),
+            title: "step-1".to_string(),
+            status: GoalProjectionState::InProgress,
+            execution_binding: GoalRoleBinding::Builtin(
+                crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+            ),
+            verification_binding: GoalRoleBinding::Builtin("verifier".to_string()),
+            summary: None,
+            proof_checks: vec![GoalProofCheck {
+                id: "proof-build-debug".to_string(),
+                title: "Debug build succeeds".to_string(),
+                state: GoalProjectionState::Pending,
+                summary: None,
+                evidence_ids: Vec::new(),
+                resolved_at: None,
+            }],
+            evidence: Vec::new(),
+            report: None,
+        }],
+        ..Default::default()
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let completed_task = AgentTask {
+        id: "task-impl".to_string(),
+        title: "implement step".to_string(),
+        description: "implement step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("build completed successfully".to_string()),
+        thread_id: None,
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_task)
+        .await
+        .expect("implementation completion should queue verification");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should still exist");
+    let verification_task_id = updated.steps[0]
+        .task_id
+        .clone()
+        .expect("verification task should take over current step");
+    let verification_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == verification_task_id)
+        .cloned()
+        .expect("verification task should exist");
+
+    assert_eq!(verification_task.override_provider.as_deref(), Some("openai"));
+    assert_eq!(verification_task.override_model.as_deref(), Some("gpt-5.4-mini"));
+    assert!(verification_task.sub_agent_def_id.is_none());
 }
 
 #[tokio::test]

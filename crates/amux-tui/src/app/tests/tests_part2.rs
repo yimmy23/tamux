@@ -267,6 +267,7 @@
                 goal,
                 thread_id,
                 session_id,
+                ..
             }) => {
                 assert_eq!(goal, "ship it");
                 assert_eq!(thread_id, None);
@@ -487,6 +488,7 @@
                 goal,
                 thread_id,
                 session_id,
+                ..
             }) => {
                 assert_eq!(goal, "Mission Control goal");
                 assert_eq!(thread_id, None);
@@ -541,7 +543,7 @@
             step_id: None,
         });
 
-        model.execute_command("goal");
+        model.execute_command("new-goal");
 
         assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
         assert_eq!(model.focus, FocusArea::Input);
@@ -556,7 +558,7 @@
     #[test]
     fn goal_composer_prompt_typing_updates_preflight_prompt_text() {
         let mut model = build_model();
-        model.execute_command("goal");
+        model.execute_command("new-goal");
 
         let handled_g = model.handle_key(KeyCode::Char('g'), KeyModifiers::NONE);
         let handled_o = model.handle_key(KeyCode::Char('o'), KeyModifiers::NONE);
@@ -582,7 +584,7 @@
         };
         model.main_pane_view = MainPaneView::Task(previous.clone());
 
-        model.execute_command("goal");
+        model.execute_command("new-goal");
         let handled = model.handle_key(KeyCode::Esc, KeyModifiers::NONE);
 
         assert!(!handled);
@@ -796,6 +798,18 @@
             Ok(DaemonCommand::RetryStreamNow { thread_id }) => assert_eq!(thread_id, "thread-1"),
             other => panic!("expected retry-now command, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn builtin_goal_command_is_renamed_to_new_goal() {
+        let mut model = build_model();
+
+        assert!(model.is_builtin_command("new-goal"));
+        assert!(!model.is_builtin_command("goal"));
+
+        model.execute_command("new-goal");
+
+        assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
     }
 
     #[test]

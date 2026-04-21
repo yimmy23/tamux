@@ -128,6 +128,18 @@ impl TuiModel {
             })
     }
 
+    fn goal_prompt_thread_target(&self) -> Option<(sidebar::SidebarItemTarget, String)> {
+        let target = self.current_goal_target_for_mission_control()?;
+        let goal_run_id = target_goal_run_id(self, &target)?;
+        let run = self.tasks.goal_run_by_id(&goal_run_id)?;
+        let thread_id = run
+            .active_thread_id
+            .clone()
+            .or_else(|| run.root_thread_id.clone())
+            .or_else(|| run.thread_id.clone())?;
+        Some((target, thread_id))
+    }
+
     pub(super) fn mission_control_has_thread_target(&self) -> bool {
         self.mission_control_thread_target().is_some()
     }
@@ -1887,10 +1899,24 @@ impl TuiModel {
             return;
         }
         self.cleanup_concierge_on_navigate();
+        let launch_assignments = if self.goal_mission_control.display_role_assignments().is_empty() {
+            let fallback_profile = self.current_conversation_agent_profile();
+            vec![task::GoalAgentAssignment {
+                role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+                enabled: true,
+                provider: fallback_profile.provider,
+                model: fallback_profile.model,
+                reasoning_effort: fallback_profile.reasoning_effort,
+                inherit_from_main: false,
+            }]
+        } else {
+            self.goal_mission_control.display_role_assignments().to_vec()
+        };
         self.send_daemon_command(DaemonCommand::StartGoalRun {
             goal,
             thread_id: None,
             session_id: None,
+            launch_assignments,
         });
         self.status_line = "Starting goal run...".to_string();
     }
@@ -1929,7 +1955,7 @@ impl TuiModel {
                 | "compact"
                 | "quit"
                 | "prompt"
-                | "goal"
+                | "new-goal"
                 | "attach"
                 | "plugins install"
                 | "skills install"
@@ -2039,7 +2065,7 @@ impl TuiModel {
             "prompt" => {
                 self.request_prompt_inspection(None);
             }
-            "goal" => {
+            "new-goal" => {
                 self.open_new_goal_view();
             }
             "attach" => {
@@ -2283,7 +2309,27 @@ impl TuiModel {
         let final_content =
             input_refs::append_referenced_files_footer(&content_with_attachments, &cwd);
 
-        let thread_id = self.chat.active_thread_id().map(String::from);
+        let goal_target = self.current_goal_target_for_mission_control();
+        let goal_thread_target = self.goal_prompt_thread_target();
+        if goal_target.is_some() && goal_thread_target.is_none() {
+            self.input.set_text(&prompt);
+            self.status_line =
+                "Goal input accepts only slash commands until an active goal thread is available"
+                    .to_string();
+            self.show_input_notice(
+                "Goal input needs an active step thread before it can send a prompt"
+                    .to_string(),
+                InputNoticeKind::Warning,
+                120,
+                false,
+            );
+            return;
+        }
+
+        let thread_id = goal_thread_target
+            .as_ref()
+            .map(|(_, thread_id)| thread_id.clone())
+            .or_else(|| self.chat.active_thread_id().map(String::from));
         let target_agent_id = if thread_id.is_none() {
             self.pending_new_thread_target_agent.clone()
         } else {
@@ -2294,6 +2340,13 @@ impl TuiModel {
             .map(|agent_id| self.participant_display_name(agent_id));
         if thread_id.as_deref() == self.cancelled_thread_id.as_deref() {
             self.cancelled_thread_id = None;
+        }
+        if let Some((target, thread_id)) = &goal_thread_target {
+            self.set_mission_control_return_to_goal_target(Some(target.clone()));
+            if self.chat.active_thread_id() != Some(thread_id.as_str()) {
+                self.chat
+                    .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
+            }
         }
         if thread_id.is_none() {
             let local_thread_id = format!("local-{}", self.tick_counter);
@@ -2317,12 +2370,12 @@ impl TuiModel {
             }
         }
 
-        if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) {
+        if let Some(thread_id) = thread_id.as_ref() {
             let active_thread_id = thread_id.clone();
             self.reduce_chat_for_thread(
                 Some(active_thread_id.as_str()),
                 chat::ChatAction::AppendMessage {
-                    thread_id,
+                    thread_id: active_thread_id.clone(),
                     message: chat::AgentMessage {
                         role: chat::MessageRole::User,
                         content: final_content.clone(),
@@ -2348,7 +2401,7 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
         self.input.set_mode(input::InputMode::Insert);
         self.status_line = "Prompt sent".to_string();
-        self.set_agent_activity_for(self.chat.active_thread_id().map(str::to_string), "thinking");
+        self.set_agent_activity_for(thread_id.clone(), "thinking");
         self.error_active = false;
     }
 

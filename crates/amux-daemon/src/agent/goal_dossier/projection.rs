@@ -29,8 +29,44 @@ fn goal_projection_root_dir(data_dir: &Path) -> PathBuf {
     parent.join(".tamux").join("goals")
 }
 
-fn goal_projection_dir(data_dir: &Path, goal_run_id: &str) -> PathBuf {
+pub(crate) fn goal_projection_relative_dir(goal_run_id: &str) -> PathBuf {
+    PathBuf::from(".tamux").join("goals").join(goal_run_id)
+}
+
+pub(crate) fn goal_projection_dir(data_dir: &Path, goal_run_id: &str) -> PathBuf {
     goal_projection_root_dir(data_dir).join(goal_run_id)
+}
+
+pub(crate) fn goal_inventory_relative_dir(goal_run_id: &str) -> PathBuf {
+    goal_projection_relative_dir(goal_run_id).join("inventory")
+}
+
+pub(crate) fn goal_inventory_relative_specs_dir(goal_run_id: &str) -> PathBuf {
+    goal_inventory_relative_dir(goal_run_id).join("specs")
+}
+
+pub(crate) fn goal_inventory_relative_plans_dir(goal_run_id: &str) -> PathBuf {
+    goal_inventory_relative_dir(goal_run_id).join("plans")
+}
+
+pub(crate) fn goal_inventory_relative_execution_dir(goal_run_id: &str) -> PathBuf {
+    goal_inventory_relative_dir(goal_run_id).join("execution")
+}
+
+pub(crate) fn goal_inventory_dir(data_dir: &Path, goal_run_id: &str) -> PathBuf {
+    goal_projection_dir(data_dir, goal_run_id).join("inventory")
+}
+
+pub(crate) fn goal_inventory_specs_dir(data_dir: &Path, goal_run_id: &str) -> PathBuf {
+    goal_inventory_dir(data_dir, goal_run_id).join("specs")
+}
+
+pub(crate) fn goal_inventory_plans_dir(data_dir: &Path, goal_run_id: &str) -> PathBuf {
+    goal_inventory_dir(data_dir, goal_run_id).join("plans")
+}
+
+pub(crate) fn goal_inventory_execution_dir(data_dir: &Path, goal_run_id: &str) -> PathBuf {
+    goal_inventory_dir(data_dir, goal_run_id).join("execution")
 }
 
 async fn write_text_file(path: &Path, contents: &str) -> anyhow::Result<()> {
@@ -126,6 +162,9 @@ pub(crate) async fn write_goal_projection_files(
 
     let projection_dir = goal_projection_dir(data_dir, &goal_run.id);
     tokio::fs::create_dir_all(&projection_dir).await?;
+    tokio::fs::create_dir_all(goal_inventory_specs_dir(data_dir, &goal_run.id)).await?;
+    tokio::fs::create_dir_all(goal_inventory_plans_dir(data_dir, &goal_run.id)).await?;
+    tokio::fs::create_dir_all(goal_inventory_execution_dir(data_dir, &goal_run.id)).await?;
 
     let dossier = goal_run.dossier.clone().unwrap_or_default();
     let dossier_json = serde_json::to_string_pretty(&dossier)?;

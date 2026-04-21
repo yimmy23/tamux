@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AgentStatisticsWindow, ApprovalDecision, AsyncCommandCapability, ClientSurface, GatewayAck,
-    GatewayCursorState, GatewayHealthState, GatewayIncomingEvent, GatewayRegistration,
-    GatewayRouteModeState, GatewaySendResult, GatewayThreadBindingState, ManagedCommandRequest,
-    SessionId, WorkspaceId,
+    AgentStatisticsWindow, ApprovalDecision, AsyncCommandCapability, ClientSurface,
+    GatewayAck, GatewayCursorState, GatewayHealthState, GatewayIncomingEvent,
+    GatewayRegistration, GatewayRouteModeState, GatewaySendResult,
+    GatewayThreadBindingState, GoalAgentAssignment, ManagedCommandRequest, SessionId,
+    WorkspaceId,
 };
 
 #[rustfmt::skip]
@@ -62,7 +63,7 @@ pub enum ClientMessage {
     AgentGetThread { thread_id: String, #[serde(default)] message_limit: Option<usize>, #[serde(default)] message_offset: Option<usize> },
     AgentDeleteThread { thread_id: String },
     AgentAddTask { title: String, description: String, priority: String, command: Option<String>, session_id: Option<String>, scheduled_at: Option<u64>, #[serde(default)] dependencies: Vec<String> },
-    AgentStartGoalRun { goal: String, title: Option<String>, thread_id: Option<String>, session_id: Option<String>, priority: Option<String>, client_request_id: Option<String>, #[serde(default)] autonomy_level: Option<String>, #[serde(default)] client_surface: Option<ClientSurface> },
+    AgentStartGoalRun { goal: String, title: Option<String>, thread_id: Option<String>, session_id: Option<String>, priority: Option<String>, client_request_id: Option<String>, #[serde(default)] launch_assignments: Vec<GoalAgentAssignment>, #[serde(default)] autonomy_level: Option<String>, #[serde(default)] client_surface: Option<ClientSurface> },
     AgentCancelTask { task_id: String },
     AgentListTasks,
     AgentListRuns,

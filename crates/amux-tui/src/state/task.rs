@@ -500,7 +500,7 @@ impl TaskState {
                 if let Some(existing) = self.goal_runs.iter_mut().find(|r| r.id == run.id) {
                     merge_goal_run(existing, run, false);
                 } else {
-                    self.goal_runs.push(run);
+                    self.goal_runs.insert(0, run);
                 }
             }
 
@@ -509,7 +509,7 @@ impl TaskState {
                 if let Some(existing) = self.goal_runs.iter_mut().find(|r| r.id == run.id) {
                     merge_goal_run(existing, run, true);
                 } else {
-                    self.goal_runs.push(run);
+                    self.goal_runs.insert(0, run);
                 }
             }
 

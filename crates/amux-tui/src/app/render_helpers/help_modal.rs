@@ -200,7 +200,7 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Open goal picker / create goal", theme.fg_dim),
         ]),
         Line::from(vec![
-            Span::styled("  /goal            ", theme.fg_active),
+            Span::styled("  /new-goal        ", theme.fg_active),
             Span::styled("Open new goal composer", theme.fg_dim),
         ]),
         Line::from(vec![

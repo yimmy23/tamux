@@ -602,6 +602,128 @@ fn threads_return_to_goal_mouse_restores_goal_run_and_step_selection() {
 }
 
 #[test]
+fn goal_run_input_routes_prompt_to_active_goal_thread() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+
+    for (thread_id, title) in [
+        ("thread-user", "User Thread"),
+        ("thread-goal", "Goal Thread"),
+    ] {
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: thread_id.to_string(),
+            title: title.to_string(),
+        });
+        model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+            chat::AgentThread {
+                id: thread_id.to_string(),
+                title: title.to_string(),
+                ..Default::default()
+            },
+        ));
+    }
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal Title".to_string(),
+        thread_id: Some("thread-root".to_string()),
+        active_thread_id: Some("thread-goal".to_string()),
+        goal: "Ship release".to_string(),
+        current_step_title: Some("Implement".to_string()),
+        steps: vec![task::GoalRunStep {
+            id: "step-1".to_string(),
+            title: "Implement".to_string(),
+            order: 0,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: Some("step-1".to_string()),
+    });
+    model.focus = FocusArea::Input;
+    model.input.set_text("follow the current step");
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!handled);
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::SendMessage { thread_id, content, .. }) => {
+            assert_eq!(thread_id.as_deref(), Some("thread-goal"));
+            assert_eq!(content, "follow the current step");
+        }
+        other => panic!("expected send-message command, got {other:?}"),
+    }
+    assert_eq!(model.chat.active_thread_id(), Some("thread-goal"));
+    assert_eq!(
+        model
+            .chat
+            .active_thread()
+            .and_then(|thread| thread.messages.last())
+            .map(|message| message.content.as_str()),
+        Some("follow the current step")
+    );
+}
+
+#[test]
+fn goal_run_input_blocks_plain_prompt_without_goal_thread_target() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        ..Default::default()
+    }));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal Title".to_string(),
+        goal: "Ship release".to_string(),
+        current_step_title: Some("Implement".to_string()),
+        steps: vec![task::GoalRunStep {
+            id: "step-1".to_string(),
+            title: "Implement".to_string(),
+            order: 0,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: Some("step-1".to_string()),
+    });
+    model.focus = FocusArea::Input;
+    model.input.set_text("follow the current step");
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(cmd_rx.try_recv().is_err(), "goal pane should not send plain text without a goal thread target");
+    assert_eq!(
+        model.status_line,
+        "Goal input accepts only slash commands until an active goal thread is available"
+    );
+    assert_eq!(model.input.buffer(), "follow the current step");
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+}
+
+#[test]
 fn esc_from_goal_run_keeps_user_in_goals_view() {
     let mut model = goal_sidebar_model();
     model.focus = FocusArea::Chat;

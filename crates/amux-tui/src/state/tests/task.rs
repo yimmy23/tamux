@@ -177,6 +177,22 @@ fn goal_run_detail_received_upserts() {
 }
 
 #[test]
+fn new_goal_run_updates_are_inserted_first() {
+    let mut state = TaskState::new();
+    state.reduce(TaskAction::GoalRunListReceived(vec![
+        make_goal_run("g1", "Goal One"),
+        make_goal_run("g2", "Goal Two"),
+    ]));
+
+    state.reduce(TaskAction::GoalRunUpdate(make_goal_run("g3", "Newest Goal")));
+
+    assert_eq!(
+        state.goal_runs().iter().map(|run| run.id.as_str()).collect::<Vec<_>>(),
+        vec!["g3", "g1", "g2"]
+    );
+}
+
+#[test]
 fn goal_run_detail_received_parses_mission_control_metadata() {
     let wire_run = crate::wire::GoalRun {
         id: "g1".into(),

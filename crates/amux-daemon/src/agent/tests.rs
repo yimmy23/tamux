@@ -91,6 +91,17 @@ fn sample_goal_run() -> GoalRun {
     }
 }
 
+fn sample_goal_assignment(role_id: &str, provider: &str, model: &str) -> GoalAgentAssignment {
+    GoalAgentAssignment {
+        role_id: role_id.to_string(),
+        enabled: true,
+        provider: provider.to_string(),
+        model: model.to_string(),
+        reasoning_effort: Some("medium".to_string()),
+        inherit_from_main: false,
+    }
+}
+
 fn sample_task(id: &str, goal_run_id: &str) -> AgentTask {
     AgentTask {
         id: id.to_string(),
@@ -892,6 +903,200 @@ async fn request_goal_plan_adapts_prompt_and_truncates_output_when_satisfaction_
     assert!(
         body.contains("Reserve kind=divergent for broader multi-perspective exploration"),
         "expected divergent guidance in the plan prompt"
+    );
+}
+
+#[tokio::test]
+async fn request_goal_plan_includes_goal_local_agent_roster_in_prompt() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = spawn_goal_recording_server(
+        recorded_bodies.clone(),
+        serde_json::json!({
+            "title": "Execution plan",
+            "summary": "Use local specialists when available.",
+            "steps": [
+                {
+                    "title": "Step 1",
+                    "instructions": "Plan the work.",
+                    "kind": "command",
+                    "success_criteria": "work planned",
+                    "session_id": null,
+                    "llm_confidence": "likely",
+                    "llm_confidence_rationale": "small scope"
+                },
+                {
+                    "title": "Step 2",
+                    "instructions": "Research implementation details.",
+                    "kind": "research",
+                    "success_criteria": "details collected",
+                    "session_id": null,
+                    "llm_confidence": "likely",
+                    "llm_confidence_rationale": "straightforward"
+                }
+            ],
+            "rejected_alternatives": ["Alternative A: use only main"]
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut goal_run = sample_goal_run();
+    goal_run.launch_assignment_snapshot = vec![
+        sample_goal_assignment("planning", "openai", "gpt-5.4-mini"),
+        sample_goal_assignment("research", "openai", "gpt-5.4"),
+    ];
+
+    let _ = engine
+        .request_goal_plan(&goal_run)
+        .await
+        .expect("goal plan should succeed");
+
+    let recorded = recorded_bodies.lock().expect("lock recorded bodies");
+    let body = recorded.back().expect("expected one recorded request body");
+    assert!(
+        body.contains("Goal-local agents:"),
+        "expected local roster header in the plan prompt"
+    );
+    assert!(
+        body.contains("planning"),
+        "expected planning role in the plan prompt"
+    );
+    assert!(
+        body.contains("research"),
+        "expected research role in the plan prompt"
+    );
+}
+
+#[tokio::test]
+async fn request_goal_plan_includes_goal_inventory_directories_in_prompt() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = spawn_goal_recording_server(
+        recorded_bodies.clone(),
+        serde_json::json!({
+            "title": "Execution plan",
+            "summary": "Keep durable artifacts organized.",
+            "steps": [
+                {
+                    "title": "Step 1",
+                    "instructions": "Write the plan.",
+                    "kind": "command",
+                    "success_criteria": "plan written",
+                    "session_id": null,
+                    "llm_confidence": "likely",
+                    "llm_confidence_rationale": "small scope"
+                },
+                {
+                    "title": "Step 2",
+                    "instructions": "Record execution details.",
+                    "kind": "research",
+                    "success_criteria": "details captured",
+                    "session_id": null,
+                    "llm_confidence": "likely",
+                    "llm_confidence_rationale": "straightforward"
+                }
+            ],
+            "rejected_alternatives": ["Alternative A: write files to random directories"]
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let goal_run = sample_goal_run();
+
+    let _ = engine
+        .request_goal_plan(&goal_run)
+        .await
+        .expect("goal plan should succeed");
+
+    let recorded = recorded_bodies.lock().expect("lock recorded bodies");
+    let body = recorded.back().expect("expected one recorded request body");
+    assert!(
+        body.contains(".tamux/goals/goal_test/inventory/"),
+        "expected inventory root in the plan prompt"
+    );
+    assert!(
+        body.contains(".tamux/goals/goal_test/inventory/specs/"),
+        "expected specs dir in the plan prompt"
+    );
+    assert!(
+        body.contains(".tamux/goals/goal_test/inventory/plans/"),
+        "expected plans dir in the plan prompt"
+    );
+    assert!(
+        body.contains(".tamux/goals/goal_test/inventory/execution/"),
+        "expected execution dir in the plan prompt"
+    );
+}
+
+#[tokio::test]
+async fn goal_local_resolver_uses_llm_match_when_heuristics_miss() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = spawn_goal_recording_server(
+        recorded_bodies.clone(),
+        serde_json::json!({
+            "selected_role_id": "planning"
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let resolved = engine
+        .resolve_goal_local_binding_with_fallback(
+            "rollout strategist",
+            "Plan rollout",
+            "Sequence the release work",
+            &[
+                sample_goal_assignment("planning", "openai", "gpt-5.4-mini"),
+                sample_goal_assignment("research", "openai", "gpt-5.4"),
+            ],
+        )
+        .await
+        .expect("resolver should choose a local role");
+
+    assert_eq!(resolved.role_id, "planning");
+
+    let recorded = recorded_bodies.lock().expect("lock recorded bodies");
+    let body = recorded.back().expect("expected one recorded request body");
+    assert!(
+        body.contains("rollout strategist"),
+        "expected requested binding to reach the matcher prompt"
+    );
+    assert!(
+        body.contains("planning"),
+        "expected available local roles in the matcher prompt"
     );
 }
 

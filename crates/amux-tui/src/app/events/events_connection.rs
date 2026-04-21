@@ -132,10 +132,19 @@ impl TuiModel {
         approval_id: String,
         decision: String,
     ) {
+        let goal_run_id = self
+            .tasks
+            .goal_runs()
+            .iter()
+            .find(|goal_run| goal_run.awaiting_approval_id.as_deref() == Some(approval_id.as_str()))
+            .map(|goal_run| goal_run.id.clone());
         self.approval.reduce(crate::state::ApprovalAction::Resolve {
             approval_id: approval_id.clone(),
             decision,
         });
+        if let Some(goal_run_id) = goal_run_id {
+            self.request_authoritative_goal_run_refresh(goal_run_id);
+        }
         if self.next_current_thread_approval_id().is_none()
             && self.modal.top() == Some(crate::state::modal::ModalKind::ApprovalOverlay)
         {

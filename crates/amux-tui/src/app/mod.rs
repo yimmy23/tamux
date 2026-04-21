@@ -710,4 +710,5 @@ mod tests {
     include!("tests/tests_part5.rs");
     include!("tests/tests_part6.rs");
     include!("tests/tests_part7_multithread_events.rs");
+    include!("tests/tests_part8_goal_mission_control.rs");
 }

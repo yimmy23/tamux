@@ -532,6 +532,7 @@ impl DaemonClient {
         goal: String,
         thread_id: Option<String>,
         session_id: Option<String>,
+        launch_assignments: Vec<crate::state::task::GoalAgentAssignment>,
     ) -> Result<()> {
         self.send(ClientMessage::AgentStartGoalRun {
             goal,
@@ -540,6 +541,17 @@ impl DaemonClient {
             session_id,
             priority: None,
             client_request_id: None,
+            launch_assignments: launch_assignments
+                .into_iter()
+                .map(|assignment| amux_protocol::GoalAgentAssignment {
+                    role_id: assignment.role_id,
+                    enabled: assignment.enabled,
+                    provider: assignment.provider,
+                    model: assignment.model,
+                    reasoning_effort: assignment.reasoning_effort,
+                    inherit_from_main: assignment.inherit_from_main,
+                })
+                .collect(),
             autonomy_level: None,
             client_surface: Some(amux_protocol::ClientSurface::Tui),
         })

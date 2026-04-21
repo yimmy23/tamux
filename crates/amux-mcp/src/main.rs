@@ -499,6 +499,7 @@ async fn tool_start_goal_run(args: &Value) -> Result<Value> {
         session_id,
         priority,
         client_request_id,
+        launch_assignments: Vec::new(),
         autonomy_level,
         client_surface: None,
     })

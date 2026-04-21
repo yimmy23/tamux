@@ -589,8 +589,14 @@ fn start_daemon_bridge(
                                 goal,
                                 thread_id,
                                 session_id,
+                                launch_assignments,
                             } => {
-                                let _ = client.start_goal_run(goal, thread_id, session_id);
+                                let _ = client.start_goal_run(
+                                    goal,
+                                    thread_id,
+                                    session_id,
+                                    launch_assignments,
+                                );
                             }
                             DaemonCommand::ExplainAction {
                                 action_id,

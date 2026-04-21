@@ -15,6 +15,17 @@ pub const AGENT_HANDLE_MAIN: &str = "main";
 pub const AGENT_HANDLE_CONCIERGE: &str = "concierge";
 pub const GATEWAY_IPC_PROTOCOL_VERSION: u16 = 1;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default, PartialEq, Eq)]
+pub struct GoalAgentAssignment {
+    pub role_id: String,
+    pub enabled: bool,
+    pub provider: String,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    pub inherit_from_main: bool,
+}
+
 mod client;
 mod daemon;
 mod gateway;

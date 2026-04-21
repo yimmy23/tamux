@@ -648,6 +648,15 @@ impl<'a> SendMessageRunner<'a> {
             &active_provider_id,
             &provider_config.model,
         ));
+        if let Some(goal_run_id) = current_task_snapshot
+            .as_ref()
+            .and_then(|task| task.goal_run_id.as_deref())
+        {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&crate::agent::goal_dossier::goal_inventory_prompt_block(
+                goal_run_id,
+            ));
+        }
         if let Some(injection_state) =
             crate::agent::memory_context::append_structured_memory_summary_if_needed(
                 &mut system_prompt,
@@ -1148,6 +1157,110 @@ mod tests {
         assert!(
             tool_names.contains(&"message_agent"),
             "non-participant responder should still see message_agent"
+        );
+    }
+
+    #[tokio::test]
+    async fn durable_goal_task_prompt_includes_inventory_directories() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let task_id = "goal-task-1";
+
+        engine.tasks.lock().await.push_back(AgentTask {
+            id: task_id.to_string(),
+            title: "Execute goal step".to_string(),
+            description: "Write durable goal artifacts".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: None,
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: Some("session-1".to_string()),
+            goal_run_id: Some("goal-run-1".to_string()),
+            goal_run_title: Some("Goal Inventory".to_string()),
+            goal_step_id: Some("goal-step-1".to_string()),
+            goal_step_title: Some("Write plan".to_string()),
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            None,
+            "continue goal work",
+            &[],
+            "continue goal work",
+            Some(task_id),
+            None,
+            None,
+            None,
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        assert!(
+            runner
+                .system_prompt
+                .contains(".tamux/goals/goal-run-1/inventory/"),
+            "expected inventory root in the goal task prompt"
+        );
+        assert!(
+            runner
+                .system_prompt
+                .contains(".tamux/goals/goal-run-1/inventory/specs/"),
+            "expected specs dir in the goal task prompt"
+        );
+        assert!(
+            runner
+                .system_prompt
+                .contains(".tamux/goals/goal-run-1/inventory/plans/"),
+            "expected plans dir in the goal task prompt"
+        );
+        assert!(
+            runner
+                .system_prompt
+                .contains(".tamux/goals/goal-run-1/inventory/execution/"),
+            "expected execution dir in the goal task prompt"
         );
     }
 

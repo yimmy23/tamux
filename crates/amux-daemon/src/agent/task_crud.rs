@@ -722,6 +722,7 @@ impl AgentEngine {
         priority: Option<&str>,
         client_request_id: Option<String>,
         autonomy_level: Option<String>,
+        launch_assignments: Option<Vec<GoalAgentAssignment>>,
     ) -> GoalRun {
         self.start_goal_run_with_surface(
             goal,
@@ -732,6 +733,7 @@ impl AgentEngine {
             client_request_id,
             autonomy_level,
             None,
+            launch_assignments,
         )
         .await
     }
@@ -746,6 +748,7 @@ impl AgentEngine {
         client_request_id: Option<String>,
         autonomy_level: Option<String>,
         client_surface: Option<amux_protocol::ClientSurface>,
+        launch_assignments: Option<Vec<GoalAgentAssignment>>,
     ) -> GoalRun {
         let normalized_goal_key = normalize_goal_key(&goal);
         let normalized_request_id = client_request_id
@@ -800,7 +803,10 @@ impl AgentEngine {
             let model = self.operator_model.read().await;
             SatisfactionAdaptationMode::from_label(&model.operator_satisfaction.label)
         };
-        let launch_assignment_snapshot = self.goal_launch_assignment_snapshot().await;
+        let launch_assignment_snapshot = match launch_assignments {
+            Some(assignments) if !assignments.is_empty() => assignments,
+            _ => self.goal_launch_assignment_snapshot().await,
+        };
         let goal_run = GoalRun {
             id: format!("goal_{}", Uuid::new_v4()),
             title: normalized_title,

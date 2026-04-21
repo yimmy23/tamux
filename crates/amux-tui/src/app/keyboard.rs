@@ -789,6 +789,18 @@ impl TuiModel {
             }
             KeyCode::Char('a')
                 if self.focus == FocusArea::Chat
+                    && matches!(self.main_pane_view, MainPaneView::GoalComposer)
+                    && !self.goal_mission_control.runtime_mode() =>
+            {
+                self.goal_mission_control.append_preflight_assignment();
+                let role_label = self
+                    .goal_mission_control
+                    .selected_runtime_row_label()
+                    .unwrap_or("assignment");
+                self.status_line = format!("Mission Control added {role_label}");
+            }
+            KeyCode::Char('a')
+                if self.focus == FocusArea::Chat
                     && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
             {
                 if self.open_goal_step_action_picker() {

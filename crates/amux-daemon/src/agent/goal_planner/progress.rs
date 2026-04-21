@@ -23,44 +23,6 @@ fn current_step_verification_requirements(
 }
 
 impl AgentEngine {
-    fn verification_binding_target(binding: &GoalRoleBinding) -> Option<String> {
-        match binding {
-            GoalRoleBinding::Builtin(value) => {
-                let normalized = value.trim().to_ascii_lowercase();
-                if matches!(
-                    normalized.as_str(),
-                    crate::agent::agent_identity::MAIN_AGENT_ID
-                        | crate::agent::agent_identity::MAIN_AGENT_PUBLIC_ALIAS
-                        | crate::agent::agent_identity::MAIN_AGENT_ALIAS
-                        | crate::agent::agent_identity::MAIN_AGENT_LEGACY_ALIAS
-                        | crate::agent::agent_identity::MAIN_AGENT_FALLBACK_ALIAS
-                ) {
-                    None
-                } else {
-                    Some(value.trim().to_string()).filter(|value| !value.is_empty())
-                }
-            }
-            GoalRoleBinding::Subagent(value) => {
-                Some(value.trim().to_string()).filter(|value| !value.is_empty())
-            }
-        }
-    }
-
-    async fn verification_binding_definition(
-        &self,
-        binding: &GoalRoleBinding,
-    ) -> Option<SubAgentDefinition> {
-        let target = Self::verification_binding_target(binding)?;
-        self.list_sub_agents().await.into_iter().find(|definition| {
-            definition.id.eq_ignore_ascii_case(&target)
-                || definition.name.eq_ignore_ascii_case(&target)
-                || definition
-                    .id
-                    .strip_suffix("_builtin")
-                    .is_some_and(|value| value.eq_ignore_ascii_case(&target))
-        })
-    }
-
     async fn enqueue_goal_step_verification(
         &self,
         snapshot: &GoalRun,
@@ -113,9 +75,8 @@ impl AgentEngine {
             )
             .await;
 
-        let target_sub_agent = Self::verification_binding_target(verification_binding);
-        let binding_definition = self
-            .verification_binding_definition(verification_binding)
+        let resolved_verification_target = self
+            .resolve_goal_target_for_binding(snapshot, step, verification_binding)
             .await;
         let updated_task = {
             let mut tasks = self.tasks.lock().await;
@@ -137,27 +98,20 @@ impl AgentEngine {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
-            task.sub_agent_def_id = target_sub_agent;
-            if let Some(definition) = binding_definition.as_ref() {
-                task.override_provider = Some(definition.provider.clone());
-                task.override_model = Some(definition.model.clone());
-                task.override_system_prompt = definition.system_prompt.clone();
-                task.tool_whitelist = definition.tool_whitelist.clone();
-                task.tool_blacklist = definition.tool_blacklist.clone();
-                task.context_budget_tokens = definition.context_budget_tokens;
-                task.max_duration_secs = definition.max_duration_secs;
-                task.supervisor_config = definition.supervisor_config.clone();
-                if definition.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID {
-                    self.trusted_weles_tasks
-                        .write()
-                        .await
-                        .insert(task.id.clone());
-                }
-            }
             task.clone()
         };
+        let updated_task = self
+            .apply_goal_resolved_target_to_task(
+                verification_task.id.as_str(),
+                resolved_verification_target.as_ref(),
+            )
+            .await
+            .unwrap_or(updated_task);
         let current_step_owner_profile = Some(
-            self.current_step_owner_profile_for_task(&updated_task)
+            self.goal_owner_profile_for_task_target(
+                &updated_task,
+                resolved_verification_target.as_ref(),
+            )
                 .await,
         );
         self.persist_tasks().await;

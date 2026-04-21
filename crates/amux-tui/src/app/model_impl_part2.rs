@@ -584,7 +584,7 @@ impl TuiModel {
                 self.request_latest_thread_page("concierge".to_string(), false);
                 self.main_pane_view = MainPaneView::Conversation;
                 self.focus = FocusArea::Input;
-                self.set_input_text("/goal ");
+                self.set_input_text("/new-goal ");
                 self.status_line = "Describe your goal and press Enter".to_string();
             }
             "focus_chat" => {

@@ -177,6 +177,7 @@ where
                     session_id,
                     priority,
                     client_request_id,
+                    launch_assignments: Vec::new(),
                     autonomy_level,
                     client_surface: Some(amux_protocol::ClientSurface::Electron),
                 })

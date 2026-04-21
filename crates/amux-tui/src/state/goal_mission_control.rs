@@ -231,6 +231,22 @@ impl GoalMissionControlState {
         true
     }
 
+    pub fn append_preflight_assignment(&mut self) {
+        let role_id = next_preflight_role_id(&self.role_assignments);
+        self.role_assignments.push(GoalAgentAssignment {
+            role_id,
+            enabled: true,
+            provider: self.main_assignment.provider.clone(),
+            model: self.main_assignment.model.clone(),
+            reasoning_effort: self.main_assignment.reasoning_effort.clone(),
+            inherit_from_main: false,
+        });
+        self.selected_runtime_assignment_index = self.role_assignments.len().saturating_sub(1);
+        self.pending_role_assignments = None;
+        self.pending_runtime_edit = None;
+        self.pending_runtime_change = None;
+    }
+
     pub fn stage_runtime_edit(&mut self, row_index: usize, field: RuntimeAssignmentEditField) {
         self.pending_runtime_edit = Some(RuntimeAssignmentEditRequest { row_index, field });
     }
@@ -353,5 +369,25 @@ impl GoalMissionControlState {
 impl Default for GoalMissionControlState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn next_preflight_role_id(assignments: &[GoalAgentAssignment]) -> String {
+    for preset in crate::state::subagents::SUBAGENT_ROLE_PRESETS {
+        if assignments.iter().all(|assignment| assignment.role_id != preset.id) {
+            return preset.id.to_string();
+        }
+    }
+
+    let mut suffix = assignments.len().saturating_add(1);
+    loop {
+        let candidate = format!("specialist_{suffix}");
+        if assignments
+            .iter()
+            .all(|assignment| assignment.role_id != candidate)
+        {
+            return candidate;
+        }
+        suffix += 1;
     }
 }

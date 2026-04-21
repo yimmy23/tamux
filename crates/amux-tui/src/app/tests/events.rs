@@ -1805,6 +1805,65 @@ fn task_list_hydrates_pending_approvals_from_awaiting_approval_tasks() {
 }
 
 #[test]
+fn goal_run_update_hydrates_pending_approval_when_task_snapshot_is_missing() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Goal Thread".to_string(),
+    });
+
+    model.handle_goal_run_update_event(crate::wire::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal plan review".to_string(),
+        thread_id: Some("thread-1".to_string()),
+        status: Some(crate::wire::GoalRunStatus::AwaitingApproval),
+        current_step_title: Some("review plan".to_string()),
+        approval_count: 1,
+        awaiting_approval_id: Some("approval-1".to_string()),
+        ..Default::default()
+    });
+
+    let approval = model
+        .approval
+        .approval_by_id("approval-1")
+        .expect("goal run awaiting approval should hydrate approval queue");
+    assert_eq!(approval.thread_id.as_deref(), Some("thread-1"));
+    assert_eq!(approval.thread_title.as_deref(), Some("Goal Thread"));
+    assert_eq!(approval.task_title.as_deref(), Some("Goal plan review"));
+}
+
+#[test]
+fn approval_resolution_requests_authoritative_refresh_for_visible_goal_run() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+
+    model.handle_goal_run_detail_event(crate::wire::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal plan review".to_string(),
+        thread_id: Some("thread-1".to_string()),
+        status: Some(crate::wire::GoalRunStatus::AwaitingApproval),
+        current_step_title: Some("review plan".to_string()),
+        approval_count: 1,
+        awaiting_approval_id: Some("approval-1".to_string()),
+        ..Default::default()
+    });
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    model.handle_approval_resolved_event("approval-1".to_string(), "approved".to_string());
+
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+}
+
+#[test]
 fn task_list_event_preserves_spawned_tree_metadata() {
     let mut model = make_model();
 

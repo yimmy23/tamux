@@ -122,6 +122,20 @@ fn command_palette_seeds_include_compact_command() {
 }
 
 #[test]
+fn command_palette_seeds_include_new_goal_but_not_goal() {
+    let state = ModalState::new();
+
+    assert!(state
+        .command_items()
+        .iter()
+        .any(|item| item.command == "new-goal"));
+    assert!(!state
+        .command_items()
+        .iter()
+        .any(|item| item.command == "goal"));
+}
+
+#[test]
 fn navigation_clamps_to_bounds() {
     let mut state = ModalState::new();
     state.reduce(ModalAction::Navigate(-1));
