@@ -209,3 +209,44 @@ async fn get_skill_variant_returns_some_for_existing() -> Result<()> {
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn tool_output_preview_path_uses_thread_cache_layout() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let path = store.tool_output_preview_path("thread-123", None, "bash_command", 1_713_000_000);
+
+    assert_eq!(
+        path,
+        root.join(".cache")
+            .join("tools")
+            .join("thread-thread-123")
+            .join("bash_command-1713000000.txt")
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn tool_output_preview_path_uses_goal_cache_layout() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let path = store.tool_output_preview_path(
+        "thread-123",
+        Some("goal-456"),
+        "web_search",
+        1_713_000_001,
+    );
+
+    assert_eq!(
+        path,
+        root.join(".cache")
+            .join("tools")
+            .join("goal-goal-456")
+            .join("web_search-thread-123-1713000001.txt")
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

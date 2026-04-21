@@ -19,6 +19,7 @@ pub(super) struct ParsedMessageMetadata {
     pub compaction_strategy: Option<CompactionStrategy>,
     pub compaction_payload: Option<String>,
     pub offloaded_payload_id: Option<String>,
+    pub tool_output_preview_path: Option<String>,
     pub structural_refs: Vec<String>,
     pub pinned_for_compaction: bool,
 }
@@ -119,6 +120,8 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         compaction_strategy,
         compaction_payload: get_str("compaction_payload"),
         offloaded_payload_id: get_str("offloaded_payload_id"),
+        tool_output_preview_path: get_str("tool_output_preview_path")
+            .or_else(|| get_str("toolOutputPreviewPath")),
         structural_refs,
         pinned_for_compaction: metadata
             .as_ref()
@@ -248,6 +251,8 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
         "compaction_payload": message.compaction_payload,
         "offloaded_payload_id": message.offloaded_payload_id,
         "offloadedPayloadId": message.offloaded_payload_id,
+        "tool_output_preview_path": message.tool_output_preview_path,
+        "toolOutputPreviewPath": message.tool_output_preview_path,
         "structural_refs": message.structural_refs,
         "structuralRefs": message.structural_refs,
         "pinned_for_compaction": message.pinned_for_compaction,

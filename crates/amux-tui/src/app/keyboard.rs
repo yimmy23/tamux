@@ -204,6 +204,34 @@ impl TuiModel {
             return false;
         }
 
+        if self.focus == FocusArea::Chat
+            && self.goal_workspace.focused_pane()
+                == crate::state::goal_workspace::GoalWorkspacePane::CommandBar
+            && matches!(
+                self.main_pane_view,
+                MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+            )
+            && !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            let target_mode = match code {
+                KeyCode::Char('1') => Some(crate::state::goal_workspace::GoalWorkspaceMode::Goal),
+                KeyCode::Char('2') => {
+                    Some(crate::state::goal_workspace::GoalWorkspaceMode::Progress)
+                }
+                KeyCode::Char('3') => {
+                    Some(crate::state::goal_workspace::GoalWorkspaceMode::ActiveAgent)
+                }
+                KeyCode::Char('4') => Some(
+                    crate::state::goal_workspace::GoalWorkspaceMode::NeedsAttention,
+                ),
+                _ => None,
+            };
+            if let Some(mode) = target_mode {
+                self.set_goal_workspace_mode(mode);
+                return false;
+            }
+        }
+
         if self.focus == FocusArea::Sidebar
             && !self.sidebar_uses_goal_sidebar()
             && self.sidebar.active_tab() == sidebar::SidebarTab::Files
@@ -722,6 +750,28 @@ impl TuiModel {
                 }
                 _ => {}
             },
+            KeyCode::Left
+                if self.focus == FocusArea::Chat
+                    && self.goal_workspace.focused_pane()
+                        == crate::state::goal_workspace::GoalWorkspacePane::CommandBar
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) =>
+            {
+                self.cycle_goal_workspace_mode(-1);
+            }
+            KeyCode::Right
+                if self.focus == FocusArea::Chat
+                    && self.goal_workspace.focused_pane()
+                        == crate::state::goal_workspace::GoalWorkspacePane::CommandBar
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) =>
+            {
+                self.cycle_goal_workspace_mode(1);
+            }
             KeyCode::Left
                 if self.focus == FocusArea::Chat
                     && self.goal_workspace.focused_pane()

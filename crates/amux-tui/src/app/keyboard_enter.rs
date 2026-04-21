@@ -140,6 +140,25 @@ impl TuiModel {
             self.submit_selected_collaboration_vote();
             return false;
         }
+        if self.focus == FocusArea::Chat
+            && matches!(
+                self.main_pane_view,
+                MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+            )
+        {
+            if self.goal_workspace.focused_pane()
+                == crate::state::goal_workspace::GoalWorkspacePane::CommandBar
+            {
+                self.activate_goal_workspace_command_bar();
+                return false;
+            }
+            if self.goal_workspace.focused_pane()
+                == crate::state::goal_workspace::GoalWorkspacePane::Details
+                && self.activate_goal_workspace_detail_target()
+            {
+                return false;
+            }
+        }
         if self.focus == FocusArea::Chat {
             if let Some(sel) = self.chat.selected_message() {
                 let is_tool = self

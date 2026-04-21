@@ -4,6 +4,42 @@ use serde_json::json;
 /// Per D-01/D-02/D-03: only name, version, schema_version required;
 /// additionalProperties: true for forward compatibility.
 pub fn plugin_schema_v1() -> serde_json::Value {
+    let python_config = json!({
+        "type": "object",
+        "properties": {
+            "run_path": { "type": "string" },
+            "source": { "type": "string" },
+            "env": {
+                "oneOf": [
+                    { "type": "string" },
+                    { "type": "boolean" }
+                ]
+            },
+            "dependencies": {
+                "type": "array",
+                "items": { "type": "string" }
+            }
+        }
+    });
+    let python_command = json!({
+        "type": "object",
+        "required": ["command"],
+        "properties": {
+            "command": { "type": "string", "minLength": 1 },
+            "run_path": { "type": "string" },
+            "source": { "type": "string" },
+            "env": {
+                "oneOf": [
+                    { "type": "string" },
+                    { "type": "boolean" }
+                ]
+            },
+            "dependencies": {
+                "type": "array",
+                "items": { "type": "string" }
+            }
+        }
+    });
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -27,6 +63,7 @@ pub fn plugin_schema_v1() -> serde_json::Value {
             "author": { "type": "string", "maxLength": 128 },
             "license": { "type": "string", "maxLength": 64 },
             "tamux_version": { "type": "string" },
+            "python": python_config,
             "settings": {
                 "type": "object",
                 "additionalProperties": {
@@ -80,7 +117,8 @@ pub fn plugin_schema_v1() -> serde_json::Value {
                     "required": ["description"],
                     "properties": {
                         "description": { "type": "string" },
-                        "action": { "type": "string" }
+                        "action": { "type": "string" },
+                        "python": python_command
                     }
                 }
             },
@@ -181,5 +219,31 @@ mod tests {
             result.is_ok(),
             "manifest with unknown fields should be accepted per D-01"
         );
+    }
+
+    #[test]
+    fn schema_v1_accepts_python_defaults_and_commands() {
+        let validator = compile_schema_v1();
+        let manifest = json!({
+            "name": "python-plugin",
+            "version": "1.0.0",
+            "schema_version": 1,
+            "python": {
+                "run_path": "workspace",
+                "source": "https://example.com/tool.py",
+                "env": true,
+                "dependencies": ["requests>=2.32"]
+            },
+            "commands": {
+                "sync": {
+                    "description": "Run sync",
+                    "python": {
+                        "command": "python sync.py"
+                    }
+                }
+            }
+        });
+        let result = validator.validate(&manifest);
+        assert!(result.is_ok(), "python-backed manifest should be valid");
     }
 }

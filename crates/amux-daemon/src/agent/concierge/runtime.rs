@@ -270,6 +270,7 @@ impl ConciergeEngine {
                 compaction_strategy: None,
                 compaction_payload: None,
                 offloaded_payload_id: None,
+                tool_output_preview_path: None,
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp: super::super::now_millis(),

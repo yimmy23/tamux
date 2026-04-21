@@ -1296,6 +1296,87 @@ fn clicking_read_skill_chip_requests_plain_preview() {
 }
 
 #[test]
+fn clicking_tool_file_path_metadata_requests_plain_preview() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.show_sidebar_override = Some(false);
+    model.focus = FocusArea::Chat;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    let preview_path = "/home/mkurman/gitlab/it/cmux-next/.tamux/.cache/tools/thread-thread-1/bash_command-1700000123.txt";
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-1".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Tool,
+            tool_name: Some("bash_command".to_string()),
+            tool_status: Some("done".to_string()),
+            tool_output_preview_path: Some(preview_path.to_string()),
+            content: "Tool result saved to preview file\n- tool: bash_command".to_string(),
+            ..Default::default()
+        },
+    });
+
+    let input_start_row = model.height.saturating_sub(model.input_height() + 1);
+    let chat_area = Rect::new(0, 3, model.width, input_start_row.saturating_sub(3));
+    let chip_pos = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+        .find_map(|row| {
+            (chat_area.x..chat_area.x.saturating_add(chat_area.width)).find_map(|column| {
+                let pos = Position::new(column, row);
+                if widgets::chat::hit_test(
+                    chat_area,
+                    &model.chat,
+                    &model.theme,
+                    model.tick_counter,
+                    pos,
+                ) == Some(chat::ChatHitTarget::ToolFilePath { message_index: 0 })
+                {
+                    Some(pos)
+                } else {
+                    None
+                }
+            })
+        })
+        .expect("preview-backed tool row should expose a clickable file chip");
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: chip_pos.x,
+        row: chip_pos.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: chip_pos.x,
+        row: chip_pos.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::RequestFilePreview { path, max_bytes }) => {
+            assert_eq!(path, preview_path);
+            assert_eq!(max_bytes, Some(65_536));
+        }
+        other => panic!("expected plain file preview request, got {:?}", other),
+    }
+
+    match &model.main_pane_view {
+        MainPaneView::FilePreview(target) => {
+            assert_eq!(target.path, preview_path);
+            assert!(target.repo_root.is_none());
+            assert!(target.repo_relative_path.is_none());
+        }
+        other => panic!("expected file preview pane, got {:?}", other),
+    }
+}
+
+#[test]
 fn closing_chat_file_preview_returns_to_conversation() {
     let mut model = build_model();
     model.focus = FocusArea::Chat;
@@ -1369,7 +1450,9 @@ fn goal_view_renders_goal_run_dossier_sections() {
     assert!(plain.contains("Goal Mission Control"), "{plain}");
     assert!(plain.contains("Plan"), "{plain}");
     assert!(plain.contains("Run timeline"), "{plain}");
-    assert!(plain.contains("Details"), "{plain}");
+    assert!(plain.contains("Goal"), "{plain}");
+    assert!(plain.contains("Prompt"), "{plain}");
+    assert!(plain.contains("Ship the first dossier-aware"), "{plain}");
     assert!(plain.contains("Phone logging flow"), "{plain}");
     assert!(!plain.contains("Execution Dossier"), "{plain}");
 }

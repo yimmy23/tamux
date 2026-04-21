@@ -377,10 +377,13 @@ impl TuiModel {
     }
 
     fn open_thread_conversation(&mut self, thread_id: String) {
-        if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
-            if let Some(target) = self.mission_control_source_goal_target() {
-                self.set_mission_control_return_to_goal_target(Some(target));
-            }
+        let return_target = if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
+            self.mission_control_source_goal_target()
+        } else {
+            self.current_goal_target_for_mission_control()
+        };
+        if let Some(target) = return_target {
+            self.set_mission_control_return_to_goal_target(Some(target));
         } else {
             self.set_mission_control_return_to_goal_target(None);
         }
@@ -480,6 +483,12 @@ impl TuiModel {
             MainPaneView::Collaboration
             | MainPaneView::WorkContext
             | MainPaneView::FilePreview(_) => {
+                if let Some(target) = self.mission_control_return_to_goal_target() {
+                    self.set_mission_control_return_to_goal_target(None);
+                    self.open_sidebar_target(target);
+                    self.focus = focus;
+                    return true;
+                }
                 self.set_main_pane_conversation(focus);
                 true
             }

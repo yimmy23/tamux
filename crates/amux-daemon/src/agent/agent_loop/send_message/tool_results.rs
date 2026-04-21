@@ -2,6 +2,13 @@ use super::*;
 
 const OFFLOAD_SUMMARY_KEY_FINDING_LINES: usize = 3;
 const OFFLOAD_SUMMARY_LINE_CHAR_LIMIT: usize = 160;
+const TOOL_OUTPUT_PREVIEW_ALLOWLIST: &[&str] = &[
+    "bash_command",
+    "run_terminal_command",
+    "execute_managed_command",
+    "web_search",
+    "fetch_url",
+];
 
 fn summarize_offloaded_tool_result(
     result: &ToolResult,
@@ -20,6 +27,29 @@ fn summarize_offloaded_tool_result(
         "Tool result offloaded\n- tool: {}\n- status: {}\n- bytes: {}\n- payload_id: {}\n- key findings:\n{}",
         result.name, status, byte_size, payload_id, findings_block
     )
+}
+
+fn summarize_preview_backed_tool_result(
+    result: &ToolResult,
+    byte_size: usize,
+    preview_path: &str,
+) -> String {
+    let status = if result.is_error { "error" } else { "done" };
+    let key_findings = extract_offload_key_findings(&result.content);
+    let findings_block = key_findings
+        .into_iter()
+        .map(|line| format!("  - {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "Tool result saved to preview file\n- tool: {}\n- status: {}\n- bytes: {}\n- path: {}\n- key findings:\n{}",
+        result.name, status, byte_size, preview_path, findings_block
+    )
+}
+
+fn should_persist_tool_output_preview(tool_name: &str) -> bool {
+    TOOL_OUTPUT_PREVIEW_ALLOWLIST.contains(&tool_name)
 }
 
 fn extract_offload_key_findings(raw_payload: &str) -> Vec<String> {
@@ -84,11 +114,13 @@ fn build_handoff_restart_user_message(
 pub(crate) struct PreparedToolResultThreadMessage {
     pub content: String,
     pub offloaded_payload_id: Option<String>,
+    pub tool_output_preview_path: Option<String>,
 }
 
 pub(crate) async fn prepare_tool_result_thread_message(
     engine: &AgentEngine,
     thread_id: &str,
+    goal_run_id: Option<&str>,
     result: &ToolResult,
     created_at: u64,
 ) -> PreparedToolResultThreadMessage {
@@ -102,14 +134,67 @@ pub(crate) async fn prepare_tool_result_thread_message(
     let raw_payload = result.content.clone();
     let byte_size = raw_payload.as_bytes().len();
 
-    if thread_id.trim().is_empty()
-        || threshold_bytes == 0
-        || byte_size <= threshold_bytes
-        || result.name == "read_offloaded_payload"
-    {
+    if thread_id.trim().is_empty() {
         return PreparedToolResultThreadMessage {
             content: raw_payload,
             offloaded_payload_id: None,
+            tool_output_preview_path: None,
+        };
+    }
+
+    if should_persist_tool_output_preview(&result.name) {
+        let preview_path = engine.history.tool_output_preview_path(
+            thread_id,
+            goal_run_id,
+            &result.name,
+            created_at,
+        );
+        let persist_result: Result<()> = async {
+            let parent = preview_path
+                .parent()
+                .context("tool output preview path missing parent directory")?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .with_context(|| format!("create tool output preview directory {}", parent.display()))?;
+            tokio::fs::write(&preview_path, raw_payload.as_bytes())
+                .await
+                .with_context(|| format!("write tool output preview file {}", preview_path.display()))?;
+            Ok(())
+        }
+        .await;
+
+        if let Err(error) = persist_result {
+            tracing::warn!(
+                thread_id = %thread_id,
+                tool_name = %result.name,
+                %error,
+                "failed to persist tool output preview file; keeping inline content"
+            );
+            return PreparedToolResultThreadMessage {
+                content: raw_payload,
+                offloaded_payload_id: None,
+                tool_output_preview_path: None,
+            };
+        }
+
+        let preview_path = preview_path.to_string_lossy().into_owned();
+        let should_collapse = threshold_bytes != 0 && byte_size > threshold_bytes;
+        return PreparedToolResultThreadMessage {
+            content: if should_collapse {
+                summarize_preview_backed_tool_result(result, byte_size, &preview_path)
+            } else {
+                raw_payload
+            },
+            offloaded_payload_id: None,
+            tool_output_preview_path: Some(preview_path),
+        };
+    }
+
+    if threshold_bytes == 0 || byte_size <= threshold_bytes || result.name == "read_offloaded_payload" {
+        return PreparedToolResultThreadMessage {
+            content: raw_payload,
+            offloaded_payload_id: None,
+            tool_output_preview_path: None,
         };
     }
 
@@ -159,12 +244,14 @@ pub(crate) async fn prepare_tool_result_thread_message(
         return PreparedToolResultThreadMessage {
             content: raw_payload,
             offloaded_payload_id: None,
+            tool_output_preview_path: None,
         };
     }
 
     PreparedToolResultThreadMessage {
         content: summary,
         offloaded_payload_id: Some(payload_id),
+        tool_output_preview_path: None,
     }
 }
 
@@ -259,8 +346,16 @@ impl<'a> SendMessageRunner<'a> {
         }
 
         let prepared_tool_result =
-            prepare_tool_result_thread_message(self.engine, &self.tid, result, now_epoch_secs)
-                .await;
+            prepare_tool_result_thread_message(
+                self.engine,
+                &self.tid,
+                self.current_task_snapshot
+                    .as_ref()
+                    .and_then(|task| task.goal_run_id.as_deref()),
+                result,
+                now_epoch_secs,
+            )
+            .await;
         let structural_refs = if result.is_error {
             Vec::new()
         } else {
@@ -318,6 +413,9 @@ impl<'a> SendMessageRunner<'a> {
                     compaction_strategy: None,
                     compaction_payload: None,
                     offloaded_payload_id: prepared_tool_result.offloaded_payload_id.clone(),
+                    tool_output_preview_path: prepared_tool_result
+                        .tool_output_preview_path
+                        .clone(),
                     structural_refs,
                     pinned_for_compaction: false,
                     timestamp: now_millis(),

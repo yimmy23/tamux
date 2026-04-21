@@ -198,6 +198,37 @@ Study these for patterns on:
 - How to manage plugin state
 - How to integrate with external processes
 
+### Runtime `plugin.json` Python Commands
+
+Runtime-installed manifest plugins can also expose slash commands backed by Python execution plans.
+
+Shape:
+```json
+{
+  "python": {
+    "run_path": "workspace",
+    "source": "https://example.com/tool.py",
+    "env": true,
+    "dependencies": ["requests>=2.32"]
+  },
+  "commands": {
+    "sync": {
+      "description": "Run sync",
+      "python": {
+        "command": "python sync.py --full"
+      }
+    }
+  }
+}
+```
+
+Rules:
+- `commands.<name>.python.command` is required
+- top-level `python` provides defaults for `run_path`, `source`, `env`, and `dependencies`
+- `source` must be an `http(s)` URL or an absolute path
+- `env` may be a path string to `source` before execution or a boolean
+- `env: true` prefers `uv` for `.venv` setup and falls back to `python -m venv`
+
 ### Skill Generation from Goal Runs
 
 tamux goal runners can automatically generate reusable SKILL.md documents from successful execution trajectories. These are saved as markdown files that describe a repeatable procedure. This is a form of "plugin by documentation" — the agent learns procedures and can replay them in future goals.

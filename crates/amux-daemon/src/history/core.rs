@@ -84,6 +84,35 @@ impl HistoryStore {
             .join(format!("{payload_id}.txt"))
     }
 
+    pub(crate) fn tool_output_preview_root(&self) -> PathBuf {
+        self.data_root().join(".cache").join("tools")
+    }
+
+    pub(crate) fn tool_output_preview_path(
+        &self,
+        thread_id: &str,
+        goal_run_id: Option<&str>,
+        tool_name: &str,
+        timestamp: u64,
+    ) -> PathBuf {
+        let safe_tool_name = sanitize_tool_output_segment(tool_name);
+        match goal_run_id {
+            Some(goal_run_id) => self
+                .tool_output_preview_root()
+                .join(format!("goal-{}", sanitize_tool_output_segment(goal_run_id)))
+                .join(format!(
+                    "{}-{}-{}.txt",
+                    safe_tool_name,
+                    sanitize_tool_output_segment(thread_id),
+                    timestamp
+                )),
+            None => self
+                .tool_output_preview_root()
+                .join(format!("thread-{}", sanitize_tool_output_segment(thread_id)))
+                .join(format!("{safe_tool_name}-{timestamp}.txt")),
+        }
+    }
+
     pub async fn new() -> Result<Self> {
         let base = amux_protocol::ensure_amux_data_dir()?;
         Self::open_for_root(&base).await
@@ -434,6 +463,15 @@ impl HistoryStore {
         self.register_skill_document(&path).await?;
         Ok((title.to_string(), path.to_string_lossy().into_owned()))
     }
+}
+
+fn sanitize_tool_output_segment(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' => ch,
+            _ => '_',
+        })
+        .collect()
 }
 
 fn parse_managed_history_excerpt(excerpt: &str) -> (Option<i32>, Option<u64>) {

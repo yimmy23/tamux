@@ -357,6 +357,7 @@ async fn hydrate_restores_thread_token_totals_from_persisted_history() {
         compaction_strategy: None,
         compaction_payload: None,
         offloaded_payload_id: None,
+        tool_output_preview_path: None,
         structural_refs: Vec::new(),
         pinned_for_compaction: false,
         timestamp: 1_001,

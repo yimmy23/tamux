@@ -10,6 +10,14 @@ pub enum GoalWorkspacePane {
     CommandBar,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GoalWorkspaceMode {
+    Goal,
+    Progress,
+    ActiveAgent,
+    NeedsAttention,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GoalPlanSelection {
     Step { step_id: String },
@@ -18,8 +26,11 @@ pub enum GoalPlanSelection {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GoalWorkspaceState {
+    mode: GoalWorkspaceMode,
     focused_pane: GoalWorkspacePane,
     plan_scroll: usize,
+    timeline_scroll: usize,
+    detail_scroll: usize,
     selected_plan_row: usize,
     expanded_step_ids: BTreeSet<String>,
     selected_timeline_row: usize,
@@ -30,14 +41,25 @@ pub struct GoalWorkspaceState {
 impl GoalWorkspaceState {
     pub fn new() -> Self {
         Self {
+            mode: GoalWorkspaceMode::Goal,
             focused_pane: GoalWorkspacePane::Plan,
             plan_scroll: 0,
+            timeline_scroll: 0,
+            detail_scroll: 0,
             selected_plan_row: 0,
             expanded_step_ids: BTreeSet::new(),
             selected_timeline_row: 0,
             selected_detail_row: 0,
             selected_plan_item: None,
         }
+    }
+
+    pub fn mode(&self) -> GoalWorkspaceMode {
+        self.mode
+    }
+
+    pub fn set_mode(&mut self, mode: GoalWorkspaceMode) {
+        self.mode = mode;
     }
 
     pub fn focused_pane(&self) -> GoalWorkspacePane {
@@ -62,6 +84,22 @@ impl GoalWorkspaceState {
 
     pub fn set_plan_scroll(&mut self, scroll: usize) {
         self.plan_scroll = scroll;
+    }
+
+    pub fn timeline_scroll(&self) -> usize {
+        self.timeline_scroll
+    }
+
+    pub fn set_timeline_scroll(&mut self, scroll: usize) {
+        self.timeline_scroll = scroll;
+    }
+
+    pub fn detail_scroll(&self) -> usize {
+        self.detail_scroll
+    }
+
+    pub fn set_detail_scroll(&mut self, scroll: usize) {
+        self.detail_scroll = scroll;
     }
 
     pub fn selected_timeline_row(&self) -> usize {
@@ -115,5 +153,11 @@ impl GoalWorkspaceState {
 impl Default for GoalWorkspacePane {
     fn default() -> Self {
         Self::Plan
+    }
+}
+
+impl Default for GoalWorkspaceMode {
+    fn default() -> Self {
+        Self::Goal
     }
 }

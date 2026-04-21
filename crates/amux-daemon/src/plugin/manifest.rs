@@ -29,6 +29,8 @@ pub struct PluginManifest {
     pub skills: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<AuthSection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python: Option<PythonDefaults>,
 
     /// D-01: Capture unknown fields silently for forward compatibility.
     #[serde(flatten)]
@@ -93,6 +95,40 @@ pub struct CommandDef {
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python: Option<PythonCommandDef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum PythonEnvDef {
+    Path(String),
+    Managed(bool),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PythonDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<PythonEnvDef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PythonCommandDef {
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<PythonEnvDef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<String>,
 }
 
 /// Auth section for plugins requiring OAuth2, API key, or bearer auth.
@@ -127,6 +163,7 @@ mod tests {
         assert!(manifest.commands.is_none());
         assert!(manifest.skills.is_none());
         assert!(manifest.auth.is_none());
+        assert!(manifest.python.is_none());
         assert!(manifest.extra.is_empty());
     }
 
@@ -273,5 +310,56 @@ mod tests {
         assert_eq!(auth.token_url.as_deref(), Some("https://example.com/token"));
         assert_eq!(auth.scopes.as_ref().unwrap(), &["read", "write"]);
         assert!(auth.pkce);
+    }
+
+    #[test]
+    fn python_command_and_defaults_deserialize() {
+        let json = r#"{
+            "name": "python-plugin",
+            "version": "1.0.0",
+            "schema_version": 1,
+            "python": {
+                "run_path": "workspace",
+                "source": "https://example.com/tool.py",
+                "env": true,
+                "dependencies": ["requests>=2.32", "pydantic"]
+            },
+            "commands": {
+                "train": {
+                    "description": "Run trainer",
+                    "python": {
+                        "command": "python train.py --epochs 3",
+                        "run_path": "jobs/train"
+                    }
+                }
+            }
+        }"#;
+
+        let manifest: PluginManifest = serde_json::from_str(json).unwrap();
+        let defaults = manifest.python.as_ref().expect("python defaults");
+        assert_eq!(defaults.run_path.as_deref(), Some("workspace"));
+        assert_eq!(defaults.source.as_deref(), Some("https://example.com/tool.py"));
+        assert_eq!(defaults.env, Some(PythonEnvDef::Managed(true)));
+        assert_eq!(defaults.dependencies, vec!["requests>=2.32", "pydantic"]);
+
+        let command = manifest
+            .commands
+            .as_ref()
+            .and_then(|commands| commands.get("train"))
+            .and_then(|entry| entry.python.as_ref())
+            .expect("python command");
+        assert_eq!(command.command, "python train.py --epochs 3");
+        assert_eq!(command.run_path.as_deref(), Some("jobs/train"));
+        assert!(command.source.is_none());
+    }
+
+    #[test]
+    fn python_env_path_deserializes() {
+        let json = r#"{
+            "command": "python main.py",
+            "env": "/opt/venvs/app/bin/activate"
+        }"#;
+        let command: PythonCommandDef = serde_json::from_str(json).unwrap();
+        assert_eq!(command.env, Some(PythonEnvDef::Path("/opt/venvs/app/bin/activate".to_string())));
     }
 }

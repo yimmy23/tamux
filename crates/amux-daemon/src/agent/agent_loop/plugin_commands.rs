@@ -5,12 +5,27 @@ impl AgentEngine {
         let (command_key, args) = parse_plugin_command(content)?;
         let pm = self.plugin_manager.get()?;
         let entry = pm.resolve_command(command_key).await?;
-        let endpoint = entry.api_endpoint.as_deref().unwrap_or("default");
         let args_part = if args.is_empty() {
             String::new()
         } else {
             format!(" with arguments: {}", args)
         };
+        if let Some(python) = &entry.python {
+            return Some(format!(
+                "[Plugin command: {}]\n\
+                 The user invoked plugin command `{}`. \
+                 Plugin: '{}'. Description: {}. \
+                 Execute the following shell bootstrap with `bash_command` or `execute_command` to fulfill this request{}:\n\n```bash\n{}\n```",
+                entry.command_key,
+                entry.command_key,
+                entry.plugin_name,
+                entry.description,
+                args_part,
+                python.shell,
+            ));
+        }
+
+        let endpoint = entry.api_endpoint.as_deref().unwrap_or("default");
         Some(format!(
             "[Plugin command: {}]\n\
              The user invoked plugin command `{}`. \

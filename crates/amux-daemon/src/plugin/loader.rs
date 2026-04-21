@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use regex::Regex;
+use std::path::Path;
 use std::sync::LazyLock;
 
 pub const MAX_MANIFEST_SIZE: usize = 100 * 1024; // 100KB per D-10
@@ -109,9 +110,52 @@ pub fn validate_manifest(
 
     // Validate plugin name
     validate_plugin_name(&manifest.name)?;
+    validate_python_sections(&manifest)?;
 
     let raw_json = String::from_utf8_lossy(raw_bytes).to_string();
     Ok((manifest, raw_json))
+}
+
+fn validate_python_sections(manifest: &super::manifest::PluginManifest) -> Result<()> {
+    if let Some(python) = &manifest.python {
+        validate_python_source(python.source.as_deref(), "python.source")?;
+    }
+
+    if let Some(commands) = &manifest.commands {
+        for (command_name, command) in commands {
+            if let Some(python) = &command.python {
+                validate_python_source(
+                    python.source.as_deref(),
+                    &format!("commands.{command_name}.python.source"),
+                )?;
+                if python.command.trim().is_empty() {
+                    return Err(anyhow!(
+                        "commands.{}.python.command must not be empty",
+                        command_name
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_python_source(source: Option<&str>, field_name: &str) -> Result<()> {
+    let Some(source) = source else {
+        return Ok(());
+    };
+    if source.starts_with("http://") || source.starts_with("https://") {
+        return Ok(());
+    }
+    if Path::new(source).is_absolute() {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "{} must be an http(s) URL or absolute path, got '{}'",
+        field_name,
+        source
+    ))
 }
 
 /// Result of scanning the plugins directory.

@@ -574,6 +574,7 @@ pub(super) fn compact_messages_for_request(
                 compaction_strategy: Some(CompactionStrategy::Heuristic),
                 compaction_payload: Some(summary_payload),
                 offloaded_payload_id: None,
+                tool_output_preview_path: None,
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp: messages[split_at - 1].timestamp,
@@ -2265,6 +2266,7 @@ impl AgentEngine {
                 compaction_strategy: Some(strategy_used),
                 compaction_payload: Some(payload),
                 offloaded_payload_id: None,
+                tool_output_preview_path: None,
                 structural_refs,
                 pinned_for_compaction: false,
                 timestamp: messages

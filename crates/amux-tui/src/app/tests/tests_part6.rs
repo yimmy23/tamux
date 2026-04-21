@@ -29,6 +29,14 @@ fn goal_sidebar_model() -> TuiModel {
         thread_id: "thread-1".to_string(),
         title: "Goal Thread".to_string(),
     });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-2".to_string(),
+        title: "Child Task Thread".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-exec".to_string(),
+        title: "Execution Thread".to_string(),
+    });
     model
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
@@ -56,29 +64,119 @@ fn goal_sidebar_model() -> TuiModel {
             id: "goal-1".to_string(),
             title: "Goal Title".to_string(),
             thread_id: Some("thread-1".to_string()),
+            root_thread_id: Some("thread-1".to_string()),
+            active_thread_id: Some("thread-exec".to_string()),
+            execution_thread_ids: vec!["thread-exec".to_string()],
             goal: "goal definition body".to_string(),
+            status: Some(task::GoalRunStatus::Running),
             current_step_title: Some("Implement".to_string()),
+            runtime_assignment_list: vec![task::GoalAgentAssignment {
+                role_id: "implementer".to_string(),
+                provider: "openai".to_string(),
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: Some("high".to_string()),
+                enabled: true,
+                inherit_from_main: false,
+            }],
+            planner_owner_profile: Some(task::GoalRuntimeOwnerProfile {
+                agent_label: "Planner".to_string(),
+                provider: "openai".to_string(),
+                model: "gpt-5.4-mini".to_string(),
+                reasoning_effort: Some("medium".to_string()),
+            }),
+            current_step_owner_profile: Some(task::GoalRuntimeOwnerProfile {
+                agent_label: "Executor".to_string(),
+                provider: "openai".to_string(),
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: Some("high".to_string()),
+            }),
             child_task_ids: vec!["task-1".to_string(), "task-2".to_string()],
+            last_error: Some("upstream returned an empty error body".to_string()),
             steps: vec![
                 task::GoalRunStep {
                     id: "step-1".to_string(),
                     title: "Plan".to_string(),
                     order: 0,
+                    instructions: "Ground the user's background before planning".to_string(),
+                    summary: Some("Gather current experience and constraints first.".to_string()),
                     ..Default::default()
                 },
                 task::GoalRunStep {
                     id: "step-2".to_string(),
                     title: "Implement".to_string(),
                     order: 1,
+                    instructions: "Collect and index sources into a reusable inventory".to_string(),
+                    summary: Some("Build the source-backed inventory and checkpoints.".to_string()),
                     ..Default::default()
                 },
                 task::GoalRunStep {
                     id: "step-3".to_string(),
                     title: "Verify".to_string(),
                     order: 2,
+                    instructions: "Check proof coverage and package the final entry plan".to_string(),
                     ..Default::default()
                 },
             ],
+            dossier: Some(task::GoalRunDossier {
+                projection_state: "in_progress".to_string(),
+                summary: Some(
+                    "Execution is split into source collection and onboarding package delivery."
+                        .to_string(),
+                ),
+                latest_resume_decision: Some(task::GoalResumeDecisionRecord {
+                    action: "advance".to_string(),
+                    reason_code: "step_completed".to_string(),
+                    reason: Some("goal step completed successfully".to_string()),
+                    details: vec!["advance via step_completed".to_string()],
+                    projection_state: "in_progress".to_string(),
+                    ..Default::default()
+                }),
+                units: vec![task::GoalDeliveryUnitRecord {
+                    id: "unit-1".to_string(),
+                    title: "Collect and index ingenix.ai sources".to_string(),
+                    status: "in_progress".to_string(),
+                    execution_binding: "builtin:swarog".to_string(),
+                    verification_binding: "builtin:swarog".to_string(),
+                    summary: Some("Build a source-backed inventory in markdown and csv.".to_string()),
+                    proof_checks: vec![task::GoalProofCheckRecord {
+                        id: "pc-1".to_string(),
+                        title: "Verify sources cover company info".to_string(),
+                        state: "pending".to_string(),
+                        summary: Some("Need official pages plus supporting evidence.".to_string()),
+                        ..Default::default()
+                    }],
+                    report: Some(task::GoalRunReportRecord {
+                        summary: "Source inventory is in progress".to_string(),
+                        state: "in_progress".to_string(),
+                        notes: vec!["Capture official pages first.".to_string()],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                report: Some(task::GoalRunReportRecord {
+                    summary: "Overall goal remains in progress".to_string(),
+                    state: "in_progress".to_string(),
+                    notes: vec!["Approval still pending for final package.".to_string()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            events: vec![task::GoalRunEvent {
+                id: "event-1".to_string(),
+                phase: "execution".to_string(),
+                message: "queued child task for goal step".to_string(),
+                details: Some("Collect and index ingenix.ai sources -> task_123".to_string()),
+                step_index: Some(1),
+                todo_snapshot: vec![task::TodoItem {
+                    id: "todo-impl-1".to_string(),
+                    content: "Verify sources cover company info".to_string(),
+                    status: Some(task::TodoStatus::Pending),
+                    step_index: Some(1),
+                    position: 0,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
             ..Default::default()
         }));
     model
@@ -264,6 +362,33 @@ fn goal_workspace_click_targets(chat_area: Rect) -> (Position, Position, Positio
     )
 }
 
+fn find_goal_workspace_hit_position(
+    model: &TuiModel,
+    expected: widgets::goal_workspace::GoalWorkspaceHitTarget,
+) -> Position {
+    let chat_area = rendered_chat_area(model);
+    (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+        .find_map(|row| {
+            (chat_area.x..chat_area.x.saturating_add(chat_area.width)).find_map(|column| {
+                let pos = Position::new(column, row);
+                let hit = match &model.main_pane_view {
+                    MainPaneView::Task(SidebarItemTarget::GoalRun { goal_run_id, .. }) => {
+                        widgets::goal_workspace::hit_test(
+                            chat_area,
+                            &model.tasks,
+                            goal_run_id,
+                            &model.goal_workspace,
+                            pos,
+                        )
+                    }
+                    _ => None,
+                };
+                (hit == Some(expected.clone())).then_some(pos)
+            })
+        })
+        .expect("expected goal workspace hit target should be clickable")
+}
+
 #[test]
 fn goal_sidebar_defaults_to_steps_on_model_init() {
     let model = build_model();
@@ -339,13 +464,13 @@ fn goal_run_render_uses_full_workspace_without_legacy_goal_sidebar_tabs() {
     assert!(
         chat_plain.contains("Plan")
             && chat_plain.contains("Run timeline")
-            && chat_plain.contains("Details"),
+            && chat_plain.contains("Goal")
+            && chat_plain.contains("Prompt"),
         "expected full goal workspace content in main pane, got: {chat_plain}"
     );
     assert!(
         !chat_plain.contains("Checkpoints")
-            && !chat_plain.contains("Tasks")
-            && !chat_plain.contains("Files"),
+            && !chat_plain.contains("Tasks"),
         "expected legacy goal sidebar labels to be absent, got: {chat_plain}"
     );
     assert!(
@@ -413,6 +538,14 @@ fn goal_workspace_tab_cycles_between_internal_panes_before_input() {
 
     let handled = model.handle_key(KeyCode::Tab, KeyModifiers::NONE);
     assert!(!handled);
+    assert_eq!(model.focus, FocusArea::Chat);
+    assert_eq!(
+        model.goal_workspace.focused_pane(),
+        goal_workspace::GoalWorkspacePane::CommandBar
+    );
+
+    let handled = model.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+    assert!(!handled);
     assert_eq!(model.focus, FocusArea::Input);
 
     let handled = model.handle_key(KeyCode::BackTab, KeyModifiers::SHIFT);
@@ -420,7 +553,7 @@ fn goal_workspace_tab_cycles_between_internal_panes_before_input() {
     assert_eq!(model.focus, FocusArea::Chat);
     assert_eq!(
         model.goal_workspace.focused_pane(),
-        goal_workspace::GoalWorkspacePane::Details
+        goal_workspace::GoalWorkspacePane::CommandBar
     );
 }
 
@@ -513,6 +646,201 @@ fn goal_workspace_mouse_clicks_focus_timeline_and_details_panes() {
         model.goal_workspace.focused_pane(),
         goal_workspace::GoalWorkspacePane::Details
     );
+}
+
+#[test]
+fn goal_workspace_mode_tabs_are_clickable_and_keyboard_focusable() {
+    let mut model = goal_sidebar_model();
+    model.focus = FocusArea::Chat;
+    model.goal_workspace
+        .set_focused_pane(goal_workspace::GoalWorkspacePane::CommandBar);
+
+    let handled = model.handle_key(KeyCode::Right, KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(
+        model.goal_workspace.mode(),
+        goal_workspace::GoalWorkspaceMode::Progress
+    );
+
+    let handled = model.handle_key(KeyCode::Char('4'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(
+        model.goal_workspace.mode(),
+        goal_workspace::GoalWorkspaceMode::NeedsAttention
+    );
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(
+        model.goal_workspace.focused_pane(),
+        goal_workspace::GoalWorkspacePane::Plan
+    );
+
+    let mut model = goal_sidebar_model();
+    let click = find_goal_workspace_hit_position(
+        &model,
+        widgets::goal_workspace::GoalWorkspaceHitTarget::ModeTab(
+            goal_workspace::GoalWorkspaceMode::ActiveAgent,
+        ),
+    );
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(model.focus, FocusArea::Chat);
+    assert_eq!(
+        model.goal_workspace.focused_pane(),
+        goal_workspace::GoalWorkspacePane::CommandBar
+    );
+    assert_eq!(
+        model.goal_workspace.mode(),
+        goal_workspace::GoalWorkspaceMode::ActiveAgent
+    );
+}
+
+#[test]
+fn goal_workspace_goal_mode_file_click_opens_work_context_preview() {
+    let mut model = goal_sidebar_model();
+    let click = find_goal_workspace_hit_position(
+        &model,
+        widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile("/tmp/plan.md".to_string()),
+    );
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert!(matches!(model.main_pane_view, MainPaneView::WorkContext));
+    assert_eq!(model.tasks.selected_work_path("thread-1"), Some("/tmp/plan.md"));
+    assert_eq!(model.status_line, "/tmp/plan.md");
+}
+
+#[test]
+fn goal_workspace_escape_from_goal_file_preview_restores_goal_run() {
+    let mut model = goal_sidebar_model();
+    let click = find_goal_workspace_hit_position(
+        &model,
+        widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile("/tmp/plan.md".to_string()),
+    );
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    let handled = model.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(
+        model.main_pane_view,
+        MainPaneView::Task(SidebarItemTarget::GoalRun { ref goal_run_id, .. })
+            if goal_run_id == "goal-1"
+    ));
+}
+
+#[test]
+fn goal_workspace_goal_mode_restores_old_goal_sections() {
+    let mut model = goal_sidebar_model();
+
+    let plain = render_chat_plain(&mut model);
+
+    assert!(plain.contains("Step Actions"), "{plain}");
+    assert!(!plain.contains("Controls"), "{plain}");
+    assert!(plain.contains("Related Tasks"), "{plain}");
+    assert!(plain.contains("Execution Dossier"), "{plain}");
+    assert!(plain.contains("Ground the user's background"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_step_footer_actions_are_clickable() {
+    let mut model = goal_sidebar_model();
+    let click = find_goal_workspace_hit_position(
+        &model,
+        widgets::goal_workspace::GoalWorkspaceHitTarget::FooterAction(
+            widgets::goal_workspace::GoalWorkspaceAction::OpenActions,
+        ),
+    );
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::GoalStepActionPicker));
+}
+
+#[test]
+fn goal_workspace_progress_mode_restores_checkpoint_and_dossier_views() {
+    let mut model = goal_sidebar_model();
+    model.goal_workspace
+        .set_mode(goal_workspace::GoalWorkspaceMode::Progress);
+
+    let plain = render_chat_plain(&mut model);
+
+    assert!(plain.contains("Execution Dossier"), "{plain}");
+    assert!(plain.contains("Checkpoints"), "{plain}");
+    assert!(plain.contains("Checkpoint for Implement"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_active_agent_mode_restores_assignments_and_threads() {
+    let mut model = goal_sidebar_model();
+    model.goal_workspace
+        .set_mode(goal_workspace::GoalWorkspaceMode::ActiveAgent);
+
+    let plain = render_chat_plain(&mut model);
+
+    assert!(plain.contains("Executor"), "{plain}");
+    assert!(plain.contains("Planner"), "{plain}");
+    assert!(plain.contains("implementer"), "{plain}");
+    assert!(plain.contains("thread-exec"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_needs_attention_mode_restores_non_empty_attention_surface() {
+    let mut model = goal_sidebar_model();
+    model.goal_workspace
+        .set_mode(goal_workspace::GoalWorkspaceMode::NeedsAttention);
+
+    let plain = render_chat_plain(&mut model);
+
+    assert!(plain.contains("Approvals"), "{plain}");
+    assert!(plain.contains("Last error"), "{plain}");
+    assert!(plain.contains("upstream returned an empty error"), "{plain}");
 }
 
 #[test]
@@ -927,6 +1255,107 @@ fn goal_workspace_mouse_wheel_scrolls_plan_rows() {
     assert_eq!(model.focus, FocusArea::Chat);
     assert!(model.pane_layout().sidebar.is_none());
     assert_eq!(model.goal_workspace.plan_scroll(), 3);
+}
+
+#[test]
+fn goal_workspace_mouse_wheel_scrolls_timeline_and_details_rows() {
+    let mut model = goal_sidebar_model();
+    if let Some(run) = model.tasks.goal_run_by_id_mut("goal-1") {
+        run.events = (0..30)
+            .map(|idx| task::GoalRunEvent {
+                id: format!("event-{idx}"),
+                phase: "execution".to_string(),
+                message: format!("event {idx} with wrapped timeline details"),
+                details: Some(format!("details line for event {idx} that should wrap in the timeline panel")),
+                step_index: Some(1),
+                ..Default::default()
+            })
+            .collect();
+    }
+    model.tasks.reduce(task::TaskAction::WorkContextReceived(
+        task::ThreadWorkContext {
+            thread_id: "thread-1".to_string(),
+            entries: (0..30)
+                .map(|idx| task::WorkContextEntry {
+                    path: format!("/tmp/file-{idx}.md"),
+                    goal_run_id: Some("goal-1".to_string()),
+                    is_text: true,
+                    ..Default::default()
+                })
+                .collect(),
+        },
+    ));
+    model.focus = FocusArea::Chat;
+
+    let chat_area = model.pane_layout().chat;
+    let (_, timeline, details) = goal_workspace_click_targets(chat_area);
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: timeline.x,
+        row: timeline.y.saturating_add(2),
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(model.goal_workspace.timeline_scroll(), 3);
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: details.x,
+        row: details.y.saturating_add(2),
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(model.goal_workspace.detail_scroll(), 3);
+}
+
+#[test]
+fn goal_workspace_keyboard_navigation_auto_scrolls_timeline_and_details() {
+    let mut model = goal_sidebar_model();
+    if let Some(run) = model.tasks.goal_run_by_id_mut("goal-1") {
+        run.events = (0..40)
+            .map(|idx| task::GoalRunEvent {
+                id: format!("event-{idx}"),
+                phase: "execution".to_string(),
+                message: format!("event {idx}"),
+                details: Some(format!("details {idx}")),
+                step_index: Some(1),
+                ..Default::default()
+            })
+            .collect();
+    }
+    model.tasks.reduce(task::TaskAction::WorkContextReceived(
+        task::ThreadWorkContext {
+            thread_id: "thread-1".to_string(),
+            entries: (0..40)
+                .map(|idx| task::WorkContextEntry {
+                    path: format!("/tmp/detail-{idx}.md"),
+                    goal_run_id: Some("goal-1".to_string()),
+                    is_text: true,
+                    ..Default::default()
+                })
+                .collect(),
+        },
+    ));
+    model.focus = FocusArea::Chat;
+    model.goal_workspace
+        .set_focused_pane(goal_workspace::GoalWorkspacePane::Timeline);
+
+    for _ in 0..20 {
+        let handled = model.handle_key(KeyCode::Down, KeyModifiers::NONE);
+        assert!(!handled);
+    }
+
+    assert!(model.goal_workspace.selected_timeline_row() >= 20);
+    assert!(model.goal_workspace.timeline_scroll() > 0);
+
+    model.goal_workspace
+        .set_focused_pane(goal_workspace::GoalWorkspacePane::Details);
+    for _ in 0..20 {
+        let handled = model.handle_key(KeyCode::Down, KeyModifiers::NONE);
+        assert!(!handled);
+    }
+
+    assert!(model.goal_workspace.selected_detail_row() >= 20);
+    assert!(model.goal_workspace.detail_scroll() > 0);
 }
 
 #[test]

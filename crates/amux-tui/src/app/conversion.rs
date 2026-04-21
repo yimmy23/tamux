@@ -157,6 +157,7 @@ pub(super) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessag
         message_kind: m.message_kind,
         compaction_strategy: m.compaction_strategy,
         compaction_payload: m.compaction_payload,
+        tool_output_preview_path: m.tool_output_preview_path,
         timestamp: m.timestamp,
         actions: Vec::new(),
         is_concierge_welcome: false,

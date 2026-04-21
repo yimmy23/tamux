@@ -106,7 +106,7 @@ impl PluginManager {
     pub(super) async fn rebuild_command_registry(&self) {
         let plugins = self.plugins.read().await;
         let mut registry = self.command_registry.write().await;
-        registry.rebuild_from_plugins(&plugins);
+        registry.rebuild_from_plugins(&plugins, &self.plugins_dir);
     }
 
     pub(crate) async fn monitor_auth_health(&self) -> Vec<PluginAuthHealthIssue> {

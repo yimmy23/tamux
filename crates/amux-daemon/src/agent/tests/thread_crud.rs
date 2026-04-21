@@ -881,6 +881,9 @@ async fn thread_persistence_round_trips_offload_and_structural_refs() {
 
     let mut message = AgentMessage::user("persist me", 1_000);
     message.offloaded_payload_id = Some("payload-123".to_string());
+    message.tool_output_preview_path = Some(
+        "/tmp/.tamux/.cache/tools/thread-thread-offload-refs/bash_command-1000.txt".to_string(),
+    );
     message.structural_refs = vec![
         "artifact://summary/1".to_string(),
         "skill://brainstorming".to_string(),
@@ -920,6 +923,10 @@ async fn thread_persistence_round_trips_offload_and_structural_refs() {
     assert_eq!(
         restored.offloaded_payload_id.as_deref(),
         Some("payload-123")
+    );
+    assert_eq!(
+        restored.tool_output_preview_path.as_deref(),
+        Some("/tmp/.tamux/.cache/tools/thread-thread-offload-refs/bash_command-1000.txt")
     );
     assert_eq!(
         restored.structural_refs,

@@ -328,6 +328,43 @@ fn read_skill_file_chip_falls_back_to_daemon_result_header() {
 }
 
 #[test]
+fn tool_file_path_chip_prefers_tool_output_preview_path_metadata() {
+    let preview_path = std::env::temp_dir()
+        .join(format!("bash_command-preview-{}.txt", uuid::Uuid::new_v4()));
+    let message = AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("bash_command".into()),
+        tool_status: Some("done".into()),
+        tool_output_preview_path: Some(preview_path.display().to_string()),
+        content: "Tool result saved to preview file\n- tool: bash_command".into(),
+        ..Default::default()
+    };
+
+    let chip = tool_file_chip(&message).expect("preview-backed tool result should expose a chip");
+    assert_eq!(chip.path, preview_path.display().to_string());
+    assert_eq!(
+        chip.label,
+        preview_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .expect("preview file should have a basename")
+    );
+
+    let chat = chat_with_messages(vec![message]);
+    let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 100, 0, false);
+    let tool_line = lines
+        .iter()
+        .find(|line| {
+            line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ToolToggle)
+        })
+        .expect("tool row should be rendered");
+    let text = rendered_line_plain_text(tool_line);
+
+    assert!(text.contains("bash_command"));
+    assert!(text.contains(&format!("[{}]", chip.label)));
+}
+
+#[test]
 fn all_file_mutation_tool_rows_use_filename_chip() {
     let cases = [
         (
@@ -593,6 +630,48 @@ fn hit_test_returns_tool_file_path_target_for_read_skill() {
     let chip_col = plain
         .find("[SKILL.md]")
         .expect("skill path chip should be rendered on the tool row");
+
+    let chip_hit = hit_test(
+        area,
+        &chat,
+        &ThemeTokens::default(),
+        0,
+        Position::new(inner.x + chip_col as u16 + 1, inner.y + tool_row as u16),
+    );
+
+    assert_eq!(
+        chip_hit,
+        Some(ChatHitTarget::ToolFilePath { message_index: 0 })
+    );
+}
+
+#[test]
+fn hit_test_returns_tool_file_path_target_for_tool_output_preview_metadata() {
+    let preview_path = std::env::temp_dir()
+        .join(format!("web_search-preview-{}.txt", uuid::Uuid::new_v4()));
+    let chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("web_search".into()),
+        tool_status: Some("done".into()),
+        tool_output_preview_path: Some(preview_path.display().to_string()),
+        content: "Tool result saved to preview file\n- tool: web_search".into(),
+        ..Default::default()
+    }]);
+
+    let area = Rect::new(0, 0, 120, 6);
+    let (inner, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+    let tool_row = visible
+        .iter()
+        .position(|line| {
+            line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ToolToggle)
+        })
+        .expect("tool row should be visible");
+    let hit_line = &visible[tool_row];
+    let (plain, _, _) = rendered_line_content_bounds(hit_line);
+    let chip_col = plain
+        .find('[')
+        .expect("preview path chip should be rendered on the tool row");
 
     let chip_hit = hit_test(
         area,

@@ -91,6 +91,8 @@ pub struct AgentMessage {
     #[serde(default)]
     pub compaction_payload: Option<String>,
     #[serde(default)]
+    pub tool_output_preview_path: Option<String>,
+    #[serde(default)]
     pub timestamp: u64,
 }
 

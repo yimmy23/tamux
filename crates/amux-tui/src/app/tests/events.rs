@@ -2324,6 +2324,37 @@ fn thread_detail_event_hydrates_pinned_for_compaction_from_wire() {
 }
 
 #[test]
+fn thread_detail_event_hydrates_tool_output_preview_path_from_wire() {
+    let mut model = make_model();
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-1".to_string(),
+        title: "Preview".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            id: Some("message-1".to_string()),
+            role: crate::wire::MessageRole::Tool,
+            tool_name: Some("bash_command".to_string()),
+            tool_status: Some("done".to_string()),
+            tool_output_preview_path: Some(
+                "/tmp/.tamux/.cache/tools/thread-thread-1/bash_command-1700000123.txt"
+                    .to_string(),
+            ),
+            content: "Tool result saved to preview file".to_string(),
+            ..Default::default()
+        }],
+        loaded_message_end: 1,
+        total_message_count: 1,
+        ..Default::default()
+    });
+
+    let thread = model.chat.active_thread().expect("thread should exist");
+    assert_eq!(
+        thread.messages[0].tool_output_preview_path.as_deref(),
+        Some("/tmp/.tamux/.cache/tools/thread-thread-1/bash_command-1700000123.txt")
+    );
+}
+
+#[test]
 fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
     let mut model = make_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {

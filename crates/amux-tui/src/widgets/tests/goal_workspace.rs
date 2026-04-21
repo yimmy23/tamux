@@ -1,5 +1,5 @@
 use super::*;
-use crate::state::goal_workspace::GoalWorkspaceState;
+use crate::state::goal_workspace::{GoalWorkspaceMode, GoalWorkspaceState};
 use crate::state::task::{
     GoalRun, GoalRunEvent, GoalRunStep, TaskAction, TaskState, ThreadWorkContext, TodoItem,
     TodoStatus, WorkContextEntry,
@@ -13,6 +13,7 @@ fn sample_tasks() -> TaskState {
     tasks.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
         id: "goal-1".into(),
         title: "Goal".into(),
+        goal: "Research the ecosystem and produce a concrete learning plan.".into(),
         thread_id: Some("thread-1".into()),
         steps: vec![
             GoalRunStep {
@@ -32,6 +33,7 @@ fn sample_tasks() -> TaskState {
             id: "event-1".into(),
             timestamp: 10,
             step_index: Some(0),
+            message: "goal todo updated with a much longer explanation that should wrap onto another visual line in the timeline pane".into(),
             todo_snapshot: vec![
                 TodoItem {
                     id: "todo-1".into(),
@@ -52,8 +54,23 @@ fn sample_tasks() -> TaskState {
             ],
             ..Default::default()
         }],
+        dossier: Some(crate::state::task::GoalRunDossier {
+            summary: Some("Checkpoint-backed execution dossier".into()),
+            projection_state: "in_progress".into(),
+            ..Default::default()
+        }),
         ..Default::default()
     }));
+    tasks.reduce(TaskAction::GoalRunCheckpointsReceived {
+        goal_run_id: "goal-1".into(),
+        checkpoints: vec![crate::state::task::GoalRunCheckpointSummary {
+            id: "checkpoint-1".into(),
+            checkpoint_type: "pre_step".into(),
+            step_index: Some(0),
+            context_summary_preview: Some("Checkpoint for Plan".into()),
+            ..Default::default()
+        }],
+    });
     tasks.reduce(TaskAction::WorkContextReceived(ThreadWorkContext {
         thread_id: "thread-1".into(),
         entries: vec![WorkContextEntry {
@@ -104,7 +121,19 @@ fn goal_workspace_renders_plan_timeline_and_details_panes() {
 
     assert!(plain.contains("Plan"), "{plain}");
     assert!(plain.contains("Run timeline"), "{plain}");
-    assert!(plain.contains("Details"), "{plain}");
+    assert!(plain.contains("Goal"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_goal_mode_renders_prompt_and_files_list() {
+    let state = GoalWorkspaceState::new();
+
+    let plain = render_plain_text(&state);
+
+    assert!(plain.contains("Prompt"), "{plain}");
+    assert!(plain.contains("Research the ecosystem"), "{plain}");
+    assert!(plain.contains("Files"), "{plain}");
+    assert!(plain.contains("/tmp/plan.md"), "{plain}");
 }
 
 #[test]
@@ -118,6 +147,17 @@ fn goal_workspace_renders_steps_and_nested_todos_for_expanded_step() {
     assert!(plain.contains("Ship"), "{plain}");
     assert!(plain.contains("Draft outline"), "{plain}");
     assert!(plain.contains("Verify sources"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_progress_mode_renders_progress_panel_copy() {
+    let mut state = GoalWorkspaceState::new();
+    state.set_mode(GoalWorkspaceMode::Progress);
+
+    let plain = render_plain_text(&state);
+
+    assert!(plain.contains("Progress"), "{plain}");
+    assert!(plain.contains("Checkpoints"), "{plain}");
 }
 
 #[test]
@@ -150,11 +190,35 @@ fn goal_workspace_hit_test_tracks_timeline_and_detail_rows() {
     let area = Rect::new(0, 0, 100, 28);
 
     let timeline_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(42, 5));
-    let detail_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(74, 6));
+    let detail_hit = (area.y..area.y.saturating_add(area.height))
+        .find_map(|row| {
+            (area.x..area.x.saturating_add(area.width)).find_map(|column| {
+                let pos = Position::new(column, row);
+                (hit_test(area, &tasks, "goal-1", &state, pos)
+                    == Some(GoalWorkspaceHitTarget::DetailFile("/tmp/plan.md".into())))
+                .then_some(GoalWorkspaceHitTarget::DetailFile("/tmp/plan.md".into()))
+            })
+        });
 
     assert_eq!(timeline_hit, Some(GoalWorkspaceHitTarget::TimelineRow(0)));
     assert_eq!(
         detail_hit,
         Some(GoalWorkspaceHitTarget::DetailFile("/tmp/plan.md".into()))
     );
+}
+
+#[test]
+fn goal_workspace_hit_test_tracks_mode_tabs_and_wrapped_timeline_lines() {
+    let state = GoalWorkspaceState::new();
+    let tasks = sample_tasks();
+    let area = Rect::new(0, 0, 100, 28);
+
+    let progress_tab_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(8, 1));
+    let wrapped_timeline_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(42, 6));
+
+    assert_eq!(
+        progress_tab_hit,
+        Some(GoalWorkspaceHitTarget::ModeTab(GoalWorkspaceMode::Progress))
+    );
+    assert_eq!(wrapped_timeline_hit, Some(GoalWorkspaceHitTarget::TimelineRow(0)));
 }

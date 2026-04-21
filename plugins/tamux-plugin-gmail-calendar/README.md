@@ -148,6 +148,9 @@ For personal or team use, Testing mode is sufficient.
 This plugin serves as a reference implementation for the tamux plugin system. To create your own plugin:
 
 1. Create a directory with a `plugin.json` manifest declaring your API endpoints, auth, settings, and commands
+   - API-backed commands use `commands.<name>.action`
+   - Python-backed commands use `commands.<name>.python.command`
+   - Shared Python defaults such as `run_path`, `source`, `env`, and `dependencies` can live under a top-level `python` object
 2. Add YAML skill files in a `skills/` subdirectory to teach the agent how to use your API
 3. Add a `package.json` with a `files` array listing your plugin directories
 4. Publish to npm: `npm publish`

@@ -95,7 +95,19 @@ impl TuiModel {
                             | MainPaneView::WorkContext
                             | MainPaneView::FilePreview(_)
                     ) {
-                        self.step_detail_view_scroll(-3);
+                        if matches!(
+                            self.main_pane_view,
+                            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                        ) {
+                            let pane = widgets::goal_workspace::pane_at(
+                                chat_area,
+                                Position::new(mouse.column, mouse.row),
+                            )
+                            .unwrap_or(self.goal_workspace.focused_pane());
+                            self.step_goal_workspace_pane_scroll(pane, -3);
+                        } else {
+                            self.step_detail_view_scroll(-3);
+                        }
                         if self.work_context_drag_anchor.is_some()
                             && matches!(self.main_pane_view, MainPaneView::WorkContext)
                         {
@@ -190,7 +202,19 @@ impl TuiModel {
                             | MainPaneView::WorkContext
                             | MainPaneView::FilePreview(_)
                     ) {
-                        self.step_detail_view_scroll(3);
+                        if matches!(
+                            self.main_pane_view,
+                            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                        ) {
+                            let pane = widgets::goal_workspace::pane_at(
+                                chat_area,
+                                Position::new(mouse.column, mouse.row),
+                            )
+                            .unwrap_or(self.goal_workspace.focused_pane());
+                            self.step_goal_workspace_pane_scroll(pane, 3);
+                        } else {
+                            self.step_detail_view_scroll(3);
+                        }
                         if self.work_context_drag_anchor.is_some()
                             && matches!(self.main_pane_view, MainPaneView::WorkContext)
                         {
@@ -496,7 +520,7 @@ impl TuiModel {
                             Position::new(mouse.column, mouse.row),
                             &self.theme,
                         ) {
-                            self.set_main_pane_conversation(FocusArea::Chat);
+                            let _ = self.dismiss_active_main_pane(FocusArea::Chat);
                             self.status_line = "Closed preview".to_string();
                             return;
                         }
@@ -526,7 +550,7 @@ impl TuiModel {
                                 &self.theme,
                             )
                         {
-                            self.set_main_pane_conversation(FocusArea::Chat);
+                            let _ = self.dismiss_active_main_pane(FocusArea::Chat);
                             self.status_line = "Closed preview".to_string();
                             return;
                         }

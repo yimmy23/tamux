@@ -2666,7 +2666,112 @@ async fn read_offloaded_payload_tool_rejects_payload_ids_that_escape_the_caller_
 }
 
 #[tokio::test]
-async fn large_tool_result_is_offloaded_and_thread_message_keeps_summary() {
+async fn allowlisted_small_tool_result_writes_preview_file_and_keeps_inline_content() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.offload_tool_result_threshold_bytes = 512;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let raw_payload = "small bash output\n".to_string();
+    let prepared =
+        crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message(
+            &engine,
+            "thread-preview-small",
+            None,
+            &ToolResult {
+                tool_call_id: "tool-call-preview-small".to_string(),
+                name: "bash_command".to_string(),
+                content: raw_payload.clone(),
+                is_error: false,
+                weles_review: None,
+                pending_approval: None,
+            },
+            1_700_000_120,
+        )
+        .await;
+
+    let preview_path = root
+        .path()
+        .join(".cache")
+        .join("tools")
+        .join("thread-thread-preview-small")
+        .join("bash_command-1700000120.txt");
+    assert_eq!(prepared.content, raw_payload);
+    assert_eq!(prepared.offloaded_payload_id, None);
+    assert_eq!(
+        prepared.tool_output_preview_path.as_deref(),
+        Some(preview_path.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        std::fs::read_to_string(&preview_path).expect("preview file should exist"),
+        "small bash output\n"
+    );
+}
+
+#[tokio::test]
+async fn large_allowlisted_tool_result_keeps_preview_path_and_summary_content() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.offload_tool_result_threshold_bytes = 64;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let raw_payload = "tool output line\n".repeat(16);
+    let prepared =
+        crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message(
+            &engine,
+            "thread-preview-large",
+            None,
+            &ToolResult {
+                tool_call_id: "tool-call-preview-large".to_string(),
+                name: "bash_command".to_string(),
+                content: raw_payload.clone(),
+                is_error: false,
+                weles_review: None,
+                pending_approval: None,
+            },
+            1_700_000_123,
+        )
+        .await;
+
+    let preview_path = root
+        .path()
+        .join(".cache")
+        .join("tools")
+        .join("thread-thread-preview-large")
+        .join("bash_command-1700000123.txt");
+    assert!(
+        prepared.content.contains("Tool result saved to preview file"),
+        "expected preview summary, got: {}",
+        prepared.content
+    );
+    assert!(prepared.content.contains("- tool: bash_command"));
+    assert!(prepared.content.contains("- status: done"));
+    assert!(prepared.content.contains("- key findings:"));
+    assert_eq!(prepared.offloaded_payload_id, None);
+    assert_eq!(
+        prepared.tool_output_preview_path.as_deref(),
+        Some(preview_path.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        std::fs::read_to_string(&preview_path).expect("preview file should exist"),
+        raw_payload
+    );
+
+    let metadata = engine
+        .history
+        .list_offloaded_payload_metadata_for_thread("thread-preview-large")
+        .await
+        .expect("metadata lookup should succeed");
+    assert!(
+        metadata.is_empty(),
+        "allowlisted preview-backed result should not create offloaded payload rows"
+    );
+}
+
+#[tokio::test]
+async fn large_non_allowlisted_tool_result_is_offloaded_and_thread_message_keeps_summary() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
@@ -2678,9 +2783,10 @@ async fn large_tool_result_is_offloaded_and_thread_message_keeps_summary() {
         crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message(
             &engine,
             "thread-offload-large",
+            None,
             &ToolResult {
                 tool_call_id: "tool-call-large".to_string(),
-                name: "bash_command".to_string(),
+                name: "read_skill".to_string(),
                 content: raw_payload.clone(),
                 is_error: false,
                 weles_review: None,
@@ -2695,10 +2801,11 @@ async fn large_tool_result_is_offloaded_and_thread_message_keeps_summary() {
         .clone()
         .expect("large tool result should be offloaded");
     let expected_summary = format!(
-        "Tool result offloaded\n- tool: bash_command\n- status: done\n- bytes: {}\n- payload_id: {}\n- key findings:\n  - tool output line\n  - tool output line\n  - tool output line",
+        "Tool result offloaded\n- tool: read_skill\n- status: done\n- bytes: {}\n- payload_id: {}\n- key findings:\n  - tool output line\n  - tool output line\n  - tool output line",
         raw_payload.len(), payload_id
     );
     assert_eq!(prepared.content, expected_summary);
+    assert_eq!(prepared.tool_output_preview_path, None);
 
     let metadata = engine
         .history
@@ -2707,7 +2814,7 @@ async fn large_tool_result_is_offloaded_and_thread_message_keeps_summary() {
         .expect("metadata lookup should succeed")
         .expect("metadata row should exist for offloaded payload");
     assert_eq!(metadata.thread_id, "thread-offload-large");
-    assert_eq!(metadata.tool_name, "bash_command");
+    assert_eq!(metadata.tool_name, "read_skill");
     assert_eq!(metadata.tool_call_id.as_deref(), Some("tool-call-large"));
     assert_eq!(metadata.content_type, "text/plain");
     assert_eq!(metadata.byte_size, raw_payload.len() as u64);
@@ -2721,6 +2828,50 @@ async fn large_tool_result_is_offloaded_and_thread_message_keeps_summary() {
     assert_eq!(
         std::fs::read_to_string(&payload_path).expect("offloaded payload file should exist"),
         raw_payload
+    );
+}
+
+#[tokio::test]
+async fn allowlisted_web_search_tool_result_writes_preview_file() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.offload_tool_result_threshold_bytes = 4_096;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let raw_payload = "result 1\nresult 2\n".to_string();
+    let prepared =
+        crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message(
+            &engine,
+            "thread-web-preview",
+            None,
+            &ToolResult {
+                tool_call_id: "tool-call-web-preview".to_string(),
+                name: "web_search".to_string(),
+                content: raw_payload.clone(),
+                is_error: false,
+                weles_review: None,
+                pending_approval: None,
+            },
+            1_700_000_124,
+        )
+        .await;
+
+    let preview_path = root
+        .path()
+        .join(".cache")
+        .join("tools")
+        .join("thread-thread-web-preview")
+        .join("web_search-1700000124.txt");
+    assert_eq!(prepared.content, raw_payload);
+    assert_eq!(prepared.offloaded_payload_id, None);
+    assert_eq!(
+        prepared.tool_output_preview_path.as_deref(),
+        Some(preview_path.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        std::fs::read_to_string(&preview_path).expect("preview file should exist"),
+        "result 1\nresult 2\n"
     );
 }
 
@@ -2793,6 +2944,7 @@ async fn large_read_offloaded_payload_result_stays_inline_in_thread_messages() {
         crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message(
             &engine,
             thread_id,
+            None,
             &result,
             1_700_000_125,
         )
@@ -2800,6 +2952,7 @@ async fn large_read_offloaded_payload_result_stays_inline_in_thread_messages() {
 
     assert_eq!(prepared.content, raw_payload);
     assert_eq!(prepared.offloaded_payload_id, None);
+    assert_eq!(prepared.tool_output_preview_path, None);
 
     let metadata = engine
         .history
@@ -2815,10 +2968,11 @@ async fn large_read_offloaded_payload_result_stays_inline_in_thread_messages() {
 }
 
 #[tokio::test]
-async fn offloaded_tool_result_falls_back_to_inline_content_when_persist_fails() {
+async fn allowlisted_tool_result_falls_back_to_inline_content_when_preview_write_fails() {
     let root = tempdir().expect("tempdir");
-    std::fs::write(root.path().join("offloaded-payloads"), "blocked")
-        .expect("block offloaded payload directory creation");
+    std::fs::create_dir_all(root.path().join(".cache")).expect("create cache parent");
+    std::fs::write(root.path().join(".cache").join("tools"), "blocked")
+        .expect("block preview directory creation");
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.offload_tool_result_threshold_bytes = 8;
@@ -2829,6 +2983,7 @@ async fn offloaded_tool_result_falls_back_to_inline_content_when_persist_fails()
         crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message(
             &engine,
             "thread-inline-fallback",
+            None,
             &ToolResult {
                 tool_call_id: "tool-call-inline-fallback".to_string(),
                 name: "bash_command".to_string(),
@@ -2843,6 +2998,7 @@ async fn offloaded_tool_result_falls_back_to_inline_content_when_persist_fails()
 
     assert_eq!(prepared.content, raw_payload);
     assert_eq!(prepared.offloaded_payload_id, None);
+    assert_eq!(prepared.tool_output_preview_path, None);
 
     let metadata = engine
         .history
@@ -2878,9 +3034,10 @@ async fn offloaded_tool_result_cleans_up_payload_file_when_metadata_write_fails(
         crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message(
             &engine,
             "thread-inline-cleanup",
+            None,
             &ToolResult {
                 tool_call_id: "tool-call-inline-cleanup".to_string(),
-                name: "bash_command".to_string(),
+                name: "read_skill".to_string(),
                 content: raw_payload.clone(),
                 is_error: false,
                 weles_review: None,
@@ -2892,6 +3049,7 @@ async fn offloaded_tool_result_cleans_up_payload_file_when_metadata_write_fails(
 
     assert_eq!(prepared.content, raw_payload);
     assert_eq!(prepared.offloaded_payload_id, None);
+    assert_eq!(prepared.tool_output_preview_path, None);
 
     let payload_dir = root
         .path()

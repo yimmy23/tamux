@@ -96,6 +96,7 @@ pub struct AgentMessage {
     pub message_kind: String,
     pub compaction_strategy: Option<String>,
     pub compaction_payload: Option<String>,
+    pub tool_output_preview_path: Option<String>,
     pub timestamp: u64,
     pub actions: Vec<MessageAction>,
     pub is_concierge_welcome: bool,

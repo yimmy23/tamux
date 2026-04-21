@@ -310,7 +310,6 @@ impl TuiModel {
             || self.should_show_daemon_connection_loading()
             || self.should_show_local_landing()
             || self.should_show_concierge_hero_loading()
-            || self.should_show_thread_loading()
             || self.mission_control_return_to_goal_target().is_none()
         {
             return None;
@@ -983,13 +982,26 @@ impl TuiModel {
         }
 
         if self.should_show_thread_loading() {
+            let mut loading_area = area;
+            if let Some(return_area) = self.conversation_return_to_goal_area() {
+                widgets::goal_mission_control::render_return_to_goal_banner(
+                    frame,
+                    return_area,
+                    &self.theme,
+                );
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Length(3), Constraint::Min(1)])
+                    .split(area);
+                loading_area = chunks[1];
+            }
             let thread_title = self
                 .chat
                 .active_thread()
                 .map(|thread| thread.title.as_str());
             widgets::concierge_loading::render_thread(
                 frame,
-                area,
+                loading_area,
                 &self.theme,
                 self.tick_counter,
                 thread_title,

@@ -13,6 +13,18 @@ pub(crate) struct ToolFileChip {
 
 pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
     let tool_name = message.tool_name.as_deref()?;
+    if let Some(path) = message
+        .tool_output_preview_path
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let label = file_name_label(path);
+        return Some(ToolFileChip {
+            path: path.to_string(),
+            label,
+            tool_name: tool_name.to_string(),
+        });
+    }
     if tool_name == "generate_image" {
         let path = generated_image_preview_path(message)?;
         let label = file_name_label(&path);

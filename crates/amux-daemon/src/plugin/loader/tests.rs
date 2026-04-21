@@ -142,6 +142,65 @@ fn validate_manifest_accepts_max_endpoints_and_settings() {
 }
 
 #[test]
+fn validate_manifest_accepts_python_defaults_and_command() {
+    let validator = make_validator();
+    let manifest = serde_json::json!({
+        "name": "python-plugin",
+        "version": "1.0.0",
+        "schema_version": 1,
+        "python": {
+            "run_path": "runtime",
+            "source": "https://example.com/tool.py",
+            "env": true,
+            "dependencies": ["requests>=2.32"]
+        },
+        "commands": {
+            "sync": {
+                "description": "Run sync job",
+                "python": {
+                    "command": "python sync.py"
+                }
+            }
+        }
+    });
+    let raw = serde_json::to_vec(&manifest).unwrap();
+    let (manifest, _) = validate_manifest(&raw, &validator).unwrap();
+    let command = manifest
+        .commands
+        .as_ref()
+        .and_then(|commands| commands.get("sync"))
+        .and_then(|entry| entry.python.as_ref())
+        .expect("python command should deserialize");
+    assert_eq!(command.command, "python sync.py");
+}
+
+#[test]
+fn validate_manifest_rejects_python_source_that_is_not_url_or_absolute_path() {
+    let validator = make_validator();
+    let manifest = serde_json::json!({
+        "name": "python-plugin",
+        "version": "1.0.0",
+        "schema_version": 1,
+        "commands": {
+            "sync": {
+                "description": "Run sync job",
+                "python": {
+                    "command": "python sync.py",
+                    "source": "relative/script.py"
+                }
+            }
+        }
+    });
+    let raw = serde_json::to_vec(&manifest).unwrap();
+    let err = validate_manifest(&raw, &validator).unwrap_err();
+    assert!(
+        err.to_string().contains("source"),
+        "error should mention python source: {}",
+        err
+    );
+}
+
+#[test]
 fn validate_plugin_name_accepts_simple() {
     assert_eq!(validate_plugin_name("my-plugin").unwrap(), "my-plugin");
     assert_eq!(validate_plugin_name("test").unwrap(), "test");
