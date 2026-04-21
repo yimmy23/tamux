@@ -532,6 +532,7 @@ impl TuiModel {
         self.tasks
             .reduce(task::TaskAction::TaskListReceived(tasks.clone()));
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
+        self.sync_goal_workspace_selection_for_active_goal_pane();
         self.clamp_detail_view_scroll();
         self.clear_replaced_task_approvals(&previous_tasks, &tasks);
         self.sync_pending_approvals_from_tasks();
@@ -546,6 +547,7 @@ impl TuiModel {
         self.tasks
             .reduce(task::TaskAction::TaskUpdate(converted.clone()));
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
+        self.sync_goal_workspace_selection_for_active_goal_pane();
         self.clamp_detail_view_scroll();
         if let Some(previous_approval_id) = previous_approval_id.filter(|approval_id| {
             Some(approval_id.as_str()) != converted.awaiting_approval_id.as_deref()
@@ -572,6 +574,7 @@ impl TuiModel {
         self.pending_goal_hydration_refreshes
             .retain(|goal_run_id| present_goal_run_ids.contains(goal_run_id));
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
+        self.sync_goal_workspace_selection_for_active_goal_pane();
         if self.modal.top() == Some(modal::ModalKind::GoalPicker) {
             self.sync_goal_picker_item_count();
         }
@@ -636,6 +639,7 @@ impl TuiModel {
                 .saturating_add(after_max_scroll.saturating_sub(before_max_scroll));
         }
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
+        self.sync_goal_workspace_selection_for_active_goal_pane();
         self.clamp_detail_view_scroll();
     }
 
@@ -669,6 +673,7 @@ impl TuiModel {
             self.schedule_goal_hydration_refresh(run.id.clone());
         }
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
+        self.sync_goal_workspace_selection_for_active_goal_pane();
         self.clamp_detail_view_scroll();
     }
 
@@ -687,6 +692,7 @@ impl TuiModel {
             });
         self.clear_goal_hydration_refresh(&goal_run_id);
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
+        self.sync_goal_workspace_selection_for_active_goal_pane();
         self.clamp_detail_view_scroll();
     }
 
@@ -710,6 +716,7 @@ impl TuiModel {
             conversion::convert_work_context(context),
         ));
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
+        self.sync_goal_workspace_selection_for_active_goal_pane();
         self.ensure_task_view_preview();
         self.clamp_detail_view_scroll();
     }

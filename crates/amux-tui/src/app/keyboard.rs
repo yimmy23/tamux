@@ -619,6 +619,11 @@ impl TuiModel {
                         self.collaboration.reduce(CollaborationAction::SelectRow(
                             self.collaboration.selected_row_index().saturating_add(1),
                         ));
+                    } else if matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) {
+                        self.step_goal_workspace_plan_selection(1);
                     } else if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
                         if self
                             .goal_mission_control
@@ -656,6 +661,11 @@ impl TuiModel {
                         self.collaboration.reduce(CollaborationAction::SelectRow(
                             self.collaboration.selected_row_index().saturating_sub(1),
                         ));
+                    } else if matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) {
+                        self.step_goal_workspace_plan_selection(-1);
                     } else if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
                         if self
                             .goal_mission_control
@@ -685,6 +695,24 @@ impl TuiModel {
                 }
                 _ => {}
             },
+            KeyCode::Left
+                if self.focus == FocusArea::Chat
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) =>
+            {
+                self.collapse_goal_workspace_selection();
+            }
+            KeyCode::Right
+                if self.focus == FocusArea::Chat
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) =>
+            {
+                self.expand_selected_goal_workspace_step();
+            }
             KeyCode::Left
                 if self.focus == FocusArea::Chat
                     && matches!(self.main_pane_view, MainPaneView::Collaboration) =>

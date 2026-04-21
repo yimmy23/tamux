@@ -512,6 +512,14 @@ impl TuiModel {
                         }
                     } else if let MainPaneView::Task(target) = &self.main_pane_view {
                         let pos = Position::new(mouse.column, mouse.row);
+                        if matches!(target, sidebar::SidebarItemTarget::GoalRun { .. }) {
+                            self.focus = FocusArea::Chat;
+                            self.clear_chat_drag_selection();
+                            self.clear_work_context_drag_selection();
+                            self.clear_task_view_drag_selection();
+                            self.handle_task_view_click(chat_area, pos);
+                            return;
+                        }
                         self.task_view_drag_anchor = Some(pos);
                         self.task_view_drag_current = Some(pos);
                         let point = widgets::task_view::selection_point_from_mouse(

@@ -225,6 +225,34 @@ impl TuiModel {
         let MainPaneView::Task(target) = &self.main_pane_view else {
             return;
         };
+        if let sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } = target {
+            let Some(hit) = widgets::goal_workspace::hit_test(
+                chat_area,
+                &self.tasks,
+                goal_run_id,
+                &self.goal_workspace,
+                mouse,
+            ) else {
+                return;
+            };
+            match hit {
+                widgets::goal_workspace::GoalWorkspaceHitTarget::PlanStep(step_id) => {
+                    let _ = self.select_goal_workspace_plan_item(
+                        crate::state::goal_workspace::GoalPlanSelection::Step { step_id },
+                    );
+                }
+                widgets::goal_workspace::GoalWorkspaceHitTarget::PlanTodo { step_id, todo_id } => {
+                    let _ = self.select_goal_workspace_plan_item(
+                        crate::state::goal_workspace::GoalPlanSelection::Todo { step_id, todo_id },
+                    );
+                }
+                widgets::goal_workspace::GoalWorkspaceHitTarget::TimelineRow(_)
+                | widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(_)
+                | widgets::goal_workspace::GoalWorkspaceHitTarget::DetailCheckpoint(_) => {}
+            }
+            return;
+        }
+
         let Some(hit) = widgets::task_view::hit_test(
             chat_area,
             &self.tasks,
