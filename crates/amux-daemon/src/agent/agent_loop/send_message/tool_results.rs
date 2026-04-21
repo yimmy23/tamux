@@ -153,12 +153,14 @@ pub(crate) async fn prepare_tool_result_thread_message(
             let parent = preview_path
                 .parent()
                 .context("tool output preview path missing parent directory")?;
-            tokio::fs::create_dir_all(parent)
-                .await
-                .with_context(|| format!("create tool output preview directory {}", parent.display()))?;
+            tokio::fs::create_dir_all(parent).await.with_context(|| {
+                format!("create tool output preview directory {}", parent.display())
+            })?;
             tokio::fs::write(&preview_path, raw_payload.as_bytes())
                 .await
-                .with_context(|| format!("write tool output preview file {}", preview_path.display()))?;
+                .with_context(|| {
+                    format!("write tool output preview file {}", preview_path.display())
+                })?;
             Ok(())
         }
         .await;
@@ -190,7 +192,10 @@ pub(crate) async fn prepare_tool_result_thread_message(
         };
     }
 
-    if threshold_bytes == 0 || byte_size <= threshold_bytes || result.name == "read_offloaded_payload" {
+    if threshold_bytes == 0
+        || byte_size <= threshold_bytes
+        || result.name == "read_offloaded_payload"
+    {
         return PreparedToolResultThreadMessage {
             content: raw_payload,
             offloaded_payload_id: None,
@@ -345,17 +350,16 @@ impl<'a> SendMessageRunner<'a> {
             }
         }
 
-        let prepared_tool_result =
-            prepare_tool_result_thread_message(
-                self.engine,
-                &self.tid,
-                self.current_task_snapshot
-                    .as_ref()
-                    .and_then(|task| task.goal_run_id.as_deref()),
-                result,
-                now_epoch_secs,
-            )
-            .await;
+        let prepared_tool_result = prepare_tool_result_thread_message(
+            self.engine,
+            &self.tid,
+            self.current_task_snapshot
+                .as_ref()
+                .and_then(|task| task.goal_run_id.as_deref()),
+            result,
+            now_epoch_secs,
+        )
+        .await;
         let structural_refs = if result.is_error {
             Vec::new()
         } else {
@@ -413,9 +417,7 @@ impl<'a> SendMessageRunner<'a> {
                     compaction_strategy: None,
                     compaction_payload: None,
                     offloaded_payload_id: prepared_tool_result.offloaded_payload_id.clone(),
-                    tool_output_preview_path: prepared_tool_result
-                        .tool_output_preview_path
-                        .clone(),
+                    tool_output_preview_path: prepared_tool_result.tool_output_preview_path.clone(),
                     structural_refs,
                     pinned_for_compaction: false,
                     timestamp: now_millis(),

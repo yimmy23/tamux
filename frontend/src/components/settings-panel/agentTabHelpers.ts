@@ -22,10 +22,12 @@ const XAI_AUDIO_MODELS: ModelDefinition[] = [
 
 const OPENAI_IMAGE_MODELS: ModelDefinition[] = [
   { id: "gpt-image-1", name: "GPT Image 1", contextWindow: 0, modalities: ["image"] },
+  { id: "gpt-image-2", name: "GPT Image 2", contextWindow: 0, modalities: ["image"] },
 ];
 
 const OPENROUTER_IMAGE_MODELS: ModelDefinition[] = [
   { id: "openai/gpt-image-1", name: "OpenAI GPT Image 1", contextWindow: 0, modalities: ["image"] },
+  { id: "openai/gpt-image-2", name: "OpenAI GPT Image 2", contextWindow: 0, modalities: ["image"] },
 ];
 
 export type ProviderOption = {

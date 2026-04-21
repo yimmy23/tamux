@@ -4,11 +4,10 @@ use crate::state::task::{
     GoalRun, GoalRunEvent, GoalRunStep, TaskAction, TaskState, ThreadWorkContext, TodoItem,
     TodoStatus, WorkContextEntry,
 };
+use crate::test_support::{env_var_lock, EnvVarGuard, TAMUX_DATA_DIR_ENV};
 use crate::theme::ThemeTokens;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
-use std::path::Path;
-use std::sync::{Mutex, OnceLock};
 
 fn sample_tasks() -> TaskState {
     let mut tasks = TaskState::new();
@@ -84,38 +83,6 @@ fn sample_tasks() -> TaskState {
         }],
     }));
     tasks
-}
-
-fn home_env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-struct HomeEnvGuard {
-    original_home: Option<String>,
-}
-
-impl HomeEnvGuard {
-    fn set(path: &Path) -> Self {
-        let original_home = std::env::var("HOME").ok();
-        unsafe {
-            std::env::set_var("HOME", path);
-        }
-        Self { original_home }
-    }
-}
-
-impl Drop for HomeEnvGuard {
-    fn drop(&mut self) {
-        match self.original_home.take() {
-            Some(value) => unsafe {
-                std::env::set_var("HOME", value);
-            },
-            None => unsafe {
-                std::env::remove_var("HOME");
-            },
-        }
-    }
 }
 
 fn render_plain_text(state: &GoalWorkspaceState, tick_counter: u64) -> String {
@@ -236,9 +203,9 @@ fn goal_workspace_progress_mode_renders_progress_panel_copy() {
 
 #[test]
 fn goal_workspace_files_mode_lists_projection_root_and_nested_inventory_files() {
-    let _lock = home_env_lock().lock().expect("home env lock");
+    let _lock = env_var_lock();
     let temp_home = tempfile::tempdir().expect("temp home should exist");
-    let _home = HomeEnvGuard::set(temp_home.path());
+    let _data_dir = EnvVarGuard::set(TAMUX_DATA_DIR_ENV, temp_home.path());
 
     let goal_root = amux_protocol::ensure_amux_data_dir()
         .expect("tamux data dir")
@@ -280,14 +247,16 @@ fn goal_workspace_threads_mode_renders_thread_inventory() {
 #[test]
 fn goal_workspace_plan_falls_back_to_goal_task_thread_when_run_thread_ids_are_missing() {
     let mut tasks = TaskState::new();
-    tasks.reduce(TaskAction::TaskListReceived(vec![crate::state::task::AgentTask {
-        id: "task-1".into(),
-        title: "Worker Task".into(),
-        thread_id: Some("thread-worker".into()),
-        goal_run_id: Some("goal-1".into()),
-        status: Some(crate::state::task::TaskStatus::InProgress),
-        ..Default::default()
-    }]));
+    tasks.reduce(TaskAction::TaskListReceived(vec![
+        crate::state::task::AgentTask {
+            id: "task-1".into(),
+            title: "Worker Task".into(),
+            thread_id: Some("thread-worker".into()),
+            goal_run_id: Some("goal-1".into()),
+            status: Some(crate::state::task::TaskStatus::InProgress),
+            ..Default::default()
+        },
+    ]));
     tasks.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
         id: "goal-1".into(),
         title: "Goal".into(),
@@ -345,20 +314,25 @@ fn goal_workspace_hit_test_tracks_timeline_and_detail_rows() {
     let area = Rect::new(0, 0, 100, 28);
 
     let timeline_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(42, 5));
-    let detail_hit = (area.y..area.y.saturating_add(area.height))
-        .find_map(|row| {
-            (area.x..area.x.saturating_add(area.width)).find_map(|column| {
-                let pos = Position::new(column, row);
-                (hit_test(area, &tasks, "goal-1", &state, pos)
-                    == Some(GoalWorkspaceHitTarget::DetailCheckpoint("checkpoint-1".into())))
-                .then_some(GoalWorkspaceHitTarget::DetailCheckpoint("checkpoint-1".into()))
-            })
-        });
+    let detail_hit = (area.y..area.y.saturating_add(area.height)).find_map(|row| {
+        (area.x..area.x.saturating_add(area.width)).find_map(|column| {
+            let pos = Position::new(column, row);
+            (hit_test(area, &tasks, "goal-1", &state, pos)
+                == Some(GoalWorkspaceHitTarget::DetailCheckpoint(
+                    "checkpoint-1".into(),
+                )))
+            .then_some(GoalWorkspaceHitTarget::DetailCheckpoint(
+                "checkpoint-1".into(),
+            ))
+        })
+    });
 
     assert_eq!(timeline_hit, Some(GoalWorkspaceHitTarget::TimelineRow(0)));
     assert_eq!(
         detail_hit,
-        Some(GoalWorkspaceHitTarget::DetailCheckpoint("checkpoint-1".into()))
+        Some(GoalWorkspaceHitTarget::DetailCheckpoint(
+            "checkpoint-1".into()
+        ))
     );
 }
 
@@ -380,7 +354,108 @@ fn goal_workspace_hit_test_tracks_mode_tabs_and_wrapped_timeline_lines() {
         progress_tab_hit,
         Some(GoalWorkspaceHitTarget::ModeTab(GoalWorkspaceMode::Progress))
     );
-    assert_eq!(wrapped_timeline_hit, Some(GoalWorkspaceHitTarget::TimelineRow(0)));
+    assert_eq!(
+        wrapped_timeline_hit,
+        Some(GoalWorkspaceHitTarget::TimelineRow(0))
+    );
+}
+
+#[test]
+fn goal_workspace_selection_point_keeps_wrapped_plan_clicks_on_the_same_logical_row() {
+    let state = GoalWorkspaceState::new();
+    let tasks = sample_tasks();
+    let area = Rect::new(0, 0, 60, 28);
+    let plan_inner = ratatui::widgets::Block::default()
+        .borders(ratatui::widgets::Borders::ALL)
+        .inner(workspace_layout(area).expect("workspace layout").plan);
+
+    let wrapped_positions = (plan_inner.y..plan_inner.y.saturating_add(plan_inner.height))
+        .filter_map(|y| {
+            (plan_inner.x..plan_inner.x.saturating_add(plan_inner.width))
+                .find(|x| {
+                    hit_test(area, &tasks, "goal-1", &state, Position::new(*x, y))
+                        == Some(GoalWorkspaceHitTarget::PlanPromptToggle)
+                })
+                .map(|x| Position::new(x, y))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        wrapped_positions.len() >= 2,
+        "expected prompt row to wrap in the narrow plan pane"
+    );
+
+    let first = selection_point_from_mouse(area, &tasks, "goal-1", &state, wrapped_positions[0])
+        .expect("first wrapped click should map to a selection point");
+    let second = selection_point_from_mouse(area, &tasks, "goal-1", &state, wrapped_positions[1])
+        .expect("second wrapped click should map to a selection point");
+
+    assert_eq!(first.row, second.row);
+    assert!(second.col > first.col, "{first:?} vs {second:?}");
+}
+
+#[test]
+fn goal_workspace_render_highlights_selected_plan_row_after_wrapped_rows() {
+    let mut state = GoalWorkspaceState::new();
+    state.set_selected_plan_row(1);
+    state.set_selected_plan_item(Some(
+        crate::state::goal_workspace::GoalPlanSelection::MainThread {
+            thread_id: "thread-1".into(),
+        },
+    ));
+
+    let tasks = sample_tasks();
+    let area = Rect::new(0, 0, 60, 28);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+
+    terminal
+        .draw(|frame| {
+            render(
+                frame,
+                area,
+                &tasks,
+                "goal-1",
+                &state,
+                &ThemeTokens::default(),
+                0,
+            );
+        })
+        .expect("goal workspace render should succeed");
+
+    let plan_inner = ratatui::widgets::Block::default()
+        .borders(ratatui::widgets::Borders::ALL)
+        .inner(workspace_layout(area).expect("workspace layout").plan);
+    let selected_visual_row =
+        plan_visual_row_for_selection(&tasks, "goal-1", &state, plan_inner.width as usize)
+            .expect("selected plan row should resolve to a visual row");
+    assert!(
+        selected_visual_row > state.selected_plan_row(),
+        "expected an earlier wrapped row to push the selected item down"
+    );
+
+    let buffer = terminal.backend().buffer();
+    let selected_bg = ratatui::style::Color::Indexed(236);
+    let thread_row_has_selection = (plan_inner.y..plan_inner.y.saturating_add(plan_inner.height))
+        .find_map(|y| {
+            let row = (plan_inner.x..plan_inner.x.saturating_add(plan_inner.width))
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .collect::<String>();
+            row.contains("thread-1").then(|| {
+                (plan_inner.x..plan_inner.x.saturating_add(plan_inner.width)).any(|x| {
+                    buffer
+                        .cell((x, y))
+                        .map(|cell| cell.bg == selected_bg)
+                        .unwrap_or(false)
+                })
+            })
+        })
+        .expect("main thread row should be visible");
+
+    assert!(
+        thread_row_has_selection,
+        "selected plan row should keep the selected background"
+    );
 }
 
 #[test]
@@ -390,7 +465,13 @@ fn goal_workspace_running_timeline_row_animates_across_ticks() {
     let tick_0 = render_plain_text(&state, 0);
     let tick_1 = render_plain_text(&state, 1);
 
-    assert!(tick_0.contains("⠋") || tick_0.contains("⠙") || tick_0.contains("⠹") || tick_0.contains("⠸"), "{tick_0}");
+    assert!(
+        tick_0.contains("⠋")
+            || tick_0.contains("⠙")
+            || tick_0.contains("⠹")
+            || tick_0.contains("⠸"),
+        "{tick_0}"
+    );
     assert_ne!(tick_0, tick_1);
 }
 
@@ -457,7 +538,11 @@ fn goal_workspace_plan_step_markers_reflect_status_with_color_and_pulse() {
             })
             .expect("step row should exist");
         (plan_inner.x..plan_inner.x.saturating_add(6))
-            .filter_map(|x| buffer.cell((x, y)).map(|cell| (cell.symbol().to_string(), cell.fg)))
+            .filter_map(|x| {
+                buffer
+                    .cell((x, y))
+                    .map(|cell| (cell.symbol().to_string(), cell.fg))
+            })
             .find(|(symbol, _)| !symbol.trim().is_empty() && symbol != "▸")
             .expect("marker cell should exist")
     };

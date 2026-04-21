@@ -99,7 +99,10 @@ impl HistoryStore {
         match goal_run_id {
             Some(goal_run_id) => self
                 .tool_output_preview_root()
-                .join(format!("goal-{}", sanitize_tool_output_segment(goal_run_id)))
+                .join(format!(
+                    "goal-{}",
+                    sanitize_tool_output_segment(goal_run_id)
+                ))
                 .join(format!(
                     "{}-{}-{}.txt",
                     safe_tool_name,
@@ -108,7 +111,10 @@ impl HistoryStore {
                 )),
             None => self
                 .tool_output_preview_root()
-                .join(format!("thread-{}", sanitize_tool_output_segment(thread_id)))
+                .join(format!(
+                    "thread-{}",
+                    sanitize_tool_output_segment(thread_id)
+                ))
                 .join(format!("{safe_tool_name}-{timestamp}.txt")),
         }
     }

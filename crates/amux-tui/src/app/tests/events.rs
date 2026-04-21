@@ -2336,8 +2336,7 @@ fn thread_detail_event_hydrates_tool_output_preview_path_from_wire() {
             tool_name: Some("bash_command".to_string()),
             tool_status: Some("done".to_string()),
             tool_output_preview_path: Some(
-                "/tmp/.tamux/.cache/tools/thread-thread-1/bash_command-1700000123.txt"
-                    .to_string(),
+                "/tmp/.tamux/.cache/tools/thread-thread-1/bash_command-1700000123.txt".to_string(),
             ),
             content: "Tool result saved to preview file".to_string(),
             ..Default::default()

@@ -85,6 +85,7 @@ enum MainPaneView {
 struct MissionControlNavigationState {
     source_goal_target: Option<sidebar::SidebarItemTarget>,
     return_to_goal_target: Option<sidebar::SidebarItemTarget>,
+    return_to_thread_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

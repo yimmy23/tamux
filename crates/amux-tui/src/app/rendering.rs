@@ -291,7 +291,7 @@ impl TuiModel {
         }
 
         let chat_area = self.pane_layout().chat;
-        if self.conversation_return_to_goal_area().is_some() {
+        if self.conversation_return_area().is_some() {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(3), Constraint::Min(1)])
@@ -302,7 +302,7 @@ impl TuiModel {
         }
     }
 
-    fn conversation_return_to_goal_area(&self) -> Option<Rect> {
+    fn conversation_return_area(&self) -> Option<Rect> {
         if !matches!(self.main_pane_view, MainPaneView::Conversation) {
             return None;
         }
@@ -310,7 +310,8 @@ impl TuiModel {
             || self.should_show_daemon_connection_loading()
             || self.should_show_local_landing()
             || self.should_show_concierge_hero_loading()
-            || self.mission_control_return_to_goal_target().is_none()
+            || (self.mission_control_return_to_goal_target().is_none()
+                && self.mission_control_return_to_thread_id().is_none())
         {
             return None;
         }
@@ -324,9 +325,28 @@ impl TuiModel {
     }
 
     pub(super) fn conversation_return_to_goal_button_area(&self) -> Option<Rect> {
-        widgets::goal_mission_control::return_to_goal_button_area(
-            self.conversation_return_to_goal_area()?,
-        )
+        let area = self.conversation_return_area()?;
+        if self.mission_control_return_to_thread_id().is_some() {
+            widgets::goal_mission_control::return_to_thread_button_area(area)
+        } else {
+            widgets::goal_mission_control::return_to_goal_button_area(area)
+        }
+    }
+
+    fn render_conversation_return_banner(&self, frame: &mut Frame, area: Rect) {
+        if self.mission_control_return_to_thread_id().is_some() {
+            widgets::goal_mission_control::render_return_to_thread_banner(
+                frame,
+                area,
+                &self.theme,
+            );
+        } else {
+            widgets::goal_mission_control::render_return_to_goal_banner(
+                frame,
+                area,
+                &self.theme,
+            );
+        }
     }
 
     fn configured_model_label(model: &str, custom_model_name: &str) -> String {
@@ -983,12 +1003,8 @@ impl TuiModel {
 
         if self.should_show_thread_loading() {
             let mut loading_area = area;
-            if let Some(return_area) = self.conversation_return_to_goal_area() {
-                widgets::goal_mission_control::render_return_to_goal_banner(
-                    frame,
-                    return_area,
-                    &self.theme,
-                );
+            if let Some(return_area) = self.conversation_return_area() {
+                self.render_conversation_return_banner(frame, return_area);
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Length(3), Constraint::Min(1)])
@@ -1010,12 +1026,8 @@ impl TuiModel {
         }
 
         let mut area = area;
-        if let Some(return_area) = self.conversation_return_to_goal_area() {
-            widgets::goal_mission_control::render_return_to_goal_banner(
-                frame,
-                return_area,
-                &self.theme,
-            );
+        if let Some(return_area) = self.conversation_return_area() {
+            self.render_conversation_return_banner(frame, return_area);
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(3), Constraint::Min(1)])

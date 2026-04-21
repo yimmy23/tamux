@@ -8,6 +8,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 
 const OPEN_ACTIVE_THREAD_LABEL: &str = "[Ctrl+O] Open active thread";
 const RETURN_TO_GOAL_LABEL: &str = "[B] Return to goal";
+const RETURN_TO_THREAD_LABEL: &str = "[B] Return to thread";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GoalMissionControlHitTarget {
@@ -73,6 +74,35 @@ pub fn hit_test(
 }
 
 pub fn render_return_to_goal_banner(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
+    render_return_banner(
+        frame,
+        area,
+        theme,
+        RETURN_TO_GOAL_LABEL,
+        "Return to the source goal run",
+        "Return to goal unavailable",
+    );
+}
+
+pub fn render_return_to_thread_banner(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
+    render_return_banner(
+        frame,
+        area,
+        theme,
+        RETURN_TO_THREAD_LABEL,
+        "Return to the parent thread",
+        "Return to thread unavailable",
+    );
+}
+
+fn render_return_banner(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &ThemeTokens,
+    label: &str,
+    description: &str,
+    unavailable_message: &str,
+) {
     let block = Block::default()
         .title(" MISSION CONTROL ")
         .borders(Borders::ALL)
@@ -81,22 +111,30 @@ pub fn render_return_to_goal_banner(frame: &mut Frame, area: Rect, theme: &Theme
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let button = return_to_goal_button_area(area);
+    let button = return_button_area(area, label);
     let button_style = theme.accent_secondary;
     let mut spans = vec![
-        Span::styled(RETURN_TO_GOAL_LABEL, button_style),
-        Span::styled("  Return to the source goal run", theme.fg_dim),
+        Span::styled(label, button_style),
+        Span::styled(format!("  {description}"), theme.fg_dim),
     ];
     if button.is_none() {
         spans.clear();
-        spans.push(Span::styled("Return to goal unavailable", theme.fg_dim));
+        spans.push(Span::styled(unavailable_message, theme.fg_dim));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), inner);
 }
 
 pub fn return_to_goal_button_area(area: Rect) -> Option<Rect> {
+    return_button_area(area, RETURN_TO_GOAL_LABEL)
+}
+
+pub fn return_to_thread_button_area(area: Rect) -> Option<Rect> {
+    return_button_area(area, RETURN_TO_THREAD_LABEL)
+}
+
+fn return_button_area(area: Rect, label: &str) -> Option<Rect> {
     let inner = Block::default().borders(Borders::ALL).inner(area);
-    button_area(inner, RETURN_TO_GOAL_LABEL)
+    button_area(inner, label)
 }
 
 fn render_prompt_section(

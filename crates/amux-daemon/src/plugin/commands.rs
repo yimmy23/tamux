@@ -42,7 +42,11 @@ impl PluginCommandRegistry {
 
     /// Clear and repopulate from all loaded plugins.
     /// For each plugin with commands, creates entries with key `/pluginname.commandname` per PSKL-05.
-    pub fn rebuild_from_plugins(&mut self, plugins: &HashMap<String, LoadedPlugin>, plugins_dir: &Path) {
+    pub fn rebuild_from_plugins(
+        &mut self,
+        plugins: &HashMap<String, LoadedPlugin>,
+        plugins_dir: &Path,
+    ) {
         self.commands.clear();
         for (plugin_name, loaded) in plugins {
             let Some(cmds) = &loaded.manifest.commands else {
@@ -58,10 +62,14 @@ impl PluginCommandRegistry {
                         command_key: key,
                         description: cmd_def.description.clone(),
                         api_endpoint: cmd_def.action.clone(),
-                        python: cmd_def
-                            .python
-                            .as_ref()
-                            .map(|python| resolve_python_command(&plugin_dir, cmd_name, loaded.manifest.python.as_ref(), python)),
+                        python: cmd_def.python.as_ref().map(|python| {
+                            resolve_python_command(
+                                &plugin_dir,
+                                cmd_name,
+                                loaded.manifest.python.as_ref(),
+                                python,
+                            )
+                        }),
                     },
                 );
             }
@@ -159,7 +167,9 @@ fn resolve_run_path(
             if candidate.is_absolute() {
                 candidate
             } else {
-                source_root.unwrap_or_else(|| plugin_dir.to_path_buf()).join(candidate)
+                source_root
+                    .unwrap_or_else(|| plugin_dir.to_path_buf())
+                    .join(candidate)
             }
         }
         None => source_root.unwrap_or_else(|| plugin_dir.to_path_buf()),
@@ -175,9 +185,7 @@ fn source_root(plugin_dir: &Path, command_name: &str, source: Option<&str>) -> O
         Some(if path.is_dir() {
             path
         } else {
-            path.parent()
-                .map(Path::to_path_buf)
-                .unwrap_or(path)
+            path.parent().map(Path::to_path_buf).unwrap_or(path)
         })
     }
 }
@@ -197,7 +205,10 @@ fn build_python_shell(
         if looks_like_url(source) {
             let download_dir = plugin_dir.join(".python").join(command_name).join("source");
             let download_file = download_dir.join(infer_download_name(source));
-            lines.push(format!("mkdir -p {}", shell_quote(&download_dir.display().to_string())));
+            lines.push(format!(
+                "mkdir -p {}",
+                shell_quote(&download_dir.display().to_string())
+            ));
             lines.push(format!(
                 "if [ ! -f {0} ]; then curl -fsSL {1} -o {0}; fi",
                 shell_quote(&download_file.display().to_string()),
@@ -211,8 +222,14 @@ fn build_python_shell(
     match env {
         Some(PythonEnvDef::Path(path)) => {
             lines.push(format!("source {}", shell_quote(path)));
-            lines.push(format!("mkdir -p {}", shell_quote(&run_path.display().to_string())));
-            lines.push(format!("cd {}", shell_quote(&run_path.display().to_string())));
+            lines.push(format!(
+                "mkdir -p {}",
+                shell_quote(&run_path.display().to_string())
+            ));
+            lines.push(format!(
+                "cd {}",
+                shell_quote(&run_path.display().to_string())
+            ));
             if !dependencies.is_empty() {
                 lines.push(format!(
                     "python -m pip install {}",
@@ -225,8 +242,14 @@ fn build_python_shell(
             }
         }
         Some(PythonEnvDef::Managed(true)) => {
-            lines.push(format!("mkdir -p {}", shell_quote(&run_path.display().to_string())));
-            lines.push(format!("cd {}", shell_quote(&run_path.display().to_string())));
+            lines.push(format!(
+                "mkdir -p {}",
+                shell_quote(&run_path.display().to_string())
+            ));
+            lines.push(format!(
+                "cd {}",
+                shell_quote(&run_path.display().to_string())
+            ));
             lines.push("if [ ! -d .venv ]; then".to_string());
             lines.push("  if command -v uv >/dev/null 2>&1; then uv venv .venv; else python3 -m venv .venv; fi".to_string());
             lines.push("fi".to_string());
@@ -243,8 +266,14 @@ fn build_python_shell(
             }
         }
         _ => {
-            lines.push(format!("mkdir -p {}", shell_quote(&run_path.display().to_string())));
-            lines.push(format!("cd {}", shell_quote(&run_path.display().to_string())));
+            lines.push(format!(
+                "mkdir -p {}",
+                shell_quote(&run_path.display().to_string())
+            ));
+            lines.push(format!(
+                "cd {}",
+                shell_quote(&run_path.display().to_string())
+            ));
             if !dependencies.is_empty() {
                 lines.push(format!(
                     "python -m pip install {}",
@@ -455,7 +484,9 @@ mod tests {
 
         registry.rebuild_from_plugins(&plugins, Path::new("/tmp/plugins"));
 
-        let entry = registry.resolve("/python-tools.sync").expect("python command");
+        let entry = registry
+            .resolve("/python-tools.sync")
+            .expect("python command");
         let plan = entry.python.as_ref().expect("python plan");
         assert_eq!(plan.command, "python sync.py --full");
         assert_eq!(
@@ -483,7 +514,9 @@ mod tests {
                     command: "python -m ruff check .".to_string(),
                     run_path: Some("/workspace/project".to_string()),
                     source: Some("/opt/plugin-src".to_string()),
-                    env: Some(PythonEnvDef::Path("/opt/venvs/lint/bin/activate".to_string())),
+                    env: Some(PythonEnvDef::Path(
+                        "/opt/venvs/lint/bin/activate".to_string(),
+                    )),
                     dependencies: vec!["ruff".to_string()],
                 }),
             },
@@ -515,7 +548,9 @@ mod tests {
 
         registry.rebuild_from_plugins(&plugins, Path::new("/tmp/plugins"));
 
-        let entry = registry.resolve("/python-tools.lint").expect("python command");
+        let entry = registry
+            .resolve("/python-tools.lint")
+            .expect("python command");
         let plan = entry.python.as_ref().expect("python plan");
         assert!(plan.shell.contains("source '/opt/venvs/lint/bin/activate'"));
         assert!(plan.shell.contains("python -m pip install 'ruff'"));

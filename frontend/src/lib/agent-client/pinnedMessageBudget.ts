@@ -1,7 +1,11 @@
 import { APPROX_CHARS_PER_TOKEN } from "./types";
 
 export function countUnicodeScalars(text: string): number {
-  return Array.from(text).length;
+  let count = 0;
+  for (const _ of text) {
+    count += 1;
+  }
+  return count;
 }
 
 export function pinnedMessageBudgetChars(contextWindowTokens: number): number {

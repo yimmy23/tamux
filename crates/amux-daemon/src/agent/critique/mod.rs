@@ -462,22 +462,6 @@ impl AgentEngine {
             risk_tolerance,
             Some(&satisfaction_label),
         );
-        if matches!(resolution.decision, Decision::ProceedWithModifications) {
-            for modification in &learned_modifications {
-                if !resolution
-                    .modifications
-                    .iter()
-                    .any(|existing| existing.eq_ignore_ascii_case(modification))
-                {
-                    resolution.modifications.push(modification.clone());
-                }
-            }
-            for directive in &learned_directives {
-                if !resolution.directives.contains(directive) {
-                    resolution.directives.push(*directive);
-                }
-            }
-        }
         if let Some(forced_decision) = self
             .config
             .read()

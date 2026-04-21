@@ -566,7 +566,10 @@ impl AgentEngine {
         let Some(marker_context) = current_step_completion_marker_context(self, &snapshot) else {
             return Ok(());
         };
-        if tokio::fs::metadata(&marker_context.absolute_path).await.is_err() {
+        if tokio::fs::metadata(&marker_context.absolute_path)
+            .await
+            .is_err()
+        {
             self.requeue_goal_step_for_missing_completion_marker(&snapshot, task, &marker_context)
                 .await?;
             return Ok(());
@@ -574,7 +577,10 @@ impl AgentEngine {
         self.goal_step_completion_marker_retries
             .lock()
             .await
-            .remove(&completion_marker_retry_key(&snapshot.id, &marker_context.step.id));
+            .remove(&completion_marker_retry_key(
+                &snapshot.id,
+                &marker_context.step.id,
+            ));
 
         let now = now_millis();
         let thread_summary = match task.thread_id.as_deref() {

@@ -4,9 +4,16 @@ use std::path::PathBuf;
 
 pub const DEFAULT_TCP_HOST: &str = "127.0.0.1";
 pub const DEFAULT_TCP_PORT: u16 = 17563;
+const TAMUX_DATA_DIR_ENV: &str = "TAMUX_DATA_DIR";
 
 pub fn default_tcp_addr() -> String {
     format!("{DEFAULT_TCP_HOST}:{DEFAULT_TCP_PORT}")
+}
+
+fn tamux_data_dir_override() -> Option<PathBuf> {
+    std::env::var_os(TAMUX_DATA_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 fn legacy_amux_data_dir() -> PathBuf {
@@ -26,6 +33,10 @@ fn legacy_amux_data_dir() -> PathBuf {
 }
 
 pub fn tamux_data_dir() -> PathBuf {
+    if let Some(path) = tamux_data_dir_override() {
+        return path;
+    }
+
     #[cfg(windows)]
     {
         dirs::data_local_dir()
@@ -46,6 +57,10 @@ pub fn amux_data_dir() -> PathBuf {
 }
 
 fn migrate_legacy_data_dir() -> std::io::Result<()> {
+    if tamux_data_dir_override().is_some() {
+        return Ok(());
+    }
+
     let target = tamux_data_dir();
     let legacy = legacy_amux_data_dir();
     if target.exists() || !legacy.exists() {
@@ -306,6 +321,41 @@ impl AmuxConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let original = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.original.take() {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
 
     #[test]
     fn whatsapp_allowlist_normalize_phone_like_identifiers_conservatively() {
@@ -366,5 +416,30 @@ mod tests {
             "invalid,\n12065550123@s.whatsapp.net"
         ));
         assert!(!has_whatsapp_allowed_contacts("\n , invalid , device "));
+    }
+
+    #[test]
+    fn tamux_data_dir_honors_env_override() {
+        let _lock = env_lock().lock().expect("env lock");
+        let test_name = std::thread::current()
+            .name()
+            .unwrap_or("unnamed")
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+            .collect::<String>();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "tamux-protocol-data-dir-{}-{}",
+            std::process::id(),
+            test_name
+        ));
+        let _guard = EnvGuard::set("TAMUX_DATA_DIR", &temp_dir);
+
+        assert_eq!(tamux_data_dir(), temp_dir);
+        assert_eq!(
+            ensure_tamux_data_dir().expect("override data dir should be created"),
+            temp_dir
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

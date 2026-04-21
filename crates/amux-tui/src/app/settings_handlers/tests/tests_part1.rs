@@ -525,6 +525,33 @@ fn activating_openrouter_image_generation_model_requests_image_output_filter() {
 }
 
 #[test]
+fn image_generation_catalog_includes_gpt_image_2_for_openai_and_openrouter() {
+    let openai_models = TuiModel::image_generation_catalog_models(PROVIDER_ID_OPENAI);
+    assert!(
+        openai_models.iter().any(|model| model.id == "gpt-image-2"),
+        "expected OpenAI image catalog to include gpt-image-2"
+    );
+    assert!(
+        openai_models.iter().any(|model| model.id == "gpt-image-1"),
+        "expected OpenAI image catalog to retain gpt-image-1"
+    );
+
+    let openrouter_models = TuiModel::image_generation_catalog_models(PROVIDER_ID_OPENROUTER);
+    assert!(
+        openrouter_models
+            .iter()
+            .any(|model| model.id == "openai/gpt-image-2"),
+        "expected OpenRouter image catalog to include openai/gpt-image-2"
+    );
+    assert!(
+        openrouter_models
+            .iter()
+            .any(|model| model.id == "openai/gpt-image-1"),
+        "expected OpenRouter image catalog to retain openai/gpt-image-1"
+    );
+}
+
+#[test]
 fn activating_subagent_model_fetches_remote_models_for_fetchable_provider() {
     let (mut model, mut daemon_rx) = make_model();
     model.config.agent_config_raw = Some(serde_json::json!({

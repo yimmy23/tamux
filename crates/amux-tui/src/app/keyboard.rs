@@ -215,19 +215,19 @@ impl TuiModel {
         {
             let target_mode = match code {
                 KeyCode::Char('1') => Some(crate::state::goal_workspace::GoalWorkspaceMode::Goal),
-                KeyCode::Char('2') => {
-                    Some(crate::state::goal_workspace::GoalWorkspaceMode::Files)
-                }
+                KeyCode::Char('2') => Some(crate::state::goal_workspace::GoalWorkspaceMode::Files),
                 KeyCode::Char('3') => {
                     Some(crate::state::goal_workspace::GoalWorkspaceMode::Progress)
                 }
                 KeyCode::Char('4') => {
                     Some(crate::state::goal_workspace::GoalWorkspaceMode::ActiveAgent)
                 }
-                KeyCode::Char('5') => Some(crate::state::goal_workspace::GoalWorkspaceMode::Threads),
-                KeyCode::Char('6') => Some(
-                    crate::state::goal_workspace::GoalWorkspaceMode::NeedsAttention,
-                ),
+                KeyCode::Char('5') => {
+                    Some(crate::state::goal_workspace::GoalWorkspaceMode::Threads)
+                }
+                KeyCode::Char('6') => {
+                    Some(crate::state::goal_workspace::GoalWorkspaceMode::NeedsAttention)
+                }
                 _ => None,
             };
             if let Some(mode) = target_mode {
@@ -864,9 +864,10 @@ impl TuiModel {
             KeyCode::Char('b')
                 if self.focus == FocusArea::Chat
                     && matches!(self.main_pane_view, MainPaneView::Conversation)
-                    && self.mission_control_return_to_goal_target().is_some() =>
+                    && (self.mission_control_return_to_thread_id().is_some()
+                        || self.mission_control_return_to_goal_target().is_some()) =>
             {
-                let _ = self.return_to_goal_from_mission_control();
+                let _ = self.return_from_mission_control_navigation();
             }
             // Dismiss selected audit entry with 'd' key (BEAT-07)
             KeyCode::Char('d')

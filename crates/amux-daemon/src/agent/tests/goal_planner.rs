@@ -1099,11 +1099,7 @@ fn sample_goal_run_with_kind(
     }
 }
 
-async fn write_step_completion_marker(
-    engine: &AgentEngine,
-    goal_run_id: &str,
-    step_index: usize,
-) {
+async fn write_step_completion_marker(engine: &AgentEngine, goal_run_id: &str, step_index: usize) {
     let path = crate::agent::goal_dossier::goal_step_completion_marker_path(
         &engine.data_dir,
         goal_run_id,
@@ -1121,10 +1117,8 @@ async fn write_step_completion_marker(
 
 #[test]
 fn goal_step_completion_marker_path_uses_human_step_number() {
-    let marker = crate::agent::goal_dossier::goal_step_completion_marker_relative_path(
-        "goal-marker",
-        0,
-    );
+    let marker =
+        crate::agent::goal_dossier::goal_step_completion_marker_relative_path("goal-marker", 0);
     assert_eq!(
         marker.to_string_lossy(),
         ".tamux/goals/goal-marker/inventory/execution/step-1-complete.md"
@@ -1968,8 +1962,11 @@ async fn handle_goal_run_step_completion_blocks_when_completion_marker_is_missin
         .await
         .expect("completion hook should not hard-fail when marker is missing");
 
-    let marker_path =
-        crate::agent::goal_dossier::goal_step_completion_marker_path(&engine.data_dir, goal_run_id, 0);
+    let marker_path = crate::agent::goal_dossier::goal_step_completion_marker_path(
+        &engine.data_dir,
+        goal_run_id,
+        0,
+    );
     let updated = engine
         .get_goal_run(goal_run_id)
         .await
@@ -2122,13 +2119,15 @@ async fn exhausted_completion_marker_retries_require_human_approval() {
         stored_task
             .blocked_reason
             .as_deref()
-            .is_some_and(|reason| reason.contains(&crate::agent::goal_dossier::goal_step_completion_marker_path(
-                &engine.data_dir,
-                goal_run_id,
-                0,
-            )
-            .display()
-            .to_string())),
+            .is_some_and(|reason| reason.contains(
+                &crate::agent::goal_dossier::goal_step_completion_marker_path(
+                    &engine.data_dir,
+                    goal_run_id,
+                    0,
+                )
+                .display()
+                .to_string()
+            )),
         "approval details should explain which marker file is missing"
     );
 }

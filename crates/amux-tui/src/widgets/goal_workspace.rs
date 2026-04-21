@@ -180,7 +180,9 @@ pub fn hit_test(
             rows.get(row_index).cloned().flatten()
         }
         GoalWorkspacePane::Timeline => {
-            let inner = Block::default().borders(Borders::ALL).inner(layout.timeline);
+            let inner = Block::default()
+                .borders(Borders::ALL)
+                .inner(layout.timeline);
             if !rect_contains(inner, mouse) {
                 return None;
             }
@@ -234,13 +236,19 @@ pub fn max_timeline_scroll(
     let Some(layout) = workspace_layout(area) else {
         return 0;
     };
-    let inner = Block::default().borders(Borders::ALL).inner(layout.timeline);
+    let inner = Block::default()
+        .borders(Borders::ALL)
+        .inner(layout.timeline);
     center_visual_targets(tasks, goal_run_id, state, inner.width as usize)
         .len()
         .saturating_sub(inner.height as usize)
 }
 
-pub fn detail_target_count(tasks: &TaskState, goal_run_id: &str, state: &GoalWorkspaceState) -> usize {
+pub fn detail_target_count(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+) -> usize {
     detail_targets(tasks, goal_run_id, state).len()
 }
 
@@ -263,14 +271,20 @@ pub fn timeline_viewport_height(area: Rect) -> usize {
     let Some(layout) = workspace_layout(area) else {
         return 0;
     };
-    Block::default().borders(Borders::ALL).inner(layout.timeline).height as usize
+    Block::default()
+        .borders(Borders::ALL)
+        .inner(layout.timeline)
+        .height as usize
 }
 
 pub fn detail_viewport_height(area: Rect) -> usize {
     let Some(layout) = workspace_layout(area) else {
         return 0;
     };
-    Block::default().borders(Borders::ALL).inner(layout.details).height as usize
+    Block::default()
+        .borders(Borders::ALL)
+        .inner(layout.details)
+        .height as usize
 }
 
 pub fn detail_row_for_target(
@@ -291,14 +305,19 @@ pub fn selection_point_from_mouse(
     state: &GoalWorkspaceState,
     mouse: Position,
 ) -> Option<SelectionPoint> {
-    let (inner, row_index) = plan_inner_row_index(area, tasks, goal_run_id, state, mouse)?;
+    let (inner, row_index, wrapped_row_index) =
+        plan_inner_row_index(area, tasks, goal_run_id, state, mouse)?;
     let rows = plan::build_rows(tasks, goal_run_id, state);
     let line = &rows.get(row_index)?.line;
     let width = line_display_width(line);
     let col = mouse.x.saturating_sub(inner.x) as usize;
+    let (segment_start, segment_end) =
+        wrapped_segment_display_bounds(line, inner.width as usize, wrapped_row_index)?;
     Some(SelectionPoint {
         row: row_index,
-        col: col.min(width),
+        col: segment_start
+            .saturating_add(col.min(segment_end.saturating_sub(segment_start)))
+            .min(width),
     })
 }
 
@@ -356,12 +375,7 @@ const MODE_TABS: &[(GoalWorkspaceMode, &str)] = &[
     (GoalWorkspaceMode::NeedsAttention, "Needs attention"),
 ];
 
-fn render_summary(
-    frame: &mut Frame,
-    area: Rect,
-    state: &GoalWorkspaceState,
-    theme: &ThemeTokens,
-) {
+fn render_summary(frame: &mut Frame, area: Rect, state: &GoalWorkspaceState, theme: &ThemeTokens) {
     let block = Block::default()
         .title(" Goal Mission Control ")
         .borders(Borders::ALL)
@@ -431,12 +445,17 @@ fn render_plan(
     let selected_style = selected_row_style(state.focused_pane() == GoalWorkspacePane::Plan);
     let selected_visual_row =
         plan_visual_row_for_selection(tasks, goal_run_id, state, inner.width as usize);
+    let mut visual_row = 0usize;
     let lines = plan::build_rows(tasks, goal_run_id, state)
         .into_iter()
-        .enumerate()
-        .map(|(index, row)| {
+        .map(|row| {
             let line = styled_plan_row(row, theme, tick_counter);
-            if Some(index) == selected_visual_row {
+            let row_visual_height = wrapped_visual_height(&line, inner.width as usize);
+            let is_selected = selected_visual_row
+                .map(|selected| selected >= visual_row && selected < visual_row + row_visual_height)
+                .unwrap_or(false);
+            visual_row = visual_row.saturating_add(row_visual_height);
+            if is_selected {
                 line.style(selected_style)
             } else {
                 line
@@ -538,7 +557,10 @@ fn render_center_pane(
         theme,
         tick_counter,
     );
-    let mut lines = center_rows.iter().map(|row| row.line.clone()).collect::<Vec<_>>();
+    let mut lines = center_rows
+        .iter()
+        .map(|row| row.line.clone())
+        .collect::<Vec<_>>();
     if lines.is_empty() {
         lines.push(Line::from(Span::styled("No data available.", theme.fg_dim)));
     }
@@ -887,7 +909,9 @@ fn timeline_rows(
         } else {
             event.message.clone()
         };
-        for (wrapped_index, segment) in wrap_plain_text(&label, usable_width).into_iter().enumerate()
+        for (wrapped_index, segment) in wrap_plain_text(&label, usable_width)
+            .into_iter()
+            .enumerate()
         {
             rows.push(WorkspaceVisualRow {
                 target: Some(GoalWorkspaceHitTarget::TimelineRow(event_index)),
@@ -897,10 +921,7 @@ fn timeline_rows(
                         Span::styled(segment, body_style),
                     ])
                 } else {
-                    Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(segment, body_style),
-                    ])
+                    Line::from(vec![Span::raw("  "), Span::styled(segment, body_style)])
                 },
             });
         }
@@ -908,10 +929,7 @@ fn timeline_rows(
             for segment in wrap_plain_text(details, usable_width.saturating_sub(2).max(8)) {
                 rows.push(WorkspaceVisualRow {
                     target: Some(GoalWorkspaceHitTarget::TimelineRow(event_index)),
-                    line: Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(segment, theme.fg_dim),
-                    ]),
+                    line: Line::from(vec![Span::raw("  "), Span::styled(segment, theme.fg_dim)]),
                 });
             }
         }
@@ -1118,7 +1136,10 @@ fn attention_rows(
                 ]),
                 AttentionItem::Status => Line::from(vec![
                     Span::styled("Status ", theme.fg_dim),
-                    Span::styled(format!("{:?}", run.status).to_ascii_lowercase(), theme.fg_active),
+                    Span::styled(
+                        format!("{:?}", run.status).to_ascii_lowercase(),
+                        theme.fg_active,
+                    ),
                 ]),
                 AttentionItem::LastError => Line::from(vec![
                     Span::styled("Last error ", theme.fg_dim),
@@ -1203,10 +1224,7 @@ fn detail_lines(
                     &mut visual_row,
                     None,
                     Line::from(vec![
-                        Span::styled(
-                            format!("{}.", step.order + 1),
-                            theme.fg_dim,
-                        ),
+                        Span::styled(format!("{}.", step.order + 1), theme.fg_dim),
                         Span::raw(" "),
                         Span::styled(step.title.clone(), theme.fg_active),
                     ]),
@@ -1309,10 +1327,7 @@ fn detail_lines(
                             )),
                             Line::from(vec![
                                 Span::styled("• ", theme.accent_secondary),
-                                Span::styled(
-                                    checkpoint.checkpoint_type.clone(),
-                                    theme.fg_active,
-                                ),
+                                Span::styled(checkpoint.checkpoint_type.clone(), theme.fg_active),
                                 Span::raw("  "),
                                 Span::styled(short_checkpoint_id(&checkpoint.id), theme.fg_dim),
                             ]),
@@ -1354,13 +1369,7 @@ fn detail_lines(
                     Line::from(Span::styled(event.message.clone(), theme.fg_active)),
                 );
                 if let Some(details) = event.details.as_deref() {
-                    push_detail_wrapped(
-                        &mut rows,
-                        &mut visual_row,
-                        details,
-                        theme.fg_dim,
-                        width,
-                    );
+                    push_detail_wrapped(&mut rows, &mut visual_row, details, theme.fg_dim, width);
                 }
                 for todo in &event.todo_snapshot {
                     push_detail_line(
@@ -1377,7 +1386,9 @@ fn detail_lines(
                 push_detail_line(
                     &mut rows,
                     &mut visual_row,
-                    Some(GoalWorkspaceHitTarget::DetailTimelineDetails(selected_event_index)),
+                    Some(GoalWorkspaceHitTarget::DetailTimelineDetails(
+                        selected_event_index,
+                    )),
                     Line::from(vec![
                         Span::styled("[details]", theme.accent_primary),
                         Span::raw("  "),
@@ -1595,7 +1606,10 @@ fn detail_lines(
                                     checkpoint.id.clone(),
                                 )),
                                 Line::from(vec![
-                                    Span::styled(checkpoint.checkpoint_type.clone(), theme.fg_active),
+                                    Span::styled(
+                                        checkpoint.checkpoint_type.clone(),
+                                        theme.fg_active,
+                                    ),
                                     Span::raw("  "),
                                     Span::styled(short_checkpoint_id(&checkpoint.id), theme.fg_dim),
                                 ]),
@@ -1622,25 +1636,13 @@ fn detail_lines(
                         ActiveAgentItem::CurrentOwner => {
                             push_detail_header(&mut rows, &mut visual_row, "Current Owner", theme);
                             if let Some(owner) = run.current_step_owner_profile.as_ref() {
-                                push_owner_profile(
-                                    &mut rows,
-                                    &mut visual_row,
-                                    owner,
-                                    theme,
-                                    width,
-                                );
+                                push_owner_profile(&mut rows, &mut visual_row, owner, theme, width);
                             }
                         }
                         ActiveAgentItem::PlannerOwner => {
                             push_detail_header(&mut rows, &mut visual_row, "Planner Owner", theme);
                             if let Some(owner) = run.planner_owner_profile.as_ref() {
-                                push_owner_profile(
-                                    &mut rows,
-                                    &mut visual_row,
-                                    owner,
-                                    theme,
-                                    width,
-                                );
+                                push_owner_profile(&mut rows, &mut visual_row, owner, theme, width);
                             }
                         }
                         ActiveAgentItem::Assignment(index) => {
@@ -1686,7 +1688,8 @@ fn detail_lines(
         GoalWorkspaceMode::Threads => {
             if let Some(run) = run {
                 let items = thread_items(tasks, run);
-                if let Some(ThreadItem::Entry(thread_id)) = items.get(state.selected_timeline_row()) {
+                if let Some(ThreadItem::Entry(thread_id)) = items.get(state.selected_timeline_row())
+                {
                     push_detail_header(&mut rows, &mut visual_row, "Thread", theme);
                     if let Some(entry) = goal_thread_entries(tasks, run)
                         .into_iter()
@@ -1712,7 +1715,9 @@ fn detail_lines(
                         push_detail_line(
                             &mut rows,
                             &mut visual_row,
-                            Some(GoalWorkspaceHitTarget::DetailThread(entry.thread_id.clone())),
+                            Some(GoalWorkspaceHitTarget::DetailThread(
+                                entry.thread_id.clone(),
+                            )),
                             Line::from(vec![
                                 Span::styled("[open] ", theme.accent_primary),
                                 Span::styled(entry.thread_id, theme.fg_active),
@@ -1873,7 +1878,9 @@ fn attention_items(run: &crate::state::task::GoalRun) -> Vec<AttentionItem> {
     items
 }
 
-fn runtime_assignments(run: &crate::state::task::GoalRun) -> Vec<crate::state::task::GoalAgentAssignment> {
+fn runtime_assignments(
+    run: &crate::state::task::GoalRun,
+) -> Vec<crate::state::task::GoalAgentAssignment> {
     if !run.runtime_assignment_list.is_empty() {
         run.runtime_assignment_list.clone()
     } else {
@@ -1893,7 +1900,11 @@ fn selected_event<'a>(
         return None;
     };
     let run = tasks.goal_run_by_id(goal_run_id)?;
-    run.events.iter().rev().nth(event_index).map(|event| (event_index, event))
+    run.events
+        .iter()
+        .rev()
+        .nth(event_index)
+        .map(|event| (event_index, event))
 }
 
 fn related_tasks_for_step<'a>(
@@ -2071,7 +2082,12 @@ fn push_detail_wrapped(
     width: usize,
 ) {
     for line in wrap_plain_text(text, width.max(8)) {
-        push_detail_line(rows, visual_row, None, Line::from(Span::styled(line, style)));
+        push_detail_line(
+            rows,
+            visual_row,
+            None,
+            Line::from(Span::styled(line, style)),
+        );
     }
 }
 
@@ -2095,7 +2111,10 @@ fn push_owner_profile(
             "{} / {} / {}",
             owner.provider,
             owner.model,
-            owner.reasoning_effort.clone().unwrap_or_else(|| "default".to_string())
+            owner
+                .reasoning_effort
+                .clone()
+                .unwrap_or_else(|| "default".to_string())
         ),
         theme.fg_dim,
         width,
@@ -2117,7 +2136,11 @@ fn push_assignment(
             Span::styled(assignment.role_id.clone(), theme.fg_active),
             Span::raw(" "),
             Span::styled(
-                if assignment.enabled { "[enabled]" } else { "[disabled]" },
+                if assignment.enabled {
+                    "[enabled]"
+                } else {
+                    "[disabled]"
+                },
                 theme.fg_dim,
             ),
         ]),
@@ -2139,7 +2162,10 @@ fn push_assignment(
     );
 }
 
-fn goal_toggle_action_label(run: &crate::state::task::GoalRun, theme: &ThemeTokens) -> Option<(String, Style)> {
+fn goal_toggle_action_label(
+    run: &crate::state::task::GoalRun,
+    theme: &ThemeTokens,
+) -> Option<(String, Style)> {
     match run.status {
         Some(crate::state::task::GoalRunStatus::Paused) => {
             Some(("[Resume]".to_string(), theme.accent_success))
@@ -2223,7 +2249,9 @@ fn goal_file_rows(goal_run_id: &str, width: usize, theme: &ThemeTokens) -> Vec<W
     files
         .into_iter()
         .map(|file| WorkspaceVisualRow {
-            target: Some(GoalWorkspaceHitTarget::DetailFile(file.absolute_path.clone())),
+            target: Some(GoalWorkspaceHitTarget::DetailFile(
+                file.absolute_path.clone(),
+            )),
             line: Line::from(vec![
                 Span::styled("• ", theme.accent_secondary),
                 Span::styled(
@@ -2244,7 +2272,11 @@ fn selected_goal_projection_file(
         None
     } else {
         files
-            .get(state.selected_timeline_row().min(files.len().saturating_sub(1)))
+            .get(
+                state
+                    .selected_timeline_row()
+                    .min(files.len().saturating_sub(1)),
+            )
             .cloned()
     }
 }
@@ -2399,7 +2431,10 @@ fn timeline_event_visuals(
     let is_latest_event = event_index == 0;
     let is_live_row = matches!(
         run.status,
-        Some(crate::state::task::GoalRunStatus::Planning | crate::state::task::GoalRunStatus::Running)
+        Some(
+            crate::state::task::GoalRunStatus::Planning
+                | crate::state::task::GoalRunStatus::Running
+        )
     ) && (is_current_step_event || is_latest_event);
 
     if is_live_row {
@@ -2412,14 +2447,18 @@ fn timeline_event_visuals(
 
     match run.status {
         Some(crate::state::task::GoalRunStatus::AwaitingApproval)
-        | Some(crate::state::task::GoalRunStatus::Paused) if is_latest_event => {
+        | Some(crate::state::task::GoalRunStatus::Paused)
+            if is_latest_event =>
+        {
             ('‖', theme.accent_secondary, theme.fg_active)
         }
         Some(crate::state::task::GoalRunStatus::Completed) if is_latest_event => {
             ('✓', theme.accent_success, theme.fg_active)
         }
         Some(crate::state::task::GoalRunStatus::Failed)
-        | Some(crate::state::task::GoalRunStatus::Cancelled) if is_latest_event => {
+        | Some(crate::state::task::GoalRunStatus::Cancelled)
+            if is_latest_event =>
+        {
             ('✕', theme.accent_danger, theme.fg_active)
         }
         _ => ('•', theme.accent_secondary, theme.fg_active),
@@ -2519,14 +2558,18 @@ pub fn plan_visual_row_for_selection(
     let selected = state.selected_plan_item().cloned();
     let rows = plan::build_rows(tasks, goal_run_id, state);
     let mut visual_row = 0usize;
+    let mut selection_index = 0usize;
 
     for row in rows {
         let row_height = wrapped_visual_height(&row.line, width);
         if selected.is_some() && row.selection == selected {
             return Some(visual_row);
         }
-        if row.selection.is_some() && visual_row == state.selected_plan_row() {
-            return Some(visual_row);
+        if row.selection.is_some() {
+            if selected.is_none() && selection_index == state.selected_plan_row() {
+                return Some(visual_row);
+            }
+            selection_index = selection_index.saturating_add(1);
         }
         visual_row = visual_row.saturating_add(row_height);
     }
@@ -2554,7 +2597,7 @@ fn plan_inner_row_index(
     goal_run_id: &str,
     state: &GoalWorkspaceState,
     mouse: Position,
-) -> Option<(Rect, usize)> {
+) -> Option<(Rect, usize, usize)> {
     let Some(layout) = workspace_layout(area) else {
         return None;
     };
@@ -2585,12 +2628,12 @@ fn plan_inner_row_index(
     }
 
     let rows = plan::build_rows(tasks, goal_run_id, state);
-    let row_index = resolved_plan_scroll(rows.len(), inner.height as usize, state)
+    let visual_targets = plan_visual_row_targets(tasks, goal_run_id, state, inner.width as usize);
+    let visual_row = resolved_plan_scroll(visual_targets.len(), inner.height as usize, state)
         .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
-    if row_index >= rows.len() {
-        return None;
-    }
-    Some((inner, row_index))
+    let (row_index, wrapped_row_index) =
+        plan_row_for_visual_row(&rows, inner.width as usize, visual_row)?;
+    Some((inner, row_index, wrapped_row_index))
 }
 
 fn line_plain_text(line: &Line<'static>) -> String {
@@ -2601,8 +2644,11 @@ fn line_plain_text(line: &Line<'static>) -> String {
 }
 
 fn line_display_width(line: &Line<'static>) -> usize {
-    line_plain_text(line)
-        .chars()
+    display_width(&line_plain_text(line))
+}
+
+fn display_width(text: &str) -> usize {
+    text.chars()
         .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
         .sum()
 }
@@ -2672,6 +2718,40 @@ fn wrap_display_text(text: &str, width: usize) -> Vec<String> {
 
 fn wrapped_visual_height(line: &Line<'static>, width: usize) -> usize {
     wrap_display_text(&line_plain_text(line), width).len()
+}
+
+fn wrapped_segment_display_bounds(
+    line: &Line<'static>,
+    width: usize,
+    wrapped_row_index: usize,
+) -> Option<(usize, usize)> {
+    let wrapped = wrap_display_text(&line_plain_text(line), width);
+    let mut start = 0usize;
+    for (index, segment) in wrapped.iter().enumerate() {
+        let segment_width = display_width(segment);
+        let end = start.saturating_add(segment_width);
+        if index == wrapped_row_index {
+            return Some((start, end));
+        }
+        start = end;
+    }
+    None
+}
+
+fn plan_row_for_visual_row(
+    rows: &[plan::GoalWorkspacePlanRow],
+    width: usize,
+    visual_row: usize,
+) -> Option<(usize, usize)> {
+    let mut current_visual_row = 0usize;
+    for (row_index, row) in rows.iter().enumerate() {
+        let row_height = wrapped_visual_height(&row.line, width);
+        if visual_row < current_visual_row.saturating_add(row_height) {
+            return Some((row_index, visual_row.saturating_sub(current_visual_row)));
+        }
+        current_visual_row = current_visual_row.saturating_add(row_height);
+    }
+    None
 }
 
 fn plan_visual_row_targets(

@@ -94,6 +94,65 @@ impl TuiModel {
         });
     }
 
+    pub(super) fn mission_control_return_to_thread_id(&self) -> Option<String> {
+        self.mission_control_navigation_state().return_to_thread_id
+    }
+
+    pub(super) fn set_mission_control_return_to_thread_id(
+        &mut self,
+        thread_id: Option<String>,
+    ) {
+        self.update_mission_control_navigation_state(|state| {
+            state.return_to_thread_id = thread_id;
+        });
+    }
+
+    pub(super) fn clear_mission_control_return_context(&mut self) {
+        self.set_mission_control_return_to_goal_target(None);
+        self.set_mission_control_return_to_thread_id(None);
+    }
+
+    pub(super) fn current_goal_return_target(&self) -> Option<sidebar::SidebarItemTarget> {
+        self.mission_control_return_to_goal_target().or_else(|| {
+            if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
+                self.mission_control_source_goal_target()
+            } else {
+                self.current_goal_target_for_mission_control()
+            }
+        })
+    }
+
+    pub(super) fn set_mission_control_return_targets(
+        &mut self,
+        goal_target: Option<sidebar::SidebarItemTarget>,
+        thread_id: Option<String>,
+    ) {
+        self.set_mission_control_return_to_goal_target(goal_target);
+        self.set_mission_control_return_to_thread_id(thread_id);
+    }
+
+    fn open_work_context_for_thread(
+        &mut self,
+        thread_id: String,
+        path: Option<String>,
+        parent_thread_id: Option<String>,
+        goal_target: Option<sidebar::SidebarItemTarget>,
+        status_line: String,
+    ) {
+        self.set_mission_control_return_targets(goal_target, parent_thread_id);
+        self.main_pane_view = MainPaneView::WorkContext;
+        self.task_view_scroll = 0;
+        self.focus = FocusArea::Chat;
+        if let Some(path) = path {
+            self.tasks.reduce(task::TaskAction::SelectWorkPath {
+                thread_id: thread_id.clone(),
+                path: Some(path),
+            });
+        }
+        self.request_preview_for_selected_path(&thread_id);
+        self.status_line = status_line;
+    }
+
     pub(super) fn current_goal_target_for_mission_control(
         &self,
     ) -> Option<sidebar::SidebarItemTarget> {
@@ -135,10 +194,18 @@ impl TuiModel {
         let goal_run_id = target_goal_run_id(self, &target)?;
         let run = self.tasks.goal_run_by_id(&goal_run_id)?;
         let thread_id = run
-            .active_thread_id
+            .thread_id
             .clone()
             .or_else(|| run.root_thread_id.clone())
-            .or_else(|| run.thread_id.clone())?;
+            .or_else(|| run.active_thread_id.clone())
+            .or_else(|| run.execution_thread_ids.first().cloned())
+            .or_else(|| {
+                self.tasks
+                    .tasks()
+                    .iter()
+                    .find(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
+                    .and_then(|task| task.thread_id.clone())
+            })?;
         Some((target, thread_id))
     }
 
@@ -579,13 +646,19 @@ impl TuiModel {
         else {
             return false;
         };
-        let row_count =
-            widgets::goal_workspace::timeline_row_count(&self.tasks, goal_run_id, &self.goal_workspace);
+        let row_count = widgets::goal_workspace::timeline_row_count(
+            &self.tasks,
+            goal_run_id,
+            &self.goal_workspace,
+        );
         if row_count == 0 {
             self.goal_workspace.set_selected_timeline_row(0);
             return false;
         }
-        let current = self.goal_workspace.selected_timeline_row().min(row_count - 1);
+        let current = self
+            .goal_workspace
+            .selected_timeline_row()
+            .min(row_count - 1);
         let next = if delta >= 0 {
             (current + delta as usize).min(row_count - 1)
         } else {
@@ -622,9 +695,6 @@ impl TuiModel {
         };
         match target {
             crate::widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(path) => {
-                if let Some(target) = self.current_goal_target_for_mission_control() {
-                    self.set_mission_control_return_to_goal_target(Some(target));
-                }
                 self.open_file_preview_path(path.clone());
                 self.status_line = path;
                 true
@@ -643,8 +713,11 @@ impl TuiModel {
         else {
             return false;
         };
-        let row_count =
-            widgets::goal_workspace::detail_target_count(&self.tasks, goal_run_id, &self.goal_workspace);
+        let row_count = widgets::goal_workspace::detail_target_count(
+            &self.tasks,
+            goal_run_id,
+            &self.goal_workspace,
+        );
         if row_count == 0 {
             self.goal_workspace.set_selected_detail_row(0);
             return false;
@@ -672,7 +745,11 @@ impl TuiModel {
         let viewport_width = {
             let layout = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Length(4), Constraint::Min(1), Constraint::Length(3)])
+                .constraints([
+                    Constraint::Length(4),
+                    Constraint::Min(1),
+                    Constraint::Length(3),
+                ])
                 .split(area);
             let columns = Layout::default()
                 .direction(Direction::Horizontal)
@@ -682,7 +759,10 @@ impl TuiModel {
                     Constraint::Min(24),
                 ])
                 .split(layout[1]);
-            Block::default().borders(Borders::ALL).inner(columns[1]).width as usize
+            Block::default()
+                .borders(Borders::ALL)
+                .inner(columns[1])
+                .width as usize
         };
         if viewport_height == 0 {
             self.goal_workspace.set_timeline_scroll(0);
@@ -728,7 +808,11 @@ impl TuiModel {
         let viewport_width = {
             let layout = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Length(4), Constraint::Min(1), Constraint::Length(3)])
+                .constraints([
+                    Constraint::Length(4),
+                    Constraint::Min(1),
+                    Constraint::Length(3),
+                ])
                 .split(area);
             let columns = Layout::default()
                 .direction(Direction::Horizontal)
@@ -738,7 +822,10 @@ impl TuiModel {
                     Constraint::Min(24),
                 ])
                 .split(layout[1]);
-            Block::default().borders(Borders::ALL).inner(columns[2]).width as usize
+            Block::default()
+                .borders(Borders::ALL)
+                .inner(columns[2])
+                .width as usize
         };
         if viewport_height == 0 {
             self.goal_workspace.set_detail_scroll(0);
@@ -798,9 +885,6 @@ impl TuiModel {
         };
         match target {
             crate::widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(path) => {
-                if let Some(target) = self.current_goal_target_for_mission_control() {
-                    self.set_mission_control_return_to_goal_target(Some(target));
-                }
                 let Some(run) = self.selected_goal_run() else {
                     return false;
                 };
@@ -811,8 +895,9 @@ impl TuiModel {
                     self.chat
                         .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
                 }
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Files));
+                self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
+                    sidebar::SidebarTab::Files,
+                ));
                 self.tasks.reduce(task::TaskAction::SelectWorkPath {
                     thread_id: thread_id.clone(),
                     path: Some(path.clone()),
@@ -826,11 +911,14 @@ impl TuiModel {
                     let item_count = self.sidebar_item_count();
                     self.sidebar.select(index, item_count);
                 }
-                self.main_pane_view = MainPaneView::WorkContext;
-                self.task_view_scroll = 0;
-                self.focus = FocusArea::Chat;
-                self.request_preview_for_selected_path(&thread_id);
-                self.status_line = path;
+                let status_line = path.clone();
+                self.open_work_context_for_thread(
+                    thread_id,
+                    None,
+                    None,
+                    self.current_goal_return_target(),
+                    status_line,
+                );
                 true
             }
             crate::widgets::goal_workspace::GoalWorkspaceHitTarget::DetailTask(task_id) => {
@@ -1010,15 +1098,14 @@ impl TuiModel {
                 return true;
             }
             GoalSidebarCommandItem::File { thread_id, path } => {
-                self.tasks.reduce(task::TaskAction::SelectWorkPath {
-                    thread_id: thread_id.clone(),
-                    path: Some(path.clone()),
-                });
-                self.main_pane_view = MainPaneView::WorkContext;
-                self.task_view_scroll = 0;
-                self.focus = FocusArea::Chat;
-                self.request_preview_for_selected_path(&thread_id);
-                self.status_line = path;
+                let status_line = path.clone();
+                self.open_work_context_for_thread(
+                    thread_id.clone(),
+                    Some(path),
+                    None,
+                    self.current_goal_return_target(),
+                    status_line,
+                );
                 return true;
             }
         }
@@ -1426,6 +1513,16 @@ impl TuiModel {
             });
         }
 
+        let parent_thread_id = matches!(
+            self.main_pane_view,
+            MainPaneView::Conversation | MainPaneView::WorkContext
+        )
+        .then(|| self.chat.active_thread_id().map(str::to_string))
+        .flatten();
+        self.set_mission_control_return_targets(
+            self.current_goal_return_target(),
+            parent_thread_id,
+        );
         self.main_pane_view = MainPaneView::FilePreview(target);
         self.task_view_scroll = 0;
         self.focus = FocusArea::Chat;
@@ -1452,6 +1549,16 @@ impl TuiModel {
             path: target.path.clone(),
             max_bytes: Some(65_536),
         });
+        let parent_thread_id = matches!(
+            self.main_pane_view,
+            MainPaneView::Conversation | MainPaneView::WorkContext
+        )
+        .then(|| self.chat.active_thread_id().map(str::to_string))
+        .flatten();
+        self.set_mission_control_return_targets(
+            self.current_goal_return_target(),
+            parent_thread_id,
+        );
         self.main_pane_view = MainPaneView::FilePreview(target);
         self.task_view_scroll = 0;
         self.focus = FocusArea::Chat;
@@ -1467,6 +1574,16 @@ impl TuiModel {
             path: target.path.clone(),
             max_bytes: Some(65_536),
         });
+        let parent_thread_id = matches!(
+            self.main_pane_view,
+            MainPaneView::Conversation | MainPaneView::WorkContext
+        )
+        .then(|| self.chat.active_thread_id().map(str::to_string))
+        .flatten();
+        self.set_mission_control_return_targets(
+            self.current_goal_return_target(),
+            parent_thread_id,
+        );
         self.main_pane_view = MainPaneView::FilePreview(target);
         self.task_view_scroll = 0;
         self.focus = FocusArea::Chat;
@@ -1586,7 +1703,7 @@ impl TuiModel {
             return false;
         }
         if let Some(target) = self.current_goal_target_for_mission_control() {
-            self.set_mission_control_return_to_goal_target(Some(target));
+            self.set_mission_control_return_targets(Some(target), None);
         }
         self.main_pane_view = MainPaneView::GoalComposer;
         self.focus = FocusArea::Chat;
@@ -1829,7 +1946,8 @@ impl TuiModel {
         let provider_id = assignment.provider.clone();
         let (base_url, api_key, auth_source) = self.provider_auth_snapshot(&provider_id);
         let models = providers::known_models_for_provider_auth(&provider_id, &auth_source);
-        self.config.reduce(config::ConfigAction::ModelsFetched(models));
+        self.config
+            .reduce(config::ConfigAction::ModelsFetched(models));
         if self.should_fetch_remote_models(&provider_id, &auth_source) {
             self.send_daemon_command(DaemonCommand::FetchModels {
                 provider_id,
@@ -2039,6 +2157,10 @@ impl TuiModel {
             return;
         }
 
+        self.set_mission_control_return_targets(
+            self.current_goal_return_target(),
+            Some(from_thread_id),
+        );
         self.request_latest_thread_page(to_thread_id.clone(), true);
         self.main_pane_view = MainPaneView::Conversation;
         self.task_view_scroll = 0;
@@ -2052,7 +2174,6 @@ impl TuiModel {
             return;
         }
 
-        self.set_mission_control_return_to_goal_target(None);
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
@@ -2064,6 +2185,7 @@ impl TuiModel {
             return;
         };
 
+        self.set_mission_control_return_to_thread_id(self.chat.thread_history_stack().last().cloned());
         self.request_latest_thread_page(thread_id.clone(), true);
         self.main_pane_view = MainPaneView::Conversation;
         self.task_view_scroll = 0;
@@ -2072,7 +2194,7 @@ impl TuiModel {
     }
 
     pub(super) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
-        self.set_mission_control_return_to_goal_target(None);
+        self.clear_mission_control_return_context();
         self.cleanup_concierge_on_navigate();
         self.clear_task_view_drag_selection();
         if let sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } = &target {
@@ -2454,7 +2576,7 @@ impl TuiModel {
     pub(super) fn open_new_goal_view(&mut self) {
         let current_goal_target = self.current_goal_target_for_mission_control();
         self.set_mission_control_source_goal_target(current_goal_target.clone());
-        self.set_mission_control_return_to_goal_target(None);
+        self.clear_mission_control_return_context();
         self.cleanup_concierge_on_navigate();
         let fallback_profile = self.current_conversation_agent_profile();
         let fallback_main_assignment = task::GoalAgentAssignment {
@@ -2539,11 +2661,32 @@ impl TuiModel {
             return false;
         };
 
-        self.set_mission_control_return_to_goal_target(None);
+        self.clear_mission_control_return_context();
         self.open_sidebar_target(target);
         self.focus = FocusArea::Chat;
         self.status_line = "Returned to goal".to_string();
         true
+    }
+
+    pub(super) fn return_from_mission_control_navigation(&mut self) -> bool {
+        if let Some(thread_id) = self.mission_control_return_to_thread_id() {
+            self.set_mission_control_return_to_thread_id(None);
+            self.cleanup_concierge_on_navigate();
+            self.clear_chat_drag_selection();
+            self.clear_work_context_drag_selection();
+            self.clear_task_view_drag_selection();
+            self.pending_new_thread_target_agent = None;
+            self.chat
+                .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
+            self.request_latest_thread_page(thread_id.clone(), true);
+            self.main_pane_view = MainPaneView::Conversation;
+            self.task_view_scroll = 0;
+            self.focus = FocusArea::Chat;
+            self.status_line = format!("Returned to {thread_id}");
+            return true;
+        }
+
+        self.return_to_goal_from_mission_control()
     }
 
     pub(super) fn start_goal_run_from_prompt(&mut self, goal: String) {
@@ -3023,7 +3166,7 @@ impl TuiModel {
             self.cancelled_thread_id = None;
         }
         if let Some((target, thread_id)) = &goal_thread_target {
-            self.set_mission_control_return_to_goal_target(Some(target.clone()));
+            self.set_mission_control_return_targets(Some(target.clone()), None);
             if self.chat.active_thread_id() != Some(thread_id.as_str()) {
                 self.chat
                     .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
@@ -3215,21 +3358,23 @@ impl TuiModel {
                 ) else {
                     return;
                 };
-                self.main_pane_view = MainPaneView::WorkContext;
-                self.task_view_scroll = 0;
-                self.focus = FocusArea::Chat;
-                self.tasks.reduce(task::TaskAction::SelectWorkPath {
-                    thread_id: thread_id.clone(),
-                    path: Some(path.clone()),
-                });
-                self.request_preview_for_selected_path(&thread_id);
-                self.status_line = path;
+                let status_line = path.clone();
+                self.open_work_context_for_thread(
+                    thread_id.clone(),
+                    Some(path),
+                    Some(thread_id),
+                    self.current_goal_return_target(),
+                    status_line,
+                );
             }
             sidebar::SidebarTab::Todos => {
-                self.main_pane_view = MainPaneView::WorkContext;
-                self.task_view_scroll = 0;
-                self.focus = FocusArea::Chat;
-                self.status_line = "Todo details".to_string();
+                self.open_work_context_for_thread(
+                    thread_id.clone(),
+                    None,
+                    Some(thread_id),
+                    self.current_goal_return_target(),
+                    "Todo details".to_string(),
+                );
             }
             sidebar::SidebarTab::Spawned => {
                 self.open_selected_spawned_thread();

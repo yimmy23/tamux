@@ -7,6 +7,8 @@ mod projection;
 mod providers;
 mod state;
 mod terminal_graphics;
+#[cfg(test)]
+mod test_support;
 mod theme;
 mod update;
 mod widgets;

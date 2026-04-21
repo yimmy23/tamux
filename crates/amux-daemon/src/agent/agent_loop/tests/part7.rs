@@ -102,7 +102,7 @@ async fn metacognitive_sunk_cost_block_injects_reflection_and_skips_tool_executi
 }
 
 #[tokio::test]
-async fn metacognitive_confirmation_warning_restarts_with_reflection_before_tool_runs() {
+async fn metacognitive_confirmation_warning_is_advisory_before_tool_runs() {
     let root = tempdir().unwrap();
     let readable_path = root.path().join("confirm.txt");
     fs::write(&readable_path, "match confirmed\n").expect("write confirm file");
@@ -194,6 +194,15 @@ async fn metacognitive_confirmation_warning_restarts_with_reflection_before_tool
         })
         .count();
     assert_eq!(search_files_results, 1);
+    assert!(
+        !thread.messages.iter().any(|message| {
+            message.role == MessageRole::Tool
+                && message.tool_name.as_deref() == Some("search_files")
+                && message.tool_status.as_deref() == Some("error")
+                && message.content.contains("meta-cognitive regulator")
+        }),
+        "warning-level interventions should not defer the tool with a synthetic failure"
+    );
     drop(threads);
 
     let model = engine.meta_cognitive_self_model.read().await;
@@ -384,7 +393,7 @@ async fn metacognitive_workflow_profiles_learn_from_live_outcomes_and_persist() 
 }
 
 #[tokio::test]
-async fn metacognitive_warning_repeated_tool_calls_record_synthetic_failures_and_escalate() {
+async fn metacognitive_warning_repeated_tool_calls_remain_advisory() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
@@ -436,59 +445,63 @@ async fn metacognitive_warning_repeated_tool_calls_record_synthetic_failures_and
     let thread_id = "thread-metacognitive-warning-repeat-escalation";
     let task_id = "task-metacognitive-warning-repeat-escalation";
 
-    engine.tasks.lock().await.push_back(crate::agent::types::AgentTask {
-        id: task_id.to_string(),
-        title: "Verify goal step".to_string(),
-        description: "Verify goal step".to_string(),
-        status: TaskStatus::InProgress,
-        priority: TaskPriority::Normal,
-        progress: 10,
-        created_at: 1,
-        started_at: Some(2),
-        completed_at: None,
-        error: None,
-        result: None,
-        thread_id: Some(thread_id.to_string()),
-        source: "goal_run".to_string(),
-        notify_on_complete: false,
-        notify_channels: Vec::new(),
-        dependencies: Vec::new(),
-        command: None,
-        session_id: Some("session-warning-repeat".to_string()),
-        goal_run_id: Some("goal-warning-repeat".to_string()),
-        goal_run_title: Some("Warning repeat".to_string()),
-        goal_step_id: Some("step-warning-repeat".to_string()),
-        goal_step_title: Some("Verify goal step".to_string()),
-        parent_task_id: None,
-        parent_thread_id: None,
-        runtime: "daemon".to_string(),
-        retry_count: 2,
-        max_retries: 3,
-        next_retry_at: None,
-        scheduled_at: None,
-        blocked_reason: None,
-        awaiting_approval_id: None,
-        policy_fingerprint: None,
-        approval_expires_at: None,
-        containment_scope: None,
-        compensation_status: None,
-        compensation_summary: None,
-        lane_id: None,
-        last_error: None,
-        logs: Vec::new(),
-        tool_whitelist: None,
-        tool_blacklist: None,
-        override_provider: None,
-        override_model: None,
-        override_system_prompt: None,
-        context_budget_tokens: None,
-        context_overflow_action: None,
-        termination_conditions: None,
-        success_criteria: None,
-        max_duration_secs: None,
-        supervisor_config: None,
-        sub_agent_def_id: None,
-    });
+    engine
+        .tasks
+        .lock()
+        .await
+        .push_back(crate::agent::types::AgentTask {
+            id: task_id.to_string(),
+            title: "Verify goal step".to_string(),
+            description: "Verify goal step".to_string(),
+            status: TaskStatus::InProgress,
+            priority: TaskPriority::Normal,
+            progress: 10,
+            created_at: 1,
+            started_at: Some(2),
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some(thread_id.to_string()),
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: Some("session-warning-repeat".to_string()),
+            goal_run_id: Some("goal-warning-repeat".to_string()),
+            goal_run_title: Some("Warning repeat".to_string()),
+            goal_step_id: Some("step-warning-repeat".to_string()),
+            goal_step_title: Some("Verify goal step".to_string()),
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 2,
+            max_retries: 3,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            sub_agent_def_id: None,
+        });
 
     engine
         .send_message_inner(
@@ -520,8 +533,8 @@ async fn metacognitive_warning_repeated_tool_calls_record_synthetic_failures_and
         })
         .count();
     assert!(
-        metacognitive_tool_failures >= 2,
-        "warned repeated tool calls should leave synthetic tool failure state instead of only appending system prompts"
+        metacognitive_tool_failures == 0,
+        "warning-level interventions should not create synthetic tool failures"
     );
 
     let warning_system_messages = thread
@@ -535,11 +548,11 @@ async fn metacognitive_warning_repeated_tool_calls_record_synthetic_failures_and
         })
         .count();
     assert!(
-        warning_system_messages <= 2,
-        "repeated warnings should escalate instead of warning forever"
+        warning_system_messages >= 1,
+        "repeated high-confidence tool calls should still emit advisory warnings"
     );
 
-    assert!(thread.messages.iter().any(|message| {
+    assert!(!thread.messages.iter().any(|message| {
         message.role == MessageRole::Tool
             && message.tool_name.as_deref() == Some("update_todo")
             && message
@@ -547,7 +560,7 @@ async fn metacognitive_warning_repeated_tool_calls_record_synthetic_failures_and
                 .contains("Tool call blocked by meta-cognitive regulator before execution")
     }));
 
-    assert!(!thread.messages.iter().any(|message| {
+    assert!(thread.messages.iter().any(|message| {
         message.role == MessageRole::Tool
             && message.tool_name.as_deref() == Some("update_todo")
             && message.tool_status.as_deref() == Some("done")

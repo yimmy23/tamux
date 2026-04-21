@@ -8,11 +8,15 @@ import {
 test("image generation provider changes normalize unsupported models", () => {
   expect(normalizeImageGenerationModelForProviderChange("openai", "whisper-1")).toBe("gpt-image-1");
   expect(normalizeImageGenerationModelForProviderChange("openrouter", "")).toBe("openai/gpt-image-1");
+  expect(normalizeImageGenerationModelForProviderChange("openai", "gpt-image-2")).toBe("gpt-image-2");
+  expect(normalizeImageGenerationModelForProviderChange("openrouter", "openai/gpt-image-2")).toBe("openai/gpt-image-2");
 });
 
 test("image generation model options keep only image-capable provider models", () => {
   expect(imageGenerationModelOptions("openai").map((model) => model.id)).toContain("gpt-image-1");
+  expect(imageGenerationModelOptions("openai").map((model) => model.id)).toContain("gpt-image-2");
   expect(imageGenerationModelOptions("openrouter").map((model) => model.id)).toContain("openai/gpt-image-1");
+  expect(imageGenerationModelOptions("openrouter").map((model) => model.id)).toContain("openai/gpt-image-2");
   expect(imageGenerationModelOptions("featherless").length).toBe(0);
 });
 

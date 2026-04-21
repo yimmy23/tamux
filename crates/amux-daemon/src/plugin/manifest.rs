@@ -338,7 +338,10 @@ mod tests {
         let manifest: PluginManifest = serde_json::from_str(json).unwrap();
         let defaults = manifest.python.as_ref().expect("python defaults");
         assert_eq!(defaults.run_path.as_deref(), Some("workspace"));
-        assert_eq!(defaults.source.as_deref(), Some("https://example.com/tool.py"));
+        assert_eq!(
+            defaults.source.as_deref(),
+            Some("https://example.com/tool.py")
+        );
         assert_eq!(defaults.env, Some(PythonEnvDef::Managed(true)));
         assert_eq!(defaults.dependencies, vec!["requests>=2.32", "pydantic"]);
 
@@ -360,6 +363,11 @@ mod tests {
             "env": "/opt/venvs/app/bin/activate"
         }"#;
         let command: PythonCommandDef = serde_json::from_str(json).unwrap();
-        assert_eq!(command.env, Some(PythonEnvDef::Path("/opt/venvs/app/bin/activate".to_string())));
+        assert_eq!(
+            command.env,
+            Some(PythonEnvDef::Path(
+                "/opt/venvs/app/bin/activate".to_string()
+            ))
+        );
     }
 }

@@ -512,9 +512,7 @@ impl TuiModel {
                         &self.tasks,
                         goal_run_id,
                         &self.goal_workspace,
-                        &widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(
-                            path.clone(),
-                        ),
+                        &widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(path.clone()),
                     ) {
                         self.goal_workspace.set_selected_detail_row(row);
                         let _ = self.activate_goal_workspace_detail_target();

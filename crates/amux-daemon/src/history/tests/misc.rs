@@ -232,12 +232,8 @@ async fn tool_output_preview_path_uses_thread_cache_layout() -> Result<()> {
 async fn tool_output_preview_path_uses_goal_cache_layout() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
-    let path = store.tool_output_preview_path(
-        "thread-123",
-        Some("goal-456"),
-        "web_search",
-        1_713_000_001,
-    );
+    let path =
+        store.tool_output_preview_path("thread-123", Some("goal-456"), "web_search", 1_713_000_001);
 
     assert_eq!(
         path,

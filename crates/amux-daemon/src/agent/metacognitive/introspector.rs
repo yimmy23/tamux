@@ -116,11 +116,11 @@ fn detect_sunk_cost(bias: &CognitiveBias, input: &IntrospectionInput) -> Option<
             .tool_sequence
             .iter()
             .any(|tool| tool == &input.proposed_tool_name);
-    let repeated_loop = input.predicted_repeat_count >= repeat_limit;
+    let repeated_loop = known_tool_match && input.predicted_repeat_count >= repeat_limit;
     let failure_loop = same_tool_failures >= repeat_limit as usize;
-    let retry_loop = input.task_retry_count >= repeat_limit;
+    let retry_loop = known_tool_match && input.task_retry_count >= repeat_limit;
 
-    if !(repeated_loop || failure_loop || (known_tool_match && retry_loop)) {
+    if !(repeated_loop || failure_loop || retry_loop) {
         return None;
     }
 

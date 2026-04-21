@@ -338,7 +338,7 @@ impl TuiModel {
                             .conversation_return_to_goal_button_area()
                             .is_some_and(|rect| contains_mouse(rect, mouse))
                         {
-                            let _ = self.return_to_goal_from_mission_control();
+                            let _ = self.return_from_mission_control_navigation();
                             self.input.set_mode(input::InputMode::Insert);
                             return;
                         }

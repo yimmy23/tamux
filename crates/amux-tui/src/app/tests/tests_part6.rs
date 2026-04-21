@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+
+use crate::test_support::{env_var_lock, EnvVarGuard, TAMUX_DATA_DIR_ENV};
 
 fn make_temp_dir() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("tamux-tui-tab-{}", uuid::Uuid::new_v4()));
@@ -21,38 +22,6 @@ impl CurrentDirGuard {
 impl Drop for CurrentDirGuard {
     fn drop(&mut self) {
         let _ = std::env::set_current_dir(&self.0);
-    }
-}
-
-fn home_env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-struct HomeEnvGuard {
-    original_home: Option<String>,
-}
-
-impl HomeEnvGuard {
-    fn set(path: &Path) -> Self {
-        let original_home = std::env::var("HOME").ok();
-        unsafe {
-            std::env::set_var("HOME", path);
-        }
-        Self { original_home }
-    }
-}
-
-impl Drop for HomeEnvGuard {
-    fn drop(&mut self) {
-        match self.original_home.take() {
-            Some(value) => unsafe {
-                std::env::set_var("HOME", value);
-            },
-            None => unsafe {
-                std::env::remove_var("HOME");
-            },
-        }
     }
 }
 
@@ -288,11 +257,27 @@ fn goal_sidebar_model() -> TuiModel {
     model
 }
 
+fn open_goal_execution_thread(model: &mut TuiModel) {
+    model.focus = FocusArea::Chat;
+    model.goal_workspace.set_selected_plan_row(1);
+    model.goal_workspace.set_selected_plan_item(Some(
+        goal_workspace::GoalPlanSelection::MainThread {
+            thread_id: "thread-exec".to_string(),
+        },
+    ));
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-exec"));
+}
+
 fn mission_control_thread_router_model(
     active_thread_id: Option<&str>,
     root_thread_id: Option<&str>,
 ) -> TuiModel {
     let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
     let thread_ids = [active_thread_id, root_thread_id];
     for thread_id in thread_ids.into_iter().flatten() {
         model
@@ -759,9 +744,9 @@ fn goal_workspace_mode_tabs_are_clickable_and_keyboard_focusable() {
 
 #[test]
 fn goal_workspace_files_mode_click_opens_file_preview() {
-    let _lock = home_env_lock().lock().expect("home env lock");
+    let _lock = env_var_lock();
     let temp_home = tempfile::tempdir().expect("temp home should exist");
-    let _home = HomeEnvGuard::set(temp_home.path());
+    let _data_dir = EnvVarGuard::set(TAMUX_DATA_DIR_ENV, temp_home.path());
 
     let goal_root = amux_protocol::ensure_amux_data_dir()
         .expect("tamux data dir")
@@ -809,9 +794,9 @@ fn goal_workspace_files_mode_click_opens_file_preview() {
 
 #[test]
 fn goal_workspace_escape_from_files_mode_preview_restores_goal_run() {
-    let _lock = home_env_lock().lock().expect("home env lock");
+    let _lock = env_var_lock();
     let temp_home = tempfile::tempdir().expect("temp home should exist");
-    let _home = HomeEnvGuard::set(temp_home.path());
+    let _data_dir = EnvVarGuard::set(TAMUX_DATA_DIR_ENV, temp_home.path());
 
     let goal_root = amux_protocol::ensure_amux_data_dir()
         .expect("tamux data dir")
@@ -1269,7 +1254,38 @@ fn threads_return_to_goal_mouse_restores_goal_run_and_step_selection() {
 }
 
 #[test]
-fn goal_run_input_routes_prompt_to_active_goal_thread() {
+fn goal_thread_child_thread_sidebar_back_restores_parent_thread_and_keeps_goal_return() {
+    let mut model = goal_sidebar_model();
+    open_goal_execution_thread(&mut model);
+
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-child".to_string(),
+        title: "Child worker".to_string(),
+    });
+    assert!(model.chat.open_spawned_thread("thread-exec", "thread-child"));
+    model.main_pane_view = MainPaneView::Conversation;
+    model.focus = FocusArea::Sidebar;
+    assert_eq!(model.chat.active_thread_id(), Some("thread-child"));
+
+    let handled = model.handle_key(KeyCode::Backspace, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-exec"));
+    assert!(model.mission_control_return_to_goal_target().is_some());
+
+    let handled = model.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(
+        model.main_pane_view,
+        MainPaneView::Task(SidebarItemTarget::GoalRun { ref goal_run_id, .. })
+            if goal_run_id == "goal-1"
+    ));
+}
+
+#[test]
+fn goal_run_input_routes_prompt_to_goal_main_thread_before_active_step_thread() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();
     let mut model = TuiModel::new(daemon_rx, cmd_tx);
@@ -1278,7 +1294,9 @@ fn goal_run_input_routes_prompt_to_active_goal_thread() {
 
     for (thread_id, title) in [
         ("thread-user", "User Thread"),
-        ("thread-goal", "Goal Thread"),
+        ("thread-root", "Goal Root Thread"),
+        ("thread-goal", "Goal Main Thread"),
+        ("thread-step", "Goal Step Thread"),
     ] {
         model.chat.reduce(chat::ChatAction::ThreadCreated {
             thread_id: thread_id.to_string(),
@@ -1298,8 +1316,9 @@ fn goal_run_input_routes_prompt_to_active_goal_thread() {
     model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
         id: "goal-1".to_string(),
         title: "Goal Title".to_string(),
-        thread_id: Some("thread-root".to_string()),
-        active_thread_id: Some("thread-goal".to_string()),
+        thread_id: Some("thread-goal".to_string()),
+        root_thread_id: Some("thread-root".to_string()),
+        active_thread_id: Some("thread-step".to_string()),
         goal: "Ship release".to_string(),
         current_step_title: Some("Implement".to_string()),
         steps: vec![task::GoalRunStep {
@@ -1336,6 +1355,110 @@ fn goal_run_input_routes_prompt_to_active_goal_thread() {
             .map(|message| message.content.as_str()),
         Some("follow the current step")
     );
+}
+
+#[test]
+fn goal_thread_file_preview_escape_prefers_parent_thread_over_goal() {
+    let mut model = goal_sidebar_model();
+    open_goal_execution_thread(&mut model);
+
+    model.open_file_preview_path("/tmp/thread-child-preview.txt".to_string());
+    assert!(matches!(model.main_pane_view, MainPaneView::FilePreview(_)));
+
+    let handled = model.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-exec"));
+}
+
+#[test]
+fn goal_thread_work_context_escape_prefers_parent_thread_over_goal() {
+    let mut model = goal_sidebar_model();
+    open_goal_execution_thread(&mut model);
+    model.tasks.reduce(task::TaskAction::WorkContextReceived(
+        task::ThreadWorkContext {
+            thread_id: "thread-exec".to_string(),
+            entries: vec![task::WorkContextEntry {
+                path: "/tmp/thread-exec-runtime.rs".to_string(),
+                is_text: true,
+                ..Default::default()
+            }],
+        },
+    ));
+    model.activate_sidebar_tab(SidebarTab::Files);
+    model.focus = FocusArea::Sidebar;
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::WorkContext));
+
+    let handled = model.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-exec"));
+}
+
+#[test]
+fn goal_run_input_falls_back_to_active_goal_thread_when_main_thread_is_missing() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+
+    for (thread_id, title) in [
+        ("thread-user", "User Thread"),
+        ("thread-step", "Goal Step Thread"),
+    ] {
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: thread_id.to_string(),
+            title: title.to_string(),
+        });
+        model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+            chat::AgentThread {
+                id: thread_id.to_string(),
+                title: title.to_string(),
+                ..Default::default()
+            },
+        ));
+    }
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal Title".to_string(),
+        active_thread_id: Some("thread-step".to_string()),
+        goal: "Ship release".to_string(),
+        current_step_title: Some("Implement".to_string()),
+        steps: vec![task::GoalRunStep {
+            id: "step-1".to_string(),
+            title: "Implement".to_string(),
+            order: 0,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: Some("step-1".to_string()),
+    });
+    model.focus = FocusArea::Input;
+    model.input.set_text("follow the current step");
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!handled);
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::SendMessage { thread_id, content, .. }) => {
+            assert_eq!(thread_id.as_deref(), Some("thread-step"));
+            assert_eq!(content, "follow the current step");
+        }
+        other => panic!("expected send-message command, got {other:?}"),
+    }
+    assert_eq!(model.chat.active_thread_id(), Some("thread-step"));
 }
 
 #[test]

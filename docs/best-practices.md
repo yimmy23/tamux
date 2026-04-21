@@ -323,7 +323,7 @@ That means:
 If you want a simple starting point:
 
 - Svarog: strongest model you can access
-- Weles: `GLM-5.*`, `MiniMax M2.7`, 'Qwen 3.6 Plus`, or stronger
+- Weles: `GLM-5.*`, `MiniMax M2.7`, `Qwen 3.6 Plus`, or stronger
 - Rarog: cheap fast tool-capable model, reasoning off by default
 - Compaction: `WELES` for important threads, `Heuristic` for cheap short work
 - Goal runners: use them for anything you would otherwise “come back to later”

@@ -329,8 +329,11 @@ pub(crate) fn goal_step_completion_marker_prompt_block_for_data_dir(
     }
     let human_step_number = goal_run.current_step_index.saturating_add(1);
     let total_steps = goal_run.steps.len();
-    let marker_path =
-        projection::goal_step_completion_marker_path(data_dir, &goal_run.id, goal_run.current_step_index);
+    let marker_path = projection::goal_step_completion_marker_path(
+        data_dir,
+        &goal_run.id,
+        goal_run.current_step_index,
+    );
     Some(format!(
         "## Goal Step Completion Marker\n\
          - Current step: Step {human_step_number} of {total_steps}\n\

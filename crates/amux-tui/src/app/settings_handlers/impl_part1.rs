@@ -104,10 +104,16 @@ impl TuiModel {
         };
         match provider_id {
             PROVIDER_ID_OPENAI | PROVIDER_ID_AZURE_OPENAI | PROVIDER_ID_CUSTOM => {
-                vec![model("gpt-image-1", "GPT Image 1", None)]
+                vec![
+                    model("gpt-image-1", "GPT Image 1", None),
+                    model("gpt-image-2", "GPT Image 2", None),
+                ]
             }
             PROVIDER_ID_OPENROUTER => {
-                vec![model("openai/gpt-image-1", "OpenAI GPT Image 1", None)]
+                vec![
+                    model("openai/gpt-image-1", "OpenAI GPT Image 1", None),
+                    model("openai/gpt-image-2", "OpenAI GPT Image 2", None),
+                ]
             }
             _ => Vec::new(),
         }

@@ -63,9 +63,11 @@ pub(crate) fn build_rows(
                 Span::raw(format!("{thread_label}  ")),
                 Span::raw(thread_id.clone()),
             ]),
-            selection: Some(crate::state::goal_workspace::GoalPlanSelection::MainThread {
-                thread_id: thread_id.clone(),
-            }),
+            selection: Some(
+                crate::state::goal_workspace::GoalPlanSelection::MainThread {
+                    thread_id: thread_id.clone(),
+                },
+            ),
             target: Some(GoalWorkspaceHitTarget::PlanMainThread(thread_id)),
             marker_state: None,
             marker_span_index: None,
@@ -164,60 +166,64 @@ fn main_agent_thread(
     tasks: &TaskState,
     run: &crate::state::task::GoalRun,
 ) -> Option<(String, String)> {
-    run.active_thread_id.clone().map(|thread_id| {
-        (
-            run.current_step_owner_profile
-                .as_ref()
-                .map(|owner| format!("Main agent ({})", owner.agent_label))
-                .unwrap_or_else(|| "Main agent".to_string()),
-            thread_id,
-        )
-    })
-    .or_else(|| {
-        run.root_thread_id.clone().map(|thread_id| {
-            (
-                run.planner_owner_profile
-                    .as_ref()
-                    .map(|owner| format!("Main agent ({})", owner.agent_label))
-                    .unwrap_or_else(|| "Main agent".to_string()),
-                thread_id,
-            )
-        })
-    })
-    .or_else(|| {
-        run.thread_id
-            .clone()
-            .map(|thread_id| ("Main agent".to_string(), thread_id))
-    })
-    .or_else(|| {
-        run.execution_thread_ids
-            .first()
-            .cloned()
-            .map(|thread_id| ("Main agent".to_string(), thread_id))
-    })
-    .or_else(|| {
-        let mut goal_tasks = tasks
-            .tasks()
-            .iter()
-            .filter(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
-            .filter_map(|task| {
-                task.thread_id.as_ref().map(|thread_id| {
-                    let priority = match task.status {
-                        Some(TaskStatus::InProgress) => 0,
-                        Some(TaskStatus::AwaitingApproval) => 1,
-                        Some(TaskStatus::Queued) => 2,
-                        _ => 3,
-                    };
-                    (priority, std::cmp::Reverse(task.created_at), thread_id.clone())
-                })
+    run.thread_id
+        .clone()
+        .map(|thread_id| ("Main agent".to_string(), thread_id))
+        .or_else(|| {
+            run.root_thread_id.clone().map(|thread_id| {
+                (
+                    run.planner_owner_profile
+                        .as_ref()
+                        .map(|owner| format!("Main agent ({})", owner.agent_label))
+                        .unwrap_or_else(|| "Main agent".to_string()),
+                    thread_id,
+                )
             })
-            .collect::<Vec<_>>();
-        goal_tasks.sort();
-        goal_tasks
-            .into_iter()
-            .next()
-            .map(|(_, _, thread_id)| ("Main agent".to_string(), thread_id))
-    })
+        })
+        .or_else(|| {
+            run.active_thread_id.clone().map(|thread_id| {
+                (
+                    run.current_step_owner_profile
+                        .as_ref()
+                        .map(|owner| format!("Main agent ({})", owner.agent_label))
+                        .unwrap_or_else(|| "Main agent".to_string()),
+                    thread_id,
+                )
+            })
+        })
+        .or_else(|| {
+            run.execution_thread_ids
+                .first()
+                .cloned()
+                .map(|thread_id| ("Main agent".to_string(), thread_id))
+        })
+        .or_else(|| {
+            let mut goal_tasks = tasks
+                .tasks()
+                .iter()
+                .filter(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
+                .filter_map(|task| {
+                    task.thread_id.as_ref().map(|thread_id| {
+                        let priority = match task.status {
+                            Some(TaskStatus::InProgress) => 0,
+                            Some(TaskStatus::AwaitingApproval) => 1,
+                            Some(TaskStatus::Queued) => 2,
+                            _ => 3,
+                        };
+                        (
+                            priority,
+                            std::cmp::Reverse(task.created_at),
+                            thread_id.clone(),
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+            goal_tasks.sort();
+            goal_tasks
+                .into_iter()
+                .next()
+                .map(|(_, _, thread_id)| ("Main agent".to_string(), thread_id))
+        })
 }
 
 fn todo_status_chip(status: Option<TodoStatus>) -> &'static str {
@@ -233,7 +239,10 @@ fn step_marker_state(
     step: &crate::state::task::GoalRunStep,
     active: bool,
 ) -> GoalWorkspacePlanMarkerState {
-    if step.error.as_deref().is_some_and(|error| !error.trim().is_empty())
+    if step
+        .error
+        .as_deref()
+        .is_some_and(|error| !error.trim().is_empty())
         || matches!(step.status, Some(GoalRunStatus::Failed))
     {
         GoalWorkspacePlanMarkerState::Error
@@ -242,7 +251,9 @@ fn step_marker_state(
     } else if active
         || matches!(
             step.status,
-            Some(GoalRunStatus::Running | GoalRunStatus::Planning | GoalRunStatus::AwaitingApproval)
+            Some(
+                GoalRunStatus::Running | GoalRunStatus::Planning | GoalRunStatus::AwaitingApproval
+            )
         )
     {
         GoalWorkspacePlanMarkerState::Running

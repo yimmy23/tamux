@@ -17,7 +17,7 @@ In practice that means:
 
 ## Best Practices
 
-Before you jump into installation and setup, read the operational guidance in [`docs/best-pracites.md`](docs/best-pracites.md). It covers model role selection, compaction strategy, governance usage, cost control, and the day-to-day habits that make tamux work well.
+Before you jump into installation and setup, read the operational guidance in [`docs/best-practices.md`](docs/best-practices.md). It covers model role selection, compaction strategy, governance usage, cost control, and the day-to-day habits that make tamux work well.
 
 ## Quick Start
 
@@ -183,7 +183,7 @@ Tamux supports voice workflows in both TUI and desktop app.
 
 ### Documentation
 
-- [Best Practices](docs/best-pracites.md)
+- [Best Practices](docs/best-practices.md)
 - [Reference](docs/reference.md)
 - [Getting Started](docs/getting-started.md)
 - [How tamux Works](docs/how-tamux-works.md)

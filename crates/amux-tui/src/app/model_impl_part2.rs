@@ -35,7 +35,7 @@ impl TuiModel {
             return false;
         };
 
-        self.set_mission_control_return_to_goal_target(None);
+        self.clear_mission_control_return_context();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
         self.clear_task_view_drag_selection();
@@ -377,16 +377,7 @@ impl TuiModel {
     }
 
     fn open_thread_conversation(&mut self, thread_id: String) {
-        let return_target = if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
-            self.mission_control_source_goal_target()
-        } else {
-            self.current_goal_target_for_mission_control()
-        };
-        if let Some(target) = return_target {
-            self.set_mission_control_return_to_goal_target(Some(target));
-        } else {
-            self.set_mission_control_return_to_goal_target(None);
-        }
+        self.set_mission_control_return_targets(self.current_goal_return_target(), None);
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
@@ -399,12 +390,26 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
     }
 
+    fn restore_conversation_thread(&mut self, thread_id: String, focus: FocusArea) {
+        self.cleanup_concierge_on_navigate();
+        self.clear_chat_drag_selection();
+        self.clear_work_context_drag_selection();
+        self.clear_task_view_drag_selection();
+        self.pending_new_thread_target_agent = None;
+        self.chat
+            .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
+        self.request_latest_thread_page(thread_id, true);
+        self.main_pane_view = MainPaneView::Conversation;
+        self.task_view_scroll = 0;
+        self.focus = focus;
+    }
+
     fn start_new_thread_view(&mut self) {
         self.start_new_thread_view_for_agent(None);
     }
 
     fn start_new_thread_view_for_agent(&mut self, target_agent_id: Option<&str>) {
-        self.set_mission_control_return_to_goal_target(None);
+        self.clear_mission_control_return_context();
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
@@ -419,7 +424,7 @@ impl TuiModel {
     }
 
     fn begin_concierge_welcome_request(&mut self) {
-        self.set_mission_control_return_to_goal_target(None);
+        self.clear_mission_control_return_context();
         self.pending_reconnect_restore = None;
         self.ignore_pending_concierge_welcome = false;
         self.clear_chat_drag_selection();
@@ -483,6 +488,11 @@ impl TuiModel {
             MainPaneView::Collaboration
             | MainPaneView::WorkContext
             | MainPaneView::FilePreview(_) => {
+                if let Some(thread_id) = self.mission_control_return_to_thread_id() {
+                    self.set_mission_control_return_to_thread_id(None);
+                    self.restore_conversation_thread(thread_id, focus);
+                    return true;
+                }
                 if let Some(target) = self.mission_control_return_to_goal_target() {
                     self.set_mission_control_return_to_goal_target(None);
                     self.open_sidebar_target(target);
