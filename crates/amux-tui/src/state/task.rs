@@ -423,6 +423,91 @@ impl TaskState {
             .unwrap_or(&[])
     }
 
+    pub fn goal_steps_in_display_order(&self, goal_run_id: &str) -> Vec<&GoalRunStep> {
+        let Some(run) = self.goal_run_by_id(goal_run_id) else {
+            return Vec::new();
+        };
+
+        let mut steps: Vec<_> = run.steps.iter().collect();
+        steps.sort_by_key(|step| step.order);
+        steps
+    }
+
+    pub fn goal_step_todos(&self, goal_run_id: &str, step_index: usize) -> Vec<TodoItem> {
+        let Some(run) = self.goal_run_by_id(goal_run_id) else {
+            return Vec::new();
+        };
+
+        let latest_snapshot = run
+            .events
+            .iter()
+            .rev()
+            .find(|event| {
+                event.step_index == Some(step_index)
+                    && event
+                        .todo_snapshot
+                        .iter()
+                        .any(|todo| todo.step_index == Some(step_index))
+            })
+            .map(|event| {
+                let mut todos: Vec<_> = event
+                    .todo_snapshot
+                    .iter()
+                    .filter(|todo| todo.step_index == Some(step_index))
+                    .cloned()
+                    .collect();
+                todos.sort_by_key(|todo| todo.position);
+                todos
+            });
+        if let Some(todos) = latest_snapshot {
+            return todos;
+        }
+
+        let Some(thread_id) = run.thread_id.as_deref() else {
+            return Vec::new();
+        };
+
+        let mut todos: Vec<_> = self
+            .todos_for_thread(thread_id)
+            .iter()
+            .filter(|todo| todo.step_index == Some(step_index))
+            .cloned()
+            .collect();
+        todos.sort_by_key(|todo| todo.position);
+        todos
+    }
+
+    pub fn goal_step_checkpoints(
+        &self,
+        goal_run_id: &str,
+        step_index: usize,
+    ) -> Vec<&GoalRunCheckpointSummary> {
+        self.checkpoints_for_goal_run(goal_run_id)
+            .iter()
+            .filter(|checkpoint| checkpoint.step_index == Some(step_index))
+            .collect()
+    }
+
+    pub fn goal_step_files(
+        &self,
+        goal_run_id: &str,
+        thread_id: &str,
+        step_index: usize,
+    ) -> Vec<&WorkContextEntry> {
+        let Some(context) = self.work_context_for_thread(thread_id) else {
+            return Vec::new();
+        };
+
+        context
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.goal_run_id.as_deref() == Some(goal_run_id)
+                    && entry.step_index == Some(step_index)
+            })
+            .collect()
+    }
+
     pub fn goal_run_next_page_request(
         &self,
         goal_run_id: &str,

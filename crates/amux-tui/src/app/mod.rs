@@ -448,6 +448,7 @@ pub struct TuiModel {
     sidebar: sidebar::SidebarState,
     goal_sidebar: goal_sidebar::GoalSidebarState,
     goal_mission_control: goal_mission_control::GoalMissionControlState,
+    goal_workspace: goal_workspace::GoalWorkspaceState,
     mission_control_navigation: MissionControlNavigationState,
     goal_sidebar_selection_anchor: Option<GoalSidebarSelectionAnchor>,
     tasks: task::TaskState,

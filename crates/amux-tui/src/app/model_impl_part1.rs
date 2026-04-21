@@ -10,6 +10,7 @@ impl TuiModel {
             sidebar: sidebar::SidebarState::new(),
             goal_sidebar: goal_sidebar::GoalSidebarState::new(),
             goal_mission_control: goal_mission_control::GoalMissionControlState::new(),
+            goal_workspace: goal_workspace::GoalWorkspaceState::new(),
             mission_control_navigation: MissionControlNavigationState::default(),
             goal_sidebar_selection_anchor: None,
             tasks: task::TaskState::new(),

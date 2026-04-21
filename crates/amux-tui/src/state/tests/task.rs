@@ -200,6 +200,225 @@ fn new_goal_run_updates_are_inserted_first() {
 }
 
 #[test]
+fn goal_steps_in_display_order_sorts_by_step_order() {
+    let mut state = TaskState::new();
+    state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        steps: vec![
+            GoalRunStep {
+                id: "step-3".into(),
+                title: "Third".into(),
+                order: 2,
+                ..Default::default()
+            },
+            GoalRunStep {
+                id: "step-1".into(),
+                title: "First".into(),
+                order: 0,
+                ..Default::default()
+            },
+            GoalRunStep {
+                id: "step-2".into(),
+                title: "Second".into(),
+                order: 1,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+
+    let step_ids = state
+        .goal_steps_in_display_order("goal-1")
+        .iter()
+        .map(|step| step.id.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(step_ids, vec!["step-1", "step-2", "step-3"]);
+}
+
+#[test]
+fn goal_step_todos_prefer_latest_event_snapshot_for_step() {
+    let mut state = TaskState::new();
+    state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        thread_id: Some("thread-1".into()),
+        steps: vec![GoalRunStep {
+            id: "step-1".into(),
+            title: "Plan".into(),
+            order: 0,
+            ..Default::default()
+        }],
+        events: vec![
+            GoalRunEvent {
+                id: "event-old".into(),
+                timestamp: 10,
+                step_index: Some(0),
+                todo_snapshot: vec![TodoItem {
+                    id: "todo-old".into(),
+                    content: "old snapshot item".into(),
+                    status: Some(TodoStatus::Pending),
+                    step_index: Some(0),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            GoalRunEvent {
+                id: "event-new".into(),
+                timestamp: 20,
+                step_index: Some(0),
+                todo_snapshot: vec![
+                    TodoItem {
+                        id: "todo-1".into(),
+                        content: "latest snapshot item".into(),
+                        status: Some(TodoStatus::InProgress),
+                        step_index: Some(0),
+                        ..Default::default()
+                    },
+                    TodoItem {
+                        id: "todo-2".into(),
+                        content: "another snapshot item".into(),
+                        status: Some(TodoStatus::Pending),
+                        step_index: Some(0),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+
+    let todos = state.goal_step_todos("goal-1", 0);
+    let todo_ids = todos.iter().map(|todo| todo.id.as_str()).collect::<Vec<_>>();
+
+    assert_eq!(todo_ids, vec!["todo-1", "todo-2"]);
+    assert_eq!(todos[0].content, "latest snapshot item");
+}
+
+#[test]
+fn goal_step_todos_fall_back_to_thread_todos_when_event_snapshot_is_missing() {
+    let mut state = TaskState::new();
+    state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        thread_id: Some("thread-1".into()),
+        steps: vec![GoalRunStep {
+            id: "step-1".into(),
+            title: "Plan".into(),
+            order: 0,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+    state.reduce(TaskAction::ThreadTodosReceived {
+        thread_id: "thread-1".into(),
+        items: vec![
+            TodoItem {
+                id: "todo-1".into(),
+                content: "step todo".into(),
+                status: Some(TodoStatus::Pending),
+                step_index: Some(0),
+                ..Default::default()
+            },
+            TodoItem {
+                id: "todo-2".into(),
+                content: "other step todo".into(),
+                status: Some(TodoStatus::Completed),
+                step_index: Some(1),
+                ..Default::default()
+            },
+        ],
+    });
+
+    let todos = state.goal_step_todos("goal-1", 0);
+
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].id, "todo-1");
+    assert_eq!(todos[0].content, "step todo");
+}
+
+#[test]
+fn goal_step_details_filter_checkpoints_and_files_by_goal_and_step() {
+    let mut state = TaskState::new();
+    state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        thread_id: Some("thread-1".into()),
+        steps: vec![
+            GoalRunStep {
+                id: "step-1".into(),
+                title: "Plan".into(),
+                order: 0,
+                ..Default::default()
+            },
+            GoalRunStep {
+                id: "step-2".into(),
+                title: "Ship".into(),
+                order: 1,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+    state.reduce(TaskAction::GoalRunCheckpointsReceived {
+        goal_run_id: "goal-1".into(),
+        checkpoints: vec![
+            GoalRunCheckpointSummary {
+                id: "checkpoint-1".into(),
+                checkpoint_type: "plan".into(),
+                step_index: Some(0),
+                ..Default::default()
+            },
+            GoalRunCheckpointSummary {
+                id: "checkpoint-2".into(),
+                checkpoint_type: "ship".into(),
+                step_index: Some(1),
+                ..Default::default()
+            },
+        ],
+    });
+    state.reduce(TaskAction::WorkContextReceived(ThreadWorkContext {
+        thread_id: "thread-1".into(),
+        entries: vec![
+            WorkContextEntry {
+                path: "/tmp/plan.md".into(),
+                goal_run_id: Some("goal-1".into()),
+                step_index: Some(0),
+                ..Default::default()
+            },
+            WorkContextEntry {
+                path: "/tmp/ship.md".into(),
+                goal_run_id: Some("goal-1".into()),
+                step_index: Some(1),
+                ..Default::default()
+            },
+            WorkContextEntry {
+                path: "/tmp/other-goal.md".into(),
+                goal_run_id: Some("goal-2".into()),
+                step_index: Some(0),
+                ..Default::default()
+            },
+        ],
+    }));
+
+    let checkpoint_ids = state
+        .goal_step_checkpoints("goal-1", 0)
+        .iter()
+        .map(|checkpoint| checkpoint.id.as_str())
+        .collect::<Vec<_>>();
+    let file_paths = state
+        .goal_step_files("goal-1", "thread-1", 0)
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(checkpoint_ids, vec!["checkpoint-1"]);
+    assert_eq!(file_paths, vec!["/tmp/plan.md"]);
+}
+
+#[test]
 fn goal_run_detail_received_parses_mission_control_metadata() {
     let wire_run = crate::wire::GoalRun {
         id: "g1".into(),

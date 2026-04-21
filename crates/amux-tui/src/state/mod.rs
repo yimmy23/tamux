@@ -8,6 +8,7 @@ pub mod collaboration;
 pub mod concierge;
 pub mod config;
 pub mod goal_mission_control;
+pub mod goal_workspace;
 pub mod goal_sidebar;
 pub mod input;
 pub mod input_refs;
