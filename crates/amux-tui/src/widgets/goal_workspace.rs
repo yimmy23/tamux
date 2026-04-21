@@ -8,6 +8,7 @@ use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthChar;
 
 #[path = "goal_workspace_plan.rs"]
@@ -92,7 +93,15 @@ pub fn render(
     };
 
     render_summary(frame, layout.summary, state, theme);
-    render_plan(frame, layout.plan, tasks, goal_run_id, state, theme);
+    render_plan(
+        frame,
+        layout.plan,
+        tasks,
+        goal_run_id,
+        state,
+        theme,
+        tick_counter,
+    );
     render_center_pane(
         frame,
         layout.timeline,
@@ -165,59 +174,30 @@ pub fn hit_test(
             if !rect_contains(inner, mouse) {
                 return None;
             }
-
-            let rows = plan::build_rows(tasks, goal_run_id, state);
+            let rows = plan_visual_row_targets(tasks, goal_run_id, state, inner.width as usize);
             let row_index = resolved_plan_scroll(rows.len(), inner.height as usize, state)
                 .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
-            rows.get(row_index).and_then(|row| row.target.clone())
+            rows.get(row_index).cloned().flatten()
         }
         GoalWorkspacePane::Timeline => {
             let inner = Block::default().borders(Borders::ALL).inner(layout.timeline);
             if !rect_contains(inner, mouse) {
                 return None;
             }
-            let row_index = resolved_timeline_scroll(
-                center_rows(
-                    tasks,
-                    goal_run_id,
-                    state,
-                    inner.width as usize,
-                    &ThemeTokens::default(),
-                    0,
-                )
-                .len(),
-                inner.height as usize,
-                state,
-            )
-            .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
-            center_rows(
-                tasks,
-                goal_run_id,
-                state,
-                inner.width as usize,
-                &ThemeTokens::default(),
-                0,
-            )
-                .into_iter()
-                .nth(row_index)
-                .and_then(|row| row.target)
+            let rows = center_visual_targets(tasks, goal_run_id, state, inner.width as usize);
+            let row_index = resolved_timeline_scroll(rows.len(), inner.height as usize, state)
+                .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
+            rows.get(row_index).cloned().flatten()
         }
         GoalWorkspacePane::Details => {
             let inner = Block::default().borders(Borders::ALL).inner(layout.details);
             if !rect_contains(inner, mouse) {
                 return None;
             }
-            let row_index = resolved_detail_scroll(
-                detail_lines(tasks, goal_run_id, state, inner.width as usize, &ThemeTokens::default())
-                    .len(),
-                inner.height as usize,
-                state,
-            )
-            .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
-            detail_lines(tasks, goal_run_id, state, inner.width as usize, &ThemeTokens::default())
-                .into_iter()
-                .find_map(|(index, target, _)| (index == row_index).then_some(target))
-                .flatten()
+            let rows = detail_visual_targets(tasks, goal_run_id, state, inner.width as usize);
+            let row_index = resolved_detail_scroll(rows.len(), inner.height as usize, state)
+                .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
+            rows.get(row_index).cloned().flatten()
         }
         GoalWorkspacePane::CommandBar => None,
     }
@@ -233,7 +213,7 @@ pub fn max_plan_scroll(
         return 0;
     };
     let inner = Block::default().borders(Borders::ALL).inner(layout.plan);
-    let rows = plan::build_rows(tasks, goal_run_id, state);
+    let rows = plan_visual_row_targets(tasks, goal_run_id, state, inner.width as usize);
     rows.len().saturating_sub(inner.height as usize)
 }
 
@@ -255,14 +235,7 @@ pub fn max_timeline_scroll(
         return 0;
     };
     let inner = Block::default().borders(Borders::ALL).inner(layout.timeline);
-    center_rows(
-        tasks,
-        goal_run_id,
-        state,
-        inner.width as usize,
-        &ThemeTokens::default(),
-        0,
-    )
+    center_visual_targets(tasks, goal_run_id, state, inner.width as usize)
         .len()
         .saturating_sub(inner.height as usize)
 }
@@ -281,7 +254,7 @@ pub fn max_detail_scroll(
         return 0;
     };
     let inner = Block::default().borders(Borders::ALL).inner(layout.details);
-    detail_lines(tasks, goal_run_id, state, inner.width as usize, &ThemeTokens::default())
+    detail_visual_targets(tasks, goal_run_id, state, inner.width as usize)
         .len()
         .saturating_sub(inner.height as usize)
 }
@@ -375,7 +348,8 @@ pub fn selected_text(
 }
 
 const MODE_TABS: &[(GoalWorkspaceMode, &str)] = &[
-    (GoalWorkspaceMode::Goal, "Goal"),
+    (GoalWorkspaceMode::Goal, "Dossier"),
+    (GoalWorkspaceMode::Files, "Files"),
     (GoalWorkspaceMode::Progress, "Progress"),
     (GoalWorkspaceMode::ActiveAgent, "Active agent"),
     (GoalWorkspaceMode::Threads, "Threads"),
@@ -440,39 +414,85 @@ fn render_plan(
     tasks: &TaskState,
     goal_run_id: &str,
     state: &GoalWorkspaceState,
-    _theme: &ThemeTokens,
+    theme: &ThemeTokens,
+    tick_counter: u64,
 ) {
     let block = Block::default()
         .title(" Plan ")
         .borders(Borders::ALL)
         .border_style(if state.focused_pane() == GoalWorkspacePane::Plan {
-            _theme.accent_primary
+            theme.accent_primary
         } else {
-            _theme.fg_dim
+            theme.fg_dim
         });
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     let selected_style = selected_row_style(state.focused_pane() == GoalWorkspacePane::Plan);
-    let selected_visual_row = plan_visual_row_for_selection(tasks, goal_run_id, state);
+    let selected_visual_row =
+        plan_visual_row_for_selection(tasks, goal_run_id, state, inner.width as usize);
     let lines = plan::build_rows(tasks, goal_run_id, state)
         .into_iter()
         .enumerate()
         .map(|(index, row)| {
+            let line = styled_plan_row(row, theme, tick_counter);
             if Some(index) == selected_visual_row {
-                row.line.style(selected_style)
+                line.style(selected_style)
             } else {
-                row.line
+                line
             }
         })
         .collect::<Vec<_>>();
-    let scroll = resolved_plan_scroll(lines.len(), inner.height as usize, state);
+    let scroll = resolved_plan_scroll(
+        plan_visual_row_targets(tasks, goal_run_id, state, inner.width as usize).len(),
+        inner.height as usize,
+        state,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
             .scroll((scroll.min(u16::MAX as usize) as u16, 0)),
         inner,
     );
+}
+
+fn styled_plan_row(
+    row: plan::GoalWorkspacePlanRow,
+    theme: &ThemeTokens,
+    tick_counter: u64,
+) -> Line<'static> {
+    let Some(marker_state) = row.marker_state else {
+        return row.line;
+    };
+    let Some(marker_span_index) = row.marker_span_index else {
+        return row.line;
+    };
+
+    let (symbol, style) = plan_marker_display(marker_state, theme, tick_counter);
+    let mut spans = row.line.spans;
+    if let Some(span) = spans.get_mut(marker_span_index) {
+        *span = Span::styled(format!("{symbol} "), style);
+    }
+    Line::from(spans)
+}
+
+fn plan_marker_display(
+    state: plan::GoalWorkspacePlanMarkerState,
+    theme: &ThemeTokens,
+    tick_counter: u64,
+) -> (&'static str, Style) {
+    match state {
+        plan::GoalWorkspacePlanMarkerState::Pending => ("○", theme.fg_dim),
+        plan::GoalWorkspacePlanMarkerState::Completed => ("●", theme.accent_success),
+        plan::GoalWorkspacePlanMarkerState::Running => (
+            if tick_counter % 2 == 0 { "◉" } else { "●" },
+            theme.accent_secondary,
+        ),
+        plan::GoalWorkspacePlanMarkerState::Error => (
+            if tick_counter % 2 == 0 { "◉" } else { "◎" },
+            theme.accent_danger,
+        ),
+    }
 }
 
 fn render_placeholder(frame: &mut Frame, area: Rect, title: &str, body: &str, theme: &ThemeTokens) {
@@ -523,7 +543,11 @@ fn render_center_pane(
         lines.push(Line::from(Span::styled("No data available.", theme.fg_dim)));
     }
     let selected_style = selected_row_style(state.focused_pane() == GoalWorkspacePane::Timeline);
-    let scroll = resolved_timeline_scroll(lines.len(), inner.height as usize, state);
+    let scroll = resolved_timeline_scroll(
+        center_visual_targets(tasks, goal_run_id, state, inner.width as usize).len(),
+        inner.height as usize,
+        state,
+    );
     for (line, row) in lines.iter_mut().zip(center_rows.iter()) {
         if selected_target.is_some() && row.target == selected_target {
             *line = line.clone().style(selected_style);
@@ -582,7 +606,11 @@ fn render_details(
             theme.fg_dim,
         )));
     }
-    let scroll = resolved_detail_scroll(lines.len(), inner.height as usize, state);
+    let scroll = resolved_detail_scroll(
+        detail_visual_targets(tasks, goal_run_id, state, inner.width as usize).len(),
+        inner.height as usize,
+        state,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
@@ -627,6 +655,7 @@ struct WorkspaceVisualRow {
 fn center_pane_title(mode: GoalWorkspaceMode) -> &'static str {
     match mode {
         GoalWorkspaceMode::Goal => " Run timeline ",
+        GoalWorkspaceMode::Files => " Files ",
         GoalWorkspaceMode::Progress => " Progress ",
         GoalWorkspaceMode::ActiveAgent => " Active agent ",
         GoalWorkspaceMode::Threads => " Threads ",
@@ -755,7 +784,8 @@ fn footer_hit_test(
 
 fn detail_pane_title(mode: GoalWorkspaceMode) -> &'static str {
     match mode {
-        GoalWorkspaceMode::Goal => " Goal ",
+        GoalWorkspaceMode::Goal => " Dossier ",
+        GoalWorkspaceMode::Files => " File details ",
         GoalWorkspaceMode::Progress => " Progress details ",
         GoalWorkspaceMode::ActiveAgent => " Runtime details ",
         GoalWorkspaceMode::Threads => " Thread details ",
@@ -773,6 +803,7 @@ fn center_rows(
 ) -> Vec<WorkspaceVisualRow> {
     match state.mode() {
         GoalWorkspaceMode::Goal => timeline_rows(tasks, goal_run_id, width, theme, tick_counter),
+        GoalWorkspaceMode::Files => goal_file_rows(goal_run_id, width, theme),
         GoalWorkspaceMode::Progress => progress_rows(tasks, goal_run_id, theme),
         GoalWorkspaceMode::ActiveAgent => active_agent_rows(tasks, goal_run_id, theme),
         GoalWorkspaceMode::Threads => thread_rows(tasks, goal_run_id, theme),
@@ -1199,41 +1230,6 @@ fn detail_lines(
                     );
                 }
 
-                push_detail_header(&mut rows, &mut visual_row, "Files", theme);
-                let file_entries =
-                    goal_files_for_selected_step(tasks, goal_run_id, step.order as usize);
-                if file_entries.is_empty() {
-                    push_detail_line(
-                        &mut rows,
-                        &mut visual_row,
-                        None,
-                        Line::from(Span::styled("No goal files yet.", theme.fg_dim)),
-                    );
-                } else {
-                    for entry in file_entries {
-                        let label = entry.change_kind.as_deref().unwrap_or_else(|| {
-                            entry
-                                .kind
-                                .map(|kind| match kind {
-                                    crate::state::task::WorkContextEntryKind::RepoChange => "diff",
-                                    crate::state::task::WorkContextEntryKind::Artifact => "file",
-                                    crate::state::task::WorkContextEntryKind::GeneratedSkill => "skill",
-                                })
-                                .unwrap_or("file")
-                        });
-                        push_detail_line(
-                            &mut rows,
-                            &mut visual_row,
-                            Some(GoalWorkspaceHitTarget::DetailFile(entry.path.clone())),
-                            Line::from(vec![
-                                Span::styled("• ", theme.accent_secondary),
-                                Span::styled(format!("[{label}] "), theme.fg_dim),
-                                Span::styled(entry.path.clone(), theme.fg_active),
-                            ]),
-                        );
-                    }
-                }
-
                 if let Some(run) = run.dossier.as_ref() {
                     push_detail_blank(&mut rows, &mut visual_row);
                     push_detail_header(&mut rows, &mut visual_row, "Execution Dossier", theme);
@@ -1401,6 +1397,56 @@ fn detail_lines(
                         );
                     }
                 }
+            }
+        }
+        GoalWorkspaceMode::Files => {
+            push_detail_header(&mut rows, &mut visual_row, "Selected File", theme);
+            if let Some(file) = selected_goal_projection_file(goal_run_id, state) {
+                push_detail_line(
+                    &mut rows,
+                    &mut visual_row,
+                    None,
+                    Line::from(vec![
+                        Span::styled("Path ", theme.fg_dim),
+                        Span::styled(file.relative_path.clone(), theme.fg_active),
+                    ]),
+                );
+                push_detail_wrapped(
+                    &mut rows,
+                    &mut visual_row,
+                    &file.absolute_path,
+                    theme.fg_dim,
+                    width,
+                );
+                push_detail_line(
+                    &mut rows,
+                    &mut visual_row,
+                    None,
+                    Line::from(vec![
+                        Span::styled("Size ", theme.fg_dim),
+                        Span::styled(
+                            format!("{} bytes", file.size_bytes.unwrap_or(0)),
+                            theme.fg_active,
+                        ),
+                    ]),
+                );
+                push_detail_blank(&mut rows, &mut visual_row);
+                push_detail_line(
+                    &mut rows,
+                    &mut visual_row,
+                    None,
+                    Line::from(Span::styled(
+                        "Press Enter to open the preview.",
+                        theme.fg_dim,
+                    )),
+                );
+            } else {
+                push_detail_line(
+                    &mut rows,
+                    &mut visual_row,
+                    None,
+                    Line::from(Span::styled("No goal files yet.", theme.fg_dim)),
+                );
             }
         }
         GoalWorkspaceMode::Progress => {
@@ -2158,6 +2204,119 @@ fn todo_task_chip(status: Option<crate::state::task::TaskStatus>) -> &'static st
     }
 }
 
+#[derive(Clone)]
+struct GoalProjectionFileEntry {
+    absolute_path: String,
+    relative_path: String,
+    size_bytes: Option<u64>,
+}
+
+fn goal_file_rows(goal_run_id: &str, width: usize, theme: &ThemeTokens) -> Vec<WorkspaceVisualRow> {
+    let files = goal_projection_files(goal_run_id);
+    if files.is_empty() {
+        return vec![WorkspaceVisualRow {
+            target: None,
+            line: Line::from(Span::styled("No goal files yet.", theme.fg_dim)),
+        }];
+    }
+
+    files
+        .into_iter()
+        .map(|file| WorkspaceVisualRow {
+            target: Some(GoalWorkspaceHitTarget::DetailFile(file.absolute_path.clone())),
+            line: Line::from(vec![
+                Span::styled("• ", theme.accent_secondary),
+                Span::styled(
+                    truncate_tail(&file.relative_path, width.saturating_sub(2).max(8)),
+                    theme.fg_active,
+                ),
+            ]),
+        })
+        .collect()
+}
+
+fn selected_goal_projection_file(
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+) -> Option<GoalProjectionFileEntry> {
+    let files = goal_projection_files(goal_run_id);
+    if files.is_empty() {
+        None
+    } else {
+        files
+            .get(state.selected_timeline_row().min(files.len().saturating_sub(1)))
+            .cloned()
+    }
+}
+
+fn goal_projection_files(goal_run_id: &str) -> Vec<GoalProjectionFileEntry> {
+    let Ok(data_dir) = amux_protocol::ensure_amux_data_dir() else {
+        return Vec::new();
+    };
+    goal_projection_files_in_root(&data_dir.join("goals").join(goal_run_id))
+}
+
+fn goal_projection_files_in_root(goal_root: &Path) -> Vec<GoalProjectionFileEntry> {
+    let mut absolute_paths = Vec::new();
+    collect_goal_projection_files(goal_root, &mut absolute_paths);
+    absolute_paths.sort();
+    absolute_paths
+        .into_iter()
+        .filter_map(|path| {
+            let relative = path.strip_prefix(goal_root).ok()?;
+            let metadata = std::fs::metadata(&path).ok();
+            Some(GoalProjectionFileEntry {
+                absolute_path: path.to_string_lossy().to_string(),
+                relative_path: normalized_goal_relative_path(relative),
+                size_bytes: metadata.map(|value| value.len()),
+            })
+        })
+        .collect()
+}
+
+fn collect_goal_projection_files(root: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            collect_goal_projection_files(&path, files);
+        } else if file_type.is_file() {
+            files.push(path);
+        }
+    }
+}
+
+fn normalized_goal_relative_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn truncate_tail(text: &str, max_len: usize) -> String {
+    let char_count = text.chars().count();
+    if char_count <= max_len {
+        return text.to_string();
+    }
+    if max_len <= 1 {
+        return "…".to_string();
+    }
+    let tail: String = text
+        .chars()
+        .rev()
+        .take(max_len.saturating_sub(1))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("…{tail}")
+}
+
 fn goal_files_for_selected_step<'a>(
     tasks: &'a TaskState,
     goal_run_id: &str,
@@ -2318,13 +2477,14 @@ pub fn timeline_visual_row_for_selection(
     tasks: &TaskState,
     goal_run_id: &str,
     state: &GoalWorkspaceState,
+    width: usize,
 ) -> Option<usize> {
     let selected_target = center_targets(tasks, goal_run_id, state)
         .get(state.selected_timeline_row())
         .cloned()?;
-    center_rows(tasks, goal_run_id, state, 80, &ThemeTokens::default(), 0)
+    center_visual_targets(tasks, goal_run_id, state, width)
         .iter()
-        .position(|row| row.target == Some(selected_target.clone()))
+        .position(|target| *target == Some(selected_target.clone()))
 }
 
 pub fn timeline_targets(
@@ -2354,30 +2514,38 @@ pub fn plan_visual_row_for_selection(
     tasks: &TaskState,
     goal_run_id: &str,
     state: &GoalWorkspaceState,
+    width: usize,
 ) -> Option<usize> {
-    let selected = plan_selection_rows(tasks, goal_run_id, state)
-        .into_iter()
-        .find_map(|(visual_row, selection)| {
-            (state.selected_plan_item() == Some(&selection)).then_some(visual_row)
-        });
-    selected.or_else(|| {
-        plan_selection_rows(tasks, goal_run_id, state)
-            .get(state.selected_plan_row())
-            .map(|(visual_row, _)| *visual_row)
-    })
+    let selected = state.selected_plan_item().cloned();
+    let rows = plan::build_rows(tasks, goal_run_id, state);
+    let mut visual_row = 0usize;
+
+    for row in rows {
+        let row_height = wrapped_visual_height(&row.line, width);
+        if selected.is_some() && row.selection == selected {
+            return Some(visual_row);
+        }
+        if row.selection.is_some() && visual_row == state.selected_plan_row() {
+            return Some(visual_row);
+        }
+        visual_row = visual_row.saturating_add(row_height);
+    }
+
+    None
 }
 
 pub fn detail_visual_row_for_selection(
     tasks: &TaskState,
     goal_run_id: &str,
     state: &GoalWorkspaceState,
+    width: usize,
 ) -> Option<usize> {
     let selected_target = detail_targets(tasks, goal_run_id, state)
         .into_iter()
         .find_map(|(index, target)| (index == state.selected_detail_row()).then_some(target))?;
-    detail_lines(tasks, goal_run_id, state, 80, &ThemeTokens::default())
+    detail_visual_targets(tasks, goal_run_id, state, width)
         .iter()
-        .position(|(_, target, _)| *target == Some(selected_target.clone()))
+        .position(|target| *target == Some(selected_target.clone()))
 }
 
 fn plan_inner_row_index(
@@ -2463,6 +2631,96 @@ fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
         }
     }
     result
+}
+
+fn wrap_display_text(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut wrapped = Vec::new();
+
+    for raw_line in text.lines() {
+        if raw_line.is_empty() {
+            wrapped.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        let mut current_width = 0usize;
+        for ch in raw_line.chars() {
+            let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
+            if current_width.saturating_add(ch_width) > width && !current.is_empty() {
+                wrapped.push(current);
+                current = String::new();
+                current_width = 0;
+            }
+            current.push(ch);
+            current_width = current_width.saturating_add(ch_width);
+        }
+
+        if current.is_empty() {
+            wrapped.push(String::new());
+        } else {
+            wrapped.push(current);
+        }
+    }
+
+    if wrapped.is_empty() {
+        wrapped.push(String::new());
+    }
+
+    wrapped
+}
+
+fn wrapped_visual_height(line: &Line<'static>, width: usize) -> usize {
+    wrap_display_text(&line_plain_text(line), width).len()
+}
+
+fn plan_visual_row_targets(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+    width: usize,
+) -> Vec<Option<GoalWorkspaceHitTarget>> {
+    let mut rows = Vec::new();
+    for row in plan::build_rows(tasks, goal_run_id, state) {
+        let height = wrapped_visual_height(&row.line, width);
+        for _ in 0..height {
+            rows.push(row.target.clone());
+        }
+    }
+    rows
+}
+
+fn center_visual_targets(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+    width: usize,
+) -> Vec<Option<GoalWorkspaceHitTarget>> {
+    let mut rows = Vec::new();
+    for row in center_rows(tasks, goal_run_id, state, width, &ThemeTokens::default(), 0) {
+        let height = wrapped_visual_height(&row.line, width);
+        for _ in 0..height {
+            rows.push(row.target.clone());
+        }
+    }
+    rows
+}
+
+fn detail_visual_targets(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+    width: usize,
+) -> Vec<Option<GoalWorkspaceHitTarget>> {
+    let mut rows = Vec::new();
+    for (_, target, line) in detail_lines(tasks, goal_run_id, state, width, &ThemeTokens::default())
+    {
+        let height = wrapped_visual_height(&line, width);
+        for _ in 0..height {
+            rows.push(target.clone());
+        }
+    }
+    rows
 }
 
 #[cfg(test)]

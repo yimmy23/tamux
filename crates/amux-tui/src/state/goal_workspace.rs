@@ -13,6 +13,7 @@ pub enum GoalWorkspacePane {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GoalWorkspaceMode {
     Goal,
+    Files,
     Progress,
     ActiveAgent,
     Threads,

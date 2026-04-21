@@ -216,13 +216,16 @@ impl TuiModel {
             let target_mode = match code {
                 KeyCode::Char('1') => Some(crate::state::goal_workspace::GoalWorkspaceMode::Goal),
                 KeyCode::Char('2') => {
-                    Some(crate::state::goal_workspace::GoalWorkspaceMode::Progress)
+                    Some(crate::state::goal_workspace::GoalWorkspaceMode::Files)
                 }
                 KeyCode::Char('3') => {
+                    Some(crate::state::goal_workspace::GoalWorkspaceMode::Progress)
+                }
+                KeyCode::Char('4') => {
                     Some(crate::state::goal_workspace::GoalWorkspaceMode::ActiveAgent)
                 }
-                KeyCode::Char('4') => Some(crate::state::goal_workspace::GoalWorkspaceMode::Threads),
-                KeyCode::Char('5') => Some(
+                KeyCode::Char('5') => Some(crate::state::goal_workspace::GoalWorkspaceMode::Threads),
+                KeyCode::Char('6') => Some(
                     crate::state::goal_workspace::GoalWorkspaceMode::NeedsAttention,
                 ),
                 _ => None,

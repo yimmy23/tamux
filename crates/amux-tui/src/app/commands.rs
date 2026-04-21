@@ -340,7 +340,7 @@ impl TuiModel {
         };
 
         let area = self.pane_layout().chat;
-        let viewport_height = {
+        let (viewport_height, viewport_width) = {
             let layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(4), Constraint::Min(1)])
@@ -353,10 +353,8 @@ impl TuiModel {
                     Constraint::Min(24),
                 ])
                 .split(layout[1]);
-            Block::default()
-                .borders(Borders::ALL)
-                .inner(columns[0])
-                .height as usize
+            let inner = Block::default().borders(Borders::ALL).inner(columns[0]);
+            (inner.height as usize, inner.width as usize)
         };
         if viewport_height == 0 {
             self.goal_workspace.set_plan_scroll(0);
@@ -373,6 +371,7 @@ impl TuiModel {
             &self.tasks,
             goal_run_id,
             &self.goal_workspace,
+            viewport_width,
         )
         .unwrap_or(0);
         let current_scroll = self.goal_workspace.plan_scroll().min(max_scroll);
@@ -545,6 +544,7 @@ impl TuiModel {
     pub(super) fn cycle_goal_workspace_mode(&mut self, delta: i32) -> bool {
         let modes = [
             crate::state::goal_workspace::GoalWorkspaceMode::Goal,
+            crate::state::goal_workspace::GoalWorkspaceMode::Files,
             crate::state::goal_workspace::GoalWorkspaceMode::Progress,
             crate::state::goal_workspace::GoalWorkspaceMode::ActiveAgent,
             crate::state::goal_workspace::GoalWorkspaceMode::Threads,
@@ -621,6 +621,14 @@ impl TuiModel {
             return false;
         };
         match target {
+            crate::widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(path) => {
+                if let Some(target) = self.current_goal_target_for_mission_control() {
+                    self.set_mission_control_return_to_goal_target(Some(target));
+                }
+                self.open_file_preview_path(path.clone());
+                self.status_line = path;
+                true
+            }
             crate::widgets::goal_workspace::GoalWorkspaceHitTarget::ThreadRow(thread_id) => {
                 self.open_thread_conversation(thread_id);
                 true
@@ -661,6 +669,21 @@ impl TuiModel {
         };
         let area = self.pane_layout().chat;
         let viewport_height = widgets::goal_workspace::timeline_viewport_height(area);
+        let viewport_width = {
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(4), Constraint::Min(1), Constraint::Length(3)])
+                .split(area);
+            let columns = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(40),
+                    Constraint::Percentage(32),
+                    Constraint::Min(24),
+                ])
+                .split(layout[1]);
+            Block::default().borders(Borders::ALL).inner(columns[1]).width as usize
+        };
         if viewport_height == 0 {
             self.goal_workspace.set_timeline_scroll(0);
             return;
@@ -675,6 +698,7 @@ impl TuiModel {
             &self.tasks,
             goal_run_id,
             &self.goal_workspace,
+            viewport_width,
         ) else {
             self.goal_workspace.set_timeline_scroll(0);
             return;
@@ -701,6 +725,21 @@ impl TuiModel {
         };
         let area = self.pane_layout().chat;
         let viewport_height = widgets::goal_workspace::detail_viewport_height(area);
+        let viewport_width = {
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(4), Constraint::Min(1), Constraint::Length(3)])
+                .split(area);
+            let columns = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(40),
+                    Constraint::Percentage(32),
+                    Constraint::Min(24),
+                ])
+                .split(layout[1]);
+            Block::default().borders(Borders::ALL).inner(columns[2]).width as usize
+        };
         if viewport_height == 0 {
             self.goal_workspace.set_detail_scroll(0);
             return;
@@ -715,6 +754,7 @@ impl TuiModel {
             &self.tasks,
             goal_run_id,
             &self.goal_workspace,
+            viewport_width,
         ) else {
             self.goal_workspace.set_detail_scroll(0);
             return;
@@ -767,10 +807,25 @@ impl TuiModel {
                 let Some(thread_id) = run.thread_id.clone() else {
                     return false;
                 };
+                if self.chat.active_thread_id() != Some(thread_id.as_str()) {
+                    self.chat
+                        .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
+                }
+                self.sidebar
+                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Files));
                 self.tasks.reduce(task::TaskAction::SelectWorkPath {
                     thread_id: thread_id.clone(),
                     path: Some(path.clone()),
                 });
+                if let Some(index) = widgets::sidebar::filtered_file_index(
+                    &self.tasks,
+                    &self.sidebar,
+                    Some(thread_id.as_str()),
+                    &path,
+                ) {
+                    let item_count = self.sidebar_item_count();
+                    self.sidebar.select(index, item_count);
+                }
                 self.main_pane_view = MainPaneView::WorkContext;
                 self.task_view_scroll = 0;
                 self.focus = FocusArea::Chat;
@@ -1388,6 +1443,21 @@ impl TuiModel {
             return;
         };
 
+        let target = ChatFilePreviewTarget {
+            path,
+            repo_root: None,
+            repo_relative_path: None,
+        };
+        self.send_daemon_command(DaemonCommand::RequestFilePreview {
+            path: target.path.clone(),
+            max_bytes: Some(65_536),
+        });
+        self.main_pane_view = MainPaneView::FilePreview(target);
+        self.task_view_scroll = 0;
+        self.focus = FocusArea::Chat;
+    }
+
+    pub(super) fn open_file_preview_path(&mut self, path: String) {
         let target = ChatFilePreviewTarget {
             path,
             repo_root: None,
@@ -2981,7 +3051,11 @@ impl TuiModel {
             }
         }
 
-        if let Some(thread_id) = thread_id.as_ref() {
+        let optimistic_thread_id = thread_id
+            .clone()
+            .or_else(|| self.chat.active_thread_id().map(String::from));
+
+        if let Some(thread_id) = optimistic_thread_id.as_ref() {
             let active_thread_id = thread_id.clone();
             self.reduce_chat_for_thread(
                 Some(active_thread_id.as_str()),
@@ -3012,9 +3086,7 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
         self.input.set_mode(input::InputMode::Insert);
         self.status_line = "Prompt sent".to_string();
-        let activity_thread_id = thread_id
-            .clone()
-            .or_else(|| self.chat.active_thread_id().map(String::from));
+        let activity_thread_id = optimistic_thread_id;
         self.set_agent_activity_for(activity_thread_id, "thinking");
         self.error_active = false;
     }

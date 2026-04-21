@@ -1,13 +1,23 @@
 use crate::state::goal_workspace::GoalWorkspaceState;
-use crate::state::task::{TaskState, TaskStatus, TodoStatus};
+use crate::state::task::{GoalRunStatus, TaskState, TaskStatus, TodoStatus};
 use ratatui::text::{Line, Span};
 
 use super::GoalWorkspaceHitTarget;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GoalWorkspacePlanMarkerState {
+    Pending,
+    Completed,
+    Running,
+    Error,
+}
 
 pub(crate) struct GoalWorkspacePlanRow {
     pub(crate) line: Line<'static>,
     pub(crate) selection: Option<crate::state::goal_workspace::GoalPlanSelection>,
     pub(crate) target: Option<GoalWorkspaceHitTarget>,
+    pub(crate) marker_state: Option<GoalWorkspacePlanMarkerState>,
+    pub(crate) marker_span_index: Option<usize>,
 }
 
 pub(crate) fn build_rows(
@@ -27,6 +37,8 @@ pub(crate) fn build_rows(
         ]),
         selection: Some(crate::state::goal_workspace::GoalPlanSelection::PromptToggle),
         target: Some(GoalWorkspaceHitTarget::PlanPromptToggle),
+        marker_state: None,
+        marker_span_index: None,
     });
     if prompt_expanded {
         let goal = run
@@ -38,6 +50,8 @@ pub(crate) fn build_rows(
                 line: Line::from(vec![Span::raw("    "), Span::raw(line)]),
                 selection: None,
                 target: None,
+                marker_state: None,
+                marker_span_index: None,
             });
         }
     }
@@ -53,12 +67,16 @@ pub(crate) fn build_rows(
                 thread_id: thread_id.clone(),
             }),
             target: Some(GoalWorkspaceHitTarget::PlanMainThread(thread_id)),
+            marker_state: None,
+            marker_span_index: None,
         });
     } else {
         rows.push(GoalWorkspacePlanRow {
             line: Line::from("No main agent thread yet."),
             selection: None,
             target: None,
+            marker_state: None,
+            marker_span_index: None,
         });
     }
 
@@ -68,16 +86,19 @@ pub(crate) fn build_rows(
             run.current_step_index == step.order as usize
                 || run.current_step_title.as_deref() == Some(step.title.as_str())
         });
+        let marker_state = step_marker_state(&step, active);
         rows.push(GoalWorkspacePlanRow {
             line: Line::from(vec![
                 Span::raw(if expanded { "▾ " } else { "▸ " }),
-                Span::raw(if active { "◌ " } else { "○ " }),
+                Span::raw("○ "),
                 Span::raw(format!("{}. {}", step.order + 1, step.title)),
             ]),
             selection: Some(crate::state::goal_workspace::GoalPlanSelection::Step {
                 step_id: step.id.clone(),
             }),
             target: Some(GoalWorkspaceHitTarget::PlanStep(step.id.clone())),
+            marker_state: Some(marker_state),
+            marker_span_index: Some(1),
         });
 
         if expanded {
@@ -87,6 +108,8 @@ pub(crate) fn build_rows(
                         line: Line::from(vec![Span::raw("    "), Span::raw(line)]),
                         selection: None,
                         target: Some(GoalWorkspaceHitTarget::PlanStep(step.id.clone())),
+                        marker_state: None,
+                        marker_span_index: None,
                     });
                 }
             }
@@ -96,6 +119,8 @@ pub(crate) fn build_rows(
                         line: Line::from(vec![Span::raw("    "), Span::raw(line)]),
                         selection: None,
                         target: Some(GoalWorkspaceHitTarget::PlanStep(step.id.clone())),
+                        marker_state: None,
+                        marker_span_index: None,
                     });
                 }
             }
@@ -115,6 +140,8 @@ pub(crate) fn build_rows(
                         step_id: step.id.clone(),
                         todo_id: todo.id,
                     }),
+                    marker_state: None,
+                    marker_span_index: None,
                 });
             }
         }
@@ -125,6 +152,8 @@ pub(crate) fn build_rows(
             line: Line::from("No plan yet"),
             selection: None,
             target: None,
+            marker_state: None,
+            marker_span_index: None,
         });
     }
 
@@ -197,6 +226,28 @@ fn todo_status_chip(status: Option<TodoStatus>) -> &'static str {
         Some(TodoStatus::Completed) => "[x]",
         Some(TodoStatus::Blocked) => "[!]",
         _ => "[ ]",
+    }
+}
+
+fn step_marker_state(
+    step: &crate::state::task::GoalRunStep,
+    active: bool,
+) -> GoalWorkspacePlanMarkerState {
+    if step.error.as_deref().is_some_and(|error| !error.trim().is_empty())
+        || matches!(step.status, Some(GoalRunStatus::Failed))
+    {
+        GoalWorkspacePlanMarkerState::Error
+    } else if matches!(step.status, Some(GoalRunStatus::Completed)) {
+        GoalWorkspacePlanMarkerState::Completed
+    } else if active
+        || matches!(
+            step.status,
+            Some(GoalRunStatus::Running | GoalRunStatus::Planning | GoalRunStatus::AwaitingApproval)
+        )
+    {
+        GoalWorkspacePlanMarkerState::Running
+    } else {
+        GoalWorkspacePlanMarkerState::Pending
     }
 }
 

@@ -218,6 +218,46 @@
     }
 
     #[test]
+    fn submit_prompt_shows_first_user_message_in_new_local_thread() {
+        let (_daemon_tx, daemon_rx) = mpsc::channel();
+        let (cmd_tx, mut cmd_rx) = unbounded_channel();
+        let mut model = TuiModel::new(daemon_rx, cmd_tx);
+        model.connected = true;
+
+        model.submit_prompt("hello".to_string());
+
+        let thread = model
+            .chat
+            .active_thread()
+            .expect("new prompt should create a local thread");
+        assert!(
+            thread.id.starts_with("local-"),
+            "new prompt should target the optimistic local thread"
+        );
+        assert_eq!(thread.messages.len(), 1);
+        assert_eq!(thread.messages[0].role, chat::MessageRole::User);
+        assert_eq!(thread.messages[0].content, "hello");
+
+        let send_command = loop {
+            match cmd_rx.try_recv() {
+                Ok(DaemonCommand::DismissConciergeWelcome) => continue,
+                Ok(command @ DaemonCommand::SendMessage { .. }) => break command,
+                other => panic!("expected send-message command, got {:?}", other),
+            }
+        };
+
+        match send_command {
+            DaemonCommand::SendMessage {
+                thread_id, content, ..
+            } => {
+                assert_eq!(thread_id, None);
+                assert_eq!(content, "hello");
+            }
+            other => panic!("expected send-message command, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn start_goal_run_dismisses_concierge_and_avoids_session_binding() {
         let (_daemon_tx, daemon_rx) = mpsc::channel();
         let (cmd_tx, mut cmd_rx) = unbounded_channel();

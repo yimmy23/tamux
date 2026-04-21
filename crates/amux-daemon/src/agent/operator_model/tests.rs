@@ -1381,6 +1381,36 @@ async fn very_short_attention_dwell_persists_short_dwell_signal_with_duration() 
 }
 
 #[tokio::test]
+async fn record_attention_surface_bootstraps_missing_agent_data_dir() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let history = HistoryStore::new_test_store(root.path())
+        .await
+        .expect("history store");
+    let data_dir = root.path().join("agent");
+    let mut config = AgentConfig::default();
+    config.operator_model.enabled = true;
+    config.operator_model.allow_attention_tracking = true;
+    let engine = AgentEngine::new_with_storage_and_http_client(
+        manager,
+        config,
+        history,
+        data_dir.clone(),
+        reqwest::Client::new(),
+    );
+
+    engine
+        .record_attention_surface("conversation:chat")
+        .await
+        .expect("record attention surface on first run");
+
+    assert!(
+        data_dir.join("operator_model.json").exists(),
+        "recording attention should bootstrap operator model persistence on a fresh install"
+    );
+}
+
+#[tokio::test]
 async fn deleting_thread_right_after_assistant_reply_persists_session_abandon_signal() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

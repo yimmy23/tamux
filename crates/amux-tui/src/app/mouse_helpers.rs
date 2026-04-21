@@ -494,7 +494,21 @@ impl TuiModel {
                     let _ = self.activate_goal_workspace_timeline_target();
                 }
                 widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(path) => {
-                    if let Some(row) = widgets::goal_workspace::detail_row_for_target(
+                    if let Some((row, _)) = widgets::goal_workspace::timeline_targets(
+                        &self.tasks,
+                        goal_run_id,
+                        &self.goal_workspace,
+                    )
+                    .into_iter()
+                    .find(|(_, target)| {
+                        *target
+                            == widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(
+                                path.clone(),
+                            )
+                    }) {
+                        self.goal_workspace.set_selected_timeline_row(row);
+                        let _ = self.activate_goal_workspace_timeline_target();
+                    } else if let Some(row) = widgets::goal_workspace::detail_row_for_target(
                         &self.tasks,
                         goal_run_id,
                         &self.goal_workspace,
@@ -503,8 +517,8 @@ impl TuiModel {
                         ),
                     ) {
                         self.goal_workspace.set_selected_detail_row(row);
+                        let _ = self.activate_goal_workspace_detail_target();
                     }
-                    let _ = self.activate_goal_workspace_detail_target();
                 }
                 widgets::goal_workspace::GoalWorkspaceHitTarget::DetailCheckpoint(id) => {
                     let target_row = widgets::goal_workspace::detail_row_for_target(

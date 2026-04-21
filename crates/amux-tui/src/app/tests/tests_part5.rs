@@ -1450,11 +1450,11 @@ fn goal_view_renders_goal_run_dossier_sections() {
     assert!(plain.contains("Goal Mission Control"), "{plain}");
     assert!(plain.contains("Plan"), "{plain}");
     assert!(plain.contains("Run timeline"), "{plain}");
-    assert!(plain.contains("Goal"), "{plain}");
+    assert!(plain.contains("Dossier"), "{plain}");
+    assert!(plain.contains("Files"), "{plain}");
     assert!(plain.contains("Prompt"), "{plain}");
-    assert!(plain.contains("Ship the first dossier-aware"), "{plain}");
     assert!(plain.contains("Phone logging flow"), "{plain}");
-    assert!(!plain.contains("Execution Dossier"), "{plain}");
+    assert!(plain.contains("Execution Dossier"), "{plain}");
 }
 
 #[test]
@@ -1697,7 +1697,8 @@ fn goal_view_renders_live_activity_with_tools_files_and_todos() {
     assert!(plain.contains("apply_patch updated goal view"), "{plain}");
     assert!(plain.contains("goal todo updated"), "{plain}");
     assert!(plain.contains("Inspect failing test"), "{plain}");
-    assert!(plain.contains("crates/amux-tui/src/widgets/task"), "{plain}");
+    assert!(plain.contains("Selected Timeline Item"), "{plain}");
+    assert!(plain.contains("[details]"), "{plain}");
 }
 
 #[test]

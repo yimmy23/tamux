@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 fn make_temp_dir() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("tamux-tui-tab-{}", uuid::Uuid::new_v4()));
@@ -20,6 +21,38 @@ impl CurrentDirGuard {
 impl Drop for CurrentDirGuard {
     fn drop(&mut self) {
         let _ = std::env::set_current_dir(&self.0);
+    }
+}
+
+fn home_env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+struct HomeEnvGuard {
+    original_home: Option<String>,
+}
+
+impl HomeEnvGuard {
+    fn set(path: &Path) -> Self {
+        let original_home = std::env::var("HOME").ok();
+        unsafe {
+            std::env::set_var("HOME", path);
+        }
+        Self { original_home }
+    }
+}
+
+impl Drop for HomeEnvGuard {
+    fn drop(&mut self) {
+        match self.original_home.take() {
+            Some(value) => unsafe {
+                std::env::set_var("HOME", value);
+            },
+            None => unsafe {
+                std::env::remove_var("HOME");
+            },
+        }
     }
 }
 
@@ -464,13 +497,13 @@ fn goal_run_render_uses_full_workspace_without_legacy_goal_sidebar_tabs() {
     assert!(
         chat_plain.contains("Plan")
             && chat_plain.contains("Run timeline")
-            && chat_plain.contains("Goal")
+            && chat_plain.contains("Dossier")
+            && chat_plain.contains("Files")
             && chat_plain.contains("Prompt"),
         "expected full goal workspace content in main pane, got: {chat_plain}"
     );
     assert!(
-        !chat_plain.contains("Checkpoints")
-            && !chat_plain.contains("Tasks"),
+        !chat_plain.contains("Steps  Checkpoints  Tasks"),
         "expected legacy goal sidebar labels to be absent, got: {chat_plain}"
     );
     assert!(
@@ -662,17 +695,24 @@ fn goal_workspace_mode_tabs_are_clickable_and_keyboard_focusable() {
     assert!(!handled);
     assert_eq!(
         model.goal_workspace.mode(),
-        goal_workspace::GoalWorkspaceMode::Progress
+        goal_workspace::GoalWorkspaceMode::Files
     );
 
     let handled = model.handle_key(KeyCode::Char('4'), KeyModifiers::NONE);
     assert!(!handled);
     assert_eq!(
         model.goal_workspace.mode(),
-        goal_workspace::GoalWorkspaceMode::Threads
+        goal_workspace::GoalWorkspaceMode::ActiveAgent
     );
 
     let handled = model.handle_key(KeyCode::Char('5'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(
+        model.goal_workspace.mode(),
+        goal_workspace::GoalWorkspaceMode::Threads
+    );
+
+    let handled = model.handle_key(KeyCode::Char('6'), KeyModifiers::NONE);
     assert!(!handled);
     assert_eq!(
         model.goal_workspace.mode(),
@@ -718,11 +758,29 @@ fn goal_workspace_mode_tabs_are_clickable_and_keyboard_focusable() {
 }
 
 #[test]
-fn goal_workspace_goal_mode_file_click_opens_work_context_preview() {
+fn goal_workspace_files_mode_click_opens_file_preview() {
+    let _lock = home_env_lock().lock().expect("home env lock");
+    let temp_home = tempfile::tempdir().expect("temp home should exist");
+    let _home = HomeEnvGuard::set(temp_home.path());
+
+    let goal_root = amux_protocol::ensure_amux_data_dir()
+        .expect("tamux data dir")
+        .join("goals")
+        .join("goal-1");
+    std::fs::create_dir_all(goal_root.join("inventory/specs"))
+        .expect("goal inventory tree should exist");
+    let file_path = goal_root.join("goal.md");
+    std::fs::write(&file_path, "# Goal\n").expect("goal.md should be written");
+
     let mut model = goal_sidebar_model();
+    model
+        .goal_workspace
+        .set_mode(goal_workspace::GoalWorkspaceMode::Files);
     let click = find_goal_workspace_hit_position(
         &model,
-        widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile("/tmp/plan.md".to_string()),
+        widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(
+            file_path.display().to_string(),
+        ),
     );
 
     model.handle_mouse(MouseEvent {
@@ -738,17 +796,41 @@ fn goal_workspace_goal_mode_file_click_opens_work_context_preview() {
         modifiers: KeyModifiers::NONE,
     });
 
-    assert!(matches!(model.main_pane_view, MainPaneView::WorkContext));
-    assert_eq!(model.tasks.selected_work_path("thread-1"), Some("/tmp/plan.md"));
-    assert_eq!(model.status_line, "/tmp/plan.md");
+    assert!(matches!(model.main_pane_view, MainPaneView::FilePreview(_)));
+    assert!(model.mission_control_return_to_goal_target().is_some());
+    match &model.main_pane_view {
+        MainPaneView::FilePreview(target) => {
+            assert_eq!(target.path, file_path.display().to_string());
+            assert!(target.repo_root.is_none());
+        }
+        _ => panic!("expected file preview"),
+    }
 }
 
 #[test]
-fn goal_workspace_escape_from_goal_file_preview_restores_goal_run() {
+fn goal_workspace_escape_from_files_mode_preview_restores_goal_run() {
+    let _lock = home_env_lock().lock().expect("home env lock");
+    let temp_home = tempfile::tempdir().expect("temp home should exist");
+    let _home = HomeEnvGuard::set(temp_home.path());
+
+    let goal_root = amux_protocol::ensure_amux_data_dir()
+        .expect("tamux data dir")
+        .join("goals")
+        .join("goal-1");
+    std::fs::create_dir_all(goal_root.join("inventory/specs"))
+        .expect("goal inventory tree should exist");
+    let file_path = goal_root.join("goal.md");
+    std::fs::write(&file_path, "# Goal\n").expect("goal.md should be written");
+
     let mut model = goal_sidebar_model();
+    model
+        .goal_workspace
+        .set_mode(goal_workspace::GoalWorkspaceMode::Files);
     let click = find_goal_workspace_hit_position(
         &model,
-        widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile("/tmp/plan.md".to_string()),
+        widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(
+            file_path.display().to_string(),
+        ),
     );
 
     model.handle_mouse(MouseEvent {
@@ -787,7 +869,9 @@ fn goal_workspace_goal_mode_restores_old_goal_sections() {
     assert!(plain.contains("Goal Prompt"), "{plain}");
     assert!(plain.contains("Main agent"), "{plain}");
     assert!(plain.contains("Ground the user's background"), "{plain}");
+    assert!(!plain.contains("/tmp/plan.md"), "{plain}");
 }
+
 
 #[test]
 fn goal_workspace_plan_prompt_toggle_is_clickable_and_keyboard_expandable() {
@@ -1405,7 +1489,7 @@ fn goal_workspace_mouse_wheel_scrolls_timeline_and_details_rows() {
 }
 
 #[test]
-fn goal_workspace_keyboard_navigation_auto_scrolls_timeline_and_details() {
+fn goal_workspace_keyboard_navigation_auto_scrolls_timeline() {
     let mut model = goal_sidebar_model();
     if let Some(run) = model.tasks.goal_run_by_id_mut("goal-1") {
         run.events = (0..40)
@@ -1443,16 +1527,6 @@ fn goal_workspace_keyboard_navigation_auto_scrolls_timeline_and_details() {
 
     assert!(model.goal_workspace.selected_timeline_row() >= 20);
     assert!(model.goal_workspace.timeline_scroll() > 0);
-
-    model.goal_workspace
-        .set_focused_pane(goal_workspace::GoalWorkspacePane::Details);
-    for _ in 0..20 {
-        let handled = model.handle_key(KeyCode::Down, KeyModifiers::NONE);
-        assert!(!handled);
-    }
-
-    assert!(model.goal_workspace.selected_detail_row() >= 20);
-    assert!(model.goal_workspace.detail_scroll() > 0);
 }
 
 #[test]
