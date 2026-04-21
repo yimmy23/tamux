@@ -34,6 +34,44 @@ fn should_suppress_busy_wait_poll(
 }
 
 impl<'a> SendMessageRunner<'a> {
+    async fn persist_metacognitive_intervention_result(
+        &mut self,
+        tc: &ToolCall,
+        content: String,
+    ) {
+        let synthetic_result = ToolResult {
+            tool_call_id: tc.id.clone(),
+            name: tc.function.name.clone(),
+            content: content.clone(),
+            is_error: true,
+            weles_review: tc.weles_review.clone(),
+            pending_approval: None,
+        };
+        let current_tool_signature = normalized_tool_signature(tc);
+        let repeated = self
+            .previous_tool_signature
+            .as_deref()
+            .is_some_and(|value| value == current_tool_signature.as_str());
+
+        if repeated {
+            self.consecutive_same_tool_calls = self.consecutive_same_tool_calls.saturating_add(1);
+        } else {
+            self.consecutive_same_tool_calls = 1;
+        }
+        self.previous_tool_signature = Some(current_tool_signature);
+        self.previous_tool_outcome = Some((tc.function.name.clone(), true));
+        self.last_tool_error = Some((tc.function.name.clone(), content.clone()));
+        self.recent_policy_tool_outcomes.push_back(summarize_tool_result_for_policy(
+            &tc.function.name,
+            &synthetic_result,
+        ));
+        while self.recent_policy_tool_outcomes.len() > POLICY_TOOL_OUTCOME_HISTORY_LIMIT {
+            self.recent_policy_tool_outcomes.pop_front();
+        }
+        self.record_tool_trace(tc, &synthetic_result);
+        self.persist_denied_tool_result(tc, content).await;
+    }
+
     async fn current_task_has_active_subagents(&self) -> bool {
         let Some(task_id) = self.task_id else {
             return false;
@@ -184,6 +222,12 @@ impl<'a> SendMessageRunner<'a> {
                         .append_metacognitive_system_message(&self.tid, system_message)
                         .await;
                 }
+                let denied_content = format!(
+                    "Tool call deferred by meta-cognitive regulator before execution. {}",
+                    decision.summary
+                );
+                self.persist_metacognitive_intervention_result(tc, denied_content)
+                    .await;
                 self.engine.persist_thread_by_id(&self.tid).await;
                 Some(LoopDisposition::Continue)
             }
@@ -197,7 +241,8 @@ impl<'a> SendMessageRunner<'a> {
                     "Tool call blocked by meta-cognitive regulator before execution. {}",
                     decision.summary
                 );
-                self.persist_denied_tool_result(tc, denied_content).await;
+                self.persist_metacognitive_intervention_result(tc, denied_content)
+                    .await;
                 self.engine.persist_thread_by_id(&self.tid).await;
                 Some(LoopDisposition::Continue)
             }

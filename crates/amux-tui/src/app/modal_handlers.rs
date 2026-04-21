@@ -506,6 +506,19 @@ impl TuiModel {
                                     editor.model = value.trim().to_string();
                                 }
                             }
+                            "mission_control_assignment_model" => {
+                                let model_id = value.trim().to_string();
+                                let updated = self.update_selected_runtime_assignment(
+                                    |assignment| {
+                                        assignment.model = model_id.clone();
+                                    },
+                                );
+                                self.goal_mission_control.clear_runtime_edit();
+                                if !updated {
+                                    self.status_line =
+                                        "Mission Control roster is unavailable".to_string();
+                                }
+                            }
                             "subagent_system_prompt" => {
                                 if let Some(editor) = self.subagents.editor.as_mut() {
                                     editor.system_prompt = value;

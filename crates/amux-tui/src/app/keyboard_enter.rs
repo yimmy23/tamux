@@ -147,9 +147,21 @@ impl TuiModel {
             )
         {
             if self.goal_workspace.focused_pane()
+                == crate::state::goal_workspace::GoalWorkspacePane::Plan
+                && self.activate_goal_workspace_plan_target()
+            {
+                return false;
+            }
+            if self.goal_workspace.focused_pane()
                 == crate::state::goal_workspace::GoalWorkspacePane::CommandBar
             {
                 self.activate_goal_workspace_command_bar();
+                return false;
+            }
+            if self.goal_workspace.focused_pane()
+                == crate::state::goal_workspace::GoalWorkspacePane::Timeline
+                && self.activate_goal_workspace_timeline_target()
+            {
                 return false;
             }
             if self.goal_workspace.focused_pane()

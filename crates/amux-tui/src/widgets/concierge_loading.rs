@@ -254,11 +254,11 @@ fn render_with_copy(
     let mut lines = Vec::new();
     lines.push(Line::from(Span::styled(
         copy.headline,
-        theme.fg_active.add_modifier(Modifier::BOLD),
+        theme.accent_secondary.add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(Span::styled(
         stage_label(&copy.stages, tick),
-        theme.fg_dim,
+        theme.fg_active,
     )));
     lines.push(styled_glyph_line(
         &orbit_line(orbit_width, tick, false),

@@ -1024,6 +1024,14 @@ async fn request_goal_plan_includes_goal_inventory_directories_in_prompt() {
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
     let goal_run = sample_goal_run();
+    let inventory_root =
+        crate::agent::goal_dossier::goal_inventory_dir(&engine.data_dir, &goal_run.id);
+    let specs_dir =
+        crate::agent::goal_dossier::goal_inventory_specs_dir(&engine.data_dir, &goal_run.id);
+    let plans_dir =
+        crate::agent::goal_dossier::goal_inventory_plans_dir(&engine.data_dir, &goal_run.id);
+    let execution_dir =
+        crate::agent::goal_dossier::goal_inventory_execution_dir(&engine.data_dir, &goal_run.id);
 
     let _ = engine
         .request_goal_plan(&goal_run)
@@ -1033,19 +1041,19 @@ async fn request_goal_plan_includes_goal_inventory_directories_in_prompt() {
     let recorded = recorded_bodies.lock().expect("lock recorded bodies");
     let body = recorded.back().expect("expected one recorded request body");
     assert!(
-        body.contains(".tamux/goals/goal_test/inventory/"),
+        body.contains(&format!("{}/", inventory_root.display())),
         "expected inventory root in the plan prompt"
     );
     assert!(
-        body.contains(".tamux/goals/goal_test/inventory/specs/"),
+        body.contains(&format!("{}/", specs_dir.display())),
         "expected specs dir in the plan prompt"
     );
     assert!(
-        body.contains(".tamux/goals/goal_test/inventory/plans/"),
+        body.contains(&format!("{}/", plans_dir.display())),
         "expected plans dir in the plan prompt"
     );
     assert!(
-        body.contains(".tamux/goals/goal_test/inventory/execution/"),
+        body.contains(&format!("{}/", execution_dir.display())),
         "expected execution dir in the plan prompt"
     );
 }

@@ -221,7 +221,8 @@ impl TuiModel {
                 KeyCode::Char('3') => {
                     Some(crate::state::goal_workspace::GoalWorkspaceMode::ActiveAgent)
                 }
-                KeyCode::Char('4') => Some(
+                KeyCode::Char('4') => Some(crate::state::goal_workspace::GoalWorkspaceMode::Threads),
+                KeyCode::Char('5') => Some(
                     crate::state::goal_workspace::GoalWorkspaceMode::NeedsAttention,
                 ),
                 _ => None,

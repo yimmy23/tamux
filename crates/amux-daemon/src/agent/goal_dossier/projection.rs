@@ -41,16 +41,20 @@ pub(crate) fn goal_inventory_relative_dir(goal_run_id: &str) -> PathBuf {
     goal_projection_relative_dir(goal_run_id).join("inventory")
 }
 
-pub(crate) fn goal_inventory_relative_specs_dir(goal_run_id: &str) -> PathBuf {
-    goal_inventory_relative_dir(goal_run_id).join("specs")
-}
-
-pub(crate) fn goal_inventory_relative_plans_dir(goal_run_id: &str) -> PathBuf {
-    goal_inventory_relative_dir(goal_run_id).join("plans")
-}
-
 pub(crate) fn goal_inventory_relative_execution_dir(goal_run_id: &str) -> PathBuf {
     goal_inventory_relative_dir(goal_run_id).join("execution")
+}
+
+pub(crate) fn goal_step_completion_marker_filename(step_index: usize) -> String {
+    format!("step-{}-complete.md", step_index.saturating_add(1))
+}
+
+pub(crate) fn goal_step_completion_marker_relative_path(
+    goal_run_id: &str,
+    step_index: usize,
+) -> PathBuf {
+    goal_inventory_relative_execution_dir(goal_run_id)
+        .join(goal_step_completion_marker_filename(step_index))
 }
 
 pub(crate) fn goal_inventory_dir(data_dir: &Path, goal_run_id: &str) -> PathBuf {
@@ -67,6 +71,15 @@ pub(crate) fn goal_inventory_plans_dir(data_dir: &Path, goal_run_id: &str) -> Pa
 
 pub(crate) fn goal_inventory_execution_dir(data_dir: &Path, goal_run_id: &str) -> PathBuf {
     goal_inventory_dir(data_dir, goal_run_id).join("execution")
+}
+
+pub(crate) fn goal_step_completion_marker_path(
+    data_dir: &Path,
+    goal_run_id: &str,
+    step_index: usize,
+) -> PathBuf {
+    goal_inventory_execution_dir(data_dir, goal_run_id)
+        .join(goal_step_completion_marker_filename(step_index))
 }
 
 async fn write_text_file(path: &Path, contents: &str) -> anyhow::Result<()> {

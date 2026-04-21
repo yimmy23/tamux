@@ -319,10 +319,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 let provider_defs = widgets::provider_picker::available_provider_defs(&model.auth);
                 if let Some(def) = provider_defs.get(cursor) {
                     let next_provider = def.id.to_string();
-                    let next_model = providers::default_model_for_provider_auth(
-                        def.id,
-                        providers::default_auth_source_for(def.id),
-                    );
+                    let (_, _, auth_source) = model.provider_auth_snapshot(def.id);
+                    let next_model =
+                        providers::default_model_for_provider_auth(def.id, &auth_source);
                     model.goal_mission_control.clear_runtime_edit();
                     model.settings_picker_target = None;
                     model.close_top_modal();
@@ -561,6 +560,12 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             if let Some(edit) = model.goal_mission_control.pending_runtime_edit.clone() {
                 let models = model.available_runtime_assignment_models();
                 let cursor = model.modal.picker_cursor();
+                if cursor == models.len() {
+                    model.settings_picker_target = None;
+                    model.close_top_modal();
+                    model.begin_mission_control_custom_model_edit();
+                    return;
+                }
                 if let Some(model_entry) = models.get(cursor) {
                     let next_model = model_entry.id.clone();
                     model.goal_mission_control.clear_runtime_edit();

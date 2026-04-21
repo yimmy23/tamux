@@ -113,6 +113,7 @@ impl AgentEngine {
         );
         prompt.push_str("\n\n");
         prompt.push_str(&crate::agent::goal_dossier::goal_inventory_prompt_block(
+            &self.data_dir,
             &goal_run.id,
         ));
 

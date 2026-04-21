@@ -1325,6 +1325,7 @@ impl TuiModel {
                             goal_run_id,
                             &self.goal_workspace,
                             &self.theme,
+                            self.tick_counter,
                         );
                     } else {
                         widgets::task_view::render(
@@ -1461,6 +1462,7 @@ impl TuiModel {
                             goal_run_id,
                             &self.goal_workspace,
                             &self.theme,
+                            self.tick_counter,
                         );
                     } else {
                         widgets::task_view::render(

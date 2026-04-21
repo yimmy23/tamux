@@ -256,11 +256,11 @@ pub(super) async fn write_goal_run_projection(
     projection::write_goal_projection_files(&engine.data_dir, goal_run).await
 }
 
-pub(crate) fn goal_inventory_prompt_block(goal_run_id: &str) -> String {
-    let inventory_root = projection::goal_inventory_relative_dir(goal_run_id);
-    let specs_dir = projection::goal_inventory_relative_specs_dir(goal_run_id);
-    let plans_dir = projection::goal_inventory_relative_plans_dir(goal_run_id);
-    let execution_dir = projection::goal_inventory_relative_execution_dir(goal_run_id);
+pub(crate) fn goal_inventory_prompt_block(data_dir: &std::path::Path, goal_run_id: &str) -> String {
+    let inventory_root = projection::goal_inventory_dir(data_dir, goal_run_id);
+    let specs_dir = projection::goal_inventory_specs_dir(data_dir, goal_run_id);
+    let plans_dir = projection::goal_inventory_plans_dir(data_dir, goal_run_id);
+    let execution_dir = projection::goal_inventory_execution_dir(data_dir, goal_run_id);
 
     format!(
         "## Goal Artifact Inventory\n\
@@ -275,6 +275,70 @@ pub(crate) fn goal_inventory_prompt_block(goal_run_id: &str) -> String {
         plans_dir = plans_dir.display(),
         execution_dir = execution_dir.display(),
     )
+}
+
+pub(crate) fn goal_step_completion_marker_relative_path(
+    goal_run_id: &str,
+    step_index: usize,
+) -> std::path::PathBuf {
+    projection::goal_step_completion_marker_relative_path(goal_run_id, step_index)
+}
+
+pub(crate) fn goal_inventory_dir(
+    data_dir: &std::path::Path,
+    goal_run_id: &str,
+) -> std::path::PathBuf {
+    projection::goal_inventory_dir(data_dir, goal_run_id)
+}
+
+pub(crate) fn goal_inventory_specs_dir(
+    data_dir: &std::path::Path,
+    goal_run_id: &str,
+) -> std::path::PathBuf {
+    projection::goal_inventory_specs_dir(data_dir, goal_run_id)
+}
+
+pub(crate) fn goal_inventory_plans_dir(
+    data_dir: &std::path::Path,
+    goal_run_id: &str,
+) -> std::path::PathBuf {
+    projection::goal_inventory_plans_dir(data_dir, goal_run_id)
+}
+
+pub(crate) fn goal_inventory_execution_dir(
+    data_dir: &std::path::Path,
+    goal_run_id: &str,
+) -> std::path::PathBuf {
+    projection::goal_inventory_execution_dir(data_dir, goal_run_id)
+}
+
+pub(crate) fn goal_step_completion_marker_path(
+    data_dir: &std::path::Path,
+    goal_run_id: &str,
+    step_index: usize,
+) -> std::path::PathBuf {
+    projection::goal_step_completion_marker_path(data_dir, goal_run_id, step_index)
+}
+
+pub(crate) fn goal_step_completion_marker_prompt_block_for_data_dir(
+    data_dir: &std::path::Path,
+    goal_run: &GoalRun,
+) -> Option<String> {
+    if goal_run.current_step_index >= goal_run.steps.len() {
+        return None;
+    }
+    let human_step_number = goal_run.current_step_index.saturating_add(1);
+    let total_steps = goal_run.steps.len();
+    let marker_path =
+        projection::goal_step_completion_marker_path(data_dir, &goal_run.id, goal_run.current_step_index);
+    Some(format!(
+        "## Goal Step Completion Marker\n\
+         - Current step: Step {human_step_number} of {total_steps}\n\
+         - Required completion marker: {marker_path}\n\
+         - This step cannot be marked complete until that file exists.\n\
+         - Before finishing, create that file with a short summary of what was completed and any outputs produced for this step.",
+        marker_path = marker_path.display(),
+    ))
 }
 
 #[cfg(test)]

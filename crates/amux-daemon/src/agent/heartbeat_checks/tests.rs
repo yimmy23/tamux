@@ -136,6 +136,7 @@ async fn make_test_engine(
         resonance_context_cache: RwLock::new(HashMap::new()),
         tasks: Mutex::new(VecDeque::new()),
         goal_runs: Mutex::new(goal_runs),
+        goal_step_completion_marker_retries: Mutex::new(HashMap::new()),
         goal_run_client_surfaces: RwLock::new(HashMap::new()),
         inflight_goal_runs: Mutex::new(HashSet::new()),
         heartbeat_items: RwLock::new(Vec::new()),

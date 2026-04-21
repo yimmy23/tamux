@@ -449,6 +449,20 @@ impl TuiModel {
                 widgets::goal_workspace::GoalWorkspaceHitTarget::ModeTab(mode) => {
                     let _ = self.set_goal_workspace_mode(mode);
                 }
+                widgets::goal_workspace::GoalWorkspaceHitTarget::PlanPromptToggle => {
+                    let _ = self.select_goal_workspace_plan_item(
+                        crate::state::goal_workspace::GoalPlanSelection::PromptToggle,
+                    );
+                    let _ = self.activate_goal_workspace_plan_target();
+                }
+                widgets::goal_workspace::GoalWorkspaceHitTarget::PlanMainThread(thread_id) => {
+                    let _ = self.select_goal_workspace_plan_item(
+                        crate::state::goal_workspace::GoalPlanSelection::MainThread {
+                            thread_id: thread_id.clone(),
+                        },
+                    );
+                    let _ = self.activate_goal_workspace_plan_target();
+                }
                 widgets::goal_workspace::GoalWorkspaceHitTarget::PlanStep(step_id) => {
                     let _ = self.select_goal_workspace_plan_item(
                         crate::state::goal_workspace::GoalPlanSelection::Step { step_id },
@@ -461,6 +475,23 @@ impl TuiModel {
                 }
                 widgets::goal_workspace::GoalWorkspaceHitTarget::TimelineRow(row) => {
                     self.goal_workspace.set_selected_timeline_row(row);
+                }
+                widgets::goal_workspace::GoalWorkspaceHitTarget::ThreadRow(thread_id) => {
+                    if let Some((row, _)) = widgets::goal_workspace::timeline_targets(
+                        &self.tasks,
+                        goal_run_id,
+                        &self.goal_workspace,
+                    )
+                    .into_iter()
+                    .find(|(_, target)| {
+                        *target
+                            == widgets::goal_workspace::GoalWorkspaceHitTarget::ThreadRow(
+                                thread_id.clone(),
+                            )
+                    }) {
+                        self.goal_workspace.set_selected_timeline_row(row);
+                    }
+                    let _ = self.activate_goal_workspace_timeline_target();
                 }
                 widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(path) => {
                     if let Some(row) = widgets::goal_workspace::detail_row_for_target(

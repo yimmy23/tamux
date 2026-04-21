@@ -15,11 +15,14 @@ pub enum GoalWorkspaceMode {
     Goal,
     Progress,
     ActiveAgent,
+    Threads,
     NeedsAttention,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GoalPlanSelection {
+    PromptToggle,
+    MainThread { thread_id: String },
     Step { step_id: String },
     Todo { step_id: String, todo_id: String },
 }
@@ -33,6 +36,7 @@ pub struct GoalWorkspaceState {
     detail_scroll: usize,
     selected_plan_row: usize,
     expanded_step_ids: BTreeSet<String>,
+    prompt_expanded: bool,
     selected_timeline_row: usize,
     selected_detail_row: usize,
     selected_plan_item: Option<GoalPlanSelection>,
@@ -48,6 +52,7 @@ impl GoalWorkspaceState {
             detail_scroll: 0,
             selected_plan_row: 0,
             expanded_step_ids: BTreeSet::new(),
+            prompt_expanded: false,
             selected_timeline_row: 0,
             selected_detail_row: 0,
             selected_plan_item: None,
@@ -128,6 +133,19 @@ impl GoalWorkspaceState {
 
     pub fn is_step_expanded(&self, step_id: &str) -> bool {
         self.expanded_step_ids.contains(step_id)
+    }
+
+    pub fn prompt_expanded(&self) -> bool {
+        self.prompt_expanded
+    }
+
+    pub fn set_prompt_expanded(&mut self, expanded: bool) {
+        self.prompt_expanded = expanded;
+    }
+
+    pub fn toggle_prompt_expanded(&mut self) -> bool {
+        self.prompt_expanded = !self.prompt_expanded;
+        self.prompt_expanded
     }
 
     pub fn set_step_expanded(&mut self, step_id: impl Into<String>, expanded: bool) {

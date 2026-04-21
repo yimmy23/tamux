@@ -270,22 +270,10 @@ impl TuiModel {
         else {
             return Vec::new();
         };
-
-        let mut items = Vec::new();
-        for step in self.tasks.goal_steps_in_display_order(goal_run_id) {
-            items.push(crate::state::goal_workspace::GoalPlanSelection::Step {
-                step_id: step.id.clone(),
-            });
-            if self.goal_workspace.is_step_expanded(&step.id) {
-                for todo in self.tasks.goal_step_todos(goal_run_id, step.order as usize) {
-                    items.push(crate::state::goal_workspace::GoalPlanSelection::Todo {
-                        step_id: step.id.clone(),
-                        todo_id: todo.id,
-                    });
-                }
-            }
-        }
-        items
+        widgets::goal_workspace::plan_selection_rows(&self.tasks, goal_run_id, &self.goal_workspace)
+            .into_iter()
+            .map(|(_, selection)| selection)
+            .collect()
     }
 
     pub(super) fn sync_goal_workspace_selection_for_active_goal_pane(&mut self) {
@@ -325,13 +313,14 @@ impl TuiModel {
         &mut self,
         item: crate::state::goal_workspace::GoalPlanSelection,
     ) -> bool {
-        let step_id = match &item {
+        let changed = match &item {
             crate::state::goal_workspace::GoalPlanSelection::Step { step_id }
             | crate::state::goal_workspace::GoalPlanSelection::Todo { step_id, .. } => {
-                step_id.clone()
+                self.select_goal_step_in_active_run(step_id.clone())
             }
+            crate::state::goal_workspace::GoalPlanSelection::PromptToggle
+            | crate::state::goal_workspace::GoalPlanSelection::MainThread { .. } => false,
         };
-        let changed = self.select_goal_step_in_active_run(step_id);
         let items = self.goal_workspace_plan_items();
         let row = items
             .iter()
@@ -380,7 +369,12 @@ impl TuiModel {
             goal_run_id,
             &self.goal_workspace,
         );
-        let selected_row = self.goal_workspace.selected_plan_row();
+        let selected_row = widgets::goal_workspace::plan_visual_row_for_selection(
+            &self.tasks,
+            goal_run_id,
+            &self.goal_workspace,
+        )
+        .unwrap_or(0);
         let current_scroll = self.goal_workspace.plan_scroll().min(max_scroll);
         let next_scroll = if selected_row < current_scroll {
             selected_row
@@ -410,6 +404,26 @@ impl TuiModel {
         self.select_goal_workspace_plan_item(items[next].clone())
     }
 
+    pub(super) fn activate_goal_workspace_plan_target(&mut self) -> bool {
+        let Some(selection) = self.goal_workspace.selected_plan_item().cloned() else {
+            return false;
+        };
+        match selection {
+            crate::state::goal_workspace::GoalPlanSelection::PromptToggle => {
+                self.goal_workspace.toggle_prompt_expanded();
+                self.sync_goal_workspace_selection_for_active_goal_pane();
+                self.clamp_goal_workspace_plan_scroll_to_selection();
+                true
+            }
+            crate::state::goal_workspace::GoalPlanSelection::MainThread { thread_id } => {
+                self.open_thread_conversation(thread_id);
+                true
+            }
+            crate::state::goal_workspace::GoalPlanSelection::Step { .. }
+            | crate::state::goal_workspace::GoalPlanSelection::Todo { .. } => false,
+        }
+    }
+
     pub(super) fn expand_selected_goal_workspace_step(&mut self) -> bool {
         self.sync_goal_workspace_selection_for_active_goal_pane();
         let Some(selection) = self.goal_workspace.selected_plan_item().cloned() else {
@@ -429,6 +443,8 @@ impl TuiModel {
             return false;
         };
         match selection {
+            crate::state::goal_workspace::GoalPlanSelection::PromptToggle
+            | crate::state::goal_workspace::GoalPlanSelection::MainThread { .. } => false,
             crate::state::goal_workspace::GoalPlanSelection::Step { step_id } => {
                 if self.goal_workspace.is_step_expanded(&step_id) {
                     self.goal_workspace.set_step_expanded(step_id, false);
@@ -531,6 +547,7 @@ impl TuiModel {
             crate::state::goal_workspace::GoalWorkspaceMode::Goal,
             crate::state::goal_workspace::GoalWorkspaceMode::Progress,
             crate::state::goal_workspace::GoalWorkspaceMode::ActiveAgent,
+            crate::state::goal_workspace::GoalWorkspaceMode::Threads,
             crate::state::goal_workspace::GoalWorkspaceMode::NeedsAttention,
         ];
         let current = modes
@@ -578,6 +595,38 @@ impl TuiModel {
         self.goal_workspace.set_selected_timeline_row(next);
         self.clamp_goal_workspace_timeline_scroll_to_selection();
         changed
+    }
+
+    pub(super) fn selected_goal_workspace_timeline_target(
+        &self,
+    ) -> Option<crate::widgets::goal_workspace::GoalWorkspaceHitTarget> {
+        let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
+            &self.main_pane_view
+        else {
+            return None;
+        };
+        crate::widgets::goal_workspace::timeline_targets(
+            &self.tasks,
+            goal_run_id,
+            &self.goal_workspace,
+        )
+        .into_iter()
+        .find_map(|(index, target)| {
+            (index == self.goal_workspace.selected_timeline_row()).then_some(target)
+        })
+    }
+
+    pub(super) fn activate_goal_workspace_timeline_target(&mut self) -> bool {
+        let Some(target) = self.selected_goal_workspace_timeline_target() else {
+            return false;
+        };
+        match target {
+            crate::widgets::goal_workspace::GoalWorkspaceHitTarget::ThreadRow(thread_id) => {
+                self.open_thread_conversation(thread_id);
+                true
+            }
+            _ => false,
+        }
     }
 
     pub(super) fn step_goal_workspace_detail_selection(&mut self, delta: i32) -> bool {
@@ -747,7 +796,10 @@ impl TuiModel {
             }
             crate::widgets::goal_workspace::GoalWorkspaceHitTarget::FooterAction(_) => false,
             crate::widgets::goal_workspace::GoalWorkspaceHitTarget::DetailCheckpoint(_)
+            | crate::widgets::goal_workspace::GoalWorkspaceHitTarget::ThreadRow(_)
             | crate::widgets::goal_workspace::GoalWorkspaceHitTarget::TimelineRow(_)
+            | crate::widgets::goal_workspace::GoalWorkspaceHitTarget::PlanPromptToggle
+            | crate::widgets::goal_workspace::GoalWorkspaceHitTarget::PlanMainThread(_)
             | crate::widgets::goal_workspace::GoalWorkspaceHitTarget::PlanStep(_)
             | crate::widgets::goal_workspace::GoalWorkspaceHitTarget::PlanTodo { .. }
             | crate::widgets::goal_workspace::GoalWorkspaceHitTarget::ModeTab(_) => false,
@@ -1538,11 +1590,10 @@ impl TuiModel {
                 self.modal.set_picker_item_count(item_count);
             }
             goal_mission_control::RuntimeAssignmentEditField::Model => {
-                self.settings_picker_target = Some(SettingsPickerTarget::Model);
-                self.modal
-                    .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
-                self.modal
-                    .set_picker_item_count(self.available_runtime_assignment_models().len() + 1);
+                if !self.open_mission_control_assignment_model_picker() {
+                    self.goal_mission_control.clear_runtime_edit();
+                    return false;
+                }
             }
             goal_mission_control::RuntimeAssignmentEditField::ReasoningEffort => {
                 self.settings_picker_target = Some(SettingsPickerTarget::SubAgentReasoningEffort);
@@ -1699,6 +1750,43 @@ impl TuiModel {
                     .get(edit.row_index)
             })
             .map(|assignment| (assignment.model.clone(), None))
+    }
+
+    pub(super) fn open_mission_control_assignment_model_picker(&mut self) -> bool {
+        let Some((_, assignment)) = self.selected_runtime_assignment_preview() else {
+            return false;
+        };
+        let provider_id = assignment.provider.clone();
+        let (base_url, api_key, auth_source) = self.provider_auth_snapshot(&provider_id);
+        let models = providers::known_models_for_provider_auth(&provider_id, &auth_source);
+        self.config.reduce(config::ConfigAction::ModelsFetched(models));
+        if self.should_fetch_remote_models(&provider_id, &auth_source) {
+            self.send_daemon_command(DaemonCommand::FetchModels {
+                provider_id,
+                base_url,
+                api_key,
+                output_modalities: None,
+            });
+        }
+        self.settings_picker_target = Some(SettingsPickerTarget::Model);
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+        self.sync_model_picker_item_count();
+        true
+    }
+
+    pub(super) fn begin_mission_control_custom_model_edit(&mut self) {
+        let Some((_, assignment)) = self.selected_runtime_assignment_preview() else {
+            self.status_line = "Mission Control roster is unavailable".to_string();
+            return;
+        };
+        if self.modal.top() != Some(modal::ModalKind::Settings) {
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+        }
+        self.settings
+            .start_editing("mission_control_assignment_model", &assignment.model);
+        self.status_line = "Enter mission control model ID".to_string();
     }
 
     pub(super) fn available_runtime_assignment_models(
@@ -2393,17 +2481,46 @@ impl TuiModel {
         self.start_goal_run_from_mission_control();
     }
 
+    fn consume_attachments_for_text_prompt(
+        &mut self,
+        prompt: String,
+    ) -> (String, Vec<serde_json::Value>) {
+        let drained_attachments = self.attachments.drain(..).collect::<Vec<_>>();
+        let mut content_blocks = Vec::new();
+        let content_with_attachments = if drained_attachments.is_empty() {
+            prompt
+        } else {
+            let mut parts: Vec<String> = Vec::new();
+            for att in drained_attachments {
+                match att.payload {
+                    AttachmentPayload::Text(content) => parts.push(format!(
+                        "<attached_file name=\"{}\">\n{}\n</attached_file>",
+                        att.filename, content
+                    )),
+                    AttachmentPayload::ContentBlock(block) => content_blocks.push(block),
+                }
+            }
+            parts.push(prompt);
+            parts.join("\n\n")
+        };
+        (content_with_attachments, content_blocks)
+    }
+
     pub(super) fn start_goal_run_from_mission_control(&mut self) {
         if !self.connected {
             self.status_line = "Not connected to daemon".to_string();
             return;
         }
-        let goal = self.goal_mission_control.prompt_text().trim().to_string();
-        if goal.is_empty() {
+        let raw_goal = self.goal_mission_control.prompt_text().trim().to_string();
+        if raw_goal.is_empty() {
             self.status_line = "Enter a goal before launching".to_string();
             return;
         }
         self.cleanup_concierge_on_navigate();
+        let (goal_with_attachments, _content_blocks) =
+            self.consume_attachments_for_text_prompt(raw_goal);
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let goal = input_refs::append_referenced_files_footer(&goal_with_attachments, &cwd);
         let launch_assignments = if self
             .goal_mission_control
             .display_role_assignments()
@@ -2677,24 +2794,8 @@ impl TuiModel {
 
         self.cleanup_concierge_on_navigate();
 
-        let drained_attachments = self.attachments.drain(..).collect::<Vec<_>>();
-        let mut content_blocks = Vec::new();
-        let content_with_attachments = if drained_attachments.is_empty() {
-            prompt.clone()
-        } else {
-            let mut parts: Vec<String> = Vec::new();
-            for att in drained_attachments {
-                match att.payload {
-                    AttachmentPayload::Text(content) => parts.push(format!(
-                        "<attached_file name=\"{}\">\n{}\n</attached_file>",
-                        att.filename, content
-                    )),
-                    AttachmentPayload::ContentBlock(block) => content_blocks.push(block),
-                }
-            }
-            parts.push(prompt.clone());
-            parts.join("\n\n")
-        };
+        let (content_with_attachments, mut content_blocks) =
+            self.consume_attachments_for_text_prompt(prompt.clone());
         if !content_blocks.is_empty() {
             content_blocks.insert(
                 0,

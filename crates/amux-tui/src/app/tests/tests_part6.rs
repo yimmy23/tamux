@@ -490,7 +490,7 @@ fn goal_workspace_keyboard_navigation_uses_plan_state() {
 
     let handled = model.handle_key(KeyCode::Down, KeyModifiers::NONE);
     assert!(!handled);
-    assert_eq!(model.goal_workspace.selected_plan_row(), 1);
+    assert_eq!(model.goal_workspace.selected_plan_row(), 3);
     assert_eq!(
         model.goal_workspace.selected_plan_item(),
         Some(&goal_workspace::GoalPlanSelection::Todo {
@@ -501,7 +501,7 @@ fn goal_workspace_keyboard_navigation_uses_plan_state() {
 
     let handled = model.handle_key(KeyCode::Left, KeyModifiers::NONE);
     assert!(!handled);
-    assert_eq!(model.goal_workspace.selected_plan_row(), 0);
+    assert_eq!(model.goal_workspace.selected_plan_row(), 2);
     assert_eq!(
         model.goal_workspace.selected_plan_item(),
         Some(&goal_workspace::GoalPlanSelection::Step {
@@ -560,22 +560,25 @@ fn goal_workspace_tab_cycles_between_internal_panes_before_input() {
 #[test]
 fn selected_goal_step_workspace_click_syncs_main_goal_detail_selection() {
     let mut model = goal_sidebar_model();
-    let chat_area = rendered_chat_area(&model);
+    let click = find_goal_workspace_hit_position(
+        &model,
+        widgets::goal_workspace::GoalWorkspaceHitTarget::PlanStep("step-2".to_string()),
+    );
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
-        column: chat_area.x.saturating_add(2),
-        row: chat_area.y.saturating_add(6),
+        column: click.x,
+        row: click.y,
         modifiers: KeyModifiers::NONE,
     });
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Up(MouseButton::Left),
-        column: chat_area.x.saturating_add(2),
-        row: chat_area.y.saturating_add(6),
+        column: click.x,
+        row: click.y,
         modifiers: KeyModifiers::NONE,
     });
 
     assert_eq!(model.focus, FocusArea::Chat);
-    assert_eq!(model.goal_workspace.selected_plan_row(), 1);
+    assert_eq!(model.goal_workspace.selected_plan_row(), 3);
     assert!(matches!(
         model.main_pane_view,
         MainPaneView::Task(SidebarItemTarget::GoalRun {
@@ -663,6 +666,13 @@ fn goal_workspace_mode_tabs_are_clickable_and_keyboard_focusable() {
     );
 
     let handled = model.handle_key(KeyCode::Char('4'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(
+        model.goal_workspace.mode(),
+        goal_workspace::GoalWorkspaceMode::Threads
+    );
+
+    let handled = model.handle_key(KeyCode::Char('5'), KeyModifiers::NONE);
     assert!(!handled);
     assert_eq!(
         model.goal_workspace.mode(),
@@ -774,7 +784,62 @@ fn goal_workspace_goal_mode_restores_old_goal_sections() {
     assert!(!plain.contains("Controls"), "{plain}");
     assert!(plain.contains("Related Tasks"), "{plain}");
     assert!(plain.contains("Execution Dossier"), "{plain}");
+    assert!(plain.contains("Goal Prompt"), "{plain}");
+    assert!(plain.contains("Main agent"), "{plain}");
     assert!(plain.contains("Ground the user's background"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_plan_prompt_toggle_is_clickable_and_keyboard_expandable() {
+    let mut model = goal_sidebar_model();
+
+    let click = find_goal_workspace_hit_position(
+        &model,
+        widgets::goal_workspace::GoalWorkspaceHitTarget::PlanPromptToggle,
+    );
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert!(model.goal_workspace.prompt_expanded());
+    assert!(render_chat_plain(&mut model).contains("goal definition body"));
+
+    let mut model = goal_sidebar_model();
+    model.focus = FocusArea::Chat;
+    model.goal_workspace.set_selected_plan_row(0);
+    model.goal_workspace
+        .set_selected_plan_item(Some(goal_workspace::GoalPlanSelection::PromptToggle));
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(model.goal_workspace.prompt_expanded());
+}
+
+#[test]
+fn goal_workspace_plan_main_thread_row_opens_thread_with_return_to_goal_path() {
+    let mut model = goal_sidebar_model();
+    model.focus = FocusArea::Chat;
+    model.goal_workspace.set_selected_plan_row(1);
+    model.goal_workspace.set_selected_plan_item(Some(
+        goal_workspace::GoalPlanSelection::MainThread {
+            thread_id: "thread-exec".to_string(),
+        },
+    ));
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-exec"));
+    assert!(model.mission_control_return_to_goal_target().is_some());
 }
 
 #[test]
@@ -828,6 +893,38 @@ fn goal_workspace_active_agent_mode_restores_assignments_and_threads() {
     assert!(plain.contains("Planner"), "{plain}");
     assert!(plain.contains("implementer"), "{plain}");
     assert!(plain.contains("thread-exec"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_threads_mode_lists_clickable_threads() {
+    let mut model = goal_sidebar_model();
+    model.goal_workspace
+        .set_mode(goal_workspace::GoalWorkspaceMode::Threads);
+
+    let plain = render_chat_plain(&mut model);
+
+    assert!(plain.contains("Threads"), "{plain}");
+    assert!(plain.contains("Executor"), "{plain}");
+    assert!(plain.contains("thread-exec"), "{plain}");
+    assert!(plain.contains("Planner"), "{plain}");
+    assert!(plain.contains("thread-2"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_threads_mode_enter_opens_selected_thread() {
+    let mut model = goal_sidebar_model();
+    model.focus = FocusArea::Chat;
+    model.goal_workspace
+        .set_mode(goal_workspace::GoalWorkspaceMode::Threads);
+    model.goal_workspace
+        .set_focused_pane(goal_workspace::GoalWorkspacePane::Timeline);
+    model.goal_workspace.set_selected_timeline_row(0);
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-exec"));
 }
 
 #[test]

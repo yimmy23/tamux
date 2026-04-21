@@ -15,6 +15,7 @@ fn sample_tasks() -> TaskState {
         title: "Goal".into(),
         goal: "Research the ecosystem and produce a concrete learning plan.".into(),
         thread_id: Some("thread-1".into()),
+        status: Some(crate::state::task::GoalRunStatus::Running),
         steps: vec![
             GoalRunStep {
                 id: "step-2".into(),
@@ -83,8 +84,15 @@ fn sample_tasks() -> TaskState {
     tasks
 }
 
-fn render_plain_text(state: &GoalWorkspaceState) -> String {
-    let tasks = sample_tasks();
+fn render_plain_text(state: &GoalWorkspaceState, tick_counter: u64) -> String {
+    render_plain_text_for_tasks(&sample_tasks(), state, tick_counter)
+}
+
+fn render_plain_text_for_tasks(
+    tasks: &TaskState,
+    state: &GoalWorkspaceState,
+    tick_counter: u64,
+) -> String {
     let area = Rect::new(0, 0, 100, 28);
     let backend = TestBackend::new(area.width, area.height);
     let mut terminal = Terminal::new(backend).expect("terminal should initialize");
@@ -94,10 +102,11 @@ fn render_plain_text(state: &GoalWorkspaceState) -> String {
             render(
                 frame,
                 area,
-                &tasks,
+                tasks,
                 "goal-1",
                 state,
                 &ThemeTokens::default(),
+                tick_counter,
             );
         })
         .expect("goal workspace render should succeed");
@@ -117,7 +126,7 @@ fn render_plain_text(state: &GoalWorkspaceState) -> String {
 fn goal_workspace_renders_plan_timeline_and_details_panes() {
     let state = GoalWorkspaceState::new();
 
-    let plain = render_plain_text(&state);
+    let plain = render_plain_text(&state, 0);
 
     assert!(plain.contains("Plan"), "{plain}");
     assert!(plain.contains("Run timeline"), "{plain}");
@@ -128,10 +137,12 @@ fn goal_workspace_renders_plan_timeline_and_details_panes() {
 fn goal_workspace_goal_mode_renders_prompt_and_files_list() {
     let state = GoalWorkspaceState::new();
 
-    let plain = render_plain_text(&state);
+    let plain = render_plain_text(&state, 0);
 
-    assert!(plain.contains("Prompt"), "{plain}");
-    assert!(plain.contains("Research the ecosystem"), "{plain}");
+    assert!(plain.contains("Goal Prompt"), "{plain}");
+    assert!(plain.contains("[Show]"), "{plain}");
+    assert!(!plain.contains("Research the ecosystem"), "{plain}");
+    assert!(plain.contains("Main agent"), "{plain}");
     assert!(plain.contains("Files"), "{plain}");
     assert!(plain.contains("/tmp/plan.md"), "{plain}");
 }
@@ -139,11 +150,13 @@ fn goal_workspace_goal_mode_renders_prompt_and_files_list() {
 #[test]
 fn goal_workspace_renders_steps_and_nested_todos_for_expanded_step() {
     let mut state = GoalWorkspaceState::new();
+    state.set_prompt_expanded(true);
     state.set_step_expanded("step-1", true);
 
-    let plain = render_plain_text(&state);
+    let plain = render_plain_text(&state, 0);
 
     assert!(plain.contains("Plan"), "{plain}");
+    assert!(plain.contains("Research the ecosystem"), "{plain}");
     assert!(plain.contains("Ship"), "{plain}");
     assert!(plain.contains("Draft outline"), "{plain}");
     assert!(plain.contains("Verify sources"), "{plain}");
@@ -154,10 +167,53 @@ fn goal_workspace_progress_mode_renders_progress_panel_copy() {
     let mut state = GoalWorkspaceState::new();
     state.set_mode(GoalWorkspaceMode::Progress);
 
-    let plain = render_plain_text(&state);
+    let plain = render_plain_text(&state, 0);
 
     assert!(plain.contains("Progress"), "{plain}");
     assert!(plain.contains("Checkpoints"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_threads_mode_renders_thread_inventory() {
+    let mut state = GoalWorkspaceState::new();
+    state.set_mode(GoalWorkspaceMode::Threads);
+
+    let plain = render_plain_text(&state, 0);
+
+    assert!(plain.contains("Threads"), "{plain}");
+    assert!(plain.contains("Goal thread"), "{plain}");
+    assert!(plain.contains("thread-1"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_plan_falls_back_to_goal_task_thread_when_run_thread_ids_are_missing() {
+    let mut tasks = TaskState::new();
+    tasks.reduce(TaskAction::TaskListReceived(vec![crate::state::task::AgentTask {
+        id: "task-1".into(),
+        title: "Worker Task".into(),
+        thread_id: Some("thread-worker".into()),
+        goal_run_id: Some("goal-1".into()),
+        status: Some(crate::state::task::TaskStatus::InProgress),
+        ..Default::default()
+    }]));
+    tasks.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        goal: "Investigate fallback thread discovery.".into(),
+        status: Some(crate::state::task::GoalRunStatus::Running),
+        steps: vec![GoalRunStep {
+            id: "step-1".into(),
+            title: "Plan".into(),
+            order: 0,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+
+    let plain = render_plain_text_for_tasks(&tasks, &GoalWorkspaceState::new(), 0);
+
+    assert!(plain.contains("Main agent"), "{plain}");
+    assert!(plain.contains("thread-worker"), "{plain}");
 }
 
 #[test]
@@ -167,9 +223,16 @@ fn goal_workspace_hit_test_distinguishes_step_and_todo_rows() {
     let tasks = sample_tasks();
     let area = Rect::new(0, 0, 100, 28);
 
-    let step_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(2, 5));
-    let todo_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(4, 6));
+    let prompt_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(2, 5));
+    let thread_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(2, 6));
+    let step_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(2, 7));
+    let todo_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(4, 8));
 
+    assert_eq!(prompt_hit, Some(GoalWorkspaceHitTarget::PlanPromptToggle));
+    assert_eq!(
+        thread_hit,
+        Some(GoalWorkspaceHitTarget::PlanMainThread("thread-1".into()))
+    );
     assert_eq!(
         step_hit,
         Some(GoalWorkspaceHitTarget::PlanStep("step-1".into()))
@@ -221,4 +284,15 @@ fn goal_workspace_hit_test_tracks_mode_tabs_and_wrapped_timeline_lines() {
         Some(GoalWorkspaceHitTarget::ModeTab(GoalWorkspaceMode::Progress))
     );
     assert_eq!(wrapped_timeline_hit, Some(GoalWorkspaceHitTarget::TimelineRow(0)));
+}
+
+#[test]
+fn goal_workspace_running_timeline_row_animates_across_ticks() {
+    let state = GoalWorkspaceState::new();
+
+    let tick_0 = render_plain_text(&state, 0);
+    let tick_1 = render_plain_text(&state, 1);
+
+    assert!(tick_0.contains("⠋") || tick_0.contains("⠙") || tick_0.contains("⠹") || tick_0.contains("⠸"), "{tick_0}");
+    assert_ne!(tick_0, tick_1);
 }

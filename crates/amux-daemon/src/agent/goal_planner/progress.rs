@@ -1,6 +1,44 @@
 use super::*;
 
 const GOAL_VERIFICATION_SOURCE: &str = "goal_verification";
+const GOAL_COMPLETION_MARKER_REMINDER_LIMIT: u32 = 3;
+
+#[derive(Clone)]
+struct GoalCompletionMarkerContext {
+    step: GoalRunStep,
+    human_step_number: usize,
+    total_steps: usize,
+    absolute_path: std::path::PathBuf,
+}
+
+fn completion_marker_retry_key(goal_run_id: &str, step_id: &str) -> String {
+    format!("{goal_run_id}:{step_id}")
+}
+
+fn completion_marker_prompt(context: &GoalCompletionMarkerContext) -> String {
+    format!(
+        "Required completion marker is missing for Step {} of {}.\n\
+         Create file: {}\n\
+         Do not consider this step complete until that file exists.",
+        context.human_step_number,
+        context.total_steps,
+        context.absolute_path.display(),
+    )
+}
+
+fn completion_marker_detail(
+    context: &GoalCompletionMarkerContext,
+    retries_attempted: u32,
+    todos_completed: bool,
+) -> String {
+    format!(
+        "Required completion marker missing for Step {} of {} ({}): {}. retries_attempted={retries_attempted}; todos_completed={todos_completed}",
+        context.human_step_number,
+        context.total_steps,
+        context.step.title,
+        context.absolute_path.display(),
+    )
+}
 
 fn current_step_verification_requirements(
     goal_run: &GoalRun,
@@ -22,7 +60,181 @@ fn current_step_verification_requirements(
     ))
 }
 
+fn current_step_completion_marker_context(
+    engine: &AgentEngine,
+    goal_run: &GoalRun,
+) -> Option<GoalCompletionMarkerContext> {
+    let step = goal_run.steps.get(goal_run.current_step_index)?.clone();
+    Some(GoalCompletionMarkerContext {
+        step,
+        human_step_number: goal_run.current_step_index.saturating_add(1),
+        total_steps: goal_run.steps.len(),
+        absolute_path: super::goal_dossier::goal_step_completion_marker_path(
+            &engine.data_dir,
+            &goal_run.id,
+            goal_run.current_step_index,
+        ),
+    })
+}
+
 impl AgentEngine {
+    async fn requeue_goal_step_for_missing_completion_marker(
+        &self,
+        snapshot: &GoalRun,
+        task: &AgentTask,
+        context: &GoalCompletionMarkerContext,
+    ) -> Result<()> {
+        let retry_key = completion_marker_retry_key(&snapshot.id, &context.step.id);
+        let reminder_number = {
+            let mut retries = self.goal_step_completion_marker_retries.lock().await;
+            let issued = retries.entry(retry_key).or_insert(0);
+            if *issued >= GOAL_COMPLETION_MARKER_REMINDER_LIMIT {
+                return self
+                    .gate_goal_step_missing_completion_marker_for_approval(snapshot, task, context)
+                    .await;
+            }
+            *issued = issued.saturating_add(1);
+            *issued
+        };
+
+        let todos_completed = if let Some(thread_id) = task.thread_id.as_deref() {
+            let todos = self.get_todos(thread_id).await;
+            !todos.is_empty()
+                && todos
+                    .iter()
+                    .all(|item| item.status == TodoStatus::Completed)
+        } else {
+            false
+        };
+        let detail = completion_marker_detail(context, reminder_number, todos_completed);
+        let reminder_prompt = completion_marker_prompt(context);
+
+        let updated_task = {
+            let mut tasks = self.tasks.lock().await;
+            let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) else {
+                anyhow::bail!("goal step task disappeared during completion marker retry");
+            };
+            current.status = TaskStatus::Queued;
+            current.progress = current.progress.max(95);
+            current.started_at = None;
+            current.completed_at = None;
+            current.awaiting_approval_id = None;
+            current.blocked_reason = Some(detail.clone());
+            current.description = reminder_prompt;
+            current.error = None;
+            current.last_error = None;
+            current.logs.push(make_task_log_entry(
+                current.retry_count,
+                TaskLogLevel::Warn,
+                "completion_marker",
+                &format!(
+                    "required completion marker missing; retry {reminder_number} of {} queued",
+                    GOAL_COMPLETION_MARKER_REMINDER_LIMIT
+                ),
+                Some(detail.clone()),
+            ));
+            current.clone()
+        };
+
+        let updated_goal = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == snapshot.id) else {
+                anyhow::bail!("goal run missing while re-queuing completion marker retry");
+            };
+            goal_run.status = GoalRunStatus::Running;
+            goal_run.updated_at = now_millis();
+            goal_run.awaiting_approval_id = None;
+            goal_run.active_task_id = Some(updated_task.id.clone());
+            goal_run.current_step_title = Some(context.step.title.clone());
+            goal_run.current_step_kind = Some(context.step.kind.clone());
+            goal_run.events.push(make_goal_run_event(
+                "completion_marker",
+                "required step completion marker missing; retry queued",
+                Some(detail),
+            ));
+            goal_run.clone()
+        };
+
+        self.persist_tasks().await;
+        self.persist_goal_runs().await;
+        self.emit_task_update(
+            &updated_task,
+            Some(format!(
+                "Missing completion marker; retry {reminder_number}/{} queued",
+                GOAL_COMPLETION_MARKER_REMINDER_LIMIT
+            )),
+        );
+        self.emit_goal_run_update(
+            &updated_goal,
+            Some("Goal step waiting for required completion marker".into()),
+        );
+        Ok(())
+    }
+
+    async fn gate_goal_step_missing_completion_marker_for_approval(
+        &self,
+        snapshot: &GoalRun,
+        task: &AgentTask,
+        context: &GoalCompletionMarkerContext,
+    ) -> Result<()> {
+        let approval_id = format!("goal-step-marker-approval-{}", Uuid::new_v4());
+        let detail = format!(
+            "Required completion marker missing after {} retries for Step {} of {} ({}): {}",
+            GOAL_COMPLETION_MARKER_REMINDER_LIMIT,
+            context.human_step_number,
+            context.total_steps,
+            context.step.title,
+            context.absolute_path.display(),
+        );
+
+        let updated_task = {
+            let mut tasks = self.tasks.lock().await;
+            let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) else {
+                anyhow::bail!("goal step task disappeared before approval gating");
+            };
+            current.status = TaskStatus::AwaitingApproval;
+            current.progress = current.progress.max(95);
+            current.started_at = None;
+            current.completed_at = None;
+            current.awaiting_approval_id = Some(approval_id.clone());
+            current.blocked_reason = Some(detail.clone());
+            current.logs.push(make_task_log_entry(
+                current.retry_count,
+                TaskLogLevel::Warn,
+                "completion_marker",
+                "required completion marker missing; human approval required",
+                Some(detail.clone()),
+            ));
+            current.clone()
+        };
+
+        let updated_goal = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == snapshot.id) else {
+                anyhow::bail!("goal run missing while applying completion marker approval gate");
+            };
+            goal_run.status = GoalRunStatus::AwaitingApproval;
+            goal_run.updated_at = now_millis();
+            goal_run.awaiting_approval_id = Some(approval_id.clone());
+            goal_run.active_task_id = Some(updated_task.id.clone());
+            goal_run.events.push(make_goal_run_event(
+                "completion_marker",
+                "required step completion marker missing; human approval required",
+                Some(detail),
+            ));
+            goal_run.clone()
+        };
+
+        self.persist_tasks().await;
+        self.persist_goal_runs().await;
+        self.emit_task_update(&updated_task, Some("Task awaiting approval".into()));
+        self.emit_goal_run_update(
+            &updated_goal,
+            Some("Goal step awaiting approval: completion marker missing".into()),
+        );
+        Ok(())
+    }
+
     async fn enqueue_goal_step_verification(
         &self,
         snapshot: &GoalRun,
@@ -351,6 +563,18 @@ impl AgentEngine {
                 return Ok(());
             }
         }
+        let Some(marker_context) = current_step_completion_marker_context(self, &snapshot) else {
+            return Ok(());
+        };
+        if tokio::fs::metadata(&marker_context.absolute_path).await.is_err() {
+            self.requeue_goal_step_for_missing_completion_marker(&snapshot, task, &marker_context)
+                .await?;
+            return Ok(());
+        }
+        self.goal_step_completion_marker_retries
+            .lock()
+            .await
+            .remove(&completion_marker_retry_key(&snapshot.id, &marker_context.step.id));
 
         let now = now_millis();
         let thread_summary = match task.thread_id.as_deref() {
@@ -460,6 +684,20 @@ impl AgentEngine {
         goal_run_id: &str,
         task: &AgentTask,
     ) -> Result<()> {
+        let step_id = {
+            let goal_runs = self.goal_runs.lock().await;
+            goal_runs
+                .iter()
+                .find(|item| item.id == goal_run_id)
+                .and_then(|goal_run| goal_run.steps.get(goal_run.current_step_index))
+                .map(|step| step.id.clone())
+        };
+        if let Some(step_id) = step_id {
+            self.goal_step_completion_marker_retries
+                .lock()
+                .await
+                .remove(&completion_marker_retry_key(goal_run_id, &step_id));
+        }
         let snapshot = self
             .get_goal_run(goal_run_id)
             .await

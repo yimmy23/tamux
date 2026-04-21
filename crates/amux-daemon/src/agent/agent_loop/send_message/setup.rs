@@ -654,8 +654,20 @@ impl<'a> SendMessageRunner<'a> {
         {
             system_prompt.push_str("\n\n");
             system_prompt.push_str(&crate::agent::goal_dossier::goal_inventory_prompt_block(
+                &engine.data_dir,
                 goal_run_id,
             ));
+            if let Some(goal_run) = engine.get_goal_run(goal_run_id).await {
+                if let Some(marker_block) =
+                    crate::agent::goal_dossier::goal_step_completion_marker_prompt_block_for_data_dir(
+                        &engine.data_dir,
+                        &goal_run,
+                    )
+                {
+                    system_prompt.push_str("\n\n");
+                    system_prompt.push_str(&marker_block);
+                }
+            }
         }
         if let Some(injection_state) =
             crate::agent::memory_context::append_structured_memory_summary_if_needed(
@@ -1166,6 +1178,88 @@ mod tests {
         let manager = SessionManager::new_test(root.path()).await;
         let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
         let task_id = "goal-task-1";
+        let inventory_root =
+            crate::agent::goal_dossier::goal_inventory_dir(&engine.data_dir, "goal-run-1");
+        let specs_dir =
+            crate::agent::goal_dossier::goal_inventory_specs_dir(&engine.data_dir, "goal-run-1");
+        let plans_dir =
+            crate::agent::goal_dossier::goal_inventory_plans_dir(&engine.data_dir, "goal-run-1");
+        let execution_dir = crate::agent::goal_dossier::goal_inventory_execution_dir(
+            &engine.data_dir,
+            "goal-run-1",
+        );
+        let marker_path = crate::agent::goal_dossier::goal_step_completion_marker_path(
+            &engine.data_dir,
+            "goal-run-1",
+            0,
+        );
+
+        engine.goal_runs.lock().await.push_back(GoalRun {
+            id: "goal-run-1".to_string(),
+            title: "Goal Inventory".to_string(),
+            goal: "Write durable goal artifacts".to_string(),
+            client_request_id: None,
+            status: GoalRunStatus::Running,
+            priority: TaskPriority::Normal,
+            created_at: 1,
+            updated_at: 1,
+            started_at: Some(1),
+            completed_at: None,
+            thread_id: Some("thread-goal-1".to_string()),
+            root_thread_id: None,
+            active_thread_id: None,
+            execution_thread_ids: Vec::new(),
+            session_id: Some("session-1".to_string()),
+            current_step_index: 0,
+            current_step_title: Some("Write plan".to_string()),
+            current_step_kind: Some(GoalRunStepKind::Command),
+            launch_assignment_snapshot: Vec::new(),
+            runtime_assignment_list: Vec::new(),
+            planner_owner_profile: None,
+            current_step_owner_profile: None,
+            replan_count: 0,
+            max_replans: 2,
+            plan_summary: None,
+            reflection_summary: None,
+            memory_updates: Vec::new(),
+            generated_skill_path: None,
+            last_error: None,
+            failure_cause: None,
+            stopped_reason: None,
+            child_task_ids: Vec::new(),
+            child_task_count: 0,
+            approval_count: 0,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            active_task_id: None,
+            duration_ms: None,
+            steps: vec![GoalRunStep {
+                id: "goal-step-1".to_string(),
+                position: 0,
+                title: "Write plan".to_string(),
+                instructions: "Write durable goal artifacts".to_string(),
+                kind: GoalRunStepKind::Command,
+                success_criteria: "plan written".to_string(),
+                session_id: Some("session-1".to_string()),
+                status: GoalRunStepStatus::InProgress,
+                task_id: Some(task_id.to_string()),
+                summary: None,
+                error: None,
+                started_at: Some(1),
+                completed_at: None,
+            }],
+            events: Vec::new(),
+            dossier: None,
+            total_prompt_tokens: 0,
+            total_completion_tokens: 0,
+            estimated_cost_usd: None,
+            autonomy_level: AutonomyLevel::Aware,
+            authorship_tag: None,
+        });
 
         engine.tasks.lock().await.push_back(AgentTask {
             id: task_id.to_string(),
@@ -1241,26 +1335,42 @@ mod tests {
         assert!(
             runner
                 .system_prompt
-                .contains(".tamux/goals/goal-run-1/inventory/"),
+                .contains(&format!("{}/", inventory_root.display())),
             "expected inventory root in the goal task prompt"
         );
         assert!(
             runner
                 .system_prompt
-                .contains(".tamux/goals/goal-run-1/inventory/specs/"),
+                .contains(&format!("{}/", specs_dir.display())),
             "expected specs dir in the goal task prompt"
         );
         assert!(
             runner
                 .system_prompt
-                .contains(".tamux/goals/goal-run-1/inventory/plans/"),
+                .contains(&format!("{}/", plans_dir.display())),
             "expected plans dir in the goal task prompt"
         );
         assert!(
             runner
                 .system_prompt
-                .contains(".tamux/goals/goal-run-1/inventory/execution/"),
+                .contains(&format!("{}/", execution_dir.display())),
             "expected execution dir in the goal task prompt"
+        );
+        assert!(
+            runner.system_prompt.contains("Step 1 of 1"),
+            "expected human-readable current step label in the goal task prompt"
+        );
+        assert!(
+            runner
+                .system_prompt
+                .contains(&marker_path.display().to_string()),
+            "expected completion marker file path in the goal task prompt"
+        );
+        assert!(
+            runner
+                .system_prompt
+                .contains("This step cannot be marked complete until that file exists"),
+            "expected hard completion marker requirement in the goal task prompt"
         );
     }
 

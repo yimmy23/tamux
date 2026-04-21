@@ -1099,6 +1099,38 @@ fn sample_goal_run_with_kind(
     }
 }
 
+async fn write_step_completion_marker(
+    engine: &AgentEngine,
+    goal_run_id: &str,
+    step_index: usize,
+) {
+    let path = crate::agent::goal_dossier::goal_step_completion_marker_path(
+        &engine.data_dir,
+        goal_run_id,
+        step_index,
+    );
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .expect("create marker parent dir");
+    }
+    tokio::fs::write(&path, format!("step {} complete\n", step_index + 1))
+        .await
+        .expect("write step completion marker");
+}
+
+#[test]
+fn goal_step_completion_marker_path_uses_human_step_number() {
+    let marker = crate::agent::goal_dossier::goal_step_completion_marker_relative_path(
+        "goal-marker",
+        0,
+    );
+    assert_eq!(
+        marker.to_string_lossy(),
+        ".tamux/goals/goal-marker/inventory/execution/step-1-complete.md"
+    );
+}
+
 #[tokio::test]
 async fn enqueue_goal_run_step_applies_goal_local_overrides_for_builtin_binding() {
     let root = tempdir().expect("temp dir");
@@ -1663,6 +1695,7 @@ async fn verifier_completion_advances_goal_step_and_resolves_proof_checks() {
     let mut completed_verifier = verifier_task.clone();
     completed_verifier.status = TaskStatus::Completed;
     completed_verifier.result = Some("all proof checks satisfied".to_string());
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
 
     engine
         .handle_goal_run_step_completion(goal_run_id, &completed_verifier)
@@ -1782,6 +1815,8 @@ async fn handle_goal_run_step_completion_records_dossier_report_and_advance_deci
         sub_agent_def_id: None,
     };
 
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
     engine
         .handle_goal_run_step_completion(goal_run_id, &completed_task)
         .await
@@ -1823,6 +1858,278 @@ async fn handle_goal_run_step_completion_records_dossier_report_and_advance_deci
         dossier.units[0].summary.as_deref(),
         Some("step completed"),
         "live dossier unit state should match the emitted report before persistence refresh"
+    );
+}
+
+#[tokio::test]
+async fn handle_goal_run_step_completion_blocks_when_completion_marker_is_missing() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-marker-missing";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Run the build and continue",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-step-marker-missing".to_string());
+    goal_run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "verify artifacts".to_string(),
+        kind: GoalRunStepKind::Research,
+        success_criteria: "artifacts verified".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let completed_task = AgentTask {
+        id: "task-step-marker-missing".to_string(),
+        title: "complete step".to_string(),
+        description: "complete step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: Some("thread-goal-custom".to_string()),
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+    engine.tasks.lock().await.push_back(completed_task.clone());
+
+    engine
+        .replace_thread_todos(
+            "thread-goal-custom",
+            vec![TodoItem {
+                id: "todo-1".to_string(),
+                content: "done".to_string(),
+                status: TodoStatus::Completed,
+                position: 0,
+                step_index: Some(0),
+                created_at: 0,
+                updated_at: 0,
+            }],
+            Some(completed_task.id.as_str()),
+        )
+        .await;
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_task)
+        .await
+        .expect("completion hook should not hard-fail when marker is missing");
+
+    let marker_path =
+        crate::agent::goal_dossier::goal_step_completion_marker_path(&engine.data_dir, goal_run_id, 0);
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.current_step_index, 0);
+    assert_eq!(updated.steps[0].status, GoalRunStepStatus::InProgress);
+
+    let stored_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == completed_task.id)
+        .cloned()
+        .expect("task should still exist");
+    assert_eq!(stored_task.status, TaskStatus::Queued);
+    assert!(
+        stored_task
+            .description
+            .contains(&marker_path.display().to_string()),
+        "queued retry should instruct the agent to create the marker file"
+    );
+}
+
+#[tokio::test]
+async fn exhausted_completion_marker_retries_require_human_approval() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-marker-approval";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Run the build and continue",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-step-marker-approval".to_string());
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let template_task = AgentTask {
+        id: "task-step-marker-approval".to_string(),
+        title: "complete step".to_string(),
+        description: "complete step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: Some("thread-goal-custom".to_string()),
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+    engine.tasks.lock().await.push_back(template_task.clone());
+
+    engine
+        .replace_thread_todos(
+            "thread-goal-custom",
+            vec![TodoItem {
+                id: "todo-1".to_string(),
+                content: "done".to_string(),
+                status: TodoStatus::Completed,
+                position: 0,
+                step_index: Some(0),
+                created_at: 0,
+                updated_at: 0,
+            }],
+            Some(template_task.id.as_str()),
+        )
+        .await;
+
+    for _ in 0..4 {
+        let mut completed_task = engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .find(|task| task.id == template_task.id)
+            .cloned()
+            .expect("task should still exist");
+        completed_task.status = TaskStatus::Completed;
+        completed_task.completed_at = Some(now_millis());
+
+        engine
+            .handle_goal_run_step_completion(goal_run_id, &completed_task)
+            .await
+            .expect("completion hook should not hard-fail during reminder escalation");
+    }
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.status, GoalRunStatus::AwaitingApproval);
+    assert!(
+        updated.awaiting_approval_id.is_some(),
+        "goal should surface a human-approval requirement after exhausting retries"
+    );
+
+    let stored_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == template_task.id)
+        .cloned()
+        .expect("task should still exist");
+    assert_eq!(stored_task.status, TaskStatus::AwaitingApproval);
+    assert!(
+        stored_task
+            .blocked_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains(&crate::agent::goal_dossier::goal_step_completion_marker_path(
+                &engine.data_dir,
+                goal_run_id,
+                0,
+            )
+            .display()
+            .to_string())),
+        "approval details should explain which marker file is missing"
     );
 }
 
@@ -2055,6 +2362,7 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
     verification_complete.status = TaskStatus::Completed;
     verification_complete.completed_at = Some(now_millis());
     verification_complete.result = Some("verification passed".to_string());
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
 
     engine
         .handle_goal_run_step_completion(goal_run_id, &verification_complete)

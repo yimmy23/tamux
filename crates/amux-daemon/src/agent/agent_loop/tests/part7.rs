@@ -384,6 +384,177 @@ async fn metacognitive_workflow_profiles_learn_from_live_outcomes_and_persist() 
 }
 
 #[tokio::test]
+async fn metacognitive_warning_repeated_tool_calls_record_synthetic_failures_and_escalate() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![
+        (
+            "update_todo".to_string(),
+            serde_json::json!({
+                "items": [{
+                    "content": "Create step completion marker for goal step 1",
+                    "status": "completed",
+                    "step_index": 1
+                }]
+            })
+            .to_string(),
+        ),
+        (
+            "update_todo".to_string(),
+            serde_json::json!({
+                "items": [{
+                    "content": "Create step completion marker for goal step 1",
+                    "status": "completed",
+                    "step_index": 1
+                }]
+            })
+            .to_string(),
+        ),
+        (
+            "update_todo".to_string(),
+            serde_json::json!({
+                "items": [{
+                    "content": "Create step completion marker for goal step 1",
+                    "status": "completed",
+                    "step_index": 1
+                }]
+            })
+            .to_string(),
+        ),
+    ])
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 4;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-metacognitive-warning-repeat-escalation";
+    let task_id = "task-metacognitive-warning-repeat-escalation";
+
+    engine.tasks.lock().await.push_back(crate::agent::types::AgentTask {
+        id: task_id.to_string(),
+        title: "Verify goal step".to_string(),
+        description: "Verify goal step".to_string(),
+        status: TaskStatus::InProgress,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: 1,
+        started_at: Some(2),
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.to_string()),
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: Some("session-warning-repeat".to_string()),
+        goal_run_id: Some("goal-warning-repeat".to_string()),
+        goal_run_title: Some("Warning repeat".to_string()),
+        goal_step_id: Some("step-warning-repeat".to_string()),
+        goal_step_title: Some("Verify goal step".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 2,
+        max_retries: 3,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        sub_agent_def_id: None,
+    });
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "I am certain the verification is complete; update the todo as completed now.",
+            None,
+            Some(task_id),
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let threads = engine.threads.read().await;
+    let thread = threads.get(thread_id).expect("thread should exist");
+
+    let metacognitive_tool_failures = thread
+        .messages
+        .iter()
+        .filter(|message| {
+            message.role == MessageRole::Tool
+                && message.tool_name.as_deref() == Some("update_todo")
+                && message.tool_status.as_deref() == Some("error")
+                && message.content.contains("meta-cognitive regulator")
+        })
+        .count();
+    assert!(
+        metacognitive_tool_failures >= 2,
+        "warned repeated tool calls should leave synthetic tool failure state instead of only appending system prompts"
+    );
+
+    let warning_system_messages = thread
+        .messages
+        .iter()
+        .filter(|message| {
+            message.role == MessageRole::System
+                && message
+                    .content
+                    .contains("Meta-cognitive intervention: warning before tool execution.")
+        })
+        .count();
+    assert!(
+        warning_system_messages <= 2,
+        "repeated warnings should escalate instead of warning forever"
+    );
+
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Tool
+            && message.tool_name.as_deref() == Some("update_todo")
+            && message
+                .content
+                .contains("Tool call blocked by meta-cognitive regulator before execution")
+    }));
+
+    assert!(!thread.messages.iter().any(|message| {
+        message.role == MessageRole::Tool
+            && message.tool_name.as_deref() == Some("update_todo")
+            && message.tool_status.as_deref() == Some("done")
+    }));
+}
+
+#[tokio::test]
 async fn neutral_investigative_sequence_does_not_false_positive_confirmation_bias() {
     let root = tempdir().unwrap();
     let readable_path = root.path().join("neutral.txt");

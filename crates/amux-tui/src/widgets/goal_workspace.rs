@@ -16,9 +16,12 @@ mod plan;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GoalWorkspaceHitTarget {
     ModeTab(GoalWorkspaceMode),
+    PlanPromptToggle,
+    PlanMainThread(String),
     PlanStep(String),
     PlanTodo { step_id: String, todo_id: String },
     TimelineRow(usize),
+    ThreadRow(String),
     FooterAction(GoalWorkspaceAction),
     DetailFile(String),
     DetailCheckpoint(String),
@@ -82,6 +85,7 @@ pub fn render(
     goal_run_id: &str,
     state: &GoalWorkspaceState,
     theme: &ThemeTokens,
+    tick_counter: u64,
 ) {
     let Some(layout) = workspace_layout(area) else {
         return;
@@ -89,7 +93,15 @@ pub fn render(
 
     render_summary(frame, layout.summary, state, theme);
     render_plan(frame, layout.plan, tasks, goal_run_id, state, theme);
-    render_center_pane(frame, layout.timeline, tasks, goal_run_id, state, theme);
+    render_center_pane(
+        frame,
+        layout.timeline,
+        tasks,
+        goal_run_id,
+        state,
+        theme,
+        tick_counter,
+    );
     render_details(frame, layout.details, tasks, goal_run_id, state, theme);
     render_step_footer(frame, layout.footer, tasks, goal_run_id, state, theme);
 }
@@ -165,13 +177,27 @@ pub fn hit_test(
                 return None;
             }
             let row_index = resolved_timeline_scroll(
-                center_rows(tasks, goal_run_id, state, inner.width as usize, &ThemeTokens::default())
-                    .len(),
+                center_rows(
+                    tasks,
+                    goal_run_id,
+                    state,
+                    inner.width as usize,
+                    &ThemeTokens::default(),
+                    0,
+                )
+                .len(),
                 inner.height as usize,
                 state,
             )
             .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
-            center_rows(tasks, goal_run_id, state, inner.width as usize, &ThemeTokens::default())
+            center_rows(
+                tasks,
+                goal_run_id,
+                state,
+                inner.width as usize,
+                &ThemeTokens::default(),
+                0,
+            )
                 .into_iter()
                 .nth(row_index)
                 .and_then(|row| row.target)
@@ -229,7 +255,14 @@ pub fn max_timeline_scroll(
         return 0;
     };
     let inner = Block::default().borders(Borders::ALL).inner(layout.timeline);
-    center_rows(tasks, goal_run_id, state, inner.width as usize, &ThemeTokens::default())
+    center_rows(
+        tasks,
+        goal_run_id,
+        state,
+        inner.width as usize,
+        &ThemeTokens::default(),
+        0,
+    )
         .len()
         .saturating_sub(inner.height as usize)
 }
@@ -345,6 +378,7 @@ const MODE_TABS: &[(GoalWorkspaceMode, &str)] = &[
     (GoalWorkspaceMode::Goal, "Goal"),
     (GoalWorkspaceMode::Progress, "Progress"),
     (GoalWorkspaceMode::ActiveAgent, "Active agent"),
+    (GoalWorkspaceMode::Threads, "Threads"),
     (GoalWorkspaceMode::NeedsAttention, "Needs attention"),
 ];
 
@@ -420,11 +454,12 @@ fn render_plan(
     frame.render_widget(block, area);
 
     let selected_style = selected_row_style(state.focused_pane() == GoalWorkspacePane::Plan);
+    let selected_visual_row = plan_visual_row_for_selection(tasks, goal_run_id, state);
     let lines = plan::build_rows(tasks, goal_run_id, state)
         .into_iter()
         .enumerate()
         .map(|(index, row)| {
-            if index == state.selected_plan_row() {
+            if Some(index) == selected_visual_row {
                 row.line.style(selected_style)
             } else {
                 row.line
@@ -459,6 +494,7 @@ fn render_center_pane(
     goal_run_id: &str,
     state: &GoalWorkspaceState,
     theme: &ThemeTokens,
+    tick_counter: u64,
 ) {
     let block = Block::default()
         .title(center_pane_title(state.mode()))
@@ -474,19 +510,21 @@ fn render_center_pane(
     let selected_target = center_targets(tasks, goal_run_id, state)
         .get(state.selected_timeline_row())
         .cloned();
-    let mut lines = center_rows(tasks, goal_run_id, state, inner.width as usize, theme)
-        .into_iter()
-        .map(|row| row.line)
-        .collect::<Vec<_>>();
+    let center_rows = center_rows(
+        tasks,
+        goal_run_id,
+        state,
+        inner.width as usize,
+        theme,
+        tick_counter,
+    );
+    let mut lines = center_rows.iter().map(|row| row.line.clone()).collect::<Vec<_>>();
     if lines.is_empty() {
         lines.push(Line::from(Span::styled("No data available.", theme.fg_dim)));
     }
     let selected_style = selected_row_style(state.focused_pane() == GoalWorkspacePane::Timeline);
     let scroll = resolved_timeline_scroll(lines.len(), inner.height as usize, state);
-    for (line, row) in lines
-        .iter_mut()
-        .zip(center_rows(tasks, goal_run_id, state, inner.width as usize, theme).iter())
-    {
+    for (line, row) in lines.iter_mut().zip(center_rows.iter()) {
         if selected_target.is_some() && row.target == selected_target {
             *line = line.clone().style(selected_style);
         }
@@ -591,6 +629,7 @@ fn center_pane_title(mode: GoalWorkspaceMode) -> &'static str {
         GoalWorkspaceMode::Goal => " Run timeline ",
         GoalWorkspaceMode::Progress => " Progress ",
         GoalWorkspaceMode::ActiveAgent => " Active agent ",
+        GoalWorkspaceMode::Threads => " Threads ",
         GoalWorkspaceMode::NeedsAttention => " Needs attention ",
     }
 }
@@ -719,6 +758,7 @@ fn detail_pane_title(mode: GoalWorkspaceMode) -> &'static str {
         GoalWorkspaceMode::Goal => " Goal ",
         GoalWorkspaceMode::Progress => " Progress details ",
         GoalWorkspaceMode::ActiveAgent => " Runtime details ",
+        GoalWorkspaceMode::Threads => " Thread details ",
         GoalWorkspaceMode::NeedsAttention => " Attention details ",
     }
 }
@@ -729,11 +769,13 @@ fn center_rows(
     state: &GoalWorkspaceState,
     width: usize,
     theme: &ThemeTokens,
+    tick_counter: u64,
 ) -> Vec<WorkspaceVisualRow> {
     match state.mode() {
-        GoalWorkspaceMode::Goal => timeline_rows(tasks, goal_run_id, width, theme),
+        GoalWorkspaceMode::Goal => timeline_rows(tasks, goal_run_id, width, theme, tick_counter),
         GoalWorkspaceMode::Progress => progress_rows(tasks, goal_run_id, theme),
         GoalWorkspaceMode::ActiveAgent => active_agent_rows(tasks, goal_run_id, theme),
+        GoalWorkspaceMode::Threads => thread_rows(tasks, goal_run_id, theme),
         GoalWorkspaceMode::NeedsAttention => attention_rows(tasks, goal_run_id, theme),
     }
 }
@@ -744,7 +786,7 @@ fn center_targets(
     state: &GoalWorkspaceState,
 ) -> Vec<GoalWorkspaceHitTarget> {
     let mut targets = Vec::new();
-    for row in center_rows(tasks, goal_run_id, state, 80, &ThemeTokens::default()) {
+    for row in center_rows(tasks, goal_run_id, state, 80, &ThemeTokens::default(), 0) {
         let Some(target) = row.target else {
             continue;
         };
@@ -772,6 +814,11 @@ enum ActiveAgentItem {
 }
 
 #[derive(Clone)]
+enum ThreadItem {
+    Entry(String),
+}
+
+#[derive(Clone)]
 enum AttentionItem {
     Approvals,
     Status,
@@ -784,6 +831,7 @@ fn timeline_rows(
     goal_run_id: &str,
     width: usize,
     theme: &ThemeTokens,
+    tick_counter: u64,
 ) -> Vec<WorkspaceVisualRow> {
     let Some(run) = tasks.goal_run_by_id(goal_run_id) else {
         return vec![WorkspaceVisualRow {
@@ -801,6 +849,8 @@ fn timeline_rows(
     let usable_width = width.saturating_sub(2).max(8);
     let mut rows = Vec::new();
     for (event_index, event) in run.events.iter().rev().enumerate() {
+        let (indicator, indicator_style, body_style) =
+            timeline_event_visuals(run, event, event_index, theme, tick_counter);
         let label = if event.message.trim().is_empty() {
             "event".to_string()
         } else {
@@ -812,13 +862,13 @@ fn timeline_rows(
                 target: Some(GoalWorkspaceHitTarget::TimelineRow(event_index)),
                 line: if wrapped_index == 0 {
                     Line::from(vec![
-                        Span::styled("• ", theme.accent_secondary),
-                        Span::styled(segment, theme.fg_active),
+                        Span::styled(format!("{indicator} "), indicator_style),
+                        Span::styled(segment, body_style),
                     ])
                 } else {
                     Line::from(vec![
                         Span::raw("  "),
-                        Span::styled(segment, theme.fg_active),
+                        Span::styled(segment, body_style),
                     ])
                 },
             });
@@ -841,7 +891,7 @@ fn timeline_rows(
                     Span::raw("  "),
                     Span::styled(todo_status_chip(todo.status), theme.fg_dim),
                     Span::raw(" "),
-                    Span::styled(todo.content.clone(), theme.fg_active),
+                    Span::styled(todo.content.clone(), body_style),
                 ]),
             });
         }
@@ -982,6 +1032,35 @@ fn active_agent_rows(
     rows
 }
 
+fn thread_rows(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    theme: &ThemeTokens,
+) -> Vec<WorkspaceVisualRow> {
+    let Some(run) = tasks.goal_run_by_id(goal_run_id) else {
+        return Vec::new();
+    };
+    let entries = goal_thread_entries(tasks, run);
+    if entries.is_empty() {
+        return vec![WorkspaceVisualRow {
+            target: None,
+            line: Line::from(Span::styled("No linked threads available.", theme.fg_dim)),
+        }];
+    }
+    entries
+        .into_iter()
+        .map(|entry| WorkspaceVisualRow {
+            target: Some(GoalWorkspaceHitTarget::ThreadRow(entry.thread_id.clone())),
+            line: Line::from(vec![
+                Span::styled("[thread] ", theme.fg_dim),
+                Span::styled(entry.label, theme.fg_active),
+                Span::raw("  "),
+                Span::styled(entry.thread_id, theme.accent_primary),
+            ]),
+        })
+        .collect()
+}
+
 fn attention_rows(
     tasks: &TaskState,
     goal_run_id: &str,
@@ -1051,6 +1130,8 @@ fn selected_goal_step(
             | crate::state::goal_workspace::GoalPlanSelection::Todo { step_id, .. } => {
                 Some(step_id.as_str())
             }
+            crate::state::goal_workspace::GoalPlanSelection::PromptToggle
+            | crate::state::goal_workspace::GoalPlanSelection::MainThread { .. } => None,
         })
         .and_then(|step_id| {
             tasks
@@ -1075,19 +1156,16 @@ fn detail_lines(
     width: usize,
     theme: &ThemeTokens,
 ) -> Vec<(usize, Option<GoalWorkspaceHitTarget>, Line<'static>)> {
-    let Some(step) = selected_goal_step(tasks, goal_run_id, state) else {
-        return Vec::new();
-    };
-
+    let selected_step = selected_goal_step(tasks, goal_run_id, state);
     let mut rows = Vec::new();
     let mut visual_row = 0usize;
     let run = tasks.goal_run_by_id(goal_run_id);
     match state.mode() {
         GoalWorkspaceMode::Goal => {
-            push_detail_header(&mut rows, &mut visual_row, "Prompt", theme);
+            let Some(step) = selected_step else {
+                return Vec::new();
+            };
             if let Some(run) = run {
-                push_detail_wrapped(&mut rows, &mut visual_row, &run.goal, theme.fg_active, width);
-                push_detail_blank(&mut rows, &mut visual_row);
                 push_detail_header(&mut rows, &mut visual_row, "Selected Step", theme);
                 push_detail_line(
                     &mut rows,
@@ -1559,6 +1637,45 @@ fn detail_lines(
                 }
             }
         }
+        GoalWorkspaceMode::Threads => {
+            if let Some(run) = run {
+                let items = thread_items(tasks, run);
+                if let Some(ThreadItem::Entry(thread_id)) = items.get(state.selected_timeline_row()) {
+                    push_detail_header(&mut rows, &mut visual_row, "Thread", theme);
+                    if let Some(entry) = goal_thread_entries(tasks, run)
+                        .into_iter()
+                        .find(|entry| &entry.thread_id == thread_id)
+                    {
+                        push_detail_line(
+                            &mut rows,
+                            &mut visual_row,
+                            None,
+                            Line::from(vec![
+                                Span::styled(entry.label, theme.fg_active),
+                                Span::raw("  "),
+                                Span::styled(entry.thread_id.clone(), theme.fg_dim),
+                            ]),
+                        );
+                        push_detail_wrapped(
+                            &mut rows,
+                            &mut visual_row,
+                            &entry.summary,
+                            theme.fg_dim,
+                            width,
+                        );
+                        push_detail_line(
+                            &mut rows,
+                            &mut visual_row,
+                            Some(GoalWorkspaceHitTarget::DetailThread(entry.thread_id.clone())),
+                            Line::from(vec![
+                                Span::styled("[open] ", theme.accent_primary),
+                                Span::styled(entry.thread_id, theme.fg_active),
+                            ]),
+                        );
+                    }
+                }
+            }
+        }
         GoalWorkspaceMode::NeedsAttention => {
             if let Some(run) = run {
                 let items = attention_items(run);
@@ -1685,6 +1802,13 @@ fn active_agent_items(tasks: &TaskState, goal_run_id: &str) -> Vec<ActiveAgentIt
     items
 }
 
+fn thread_items(tasks: &TaskState, run: &crate::state::task::GoalRun) -> Vec<ThreadItem> {
+    goal_thread_entries(tasks, run)
+        .into_iter()
+        .map(|entry| ThreadItem::Entry(entry.thread_id))
+        .collect()
+}
+
 fn attention_items(run: &crate::state::task::GoalRun) -> Vec<AttentionItem> {
     let mut items = Vec::new();
     if run.last_error.is_some() {
@@ -1779,6 +1903,87 @@ fn goal_thread_targets(run: &crate::state::task::GoalRun) -> Vec<String> {
         }
     }
     threads
+}
+
+#[derive(Clone)]
+struct GoalThreadEntry {
+    label: String,
+    thread_id: String,
+    summary: String,
+}
+
+fn goal_thread_entries(
+    tasks: &TaskState,
+    run: &crate::state::task::GoalRun,
+) -> Vec<GoalThreadEntry> {
+    let mut entries = Vec::new();
+    let mut push_entry = |label: String, thread_id: String, summary: String| {
+        if !entries
+            .iter()
+            .any(|entry: &GoalThreadEntry| entry.thread_id == thread_id)
+        {
+            entries.push(GoalThreadEntry {
+                label,
+                thread_id,
+                summary,
+            });
+        }
+    };
+
+    if let Some(thread_id) = run.active_thread_id.clone() {
+        let label = run
+            .current_step_owner_profile
+            .as_ref()
+            .map(|owner| owner.agent_label.clone())
+            .unwrap_or_else(|| "Main agent".to_string());
+        push_entry(
+            label,
+            thread_id,
+            "Active thread for the current goal step.".to_string(),
+        );
+    }
+    if let Some(thread_id) = run.root_thread_id.clone() {
+        let label = run
+            .planner_owner_profile
+            .as_ref()
+            .map(|owner| owner.agent_label.clone())
+            .unwrap_or_else(|| "Planner".to_string());
+        push_entry(label, thread_id, "Root goal-planning thread.".to_string());
+    }
+    if let Some(thread_id) = run.thread_id.clone() {
+        push_entry(
+            "Goal thread".to_string(),
+            thread_id,
+            "Primary thread attached to the goal run.".to_string(),
+        );
+    }
+    for (index, thread_id) in run.execution_thread_ids.iter().cloned().enumerate() {
+        let label = run
+            .current_step_owner_profile
+            .as_ref()
+            .filter(|_| index == 0)
+            .map(|owner| owner.agent_label.clone())
+            .unwrap_or_else(|| format!("Execution {}", index + 1));
+        push_entry(
+            label,
+            thread_id,
+            "Execution thread spawned by the goal run.".to_string(),
+        );
+    }
+    for task in tasks
+        .tasks()
+        .iter()
+        .filter(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
+    {
+        if let Some(thread_id) = task.thread_id.clone() {
+            push_entry(
+                task.title.clone(),
+                thread_id,
+                "Task-linked thread related to this goal.".to_string(),
+            );
+        }
+    }
+    entries
 }
 
 fn push_detail_header(
@@ -2022,6 +2227,55 @@ fn wrap_plain_text(text: &str, width: usize) -> Vec<String> {
     wrapped
 }
 
+fn timeline_event_visuals(
+    run: &crate::state::task::GoalRun,
+    event: &crate::state::task::GoalRunEvent,
+    event_index: usize,
+    theme: &ThemeTokens,
+    tick_counter: u64,
+) -> (char, Style, Style) {
+    let is_current_step_event = event
+        .step_index
+        .is_some_and(|index| index == run.current_step_index);
+    let is_latest_event = event_index == 0;
+    let is_live_row = matches!(
+        run.status,
+        Some(crate::state::task::GoalRunStatus::Planning | crate::state::task::GoalRunStatus::Running)
+    ) && (is_current_step_event || is_latest_event);
+
+    if is_live_row {
+        return (
+            spinner_frame(tick_counter),
+            theme.accent_primary,
+            theme.fg_active,
+        );
+    }
+
+    match run.status {
+        Some(crate::state::task::GoalRunStatus::AwaitingApproval)
+        | Some(crate::state::task::GoalRunStatus::Paused) if is_latest_event => {
+            ('‖', theme.accent_secondary, theme.fg_active)
+        }
+        Some(crate::state::task::GoalRunStatus::Completed) if is_latest_event => {
+            ('✓', theme.accent_success, theme.fg_active)
+        }
+        Some(crate::state::task::GoalRunStatus::Failed)
+        | Some(crate::state::task::GoalRunStatus::Cancelled) if is_latest_event => {
+            ('✕', theme.accent_danger, theme.fg_active)
+        }
+        _ => ('•', theme.accent_secondary, theme.fg_active),
+    }
+}
+
+fn spinner_frame(tick_counter: u64) -> char {
+    match tick_counter % 4 {
+        0 => '⠋',
+        1 => '⠙',
+        2 => '⠹',
+        _ => '⠸',
+    }
+}
+
 fn selected_row_style(selected: bool) -> Style {
     if selected {
         Style::default().bg(Color::Indexed(236))
@@ -2068,9 +2322,49 @@ pub fn timeline_visual_row_for_selection(
     let selected_target = center_targets(tasks, goal_run_id, state)
         .get(state.selected_timeline_row())
         .cloned()?;
-    center_rows(tasks, goal_run_id, state, 80, &ThemeTokens::default())
+    center_rows(tasks, goal_run_id, state, 80, &ThemeTokens::default(), 0)
         .iter()
         .position(|row| row.target == Some(selected_target.clone()))
+}
+
+pub fn timeline_targets(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+) -> Vec<(usize, GoalWorkspaceHitTarget)> {
+    center_targets(tasks, goal_run_id, state)
+        .into_iter()
+        .enumerate()
+        .collect()
+}
+
+pub fn plan_selection_rows(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+) -> Vec<(usize, crate::state::goal_workspace::GoalPlanSelection)> {
+    plan::build_rows(tasks, goal_run_id, state)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, row)| row.selection.map(|selection| (index, selection)))
+        .collect()
+}
+
+pub fn plan_visual_row_for_selection(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+) -> Option<usize> {
+    let selected = plan_selection_rows(tasks, goal_run_id, state)
+        .into_iter()
+        .find_map(|(visual_row, selection)| {
+            (state.selected_plan_item() == Some(&selection)).then_some(visual_row)
+        });
+    selected.or_else(|| {
+        plan_selection_rows(tasks, goal_run_id, state)
+            .get(state.selected_plan_row())
+            .map(|(visual_row, _)| *visual_row)
+    })
 }
 
 pub fn detail_visual_row_for_selection(
