@@ -100,10 +100,9 @@ export function GatewayConfigEditor() {
     setLoading(true);
     try {
       const amux = (window as unknown as Record<string, unknown>).tamux ?? (window as unknown as Record<string, unknown>).amux;
-      if (amux && typeof (amux as Record<string, unknown>).agentGetConfig === "function") {
-        const fullConfig = await ((amux as Record<string, (...args: unknown[]) => Promise<Record<string, unknown>>>).agentGetConfig)();
-        const gw = (fullConfig?.gateway ?? {}) as DaemonGatewayConfig;
-        setConfig(gw);
+      if (amux && typeof (amux as Record<string, unknown>).gatewayGetConfig === "function") {
+        const gw = await ((amux as Record<string, () => Promise<DaemonGatewayConfig>>).gatewayGetConfig)();
+        setConfig((gw ?? {}) as DaemonGatewayConfig);
       }
     } catch {
       // IPC not available

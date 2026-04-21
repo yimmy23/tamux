@@ -240,6 +240,30 @@ fn render_chat_plain(model: &mut TuiModel) -> String {
         .join("\n")
 }
 
+fn goal_workspace_click_targets(chat_area: Rect) -> (Position, Position, Position) {
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(4), Constraint::Min(1)])
+        .split(chat_area);
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(40),
+            Constraint::Percentage(32),
+            Constraint::Min(24),
+        ])
+        .split(layout[1]);
+    let plan = Block::default().borders(Borders::ALL).inner(columns[0]);
+    let timeline = Block::default().borders(Borders::ALL).inner(columns[1]);
+    let details = Block::default().borders(Borders::ALL).inner(columns[2]);
+
+    (
+        Position::new(plan.x.saturating_add(1), plan.y),
+        Position::new(timeline.x.saturating_add(1), timeline.y),
+        Position::new(details.x.saturating_add(1), details.y),
+    )
+}
+
 #[test]
 fn goal_sidebar_defaults_to_steps_on_model_init() {
     let model = build_model();
@@ -362,6 +386,45 @@ fn goal_workspace_keyboard_navigation_uses_plan_state() {
 }
 
 #[test]
+fn goal_workspace_tab_cycles_between_internal_panes_before_input() {
+    let mut model = goal_sidebar_model();
+    model.focus = FocusArea::Chat;
+
+    assert_eq!(
+        model.goal_workspace.focused_pane(),
+        goal_workspace::GoalWorkspacePane::Plan
+    );
+
+    let handled = model.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(model.focus, FocusArea::Chat);
+    assert_eq!(
+        model.goal_workspace.focused_pane(),
+        goal_workspace::GoalWorkspacePane::Timeline
+    );
+
+    let handled = model.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(model.focus, FocusArea::Chat);
+    assert_eq!(
+        model.goal_workspace.focused_pane(),
+        goal_workspace::GoalWorkspacePane::Details
+    );
+
+    let handled = model.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(model.focus, FocusArea::Input);
+
+    let handled = model.handle_key(KeyCode::BackTab, KeyModifiers::SHIFT);
+    assert!(!handled);
+    assert_eq!(model.focus, FocusArea::Chat);
+    assert_eq!(
+        model.goal_workspace.focused_pane(),
+        goal_workspace::GoalWorkspacePane::Details
+    );
+}
+
+#[test]
 fn selected_goal_step_workspace_click_syncs_main_goal_detail_selection() {
     let mut model = goal_sidebar_model();
     let chat_area = rendered_chat_area(&model);
@@ -387,6 +450,69 @@ fn selected_goal_step_workspace_click_syncs_main_goal_detail_selection() {
             step_id: Some(step_id),
         }) if goal_run_id == "goal-1" && step_id == "step-2"
     ));
+}
+
+#[test]
+fn goal_workspace_mouse_clicks_focus_timeline_and_details_panes() {
+    let mut model = goal_sidebar_model();
+    model.focus = FocusArea::Input;
+    if let Some(run) = model.tasks.goal_run_by_id_mut("goal-1") {
+        run.events = vec![
+            task::GoalRunEvent {
+                id: "event-1".to_string(),
+                message: "first".to_string(),
+                timestamp: 10,
+                ..Default::default()
+            },
+            task::GoalRunEvent {
+                id: "event-2".to_string(),
+                message: "second".to_string(),
+                timestamp: 20,
+                ..Default::default()
+            },
+        ];
+    }
+
+    let chat_area = rendered_chat_area(&model);
+    let (_, timeline, details) = goal_workspace_click_targets(chat_area);
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: timeline.x,
+        row: timeline.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: timeline.x,
+        row: timeline.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(model.focus, FocusArea::Chat);
+    assert_eq!(
+        model.goal_workspace.focused_pane(),
+        goal_workspace::GoalWorkspacePane::Timeline
+    );
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: details.x,
+        row: details.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: details.x,
+        row: details.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(model.focus, FocusArea::Chat);
+    assert_eq!(
+        model.goal_workspace.focused_pane(),
+        goal_workspace::GoalWorkspacePane::Details
+    );
 }
 
 #[test]

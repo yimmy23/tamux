@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getBridge } from "./bridge";
+import { getDaemonAgentConfig } from "./daemonConfig";
 
 export type CapabilityTier = "newcomer" | "familiar" | "power_user" | "expert";
 
@@ -55,7 +56,7 @@ export async function hydrateTierStore(): Promise<void> {
     const bridge = getBridge();
     if (!bridge) return;
     try {
-        const config = (await bridge.agentGetConfig?.()) as Record<string, unknown> | undefined;
+        const config = (await getDaemonAgentConfig()) as Record<string, unknown> | undefined;
         if (!config) return;
         const tierConfig = config.tier as Record<string, unknown> | undefined;
         if (!tierConfig) return;

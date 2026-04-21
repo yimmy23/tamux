@@ -81,6 +81,7 @@ fn client_message_requires_startup_readiness(msg: &ClientMessage) -> bool {
         msg,
         ClientMessage::Ping
             | ClientMessage::AgentGetConfig
+            | ClientMessage::AgentGetGatewayConfig
             | ClientMessage::AgentGetEffectiveConfigState
             | ClientMessage::GatewayRegister { .. }
             | ClientMessage::GatewayAck { .. }
@@ -113,6 +114,9 @@ mod startup_readiness_tests {
         ));
         assert!(!client_message_requires_startup_readiness(
             &ClientMessage::AgentGetEffectiveConfigState
+        ));
+        assert!(!client_message_requires_startup_readiness(
+            &ClientMessage::AgentGetGatewayConfig
         ));
     }
 

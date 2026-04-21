@@ -628,7 +628,18 @@ impl TuiModel {
                         self.main_pane_view,
                         MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
                     ) {
-                        self.step_goal_workspace_plan_selection(1);
+                        match self.goal_workspace.focused_pane() {
+                            crate::state::goal_workspace::GoalWorkspacePane::Plan => {
+                                self.step_goal_workspace_plan_selection(1);
+                            }
+                            crate::state::goal_workspace::GoalWorkspacePane::Timeline => {
+                                self.step_goal_workspace_timeline_selection(1);
+                            }
+                            crate::state::goal_workspace::GoalWorkspacePane::Details => {
+                                self.step_goal_workspace_detail_selection(1);
+                            }
+                            crate::state::goal_workspace::GoalWorkspacePane::CommandBar => {}
+                        }
                     } else if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
                         if self
                             .goal_mission_control
@@ -670,7 +681,18 @@ impl TuiModel {
                         self.main_pane_view,
                         MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
                     ) {
-                        self.step_goal_workspace_plan_selection(-1);
+                        match self.goal_workspace.focused_pane() {
+                            crate::state::goal_workspace::GoalWorkspacePane::Plan => {
+                                self.step_goal_workspace_plan_selection(-1);
+                            }
+                            crate::state::goal_workspace::GoalWorkspacePane::Timeline => {
+                                self.step_goal_workspace_timeline_selection(-1);
+                            }
+                            crate::state::goal_workspace::GoalWorkspacePane::Details => {
+                                self.step_goal_workspace_detail_selection(-1);
+                            }
+                            crate::state::goal_workspace::GoalWorkspacePane::CommandBar => {}
+                        }
                     } else if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
                         if self
                             .goal_mission_control
@@ -702,6 +724,8 @@ impl TuiModel {
             },
             KeyCode::Left
                 if self.focus == FocusArea::Chat
+                    && self.goal_workspace.focused_pane()
+                        == crate::state::goal_workspace::GoalWorkspacePane::Plan
                     && matches!(
                         self.main_pane_view,
                         MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
@@ -711,6 +735,8 @@ impl TuiModel {
             }
             KeyCode::Right
                 if self.focus == FocusArea::Chat
+                    && self.goal_workspace.focused_pane()
+                        == crate::state::goal_workspace::GoalWorkspacePane::Plan
                     && matches!(
                         self.main_pane_view,
                         MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })

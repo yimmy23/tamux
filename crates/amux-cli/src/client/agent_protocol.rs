@@ -120,6 +120,7 @@ pub(super) enum AgentBridgeCommand {
         max_bytes: Option<usize>,
     },
     GetConfig,
+    GetGatewayConfig,
     SetConfigItem {
         key_path: String,
         value_json: String,

@@ -241,6 +241,9 @@ where
         AgentBridgeCommand::GetConfig => {
             framed.send(ClientMessage::AgentGetConfig).await?;
         }
+        AgentBridgeCommand::GetGatewayConfig => {
+            framed.send(ClientMessage::AgentGetGatewayConfig).await?;
+        }
         AgentBridgeCommand::SetConfigItem {
             key_path,
             value_json,

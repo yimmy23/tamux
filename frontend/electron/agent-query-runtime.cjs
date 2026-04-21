@@ -15,6 +15,7 @@ const AGENT_QUERY_RESPONSE_TYPES = [
   'goal-run-detail',
   'goal-run-controlled',
   'config',
+  'gateway-config',
   'heartbeat-items',
   'provider-auth-states',
   'provider-validation',

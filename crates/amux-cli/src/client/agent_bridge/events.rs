@@ -270,6 +270,10 @@ where
             let msg = serde_json::json!({"type":"config","data":serde_json::from_str::<serde_json::Value>(&config_json).unwrap_or_default()});
             emit_agent_event(&msg.to_string())?;
         }
+        Some(Ok(DaemonMessage::AgentGatewayConfig { config_json })) => {
+            let msg = serde_json::json!({"type":"gateway-config","data":serde_json::from_str::<serde_json::Value>(&config_json).unwrap_or_default()});
+            emit_agent_event(&msg.to_string())?;
+        }
         Some(Ok(DaemonMessage::AgentHeartbeatItems { items_json })) => {
             let msg = serde_json::json!({"type":"heartbeat-items","data":serde_json::from_str::<serde_json::Value>(&items_json).unwrap_or_default()});
             emit_agent_event(&msg.to_string())?;

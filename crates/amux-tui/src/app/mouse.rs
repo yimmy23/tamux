@@ -875,6 +875,9 @@ impl TuiModel {
                     });
                     let Some((anchor_point, current_point)) = anchor_point.zip(current_point)
                     else {
+                        if cursor_in_chat {
+                            self.handle_task_view_click(chat_area, anchor);
+                        }
                         return;
                     };
 

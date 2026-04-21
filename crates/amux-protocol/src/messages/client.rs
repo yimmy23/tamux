@@ -207,4 +207,5 @@ pub enum ClientMessage {
     AgentSpeechToText { args_json: String },
     AgentTextToSpeech { args_json: String },
     AgentGenerateImage { args_json: String },
+    AgentGetGatewayConfig,
 }

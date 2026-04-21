@@ -275,6 +275,10 @@ impl TuiModel {
             return;
         };
         if let sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } = target {
+            if let Some(pane) = widgets::goal_workspace::pane_at(chat_area, mouse) {
+                self.goal_workspace.set_focused_pane(pane);
+                self.focus = FocusArea::Chat;
+            }
             let Some(hit) = widgets::goal_workspace::hit_test(
                 chat_area,
                 &self.tasks,
@@ -295,9 +299,31 @@ impl TuiModel {
                         crate::state::goal_workspace::GoalPlanSelection::Todo { step_id, todo_id },
                     );
                 }
-                widgets::goal_workspace::GoalWorkspaceHitTarget::TimelineRow(_)
-                | widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(_)
-                | widgets::goal_workspace::GoalWorkspaceHitTarget::DetailCheckpoint(_) => {}
+                widgets::goal_workspace::GoalWorkspaceHitTarget::TimelineRow(row) => {
+                    self.goal_workspace.set_selected_timeline_row(row);
+                }
+                widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(path) => {
+                    let target_row = widgets::goal_workspace::detail_row_for_target(
+                        &self.tasks,
+                        goal_run_id,
+                        &self.goal_workspace,
+                        &widgets::goal_workspace::GoalWorkspaceHitTarget::DetailFile(path),
+                    );
+                    if let Some(row) = target_row {
+                        self.goal_workspace.set_selected_detail_row(row);
+                    }
+                }
+                widgets::goal_workspace::GoalWorkspaceHitTarget::DetailCheckpoint(id) => {
+                    let target_row = widgets::goal_workspace::detail_row_for_target(
+                        &self.tasks,
+                        goal_run_id,
+                        &self.goal_workspace,
+                        &widgets::goal_workspace::GoalWorkspaceHitTarget::DetailCheckpoint(id),
+                    );
+                    if let Some(row) = target_row {
+                        self.goal_workspace.set_selected_detail_row(row);
+                    }
+                }
             }
             return;
         }

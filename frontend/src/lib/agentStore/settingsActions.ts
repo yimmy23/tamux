@@ -13,6 +13,7 @@ import {
   normalizeAgentSettingsFromSource,
 } from "./settings";
 import type { AgentState, AgentStoreGet, AgentStoreSet, ConciergeConfig } from "./storeTypes";
+import { getDaemonAgentConfig } from "../daemonConfig";
 
 type SettingsActionKeys =
   | "updateAgentSetting"
@@ -85,7 +86,7 @@ export function createSettingsActions(
         return true;
       }
       try {
-        const daemonState = await bridge.agentGetConfig();
+        const daemonState = await getDaemonAgentConfig();
         if (!looksLikeDaemonAgentConfig(daemonState)) {
           set({ agentSettingsHydrated: false });
           return false;

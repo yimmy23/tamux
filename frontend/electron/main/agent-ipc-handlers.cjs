@@ -413,7 +413,7 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
     ipcMain.handle('agent-set-provider-model', async (_event, providerId, model) => { try { sendAgentCommand({ type: 'set-provider-model', provider_id: providerId, model }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('agent-set-target-agent-provider-model', async (_event, targetAgentId, providerId, model) => { try { sendAgentCommand({ type: 'set-target-agent-provider-model', target_agent_id: targetAgentId, provider_id: providerId, model }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('agent-set-tier-override', async (_event, tier) => { try { sendAgentCommand({ type: 'set-tier-override', tier: tier || null }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
-    ipcMain.handle('gateway:get-config', async () => { try { const config = await sendAgentQuery({ type: 'get-config' }, 'config'); return config?.gateway ?? {}; } catch (err) { logToFile('warn', '[gateway] get-config IPC error', { error: err.message }); return {}; } });
+    ipcMain.handle('gateway:get-config', async () => { try { return await sendAgentQuery({ type: 'get-gateway-config' }, 'gateway-config'); } catch (err) { logToFile('warn', '[gateway] get-config IPC error', { error: err.message }); return {}; } });
     ipcMain.handle('gateway:set-config', async (_event, patch) => {
         try {
             for (const [key, value] of Object.entries(patch || {})) {

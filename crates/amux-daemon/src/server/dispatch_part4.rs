@@ -23,6 +23,7 @@ if matches!(
         ClientMessage::AgentListTools{ .. } |
         ClientMessage::AgentSearchTools{ .. } |
         ClientMessage::AgentGetConfig |
+        ClientMessage::AgentGetGatewayConfig |
         ClientMessage::AgentGetEffectiveConfigState |
         ClientMessage::AgentListTaskApprovalRules |
         ClientMessage::AgentCreateTaskApprovalRule{ .. } |
@@ -460,6 +461,14 @@ if matches!(
                     let json = serde_json::to_string(&config).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentConfigResponse { config_json: json })
+                        .await?;
+                }
+
+                ClientMessage::AgentGetGatewayConfig => {
+                    let gateway = agent.get_config().await.gateway;
+                    let json = serde_json::to_string(&gateway).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentGatewayConfig { config_json: json })
                         .await?;
                 }
 

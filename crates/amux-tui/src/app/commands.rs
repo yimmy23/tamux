@@ -443,6 +443,101 @@ impl TuiModel {
         }
     }
 
+    pub(super) fn focus_next_goal_workspace_pane(&mut self) -> bool {
+        if !matches!(
+            self.main_pane_view,
+            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+        ) || self.focus != FocusArea::Chat
+        {
+            return false;
+        }
+
+        match self.goal_workspace.focused_pane() {
+            crate::state::goal_workspace::GoalWorkspacePane::Plan => {
+                self.goal_workspace
+                    .set_focused_pane(crate::state::goal_workspace::GoalWorkspacePane::Timeline);
+                true
+            }
+            crate::state::goal_workspace::GoalWorkspacePane::Timeline => {
+                self.goal_workspace
+                    .set_focused_pane(crate::state::goal_workspace::GoalWorkspacePane::Details);
+                true
+            }
+            crate::state::goal_workspace::GoalWorkspacePane::Details
+            | crate::state::goal_workspace::GoalWorkspacePane::CommandBar => false,
+        }
+    }
+
+    pub(super) fn focus_prev_goal_workspace_pane(&mut self) -> bool {
+        if !matches!(
+            self.main_pane_view,
+            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+        ) || self.focus != FocusArea::Chat
+        {
+            return false;
+        }
+
+        match self.goal_workspace.focused_pane() {
+            crate::state::goal_workspace::GoalWorkspacePane::Plan => false,
+            crate::state::goal_workspace::GoalWorkspacePane::Timeline => {
+                self.goal_workspace
+                    .set_focused_pane(crate::state::goal_workspace::GoalWorkspacePane::Plan);
+                true
+            }
+            crate::state::goal_workspace::GoalWorkspacePane::Details
+            | crate::state::goal_workspace::GoalWorkspacePane::CommandBar => {
+                self.goal_workspace
+                    .set_focused_pane(crate::state::goal_workspace::GoalWorkspacePane::Timeline);
+                true
+            }
+        }
+    }
+
+    pub(super) fn step_goal_workspace_timeline_selection(&mut self, delta: i32) -> bool {
+        let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
+            &self.main_pane_view
+        else {
+            return false;
+        };
+        let row_count = widgets::goal_workspace::timeline_row_count(&self.tasks, goal_run_id);
+        if row_count == 0 {
+            self.goal_workspace.set_selected_timeline_row(0);
+            return false;
+        }
+        let current = self.goal_workspace.selected_timeline_row().min(row_count - 1);
+        let next = if delta >= 0 {
+            (current + delta as usize).min(row_count - 1)
+        } else {
+            current.saturating_sub((-delta) as usize)
+        };
+        let changed = next != current;
+        self.goal_workspace.set_selected_timeline_row(next);
+        changed
+    }
+
+    pub(super) fn step_goal_workspace_detail_selection(&mut self, delta: i32) -> bool {
+        let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
+            &self.main_pane_view
+        else {
+            return false;
+        };
+        let row_count =
+            widgets::goal_workspace::detail_target_count(&self.tasks, goal_run_id, &self.goal_workspace);
+        if row_count == 0 {
+            self.goal_workspace.set_selected_detail_row(0);
+            return false;
+        }
+        let current = self.goal_workspace.selected_detail_row().min(row_count - 1);
+        let next = if delta >= 0 {
+            (current + delta as usize).min(row_count - 1)
+        } else {
+            current.saturating_sub((-delta) as usize)
+        };
+        let changed = next != current;
+        self.goal_workspace.set_selected_detail_row(next);
+        changed
+    }
+
     pub(super) fn step_goal_sidebar_tab(&mut self, delta: i32) {
         if delta < 0 {
             self.goal_sidebar.cycle_tab_left();
@@ -2607,6 +2702,11 @@ impl TuiModel {
             return;
         }
 
+        if self.focus_next_goal_workspace_pane() {
+            self.input.set_mode(input::InputMode::Insert);
+            return;
+        }
+
         self.focus = if self.sidebar_visible() {
             match self.focus {
                 FocusArea::Chat => FocusArea::Sidebar,
@@ -2644,6 +2744,23 @@ impl TuiModel {
                     ));
                 }
             }
+            self.input.set_mode(input::InputMode::Insert);
+            return;
+        }
+
+        if self.focus == FocusArea::Input
+            && matches!(
+                self.main_pane_view,
+                MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+            )
+        {
+            self.focus = FocusArea::Chat;
+            self.goal_workspace
+                .set_focused_pane(crate::state::goal_workspace::GoalWorkspacePane::Details);
+            self.input.set_mode(input::InputMode::Insert);
+            return;
+        }
+        if self.focus_prev_goal_workspace_pane() {
             self.input.set_mode(input::InputMode::Insert);
             return;
         }

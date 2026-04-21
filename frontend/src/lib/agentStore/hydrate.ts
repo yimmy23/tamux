@@ -21,6 +21,7 @@ import {
   normalizeAgentSettingsFromSource,
 } from "./settings";
 import { useAgentStore } from "./store";
+import { getDaemonAgentConfig } from "../daemonConfig";
 
 export async function hydrateAgentStore(): Promise<void> {
   const bridge = getBridge();
@@ -28,7 +29,7 @@ export async function hydrateAgentStore(): Promise<void> {
   let agentSettingsHydrated = false;
 
   if (bridge?.agentGetConfig) {
-    const daemonState = await bridge.agentGetConfig().catch(() => null);
+    const daemonState = await getDaemonAgentConfig();
     if (looksLikeDaemonAgentConfig(daemonState)) {
       const merged = normalizeAgentSettingsFromSource(daemonState as DiskAgentSettings);
       configuredBackend = merged.agent_backend;

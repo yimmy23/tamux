@@ -162,4 +162,5 @@ pub enum DaemonMessage {
     AgentSpeechToTextResult { content: String },
     AgentTextToSpeechResult { content: String },
     AgentGenerateImageResult { content: String },
+    AgentGatewayConfig { config_json: String },
 }

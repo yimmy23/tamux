@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::state::goal_workspace::GoalWorkspaceState;
+use crate::state::goal_workspace::{GoalWorkspacePane, GoalWorkspaceState};
 use crate::state::task::TaskState;
 use crate::theme::ThemeTokens;
 use crate::widgets::chat::SelectionPoint;
@@ -50,8 +50,43 @@ pub fn render(
         .split(layout[1]);
 
     render_plan(frame, columns[0], tasks, goal_run_id, state, theme);
-    render_timeline(frame, columns[1], tasks, goal_run_id, theme);
+    render_timeline(frame, columns[1], tasks, goal_run_id, state, theme);
     render_details(frame, columns[2], tasks, goal_run_id, state, theme);
+}
+
+pub fn pane_at(area: Rect, mouse: Position) -> Option<GoalWorkspacePane> {
+    if area.width < 3
+        || area.height < 6
+        || mouse.x < area.x
+        || mouse.x >= area.x.saturating_add(area.width)
+        || mouse.y < area.y
+        || mouse.y >= area.y.saturating_add(area.height)
+    {
+        return None;
+    }
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(4), Constraint::Min(1)])
+        .split(area);
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(40),
+            Constraint::Percentage(32),
+            Constraint::Min(24),
+        ])
+        .split(layout[1]);
+
+    if rect_contains(columns[0], mouse) {
+        Some(GoalWorkspacePane::Plan)
+    } else if rect_contains(columns[1], mouse) {
+        Some(GoalWorkspacePane::Timeline)
+    } else if rect_contains(columns[2], mouse) {
+        Some(GoalWorkspacePane::Details)
+    } else {
+        None
+    }
 }
 
 pub fn hit_test(
@@ -84,27 +119,40 @@ pub fn hit_test(
         ])
         .split(layout[1]);
 
-    let plan_area = columns[0];
-    if mouse.x < plan_area.x || mouse.x >= plan_area.x.saturating_add(plan_area.width) {
-        return None;
-    }
-    if mouse.y < plan_area.y || mouse.y >= plan_area.y.saturating_add(plan_area.height) {
-        return None;
-    }
+    match pane_at(area, mouse)? {
+        GoalWorkspacePane::Plan => {
+            let plan_area = columns[0];
+            let inner = Block::default().borders(Borders::ALL).inner(plan_area);
+            if !rect_contains(inner, mouse) {
+                return None;
+            }
 
-    let inner = Block::default().borders(Borders::ALL).inner(plan_area);
-    if mouse.x < inner.x
-        || mouse.x >= inner.x.saturating_add(inner.width)
-        || mouse.y < inner.y
-        || mouse.y >= inner.y.saturating_add(inner.height)
-    {
-        return None;
+            let rows = plan::build_rows(tasks, goal_run_id, state);
+            let row_index = resolved_plan_scroll(rows.len(), inner.height as usize, state)
+                .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
+            rows.get(row_index).and_then(|row| row.target.clone())
+        }
+        GoalWorkspacePane::Timeline => {
+            let inner = Block::default().borders(Borders::ALL).inner(columns[1]);
+            if !rect_contains(inner, mouse) {
+                return None;
+            }
+            let row_index = mouse.y.saturating_sub(inner.y) as usize;
+            (row_index < timeline_row_count(tasks, goal_run_id))
+                .then_some(GoalWorkspaceHitTarget::TimelineRow(row_index))
+        }
+        GoalWorkspacePane::Details => {
+            let inner = Block::default().borders(Borders::ALL).inner(columns[2]);
+            if !rect_contains(inner, mouse) {
+                return None;
+            }
+            let row_index = mouse.y.saturating_sub(inner.y) as usize;
+            detail_rows(tasks, goal_run_id, state)
+                .into_iter()
+                .find_map(|(index, target)| (index == row_index).then_some(target))
+        }
+        GoalWorkspacePane::CommandBar => None,
     }
-
-    let rows = plan::build_rows(tasks, goal_run_id, state);
-    let row_index = resolved_plan_scroll(rows.len(), inner.height as usize, state)
-        .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
-    rows.get(row_index).and_then(|row| row.target.clone())
 }
 
 pub fn max_plan_scroll(
@@ -132,6 +180,28 @@ pub fn max_plan_scroll(
     let inner = Block::default().borders(Borders::ALL).inner(columns[0]);
     let rows = plan::build_rows(tasks, goal_run_id, state);
     rows.len().saturating_sub(inner.height as usize)
+}
+
+pub fn timeline_row_count(tasks: &TaskState, goal_run_id: &str) -> usize {
+    tasks
+        .goal_run_by_id(goal_run_id)
+        .map(|run| run.events.len().max(1))
+        .unwrap_or(1)
+}
+
+pub fn detail_target_count(tasks: &TaskState, goal_run_id: &str, state: &GoalWorkspaceState) -> usize {
+    detail_rows(tasks, goal_run_id, state).len()
+}
+
+pub fn detail_row_for_target(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+    target: &GoalWorkspaceHitTarget,
+) -> Option<usize> {
+    detail_rows(tasks, goal_run_id, state)
+        .into_iter()
+        .position(|(_, candidate)| candidate == *target)
 }
 
 pub fn selection_point_from_mouse(
@@ -218,11 +288,18 @@ fn render_plan(
     state: &GoalWorkspaceState,
     _theme: &ThemeTokens,
 ) {
-    let block = Block::default().title(" Plan ").borders(Borders::ALL);
+    let block = Block::default()
+        .title(" Plan ")
+        .borders(Borders::ALL)
+        .border_style(if state.focused_pane() == GoalWorkspacePane::Plan {
+            _theme.accent_primary
+        } else {
+            _theme.fg_dim
+        });
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let selected_style = Style::default().bg(Color::Indexed(236));
+    let selected_style = selected_row_style(state.focused_pane() == GoalWorkspacePane::Plan);
     let lines = plan::build_rows(tasks, goal_run_id, state)
         .into_iter()
         .enumerate()
@@ -260,11 +337,17 @@ fn render_timeline(
     area: Rect,
     tasks: &TaskState,
     goal_run_id: &str,
+    state: &GoalWorkspaceState,
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
         .title(" Run timeline ")
-        .borders(Borders::ALL);
+        .borders(Borders::ALL)
+        .border_style(if state.focused_pane() == GoalWorkspacePane::Timeline {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        });
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -296,6 +379,12 @@ fn render_timeline(
             theme.fg_dim,
         )));
     }
+    let selected_style = selected_row_style(state.focused_pane() == GoalWorkspacePane::Timeline);
+    for (index, line) in lines.iter_mut().enumerate() {
+        if index == state.selected_timeline_row() {
+            *line = line.clone().style(selected_style);
+        }
+    }
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
@@ -307,7 +396,14 @@ fn render_details(
     state: &GoalWorkspaceState,
     theme: &ThemeTokens,
 ) {
-    let block = Block::default().title(" Details ").borders(Borders::ALL);
+    let block = Block::default()
+        .title(" Details ")
+        .borders(Borders::ALL)
+        .border_style(if state.focused_pane() == GoalWorkspacePane::Details {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        });
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -333,6 +429,7 @@ fn render_details(
         });
 
     let mut lines = Vec::new();
+    let mut target_row_index = 0usize;
     if let Some(step) = selected_step {
         lines.push(Line::from(vec![
             Span::styled("Selected ", theme.fg_dim),
@@ -343,10 +440,14 @@ fn render_details(
             .into_iter()
             .take(2)
         {
+            let selected = state.focused_pane() == GoalWorkspacePane::Details
+                && state.selected_detail_row() == target_row_index;
+            target_row_index = target_row_index.saturating_add(1);
             lines.push(Line::from(vec![
                 Span::styled("checkpoint ", theme.fg_dim),
                 Span::styled(checkpoint.checkpoint_type.clone(), theme.fg_active),
-            ]));
+            ])
+            .style(selected_row_style(selected)));
         }
         if let Some(run) = tasks.goal_run_by_id(goal_run_id) {
             if let Some(thread_id) = run.thread_id.as_deref() {
@@ -355,10 +456,14 @@ fn render_details(
                     .into_iter()
                     .take(2)
                 {
+                    let selected = state.focused_pane() == GoalWorkspacePane::Details
+                        && state.selected_detail_row() == target_row_index;
+                    target_row_index = target_row_index.saturating_add(1);
                     lines.push(Line::from(vec![
                         Span::styled("file ", theme.fg_dim),
                         Span::styled(entry.path.clone(), theme.fg_active),
-                    ]));
+                    ])
+                    .style(selected_row_style(selected)));
                 }
             }
         }
@@ -371,6 +476,77 @@ fn render_details(
         )));
     }
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+fn detail_rows(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+) -> Vec<(usize, GoalWorkspaceHitTarget)> {
+    let selected_step = state
+        .selected_plan_item()
+        .and_then(|selection| match selection {
+            crate::state::goal_workspace::GoalPlanSelection::Step { step_id }
+            | crate::state::goal_workspace::GoalPlanSelection::Todo { step_id, .. } => {
+                Some(step_id.as_str())
+            }
+        })
+        .and_then(|step_id| {
+            tasks
+                .goal_steps_in_display_order(goal_run_id)
+                .into_iter()
+                .find(|step| step.id == step_id)
+        })
+        .or_else(|| tasks.goal_steps_in_display_order(goal_run_id).into_iter().next());
+
+    let Some(step) = selected_step else {
+        return Vec::new();
+    };
+
+    let mut rows = Vec::new();
+    let mut visual_row = 1usize;
+    for checkpoint in tasks
+        .goal_step_checkpoints(goal_run_id, step.order as usize)
+        .into_iter()
+        .take(2)
+    {
+        rows.push((
+            visual_row,
+            GoalWorkspaceHitTarget::DetailCheckpoint(checkpoint.id.clone()),
+        ));
+        visual_row = visual_row.saturating_add(1);
+    }
+    if let Some(run) = tasks.goal_run_by_id(goal_run_id) {
+        if let Some(thread_id) = run.thread_id.as_deref() {
+            for entry in tasks
+                .goal_step_files(goal_run_id, thread_id, step.order as usize)
+                .into_iter()
+                .take(2)
+            {
+                rows.push((
+                    visual_row,
+                    GoalWorkspaceHitTarget::DetailFile(entry.path.clone()),
+                ));
+                visual_row = visual_row.saturating_add(1);
+            }
+        }
+    }
+    rows
+}
+
+fn rect_contains(area: Rect, mouse: Position) -> bool {
+    mouse.x >= area.x
+        && mouse.x < area.x.saturating_add(area.width)
+        && mouse.y >= area.y
+        && mouse.y < area.y.saturating_add(area.height)
+}
+
+fn selected_row_style(selected: bool) -> Style {
+    if selected {
+        Style::default().bg(Color::Indexed(236))
+    } else {
+        Style::default()
+    }
 }
 
 fn resolved_plan_scroll(

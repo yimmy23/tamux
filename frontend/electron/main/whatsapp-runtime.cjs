@@ -156,13 +156,17 @@ function createWhatsAppRuntime(options) {
         }
     }
 
+    async function queryGatewayConfig(sendAgentQuery) {
+        return await sendAgentQuery({ type: 'get-gateway-config' }, 'gateway-config');
+    }
+
     function registerWhatsAppIpcHandlers(ipcMain, runtime, validateConnectConfig) {
         const { sendAgentCommand, sendAgentQuery } = runtime;
         ipcMain.handle('whatsapp-connect', async () => {
             try {
-                const config = await sendAgentQuery({ type: 'get-config' }, 'config');
-                await validateConnectConfig(config ?? null);
-                if (config?.gateway?.whatsapp_link_fallback_electron === true) {
+                const gatewayConfig = await queryGatewayConfig(sendAgentQuery);
+                await validateConnectConfig({ gateway: gatewayConfig ?? {} });
+                if (gatewayConfig?.whatsapp_link_fallback_electron === true) {
                     startWhatsAppBridge();
                     await whatsappRpc('connect');
                     return { ok: true };
@@ -180,8 +184,8 @@ function createWhatsAppRuntime(options) {
         });
         ipcMain.handle('whatsapp-disconnect', async () => {
             try {
-                const config = await sendAgentQuery({ type: 'get-config' }, 'config');
-                if (config?.gateway?.whatsapp_link_fallback_electron === true) {
+                const gatewayConfig = await queryGatewayConfig(sendAgentQuery);
+                if (gatewayConfig?.whatsapp_link_fallback_electron === true) {
                     if (whatsappProcess) await whatsappRpc('disconnect').catch(() => {});
                     stopWhatsAppBridge();
                     return { ok: true };
@@ -199,8 +203,8 @@ function createWhatsAppRuntime(options) {
         });
         ipcMain.handle('whatsapp-status', async () => {
             try {
-                const config = await sendAgentQuery({ type: 'get-config' }, 'config');
-                if (config?.gateway?.whatsapp_link_fallback_electron === true) {
+                const gatewayConfig = await queryGatewayConfig(sendAgentQuery);
+                if (gatewayConfig?.whatsapp_link_fallback_electron === true) {
                     if (!whatsappProcess) return { status: 'disconnected', phone: null };
                     return await whatsappRpc('status');
                 }

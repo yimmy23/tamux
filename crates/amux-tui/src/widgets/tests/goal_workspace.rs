@@ -142,3 +142,19 @@ fn goal_workspace_hit_test_distinguishes_step_and_todo_rows() {
         })
     );
 }
+
+#[test]
+fn goal_workspace_hit_test_tracks_timeline_and_detail_rows() {
+    let state = GoalWorkspaceState::new();
+    let tasks = sample_tasks();
+    let area = Rect::new(0, 0, 100, 28);
+
+    let timeline_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(42, 5));
+    let detail_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(74, 6));
+
+    assert_eq!(timeline_hit, Some(GoalWorkspaceHitTarget::TimelineRow(0)));
+    assert_eq!(
+        detail_hit,
+        Some(GoalWorkspaceHitTarget::DetailFile("/tmp/plan.md".into()))
+    );
+}
