@@ -434,6 +434,7 @@ impl TuiModel {
         }
 
         if code == KeyCode::Esc
+            && self.modal.top().is_none()
             && matches!(self.main_pane_view, MainPaneView::GoalComposer)
             && self.cancel_goal_mission_control()
         {
@@ -1107,8 +1108,6 @@ impl TuiModel {
                 }
             }
             KeyCode::Char('/') if self.focus != FocusArea::Input => {
-                self.input.reduce(input::InputAction::Clear);
-                self.input.reduce(input::InputAction::InsertChar('/'));
                 self.input.set_mode(input::InputMode::Insert);
                 self.focus = FocusArea::Input;
                 self.open_command_palette(Some("/".to_string()));
@@ -1130,17 +1129,18 @@ impl TuiModel {
             }
             KeyCode::Char(c) => {
                 if self.focus == FocusArea::Input {
-                    self.input.reduce(input::InputAction::InsertChar(c));
                     if c == '/'
-                        && self.input.buffer() == "/"
+                        && self.input.buffer().is_empty()
                         && self.modal.top() != Some(modal::ModalKind::CommandPalette)
                     {
-                        self.open_command_palette(Some(self.input.buffer().to_string()));
-                    }
-                    if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
-                        self.modal.reduce(modal::ModalAction::SetQuery(
-                            self.input.buffer().to_string(),
-                        ));
+                        self.open_command_palette(Some("/".to_string()));
+                    } else {
+                        self.input.reduce(input::InputAction::InsertChar(c));
+                        if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
+                            self.modal.reduce(modal::ModalAction::SetQuery(
+                                self.input.buffer().to_string(),
+                            ));
+                        }
                     }
                 } else {
                     self.focus = FocusArea::Input;

@@ -1072,7 +1072,7 @@ fn command_palette_enter_prefers_highlighted_command_over_partial_query() {
             .map(|item| item.command.as_str()),
         Some("new-goal")
     );
-    assert_eq!(model.input.buffer(), "/");
+    assert_eq!(model.input.buffer(), "");
     assert_eq!(model.modal.command_display_query(), "/new");
     assert!(model.modal.command_palette_has_explicit_selection());
 
@@ -1096,7 +1096,7 @@ fn command_palette_typing_does_not_preview_first_match_before_navigation() {
         assert!(!quit);
     }
 
-    assert_eq!(model.input.buffer(), "/");
+    assert_eq!(model.input.buffer(), "");
     assert_eq!(model.modal.command_display_query(), "/new-g");
     assert!(!model.modal.command_palette_has_explicit_selection());
 }
@@ -1122,6 +1122,53 @@ fn goal_composer_command_palette_typing_keeps_goal_draft_intact() {
 }
 
 #[test]
+fn goal_composer_command_palette_reopens_fresh_after_close() {
+    let (mut model, _daemon_rx) = make_model();
+    model.main_pane_view = MainPaneView::GoalComposer;
+    model.focus = FocusArea::Input;
+    model.input.set_text("Ship release");
+    model.goal_mission_control.set_prompt_text("Ship release".to_string());
+
+    let quit = model.handle_key(KeyCode::Char('p'), KeyModifiers::CONTROL);
+    assert!(!quit);
+    for ch in "new".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+    assert_eq!(model.modal.command_display_query(), "new");
+
+    let quit = model.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+    assert!(!quit);
+    assert!(model.modal.top().is_none());
+    assert_eq!(model.input.buffer(), "Ship release");
+    assert_eq!(model.goal_mission_control.prompt_text(), "Ship release");
+
+    let quit = model.handle_key(KeyCode::Char('p'), KeyModifiers::CONTROL);
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::CommandPalette));
+    assert_eq!(model.modal.command_display_query(), "");
+    assert_eq!(model.input.buffer(), "Ship release");
+    assert_eq!(model.goal_mission_control.prompt_text(), "Ship release");
+}
+
+#[test]
+fn chat_command_palette_typing_keeps_chat_draft_intact() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Input;
+    model.input.set_text("hello chat");
+
+    let quit = model.handle_key(KeyCode::Char('p'), KeyModifiers::CONTROL);
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::CommandPalette));
+
+    let quit = model.handle_key(KeyCode::Char('n'), KeyModifiers::NONE);
+    assert!(!quit);
+
+    assert_eq!(model.modal.command_display_query(), "n");
+    assert_eq!(model.input.buffer(), "hello chat");
+}
+
+#[test]
 fn command_palette_enter_runs_first_match_without_navigation() {
     let (mut model, _daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
@@ -1133,7 +1180,7 @@ fn command_palette_enter_runs_first_match_without_navigation() {
         assert!(!quit);
     }
 
-    assert_eq!(model.input.buffer(), "/");
+    assert_eq!(model.input.buffer(), "");
     assert_eq!(model.modal.command_display_query(), "/new-g");
 
     let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
@@ -1164,7 +1211,7 @@ fn command_palette_mouse_selection_executes_selected_command_without_rewriting_q
             .map(|item| item.command.as_str()),
         Some("new-goal")
     );
-    assert_eq!(model.input.buffer(), "/");
+    assert_eq!(model.input.buffer(), "");
     assert_eq!(model.modal.command_display_query(), "/new");
     assert!(model.modal.command_palette_has_explicit_selection());
 

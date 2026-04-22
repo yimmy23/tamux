@@ -659,15 +659,6 @@ impl TuiModel {
 
     pub(in crate::app) fn modal_navigate(&mut self, delta: i32) {
         self.modal.reduce(modal::ModalAction::Navigate(delta));
-        self.sync_command_palette_selection_preview();
-    }
-
-    pub(in crate::app) fn sync_command_palette_selection_preview(&mut self) {
-        if self.modal.top() != Some(modal::ModalKind::CommandPalette) {
-            return;
-        }
-
-        self.modal.set_command_preview(None);
     }
 
     pub(in super::super) fn settings_navigate_to(&mut self, target: usize) {

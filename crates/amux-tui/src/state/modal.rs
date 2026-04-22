@@ -84,7 +84,6 @@ pub enum ModalAction {
 pub struct ModalState {
     stack: Vec<ModalKind>,
     command_query: String,
-    command_preview: Option<String>,
     command_palette_explicit_selection: bool,
     command_items: Vec<CommandItem>,
     filtered_indices: Vec<usize>,
@@ -135,7 +134,6 @@ impl ModalState {
         Self {
             stack: Vec::new(),
             command_query: String::new(),
-            command_preview: None,
             command_palette_explicit_selection: false,
             command_items: items,
             filtered_indices: filtered,
@@ -157,15 +155,7 @@ impl ModalState {
         &self.command_query
     }
     pub fn command_display_query(&self) -> &str {
-        self.command_preview
-            .as_deref()
-            .unwrap_or(&self.command_query)
-    }
-    pub fn command_preview(&self) -> Option<&str> {
-        self.command_preview.as_deref()
-    }
-    pub fn set_command_preview(&mut self, preview: Option<String>) {
-        self.command_preview = preview;
+        &self.command_query
     }
     pub fn command_palette_has_explicit_selection(&self) -> bool {
         self.command_palette_explicit_selection
@@ -300,7 +290,6 @@ impl ModalState {
             ModalAction::Push(kind) => {
                 self.stack.push(kind);
                 self.command_query.clear();
-                self.command_preview = None;
                 self.command_palette_explicit_selection = false;
                 self.picker_cursor = 0;
                 self.picker_item_count = None;
@@ -312,7 +301,6 @@ impl ModalState {
             ModalAction::Pop => {
                 self.stack.pop();
                 self.command_query.clear();
-                self.command_preview = None;
                 self.command_palette_explicit_selection = false;
                 self.picker_cursor = 0;
                 self.refilter();
@@ -320,14 +308,12 @@ impl ModalState {
             ModalAction::RemoveAll(kind) => {
                 self.stack.retain(|entry| *entry != kind);
                 self.command_query.clear();
-                self.command_preview = None;
                 self.command_palette_explicit_selection = false;
                 self.picker_cursor = 0;
                 self.refilter();
             }
             ModalAction::SetQuery(query) => {
                 self.command_query = query;
-                self.command_preview = None;
                 self.command_palette_explicit_selection = false;
                 self.refilter();
                 self.picker_cursor = 0;

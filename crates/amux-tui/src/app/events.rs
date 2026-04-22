@@ -108,6 +108,9 @@ impl TuiModel {
         let Some(active_thread_id) = self.chat.active_thread_id() else {
             return;
         };
+        if self.thread_loading_id.is_some() {
+            return;
+        }
         if self.sidebar.active_tab() != sidebar::SidebarTab::Spawned {
             return;
         }

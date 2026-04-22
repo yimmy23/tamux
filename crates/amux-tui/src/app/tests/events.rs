@@ -4171,6 +4171,51 @@ fn on_tick_refreshes_spawned_sidebar_tasks_on_cooldown() {
 }
 
 #[test]
+fn on_tick_does_not_refresh_spawned_sidebar_tasks_while_thread_is_loading() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-parent".to_string(),
+            title: "Parent Thread".to_string(),
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-parent".to_string()));
+    model.tasks.reduce(task::TaskAction::TaskListReceived(vec![
+        task::AgentTask {
+            id: "task-child".to_string(),
+            title: "Spawned child".to_string(),
+            description: "Spawned child task".to_string(),
+            thread_id: Some("thread-child".to_string()),
+            parent_task_id: Some("task-parent".to_string()),
+            parent_thread_id: Some("thread-parent".to_string()),
+            created_at: 1,
+            status: Some(task::TaskStatus::InProgress),
+            progress: 30,
+            session_id: None,
+            goal_run_id: None,
+            goal_step_title: None,
+            command: None,
+            awaiting_approval_id: None,
+            blocked_reason: None,
+        },
+    ]));
+    model.activate_sidebar_tab(SidebarTab::Spawned);
+    model.thread_loading_id = Some("thread-parent".to_string());
+
+    for _ in 0..25 {
+        model.on_tick();
+    }
+
+    assert!(
+        !saw_list_tasks_command(&mut daemon_rx),
+        "spawned sidebar refresh should stay idle while the active thread is still loading"
+    );
+}
+
+#[test]
 fn on_tick_debounces_follow_up_older_thread_page_requests_after_reload() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.config.tui_chat_history_page_size = 123;

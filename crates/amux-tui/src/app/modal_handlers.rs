@@ -1392,7 +1392,9 @@ impl TuiModel {
                     self.settings_picker_target = None;
                 }
                 self.close_top_modal();
-                self.input.reduce(input::InputAction::Clear);
+                if kind != modal::ModalKind::CommandPalette {
+                    self.input.reduce(input::InputAction::Clear);
+                }
             }
             KeyCode::Left if kind == modal::ModalKind::ThreadPicker => {
                 let previous = widgets::thread_picker::adjacent_thread_picker_tab(
