@@ -503,6 +503,9 @@ fn render_goal_controls(
         controls.push(("↻", "Retry step", "R", theme.accent_secondary));
         controls.push(("⟲", "Rerun from here", "Shift+R", theme.accent_primary));
     }
+    if has_goal_actions {
+        controls.push(("⟳", "Refresh goal", "Ctrl+R", theme.accent_primary));
+    }
 
     if has_goal_actions || has_step_context {
         controls.push(("✦", "Mission Control", "M", theme.accent_primary));

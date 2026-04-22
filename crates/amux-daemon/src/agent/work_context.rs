@@ -105,10 +105,19 @@ impl AgentEngine {
         let mut goal_run_id = None;
         let mut step_index = None;
         if let Some(task_id) = task_id {
-            goal_run_update = self.record_goal_run_todo_snapshot(task_id, &items).await;
-            if let Some(goal_run) = goal_run_update.as_ref() {
-                goal_run_id = Some(goal_run.id.clone());
-                step_index = Some(goal_run.current_step_index);
+            if let Some(context) = self.goal_todo_context_for_task(task_id).await {
+                if context.authoritative {
+                    bind_goal_todo_items_to_step(&mut items, context.current_step_index);
+                    {
+                        let mut todos = self.thread_todos.write().await;
+                        todos.insert(thread_id.to_string(), items.clone());
+                    }
+                    self.persist_todos().await;
+
+                    goal_run_update = self.record_goal_run_todo_snapshot(task_id, &items).await;
+                    goal_run_id = Some(context.goal_run_id);
+                    step_index = Some(context.current_step_index);
+                }
             }
         }
 
@@ -268,6 +277,36 @@ impl AgentEngine {
                 .clone()
                 .or_else(|| goal_run.and_then(|item| item.session_id)),
         )
+    }
+
+    pub(crate) async fn goal_todo_context_for_task(
+        &self,
+        task_id: &str,
+    ) -> Option<GoalTodoContext> {
+        let task = {
+            let tasks = self.tasks.lock().await;
+            tasks.iter().find(|task| task.id == task_id).cloned()
+        }?;
+        let goal_run_id = task.goal_run_id.clone()?;
+        let goal_run = {
+            let goal_runs = self.goal_runs.lock().await;
+            goal_runs
+                .iter()
+                .find(|goal_run| goal_run.id == goal_run_id)
+                .cloned()
+        }?;
+
+        Some(GoalTodoContext {
+            goal_run_id,
+            goal_step_id: task.goal_step_id.clone().or_else(|| {
+                goal_run
+                    .steps
+                    .get(goal_run.current_step_index)
+                    .map(|step| step.id.clone())
+            }),
+            current_step_index: goal_run.current_step_index,
+            authoritative: task.source == "goal_run" && task.parent_task_id.is_none(),
+        })
     }
 
     pub(super) async fn resolve_thread_repo_root(
@@ -580,5 +619,19 @@ impl AgentEngine {
 
         self.persist_tasks().await;
         self.emit_task_update(&updated, Some("Task awaiting approval".into()));
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct GoalTodoContext {
+    pub(crate) goal_run_id: String,
+    pub(crate) goal_step_id: Option<String>,
+    pub(crate) current_step_index: usize,
+    pub(crate) authoritative: bool,
+}
+
+fn bind_goal_todo_items_to_step(items: &mut [TodoItem], current_step_index: usize) {
+    for item in items {
+        item.step_index = Some(current_step_index);
     }
 }

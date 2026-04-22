@@ -461,6 +461,122 @@ fn make_goal_run_event_with_todos_preserves_snapshot() {
     assert_eq!(event.todo_snapshot[0].content, "Inspect failing test");
 }
 
+#[tokio::test]
+async fn replace_thread_todos_binds_authoritative_goal_items_to_current_step() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut goal_run = sample_goal_run();
+    goal_run.id = "goal-1".to_string();
+    goal_run.current_step_index = 0;
+    goal_run.updated_at = 100;
+    goal_run.events.clear();
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let mut task = sample_task("task-root", "goal-1");
+    task.thread_id = Some("thread-main".to_string());
+    task.goal_step_id = Some("step-0".to_string());
+    task.goal_step_title = Some("Inspect".to_string());
+    engine.tasks.lock().await.push_back(task.clone());
+
+    engine
+        .replace_thread_todos(
+            "thread-main",
+            vec![
+                TodoItem {
+                    id: "todo-1".to_string(),
+                    content: "Inspect current state".to_string(),
+                    status: TodoStatus::InProgress,
+                    position: 0,
+                    step_index: Some(1),
+                    created_at: 1,
+                    updated_at: 1,
+                },
+                TodoItem {
+                    id: "todo-2".to_string(),
+                    content: "Capture failing evidence".to_string(),
+                    status: TodoStatus::Pending,
+                    position: 1,
+                    step_index: Some(2),
+                    created_at: 1,
+                    updated_at: 1,
+                },
+            ],
+            Some(task.id.as_str()),
+        )
+        .await;
+
+    let goal_run = engine
+        .get_goal_run("goal-1")
+        .await
+        .expect("goal run should still exist");
+    let event = goal_run
+        .events
+        .last()
+        .expect("authoritative goal todo update should record a goal event");
+    assert_eq!(event.step_index, Some(0));
+    assert_eq!(event.todo_snapshot.len(), 2);
+    assert_eq!(event.todo_snapshot[0].step_index, Some(0));
+    assert_eq!(event.todo_snapshot[1].step_index, Some(0));
+}
+
+#[tokio::test]
+async fn replace_thread_todos_from_subagent_stays_thread_scoped_for_goal_runs() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut goal_run = sample_goal_run();
+    goal_run.id = "goal-1".to_string();
+    goal_run.current_step_index = 0;
+    goal_run.updated_at = 100;
+    goal_run.events.clear();
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let mut parent = sample_task("task-root", "goal-1");
+    parent.thread_id = Some("thread-main".to_string());
+    engine.tasks.lock().await.push_back(parent.clone());
+
+    let mut child = sample_subagent("task-child", &parent.id, TaskStatus::InProgress);
+    child.goal_run_id = Some("goal-1".to_string());
+    child.thread_id = Some("thread-child".to_string());
+    engine.tasks.lock().await.push_back(child.clone());
+
+    engine
+        .replace_thread_todos(
+            "thread-child",
+            vec![TodoItem {
+                id: "todo-child".to_string(),
+                content: "Local child todo".to_string(),
+                status: TodoStatus::Pending,
+                position: 0,
+                step_index: Some(0),
+                created_at: 1,
+                updated_at: 1,
+            }],
+            Some(child.id.as_str()),
+        )
+        .await;
+
+    let goal_run = engine
+        .get_goal_run("goal-1")
+        .await
+        .expect("goal run should still exist");
+    assert!(
+        goal_run.events.is_empty(),
+        "subagent todo updates must not overwrite authoritative goal-step todos"
+    );
+    let child_todos = engine.thread_todos.read().await;
+    assert_eq!(
+        child_todos
+            .get("thread-child")
+            .expect("child thread todos should still be stored locally")
+            .len(),
+        1
+    );
+}
+
 #[test]
 fn planner_required_for_message_detects_multi_step_requests() {
     assert!(planner_required_for_message(

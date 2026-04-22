@@ -311,6 +311,8 @@ pub enum TaskAction {
     },
     ThreadTodosReceived {
         thread_id: String,
+        goal_run_id: Option<String>,
+        step_index: Option<usize>,
         items: Vec<TodoItem>,
     },
     WorkContextReceived(ThreadWorkContext),
@@ -335,6 +337,7 @@ pub struct TaskState {
     goal_runs: Vec<GoalRun>,
     goal_run_checkpoints: std::collections::HashMap<String, Vec<GoalRunCheckpointSummary>>,
     thread_todos: std::collections::HashMap<String, Vec<TodoItem>>,
+    goal_step_live_todos: std::collections::HashMap<String, Vec<TodoItem>>,
     work_contexts: std::collections::HashMap<String, ThreadWorkContext>,
     selected_work_paths: std::collections::HashMap<String, String>,
     git_diffs: std::collections::HashMap<String, String>,
@@ -350,6 +353,7 @@ impl TaskState {
             goal_runs: Vec::new(),
             goal_run_checkpoints: std::collections::HashMap::new(),
             thread_todos: std::collections::HashMap::new(),
+            goal_step_live_todos: std::collections::HashMap::new(),
             work_contexts: std::collections::HashMap::new(),
             selected_work_paths: std::collections::HashMap::new(),
             git_diffs: std::collections::HashMap::new(),
@@ -416,6 +420,14 @@ impl TaskState {
         self.goal_runs.iter_mut().find(|r| r.id == id)
     }
 
+    pub fn thread_belongs_to_goal_run(&self, goal_run_id: &str, thread_id: &str) -> bool {
+        self.goal_run_by_id(goal_run_id).is_some_and(|run| {
+            goal_step_todo_thread_ids(self, run)
+                .iter()
+                .any(|candidate| candidate == thread_id)
+        })
+    }
+
     pub fn checkpoints_for_goal_run(&self, goal_run_id: &str) -> &[GoalRunCheckpointSummary] {
         self.goal_run_checkpoints
             .get(goal_run_id)
@@ -438,41 +450,30 @@ impl TaskState {
             return Vec::new();
         };
 
-        let latest_snapshot = run
-            .events
-            .iter()
-            .rev()
-            .find(|event| {
-                event.step_index == Some(step_index)
-                    && event
-                        .todo_snapshot
-                        .iter()
-                        .any(|todo| todo.step_index == Some(step_index))
-            })
-            .map(|event| {
-                let mut todos: Vec<_> = event
-                    .todo_snapshot
-                    .iter()
-                    .filter(|todo| todo.step_index == Some(step_index))
-                    .cloned()
-                    .collect();
-                todos.sort_by_key(|todo| todo.position);
-                todos
-            });
-        if let Some(todos) = latest_snapshot {
+        if let Some(live_todos) = self
+            .goal_step_live_todos
+            .get(&goal_step_live_todo_key(goal_run_id, step_index))
+        {
+            let mut todos = live_todos.clone();
+            todos.sort_by_key(|todo| todo.position);
             return todos;
         }
 
-        let Some(thread_id) = run.thread_id.as_deref() else {
-            return Vec::new();
-        };
+        let mut todos_by_id = std::collections::BTreeMap::new();
 
-        let mut todos: Vec<_> = self
-            .todos_for_thread(thread_id)
-            .iter()
-            .filter(|todo| todo.step_index == Some(step_index))
-            .cloned()
-            .collect();
+        for event in run.events.iter().rev() {
+            for todo in event
+                .todo_snapshot
+                .iter()
+                .filter(|todo| todo.step_index.or(event.step_index) == Some(step_index))
+            {
+                todos_by_id
+                    .entry(goal_step_todo_key(todo))
+                    .or_insert_with(|| todo.clone());
+            }
+        }
+
+        let mut todos = todos_by_id.into_values().collect::<Vec<_>>();
         todos.sort_by_key(|todo| todo.position);
         todos
     }
@@ -565,6 +566,7 @@ impl TaskState {
         match action {
             TaskAction::TaskListReceived(tasks) => {
                 self.tasks = tasks;
+                reconcile_goal_run_status_from_tasks(&self.tasks, &mut self.goal_runs);
             }
 
             TaskAction::TaskUpdate(updated) => {
@@ -574,6 +576,7 @@ impl TaskState {
                 } else {
                     self.tasks.push(updated);
                 }
+                reconcile_goal_run_status_from_tasks(&self.tasks, &mut self.goal_runs);
             }
 
             TaskAction::GoalRunListReceived(runs) => {
@@ -582,6 +585,8 @@ impl TaskState {
 
             TaskAction::GoalRunDetailReceived(run) => {
                 let run = normalize_goal_run_ranges(run);
+                self.goal_step_live_todos
+                    .retain(|key, _| !key.starts_with(&format!("{}::", run.id)));
                 if let Some(existing) = self.goal_runs.iter_mut().find(|r| r.id == run.id) {
                     merge_goal_run(existing, run, false);
                 } else {
@@ -608,11 +613,24 @@ impl TaskState {
             TaskAction::GoalRunDeleted { goal_run_id } => {
                 self.goal_runs.retain(|run| run.id != goal_run_id);
                 self.goal_run_checkpoints.remove(&goal_run_id);
+                self.goal_step_live_todos
+                    .retain(|key, _| !key.starts_with(&format!("{goal_run_id}::")));
                 self.tasks
                     .retain(|task| task.goal_run_id.as_deref() != Some(goal_run_id.as_str()));
             }
 
-            TaskAction::ThreadTodosReceived { thread_id, items } => {
+            TaskAction::ThreadTodosReceived {
+                thread_id,
+                goal_run_id,
+                step_index,
+                items,
+            } => {
+                if let (Some(goal_run_id), Some(step_index)) = (goal_run_id, step_index) {
+                    self.goal_step_live_todos.insert(
+                        goal_step_live_todo_key(&goal_run_id, step_index),
+                        items.clone(),
+                    );
+                }
                 self.thread_todos.insert(thread_id, items);
             }
 
@@ -657,6 +675,89 @@ impl TaskState {
             TaskAction::HeartbeatDigestReceived(digest) => {
                 self.last_digest = Some(digest);
             }
+        }
+    }
+}
+
+fn goal_step_todo_key(todo: &TodoItem) -> String {
+    let content = todo.content.trim();
+    if content.is_empty() {
+        todo.id.clone()
+    } else {
+        content.to_string()
+    }
+}
+
+fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
+    let mut thread_ids = Vec::new();
+    let mut push_thread_id = |thread_id: &str| {
+        if !thread_id.is_empty() && !thread_ids.iter().any(|existing| existing == thread_id) {
+            thread_ids.push(thread_id.to_string());
+        }
+    };
+
+    for thread_id in run
+        .active_thread_id
+        .iter()
+        .chain(run.root_thread_id.iter())
+        .chain(run.thread_id.iter())
+    {
+        push_thread_id(thread_id);
+    }
+    for thread_id in &run.execution_thread_ids {
+        push_thread_id(thread_id);
+    }
+    for task in state
+        .tasks()
+        .iter()
+        .filter(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
+    {
+        if let Some(thread_id) = task.thread_id.as_deref() {
+            push_thread_id(thread_id);
+        }
+    }
+
+    thread_ids
+}
+
+fn goal_step_live_todo_key(goal_run_id: &str, step_index: usize) -> String {
+    format!("{goal_run_id}::{step_index}")
+}
+
+fn reconcile_goal_run_status_from_tasks(tasks: &[AgentTask], goal_runs: &mut [GoalRun]) {
+    for goal_run in goal_runs {
+        if matches!(
+            goal_run.status,
+            Some(GoalRunStatus::Completed | GoalRunStatus::Failed | GoalRunStatus::Cancelled)
+                | Some(GoalRunStatus::Planning)
+        ) {
+            continue;
+        }
+
+        let mut next_status = None;
+        for task in tasks
+            .iter()
+            .filter(|task| task.goal_run_id.as_deref() == Some(goal_run.id.as_str()))
+        {
+            match task.status {
+                Some(TaskStatus::AwaitingApproval) => {
+                    next_status = Some(GoalRunStatus::AwaitingApproval);
+                    break;
+                }
+                Some(
+                    TaskStatus::Queued
+                    | TaskStatus::InProgress
+                    | TaskStatus::Blocked
+                    | TaskStatus::FailedAnalyzing,
+                ) => {
+                    next_status = Some(GoalRunStatus::Running);
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(next_status) = next_status {
+            goal_run.status = Some(next_status);
         }
     }
 }

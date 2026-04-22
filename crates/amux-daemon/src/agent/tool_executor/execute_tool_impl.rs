@@ -1535,6 +1535,7 @@ async fn dispatch_tool_execution(
             match execute_run_terminal_command(
                 dispatch_args,
                 agent,
+                task_id,
                 session_manager,
                 session_id,
                 event_tx,
@@ -1684,6 +1685,7 @@ async fn dispatch_tool_execution(
             match execute_bash_command(
                 dispatch_args,
                 agent,
+                task_id,
                 session_manager,
                 session_id,
                 event_tx,

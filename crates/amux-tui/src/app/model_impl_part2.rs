@@ -388,6 +388,7 @@ impl TuiModel {
         self.request_latest_thread_page(thread_id, true);
         self.main_pane_view = MainPaneView::Conversation;
         self.focus = FocusArea::Chat;
+        self.sync_contextual_approval_overlay();
     }
 
     fn restore_conversation_thread(&mut self, thread_id: String, focus: FocusArea) {
@@ -402,6 +403,7 @@ impl TuiModel {
         self.main_pane_view = MainPaneView::Conversation;
         self.task_view_scroll = 0;
         self.focus = focus;
+        self.sync_contextual_approval_overlay();
     }
 
     fn start_new_thread_view(&mut self) {
@@ -1082,6 +1084,150 @@ impl TuiModel {
             approval_id,
             decision: decision.to_string(),
         });
+    }
+
+    fn active_goal_approval_context(&self) -> Option<GoalApprovalContext> {
+        let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
+            &self.main_pane_view
+        else {
+            return None;
+        };
+        let goal_run = self.tasks.goal_run_by_id(goal_run_id)?;
+        let approval_id = goal_run.awaiting_approval_id.clone()?;
+        self.approval.approval_by_id(&approval_id)?;
+        Some(GoalApprovalContext {
+            approval_id,
+            goal_run_id: goal_run.id.clone(),
+            thread_id: goal_run.thread_id.clone(),
+            goal_title: goal_run.title.clone(),
+            step_title: goal_run.current_step_title.clone(),
+        })
+    }
+
+    fn active_contextual_approval_id(&self) -> Option<String> {
+        self.active_goal_approval_context()
+            .map(|context| context.approval_id)
+            .or_else(|| self.next_current_thread_approval_id())
+    }
+
+    fn sync_contextual_approval_overlay(&mut self) {
+        let Some(approval_id) = self.active_contextual_approval_id() else {
+            self.modal
+                .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::GoalApprovalRejectPrompt));
+            self.modal
+                .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::ApprovalOverlay));
+            return;
+        };
+
+        self.approval
+            .reduce(crate::state::ApprovalAction::SelectApproval(approval_id));
+        if self.modal.top() != Some(modal::ModalKind::ApprovalOverlay)
+            && self.modal.top() != Some(modal::ModalKind::GoalApprovalRejectPrompt)
+        {
+            self.modal.reduce(modal::ModalAction::Push(
+                modal::ModalKind::ApprovalOverlay,
+            ));
+        }
+    }
+
+    fn open_goal_approval_reject_prompt(&mut self, approval_id: String) -> bool {
+        let Some(context) = self.active_goal_approval_context() else {
+            return false;
+        };
+        if context.approval_id != approval_id {
+            return false;
+        }
+        self.approval
+            .reduce(crate::state::ApprovalAction::SelectApproval(approval_id));
+        if self.modal.top() != Some(modal::ModalKind::GoalApprovalRejectPrompt) {
+            self.modal.reduce(modal::ModalAction::Push(
+                modal::ModalKind::GoalApprovalRejectPrompt,
+            ));
+        }
+        true
+    }
+
+    fn close_goal_approval_decision_modals(&mut self) {
+        self.modal
+            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::GoalApprovalRejectPrompt));
+        self.modal
+            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::ApprovalOverlay));
+        self.modal
+            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::ApprovalCenter));
+    }
+
+    fn handle_reject_selected_approval(&mut self, approval_id: String) {
+        if !self.open_goal_approval_reject_prompt(approval_id.clone()) {
+            self.resolve_approval(approval_id, "reject");
+            self.sync_contextual_approval_overlay();
+        }
+    }
+
+    fn rewrite_active_goal_after_reject(&mut self) {
+        let Some(context) = self.active_goal_approval_context() else {
+            self.close_goal_approval_decision_modals();
+            return;
+        };
+        let prompt = context
+            .step_title
+            .as_deref()
+            .map(|step_title| {
+                format!(
+                    "Rewrite the blocked goal step \"{step_title}\" using this operator guidance and continue the goal:\n"
+                )
+            })
+            .unwrap_or_else(|| {
+                "Rewrite the blocked goal step using this operator guidance and continue the goal:\n"
+                    .to_string()
+            });
+        let status_target = context
+            .step_title
+            .clone()
+            .unwrap_or_else(|| context.goal_title.clone());
+
+        self.resolve_approval(context.approval_id, "reject");
+        self.close_goal_approval_decision_modals();
+        self.focus = FocusArea::Input;
+        self.set_input_text(&prompt);
+        self.show_input_notice(
+            "Type rewrite guidance and press Enter to continue the goal",
+            InputNoticeKind::Warning,
+            160,
+            true,
+        );
+        self.status_line =
+            format!("Approval rejected for {status_target}. Provide rewrite guidance.");
+    }
+
+    fn stop_active_goal_after_reject(&mut self) {
+        let Some(context) = self.active_goal_approval_context() else {
+            self.close_goal_approval_decision_modals();
+            return;
+        };
+
+        self.resolve_approval(context.approval_id, "reject");
+        self.send_daemon_command(DaemonCommand::ControlGoalRun {
+            goal_run_id: context.goal_run_id,
+            action: "stop".to_string(),
+            step_index: None,
+        });
+        self.close_goal_approval_decision_modals();
+        self.status_line = "Goal approval rejected. Stopping goal run...".to_string();
+    }
+
+    fn goal_approval_reject_prompt_body(&self) -> String {
+        let Some(context) = self.active_goal_approval_context() else {
+            return "No active goal approval is available.\n\nPress Esc to return.".to_string();
+        };
+
+        let step_label = context
+            .step_title
+            .as_deref()
+            .unwrap_or("current goal step");
+        format!(
+            "Approval for \"{}\" was rejected.\n\nChoose what to do next for {}:\n\n[R] Rewrite with guidance\nType guidance in the input box on the next step, then press Enter.\n\n[S] Stop goal\nImmediately stop this goal run after rejecting the approval.\n\n[Esc] Back to approval",
+            context.goal_title, step_label
+        )
     }
 
     fn next_current_thread_approval_id(&self) -> Option<String> {

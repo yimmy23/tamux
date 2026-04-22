@@ -447,6 +447,15 @@ struct PendingReconnectRestore {
     should_resume: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GoalApprovalContext {
+    approval_id: String,
+    goal_run_id: String,
+    thread_id: Option<String>,
+    goal_title: String,
+    step_title: Option<String>,
+}
+
 pub struct TuiModel {
     // State modules
     chat: chat::ChatState,

@@ -40,6 +40,8 @@ pub enum ClientEvent {
     },
     ThreadTodos {
         thread_id: String,
+        goal_run_id: Option<String>,
+        step_index: Option<usize>,
         items: Vec<crate::state::task::TodoItem>,
     },
     WorkContext(crate::state::task::ThreadWorkContext),
@@ -251,9 +253,16 @@ impl DaemonProjection {
             ClientEvent::GoalRunUpdate(run) => {
                 vec![AppAction::Task(TaskAction::GoalRunUpdate(run))]
             }
-            ClientEvent::ThreadTodos { thread_id, items } => {
+            ClientEvent::ThreadTodos {
+                thread_id,
+                goal_run_id,
+                step_index,
+                items,
+            } => {
                 vec![AppAction::Task(TaskAction::ThreadTodosReceived {
                     thread_id,
+                    goal_run_id,
+                    step_index,
                     items,
                 })]
             }

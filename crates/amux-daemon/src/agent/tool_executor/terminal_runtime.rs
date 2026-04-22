@@ -59,13 +59,14 @@ async fn execute_read_terminal(
 async fn execute_run_terminal_command(
     args: &serde_json::Value,
     agent: &AgentEngine,
+    task_id: Option<&str>,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
     event_tx: &broadcast::Sender<AgentEvent>,
     thread_id: &str,
     cancel_token: Option<CancellationToken>,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
-    let client_surface = agent.get_thread_client_surface(thread_id).await;
+    let client_surface = resolve_shell_tool_client_surface(agent, thread_id, task_id).await;
     if should_use_managed_execution_for_surface(client_surface, args) {
         let managed_args =
             managed_alias_args(args, "Run a shell command in a managed terminal session");
@@ -94,13 +95,14 @@ async fn execute_run_terminal_command(
 async fn execute_bash_command(
     args: &serde_json::Value,
     agent: &AgentEngine,
+    task_id: Option<&str>,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
     event_tx: &broadcast::Sender<AgentEvent>,
     thread_id: &str,
     cancel_token: Option<CancellationToken>,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
-    let client_surface = agent.get_thread_client_surface(thread_id).await;
+    let client_surface = resolve_shell_tool_client_surface(agent, thread_id, task_id).await;
     if should_use_managed_execution_for_surface(client_surface, args) {
         let managed_args =
             managed_alias_args(args, "Run a shell command in a managed terminal session");
@@ -124,6 +126,27 @@ async fn execute_bash_command(
         )
         .await
     }
+}
+
+async fn resolve_shell_tool_client_surface(
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Option<amux_protocol::ClientSurface> {
+    if let Some(client_surface) = agent.get_thread_client_surface(thread_id).await {
+        return Some(client_surface);
+    }
+
+    let task_id = task_id?;
+    let goal_run_id = {
+        let tasks = agent.tasks.lock().await;
+        tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .and_then(|task| task.goal_run_id.clone())
+    }?;
+
+    agent.get_goal_run_client_surface(&goal_run_id).await
 }
 
 fn should_use_managed_execution(args: &serde_json::Value) -> bool {

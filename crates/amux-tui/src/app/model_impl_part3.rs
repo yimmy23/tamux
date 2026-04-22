@@ -78,6 +78,9 @@ impl TuiModel {
                     )
                 }
                 modal::ModalKind::ApprovalOverlay => "modal:approval".to_string(),
+                modal::ModalKind::GoalApprovalRejectPrompt => {
+                    "modal:goal_approval_reject".to_string()
+                }
                 modal::ModalKind::OperatorQuestionOverlay => "modal:operator_question".to_string(),
                 modal::ModalKind::ApprovalCenter => "modal:approval_center".to_string(),
                 modal::ModalKind::ChatActionConfirm => "modal:chat_action_confirm".to_string(),

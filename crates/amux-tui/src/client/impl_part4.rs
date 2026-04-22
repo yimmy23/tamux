@@ -321,13 +321,31 @@ impl DaemonClient {
             }
             "todo_update" => {
                 let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                let goal_run_id = get_string(&event, "goal_run_id");
+                let step_index = event
+                    .get("step_index")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok());
                 let items = event
                     .get("items")
                     .cloned()
                     .and_then(|raw| serde_json::from_value::<Vec<crate::wire::TodoItem>>(raw).ok())
-                    .unwrap_or_default();
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|mut todo| {
+                        if todo.step_index.is_none() {
+                            todo.step_index = step_index;
+                        }
+                        todo
+                    })
+                    .collect();
                 let _ = event_tx
-                    .send(ClientEvent::ThreadTodos { thread_id, items })
+                    .send(ClientEvent::ThreadTodos {
+                        thread_id,
+                        goal_run_id,
+                        step_index,
+                        items,
+                    })
                     .await;
             }
             "work_context_update" => {

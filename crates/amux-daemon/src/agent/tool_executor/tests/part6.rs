@@ -1108,6 +1108,158 @@ async fn tui_bash_command_wait_false_returns_immediate_operation_handle() {
 }
 
 #[tokio::test]
+async fn tui_bash_command_falls_back_to_goal_run_surface_when_thread_surface_is_missing() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-tui-goal-surface-fallback";
+    let task_id = "task-tui-goal-surface-fallback";
+
+    let goal_run = engine
+        .start_goal_run_with_surface(
+            "Verify TUI shell routing".to_string(),
+            None,
+            Some(thread_id.to_string()),
+            None,
+            None,
+            None,
+            None,
+            Some(amux_protocol::ClientSurface::Tui),
+            None,
+        )
+        .await;
+    engine.clear_thread_client_surface(thread_id).await;
+
+    {
+        let mut tasks = engine.tasks.lock().await;
+        tasks.push_back(crate::agent::types::AgentTask {
+            id: task_id.to_string(),
+            title: "Run routed shell command".to_string(),
+            description: "Exercise TUI fallback shell routing".to_string(),
+            status: crate::agent::types::TaskStatus::InProgress,
+            priority: crate::agent::types::TaskPriority::Normal,
+            progress: 0,
+            created_at: 0,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some(thread_id.to_string()),
+            source: "test".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: Some(goal_run.id.clone()),
+            goal_run_title: Some(goal_run.title.clone()),
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "foreground".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+    }
+
+    let plan_call = ToolCall::with_default_weles_review(
+        "tool-tui-goal-surface-plan".to_string(),
+        ToolFunction {
+            name: "update_todo".to_string(),
+            arguments: serde_json::json!({
+                "items": [
+                    { "content": "Verify shell routing stays headless", "status": "in_progress" }
+                ]
+            })
+            .to_string(),
+        },
+    );
+
+    let plan_result = execute_tool(
+        &plan_call,
+        &engine,
+        thread_id,
+        Some(task_id),
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !plan_result.is_error,
+        "update_todo should establish plan mode before shell execution: {}",
+        plan_result.content
+    );
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-tui-goal-surface-fallback".to_string(),
+        ToolFunction {
+            name: "bash_command".to_string(),
+            arguments: serde_json::json!({
+                "command": "printf routed-via-goal-surface",
+                "sandbox_enabled": true,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        Some(task_id),
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "TUI goal-run surface should keep bash_command headless: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("routed-via-goal-surface"),
+        "headless execution should return command output: {}",
+        result.content
+    );
+}
+
+#[tokio::test]
 async fn tui_bash_command_wait_false_exposes_failure_payload_via_operation_status() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
@@ -4284,4 +4436,363 @@ async fn get_todos_returns_thread_scoped_items_with_optional_task_id() {
     assert_eq!(items[0]["status"], "in_progress");
     assert_eq!(items[1]["content"], "Return todo snapshot");
     assert_eq!(items[1]["status"], "pending");
+}
+
+#[tokio::test]
+async fn update_todo_for_goal_owned_main_task_requires_explicit_goal_binding() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-goal-update-todo-binding-required";
+    let task_id = "task-goal-update-todo-binding-required";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(crate::agent::types::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal One".to_string(),
+            goal: "Keep goal todos pinned to the active step".to_string(),
+            client_request_id: None,
+            status: crate::agent::types::GoalRunStatus::Running,
+            priority: crate::agent::types::TaskPriority::Normal,
+            created_at: 1,
+            updated_at: 2,
+            started_at: Some(1),
+            completed_at: None,
+            thread_id: Some(thread_id.to_string()),
+            root_thread_id: Some(thread_id.to_string()),
+            active_thread_id: Some(thread_id.to_string()),
+            execution_thread_ids: Vec::new(),
+            session_id: None,
+            current_step_index: 0,
+            current_step_title: Some("Inspect".to_string()),
+            current_step_kind: Some(crate::agent::types::GoalRunStepKind::Research),
+            launch_assignment_snapshot: Vec::new(),
+            runtime_assignment_list: Vec::new(),
+            planner_owner_profile: None,
+            current_step_owner_profile: None,
+            replan_count: 0,
+            max_replans: 0,
+            plan_summary: None,
+            reflection_summary: None,
+            memory_updates: Vec::new(),
+            generated_skill_path: None,
+            last_error: None,
+            failure_cause: None,
+            stopped_reason: None,
+            child_task_ids: Vec::new(),
+            child_task_count: 0,
+            approval_count: 0,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            active_task_id: Some(task_id.to_string()),
+            duration_ms: None,
+            steps: vec![crate::agent::types::GoalRunStep {
+                id: "step-1".to_string(),
+                position: 0,
+                title: "Inspect".to_string(),
+                instructions: "Inspect the active goal step".to_string(),
+                kind: crate::agent::types::GoalRunStepKind::Research,
+                success_criteria: "Step context is correct".to_string(),
+                session_id: None,
+                status: crate::agent::types::GoalRunStepStatus::InProgress,
+                task_id: Some(task_id.to_string()),
+                summary: None,
+                error: None,
+                started_at: Some(1),
+                completed_at: None,
+            }],
+            events: Vec::new(),
+            dossier: None,
+            total_prompt_tokens: 0,
+            total_completion_tokens: 0,
+            estimated_cost_usd: None,
+            autonomy_level: Default::default(),
+            authorship_tag: None,
+        });
+    engine
+        .tasks
+        .lock()
+        .await
+        .push_back(crate::agent::types::AgentTask {
+            id: task_id.to_string(),
+            title: "Inspect".to_string(),
+            description: "Keep the goal todo list current.".to_string(),
+            status: crate::agent::types::TaskStatus::InProgress,
+            priority: crate::agent::types::TaskPriority::Normal,
+            progress: 10,
+            created_at: 1,
+            started_at: Some(1),
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some(thread_id.to_string()),
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: Some("goal-1".to_string()),
+            goal_run_title: Some("Goal One".to_string()),
+            goal_step_id: Some("step-1".to_string()),
+            goal_step_title: Some("Inspect".to_string()),
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+    let update_call = ToolCall::with_default_weles_review(
+        "tool-goal-update-todos-missing-binding".to_string(),
+        ToolFunction {
+            name: "update_todo".to_string(),
+            arguments: serde_json::json!({
+                "items": [
+                    { "content": "Inspect current state", "status": "in_progress" }
+                ]
+            })
+            .to_string(),
+        },
+    );
+
+    let update_result = execute_tool(
+        &update_call,
+        &engine,
+        thread_id,
+        Some(task_id),
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(update_result.is_error, "missing goal binding must fail");
+    assert!(
+        update_result.content.contains("goal_step_id"),
+        "error should mention missing goal_step_id: {}",
+        update_result.content
+    );
+}
+
+#[tokio::test]
+async fn update_todo_for_goal_owned_main_task_pins_items_to_bound_goal_step() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-goal-update-todo-bound-step";
+    let task_id = "task-goal-update-todo-bound-step";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(crate::agent::types::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal One".to_string(),
+            goal: "Keep goal todos pinned to the active step".to_string(),
+            client_request_id: None,
+            status: crate::agent::types::GoalRunStatus::Running,
+            priority: crate::agent::types::TaskPriority::Normal,
+            created_at: 1,
+            updated_at: 2,
+            started_at: Some(1),
+            completed_at: None,
+            thread_id: Some(thread_id.to_string()),
+            root_thread_id: Some(thread_id.to_string()),
+            active_thread_id: Some(thread_id.to_string()),
+            execution_thread_ids: Vec::new(),
+            session_id: None,
+            current_step_index: 0,
+            current_step_title: Some("Inspect".to_string()),
+            current_step_kind: Some(crate::agent::types::GoalRunStepKind::Research),
+            launch_assignment_snapshot: Vec::new(),
+            runtime_assignment_list: Vec::new(),
+            planner_owner_profile: None,
+            current_step_owner_profile: None,
+            replan_count: 0,
+            max_replans: 0,
+            plan_summary: None,
+            reflection_summary: None,
+            memory_updates: Vec::new(),
+            generated_skill_path: None,
+            last_error: None,
+            failure_cause: None,
+            stopped_reason: None,
+            child_task_ids: Vec::new(),
+            child_task_count: 0,
+            approval_count: 0,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            active_task_id: Some(task_id.to_string()),
+            duration_ms: None,
+            steps: vec![crate::agent::types::GoalRunStep {
+                id: "step-1".to_string(),
+                position: 0,
+                title: "Inspect".to_string(),
+                instructions: "Inspect the active goal step".to_string(),
+                kind: crate::agent::types::GoalRunStepKind::Research,
+                success_criteria: "Step context is correct".to_string(),
+                session_id: None,
+                status: crate::agent::types::GoalRunStepStatus::InProgress,
+                task_id: Some(task_id.to_string()),
+                summary: None,
+                error: None,
+                started_at: Some(1),
+                completed_at: None,
+            }],
+            events: Vec::new(),
+            dossier: None,
+            total_prompt_tokens: 0,
+            total_completion_tokens: 0,
+            estimated_cost_usd: None,
+            autonomy_level: Default::default(),
+            authorship_tag: None,
+        });
+    engine
+        .tasks
+        .lock()
+        .await
+        .push_back(crate::agent::types::AgentTask {
+            id: task_id.to_string(),
+            title: "Inspect".to_string(),
+            description: "Keep the goal todo list current.".to_string(),
+            status: crate::agent::types::TaskStatus::InProgress,
+            priority: crate::agent::types::TaskPriority::Normal,
+            progress: 10,
+            created_at: 1,
+            started_at: Some(1),
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some(thread_id.to_string()),
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: Some("goal-1".to_string()),
+            goal_run_title: Some("Goal One".to_string()),
+            goal_step_id: Some("step-1".to_string()),
+            goal_step_title: Some("Inspect".to_string()),
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+    let update_call = ToolCall::with_default_weles_review(
+        "tool-goal-update-todos-bound-step".to_string(),
+        ToolFunction {
+            name: "update_todo".to_string(),
+            arguments: serde_json::json!({
+                "goal_run_id": "goal-1",
+                "goal_step_id": "step-1",
+                "items": [
+                    { "content": "Inspect current state", "status": "completed", "step_index": 1 },
+                    { "content": "Capture failing evidence", "status": "pending", "step_index": 2 }
+                ]
+            })
+            .to_string(),
+        },
+    );
+
+    let update_result = execute_tool(
+        &update_call,
+        &engine,
+        thread_id,
+        Some(task_id),
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !update_result.is_error,
+        "goal-bound update_todo should succeed: {}",
+        update_result.content
+    );
+
+    let goal_run = engine
+        .get_goal_run("goal-1")
+        .await
+        .expect("goal run should exist");
+    let event = goal_run
+        .events
+        .last()
+        .expect("goal todo update should create a goal event");
+    assert_eq!(event.step_index, Some(0));
+    assert_eq!(event.todo_snapshot.len(), 2);
+    assert_eq!(event.todo_snapshot[0].step_index, Some(0));
+    assert_eq!(event.todo_snapshot[1].step_index, Some(0));
 }

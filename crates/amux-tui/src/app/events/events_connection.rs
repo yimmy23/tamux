@@ -85,7 +85,12 @@ impl TuiModel {
             .tasks()
             .iter()
             .find(|task| task.awaiting_approval_id.as_deref() == Some(approval_id.as_str()));
-        let thread_id = task_match.and_then(|task| task.thread_id.clone());
+        let goal_match = self.tasks.goal_runs().iter().find(|goal_run| {
+            goal_run.awaiting_approval_id.as_deref() == Some(approval_id.as_str())
+        });
+        let thread_id = task_match
+            .and_then(|task| task.thread_id.clone())
+            .or_else(|| goal_match.and_then(|goal_run| goal_run.thread_id.clone()));
         let thread_title = self.thread_title_for_id(thread_id.as_deref());
         let is_current_thread = match thread_id.as_deref() {
             Some(thread_id) => Some(thread_id) == self.chat.active_thread_id(),
@@ -115,12 +120,11 @@ impl TuiModel {
             .reduce(crate::state::ApprovalAction::SelectApproval(
                 approval_id.clone(),
             ));
-        if is_current_thread
-            && self.modal.top() != Some(crate::state::modal::ModalKind::ApprovalOverlay)
-        {
-            self.modal.reduce(crate::state::modal::ModalAction::Push(
-                crate::state::modal::ModalKind::ApprovalOverlay,
-            ));
+        let is_current_goal = self
+            .active_goal_approval_context()
+            .is_some_and(|context| context.approval_id == approval_id);
+        if is_current_thread || is_current_goal {
+            self.sync_contextual_approval_overlay();
         } else if !is_current_thread {
             let thread_label = thread_title
                 .clone()
@@ -137,7 +141,9 @@ impl TuiModel {
                 true,
             );
         }
-        self.status_line = if is_current_thread {
+        self.status_line = if is_current_goal {
+            "Approval required in current goal".to_string()
+        } else if is_current_thread {
             "Approval required in current thread".to_string()
         } else {
             format!(
@@ -165,11 +171,7 @@ impl TuiModel {
         if let Some(goal_run_id) = goal_run_id {
             self.request_authoritative_goal_run_refresh(goal_run_id);
         }
-        if self.next_current_thread_approval_id().is_none()
-            && self.modal.top() == Some(crate::state::modal::ModalKind::ApprovalOverlay)
-        {
-            self.close_top_modal();
-        }
+        self.sync_contextual_approval_overlay();
         self.status_line = "Approval resolved".to_string();
     }
 

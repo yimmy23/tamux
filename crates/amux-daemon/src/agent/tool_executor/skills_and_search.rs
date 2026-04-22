@@ -310,7 +310,9 @@ async fn execute_read_skill(
                 && state
                     .recommended_skill
                     .as_deref()
-                    .is_some_and(|recommended| recommended.eq_ignore_ascii_case(&variant.skill_name))
+                    .is_some_and(|recommended| {
+                        recommended.eq_ignore_ascii_case(&variant.skill_name)
+                    })
         });
         if allow_legacy_name_fallback {
             let _ = agent
@@ -351,6 +353,57 @@ async fn execute_update_todo(
     thread_id: &str,
     task_id: Option<&str>,
 ) -> Result<String> {
+    if let Some(task_id) = task_id {
+        if let Some(context) = agent.goal_todo_context_for_task(task_id).await {
+            if context.authoritative {
+                let provided_goal_run_id = args
+                    .get("goal_run_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                let provided_goal_step_id = args
+                    .get("goal_step_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                let mut missing_fields = Vec::new();
+                if provided_goal_run_id.is_none() {
+                    missing_fields.push("'goal_run_id'");
+                }
+                if provided_goal_step_id.is_none() {
+                    missing_fields.push("'goal_step_id'");
+                }
+                if !missing_fields.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "missing required {} for goal-owned main-task update_todo",
+                        missing_fields.join(" and ")
+                    ));
+                }
+                let provided_goal_run_id = provided_goal_run_id
+                    .expect("goal_run_id presence already validated for goal-owned main task");
+                let provided_goal_step_id = provided_goal_step_id
+                    .expect("goal_step_id presence already validated for goal-owned main task");
+                if provided_goal_run_id != context.goal_run_id {
+                    return Err(anyhow::anyhow!(
+                        "goal-owned main-task update_todo must use goal_run_id '{}' but received '{}'",
+                        context.goal_run_id,
+                        provided_goal_run_id
+                    ));
+                }
+                let expected_goal_step_id = context.goal_step_id.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("goal-owned main task is missing internal goal_step_id context")
+                })?;
+                if provided_goal_step_id != expected_goal_step_id {
+                    return Err(anyhow::anyhow!(
+                        "goal-owned main-task update_todo must use goal_step_id '{}' but received '{}'",
+                        expected_goal_step_id,
+                        provided_goal_step_id
+                    ));
+                }
+            }
+        }
+    }
+
     let raw_items = args
         .get("items")
         .and_then(|value| value.as_array())

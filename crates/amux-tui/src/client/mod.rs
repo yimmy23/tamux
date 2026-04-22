@@ -118,6 +118,8 @@ pub enum ClientEvent {
     DivergentSession(serde_json::Value),
     ThreadTodos {
         thread_id: String,
+        goal_run_id: Option<String>,
+        step_index: Option<usize>,
         items: Vec<crate::wire::TodoItem>,
     },
     WorkContext(ThreadWorkContext),

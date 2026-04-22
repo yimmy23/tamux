@@ -467,6 +467,7 @@ impl TuiModel {
                     let _ = self.select_goal_workspace_plan_item(
                         crate::state::goal_workspace::GoalPlanSelection::Step { step_id },
                     );
+                    let _ = self.activate_goal_workspace_plan_target();
                 }
                 widgets::goal_workspace::GoalWorkspaceHitTarget::PlanTodo { step_id, todo_id } => {
                     let _ = self.select_goal_workspace_plan_item(
@@ -651,10 +652,22 @@ impl TuiModel {
         )
     }
 
-    pub(super) fn modal_navigate_to(&mut self, target: usize) {
+    pub(in crate::app) fn modal_navigate_to(&mut self, target: usize) {
         let current = self.modal.picker_cursor();
-        self.modal
-            .reduce(modal::ModalAction::Navigate(target as i32 - current as i32));
+        self.modal_navigate(target as i32 - current as i32);
+    }
+
+    pub(in crate::app) fn modal_navigate(&mut self, delta: i32) {
+        self.modal.reduce(modal::ModalAction::Navigate(delta));
+        self.sync_command_palette_selection_preview();
+    }
+
+    pub(in crate::app) fn sync_command_palette_selection_preview(&mut self) {
+        if self.modal.top() != Some(modal::ModalKind::CommandPalette) {
+            return;
+        }
+
+        self.modal.set_command_preview(None);
     }
 
     pub(in super::super) fn settings_navigate_to(&mut self, target: usize) {
@@ -678,8 +691,10 @@ impl TuiModel {
                 modal::ModalKind::Settings => {
                     self.step_settings_modal_scroll(-3);
                 }
-                modal::ModalKind::CommandPalette
-                | modal::ModalKind::ThreadPicker
+                modal::ModalKind::CommandPalette => {
+                    self.modal_navigate(-1);
+                }
+                modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
                 | modal::ModalKind::QueuedPrompts
                 | modal::ModalKind::ProviderPicker
@@ -721,8 +736,10 @@ impl TuiModel {
                 modal::ModalKind::Settings => {
                     self.step_settings_modal_scroll(3);
                 }
-                modal::ModalKind::CommandPalette
-                | modal::ModalKind::ThreadPicker
+                modal::ModalKind::CommandPalette => {
+                    self.modal_navigate(1);
+                }
+                modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
                 | modal::ModalKind::QueuedPrompts
                 | modal::ModalKind::ProviderPicker
@@ -1049,7 +1066,7 @@ impl TuiModel {
                             widgets::approval_center::ApprovalCenterHitTarget::Deny(
                                 approval_id,
                             ) => {
-                                self.resolve_approval(approval_id, "reject");
+                                self.handle_reject_selected_approval(approval_id);
                             }
                         }
                     }

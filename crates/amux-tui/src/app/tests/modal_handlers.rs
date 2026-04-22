@@ -48,6 +48,39 @@ fn make_goal_run_with_steps(
     }
 }
 
+fn next_goal_run_detail_request(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) -> Option<String> {
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::RequestGoalRunDetail(goal_run_id) = command {
+            return Some(goal_run_id);
+        }
+    }
+    None
+}
+
+fn next_goal_run_checkpoints_request(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) -> Option<String> {
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::RequestGoalRunCheckpoints(goal_run_id) = command {
+            return Some(goal_run_id);
+        }
+    }
+    None
+}
+
+fn next_goal_hydration_schedule(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) -> Option<String> {
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::ScheduleGoalHydrationRefresh(goal_run_id) = command {
+            return Some(goal_run_id);
+        }
+    }
+    None
+}
+
 fn seed_goal_sidebar_model() -> (
     TuiModel,
     tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
@@ -174,6 +207,61 @@ fn collect_daemon_commands(
         commands.push(command);
     }
     commands
+}
+
+fn seed_goal_approval_overlay(
+    model: &mut TuiModel,
+    approval_id: &str,
+    goal_run_id: &str,
+    thread_id: &str,
+) {
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: thread_id.to_string(),
+        title: "Goal Thread".to_string(),
+    });
+    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(
+        crate::state::task::GoalRun {
+            id: goal_run_id.to_string(),
+            title: "Goal plan review".to_string(),
+            thread_id: Some(thread_id.to_string()),
+            status: Some(crate::state::task::GoalRunStatus::AwaitingApproval),
+            current_step_title: Some("review plan".to_string()),
+            approval_count: 1,
+            awaiting_approval_id: Some(approval_id.to_string()),
+            ..Default::default()
+        },
+    ));
+    model
+        .approval
+        .reduce(crate::state::ApprovalAction::ApprovalRequired(
+            crate::state::PendingApproval {
+                approval_id: approval_id.to_string(),
+                task_id: goal_run_id.to_string(),
+                task_title: Some("Goal plan review".to_string()),
+                thread_id: Some(thread_id.to_string()),
+                thread_title: Some("Goal Thread".to_string()),
+                workspace_id: Some(model.config.honcho_workspace_id.clone()),
+                rationale: Some("Review the plan before continuing".to_string()),
+                reasons: vec!["operator approval required".to_string()],
+                command: "review goal step: review plan".to_string(),
+                risk_level: crate::state::RiskLevel::Medium,
+                blast_radius: "review plan".to_string(),
+                received_at: 1,
+                seen_at: None,
+            },
+        ));
+    model
+        .approval
+        .reduce(crate::state::ApprovalAction::SelectApproval(
+            approval_id.to_string(),
+        ));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: goal_run_id.to_string(),
+        step_id: None,
+    });
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ApprovalOverlay));
 }
 
 fn sample_subagent(id: &str, name: &str, builtin: bool) -> crate::state::SubAgentEntry {
@@ -960,6 +1048,114 @@ fn command_palette_prompt_query_with_args_requests_target_agent() {
 }
 
 #[test]
+fn command_palette_enter_prefers_highlighted_command_over_partial_query() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+
+    let quit = model.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+    assert!(!quit);
+    for ch in "new".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+
+    let quit = model.handle_key_modal(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+        modal::ModalKind::CommandPalette,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model
+            .modal
+            .selected_command()
+            .map(|item| item.command.as_str()),
+        Some("new-goal")
+    );
+    assert_eq!(model.input.buffer(), "/new");
+    assert_eq!(model.modal.command_display_query(), "/new");
+    assert!(model.modal.command_palette_has_explicit_selection());
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!quit);
+    assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
+    assert_eq!(model.focus, FocusArea::Input);
+    assert!(model.modal.top().is_none());
+    assert_eq!(model.input.buffer(), "");
+}
+
+#[test]
+fn command_palette_typing_does_not_preview_first_match_before_navigation() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+
+    let quit = model.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+    assert!(!quit);
+    for ch in "new-g".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+
+    assert_eq!(model.input.buffer(), "/new-g");
+    assert_eq!(model.modal.command_display_query(), "/new-g");
+    assert!(!model.modal.command_palette_has_explicit_selection());
+}
+
+#[test]
+fn command_palette_enter_runs_first_match_without_navigation() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+
+    let quit = model.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+    assert!(!quit);
+    for ch in "new-g".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+
+    assert_eq!(model.input.buffer(), "/new-g");
+    assert_eq!(model.modal.command_display_query(), "/new-g");
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!quit);
+    assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
+    assert_eq!(model.focus, FocusArea::Input);
+    assert!(model.modal.top().is_none());
+    assert_eq!(model.input.buffer(), "");
+}
+
+#[test]
+fn command_palette_mouse_selection_executes_selected_command_without_rewriting_query() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+
+    let quit = model.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+    assert!(!quit);
+    for ch in "new".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+
+    model.modal_navigate_to(1);
+    assert_eq!(
+        model
+            .modal
+            .selected_command()
+            .map(|item| item.command.as_str()),
+        Some("new-goal")
+    );
+    assert_eq!(model.input.buffer(), "/new");
+    assert_eq!(model.modal.command_display_query(), "/new");
+    assert!(model.modal.command_palette_has_explicit_selection());
+
+    model.handle_modal_enter(modal::ModalKind::CommandPalette);
+    assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
+    assert_eq!(model.focus, FocusArea::Input);
+    assert!(model.modal.top().is_none());
+    assert_eq!(model.input.buffer(), "");
+}
+
+#[test]
 fn slash_command_can_restart_from_prompt_viewer_modal() {
     let (mut model, mut daemon_rx) = make_model();
     model.connected = true;
@@ -1125,6 +1321,99 @@ fn approval_center_keyboard_resolves_selected_approval() {
             decision
         } if approval_id == "approval-1" && decision == "allow_once"
     ));
+}
+
+#[test]
+fn goal_approval_reject_from_overlay_opens_followup_prompt_without_resolving_yet() {
+    let (mut model, mut daemon_rx) = make_model();
+    seed_goal_approval_overlay(&mut model, "approval-1", "goal-1", "thread-1");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('n'),
+        KeyModifiers::NONE,
+        modal::ModalKind::ApprovalOverlay,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::GoalApprovalRejectPrompt)
+    );
+    assert!(
+        daemon_rx.try_recv().is_err(),
+        "reject follow-up should not resolve approval until the operator chooses rewrite or stop"
+    );
+}
+
+#[test]
+fn goal_approval_rewrite_choice_rejects_and_prefills_guidance_input() {
+    let (mut model, mut daemon_rx) = make_model();
+    seed_goal_approval_overlay(&mut model, "approval-1", "goal-1", "thread-1");
+    let _ = model.handle_key_modal(
+        KeyCode::Char('n'),
+        KeyModifiers::NONE,
+        modal::ModalKind::ApprovalOverlay,
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('r'),
+        KeyModifiers::NONE,
+        modal::ModalKind::GoalApprovalRejectPrompt,
+    );
+
+    assert!(!quit);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected approval rejection command"),
+        DaemonCommand::ResolveTaskApproval {
+            approval_id,
+            decision
+        } if approval_id == "approval-1" && decision == "reject"
+    ));
+    assert!(
+        daemon_rx.try_recv().is_err(),
+        "rewrite path should not stop the goal"
+    );
+    assert_eq!(model.focus, FocusArea::Input);
+    assert!(model
+        .input
+        .buffer()
+        .contains("Rewrite the blocked goal step"));
+    assert_eq!(model.modal.top(), None);
+}
+
+#[test]
+fn goal_approval_stop_choice_rejects_and_stops_goal() {
+    let (mut model, mut daemon_rx) = make_model();
+    seed_goal_approval_overlay(&mut model, "approval-1", "goal-1", "thread-1");
+    let _ = model.handle_key_modal(
+        KeyCode::Char('n'),
+        KeyModifiers::NONE,
+        modal::ModalKind::ApprovalOverlay,
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('s'),
+        KeyModifiers::NONE,
+        modal::ModalKind::GoalApprovalRejectPrompt,
+    );
+
+    assert!(!quit);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected approval rejection command"),
+        DaemonCommand::ResolveTaskApproval {
+            approval_id,
+            decision
+        } if approval_id == "approval-1" && decision == "reject"
+    ));
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected stop goal command"),
+        DaemonCommand::ControlGoalRun {
+            goal_run_id,
+            action,
+            step_index: None
+        } if goal_run_id == "goal-1" && action == "stop"
+    ));
+    assert_eq!(model.modal.top(), None);
 }
 
 #[test]
@@ -4525,6 +4814,66 @@ fn goal_view_retry_uses_current_step_without_explicit_step_selection() {
 }
 
 #[test]
+fn goal_view_ctrl_r_requests_authoritative_goal_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(make_goal_run(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Running,
+        )));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::CONTROL);
+
+    assert!(!handled);
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+}
+
+#[test]
+fn goal_workspace_refresh_action_requests_authoritative_goal_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(make_goal_run(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Running,
+        )));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    let handled = model.activate_goal_workspace_action(
+        crate::widgets::goal_workspace::GoalWorkspaceAction::RefreshGoal,
+    );
+
+    assert!(handled);
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+}
+
+#[test]
 fn selected_goal_step_r_opens_retry_confirmation() {
     let (mut model, _daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
@@ -4795,6 +5144,47 @@ fn goal_picker_shift_r_lowercase_key_requests_refresh() {
 
     assert!(!handled);
     assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+}
+
+#[test]
+fn goal_picker_open_selected_running_goal_starts_background_hydration() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunListReceived(vec![make_goal_run(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Running,
+        )]));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    model.handle_modal_enter(modal::ModalKind::GoalPicker);
+
+    assert!(matches!(
+        model.main_pane_view,
+        MainPaneView::Task(SidebarItemTarget::GoalRun { ref goal_run_id, step_id: None })
+            if goal_run_id == "goal-1"
+    ));
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_hydration_schedule(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert!(
+        model.pending_goal_hydration_refreshes.contains("goal-1"),
+        "opening a live goal should keep background hydration armed for new timeline events"
+    );
 }
 
 #[test]

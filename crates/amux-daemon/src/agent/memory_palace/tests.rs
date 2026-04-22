@@ -63,6 +63,44 @@ mod tests {
         assert!(snapshot.clusters.is_empty());
     }
 
+    #[test]
+    fn memory_worker_materializes_structural_edge_endpoints_before_persisting_edges() {
+        let structural_memory = ThreadStructuralMemory {
+            workspace_seed_scan_complete: true,
+            language_hints: vec!["rust".to_string()],
+            workspace_seeds: vec![WorkspaceSeed {
+                node_id: "node:file:crates/amux-cli/Cargo.toml".to_string(),
+                relative_path: "crates/amux-cli/Cargo.toml".to_string(),
+                kind: "cargo_manifest".to_string(),
+            }],
+            observed_files: Vec::new(),
+            edges: vec![StructuralEdge {
+                from: "node:file:crates/amux-cli/Cargo.toml".to_string(),
+                to: "node:file:crates/amux-cli".to_string(),
+                kind: "crate_path".to_string(),
+            }],
+        };
+
+        let snapshot =
+            build_memory_snapshot(Some("thread-1"), None, Some(&structural_memory), &[], 1_000);
+
+        assert!(snapshot
+            .update_batch
+            .nodes
+            .iter()
+            .any(|node| { node.id == "node:file:crates/amux-cli/Cargo.toml" }));
+        assert!(snapshot
+            .update_batch
+            .nodes
+            .iter()
+            .any(|node| { node.id == "node:file:crates/amux-cli" }));
+        assert!(snapshot.update_batch.edges.iter().any(|edge| {
+            edge.source_node_id == "node:file:crates/amux-cli/Cargo.toml"
+                && edge.target_node_id == "node:file:crates/amux-cli"
+                && edge.relation_type == "crate_path"
+        }));
+    }
+
     #[tokio::test]
     async fn memory_palace_query_returns_related_cross_thread_context() {
         let root = tempdir().expect("tempdir");

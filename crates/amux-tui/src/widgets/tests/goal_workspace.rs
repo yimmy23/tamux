@@ -28,6 +28,8 @@ fn sample_tasks() -> TaskState {
                 id: "step-1".into(),
                 title: "Plan".into(),
                 order: 0,
+                instructions: "Interview the user before drafting the plan.".into(),
+                summary: Some("Capture constraints before outlining tasks.".into()),
                 ..Default::default()
             },
         ],
@@ -184,10 +186,17 @@ fn goal_workspace_renders_steps_and_nested_todos_for_expanded_step() {
     let plain = render_plain_text(&state, 0);
 
     assert!(plain.contains("Plan"), "{plain}");
-    assert!(plain.contains("Research the ecosystem"), "{plain}");
     assert!(plain.contains("Ship"), "{plain}");
     assert!(plain.contains("Draft outline"), "{plain}");
     assert!(plain.contains("Verify sources"), "{plain}");
+    assert!(
+        !plain.contains("Interview the user before drafting the plan."),
+        "{plain}"
+    );
+    assert!(
+        !plain.contains("Capture constraints before outlining tasks."),
+        "{plain}"
+    );
 }
 
 #[test]
@@ -567,4 +576,86 @@ fn goal_workspace_plan_step_markers_reflect_status_with_color_and_pulse() {
     assert_eq!(errored_0.1, theme.accent_danger.fg.expect("danger fg"));
     assert_eq!(errored_1.1, theme.accent_danger.fg.expect("danger fg"));
     assert_ne!(errored_0.0, errored_1.0);
+}
+
+#[test]
+fn goal_workspace_plan_confidence_suffixes_strip_prefixes_and_apply_colors() {
+    let theme = ThemeTokens::default();
+    let mut tasks = TaskState::new();
+    tasks.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        goal: "Preview confidence formatting.".into(),
+        thread_id: Some("thread-1".into()),
+        status: Some(crate::state::task::GoalRunStatus::Running),
+        current_step_title: Some("[MEDIUM] Medium step".into()),
+        steps: vec![
+            GoalRunStep {
+                id: "step-1".into(),
+                title: "[LOW] Low step".into(),
+                order: 0,
+                ..Default::default()
+            },
+            GoalRunStep {
+                id: "step-2".into(),
+                title: "[MEDIUM] Medium step".into(),
+                order: 1,
+                ..Default::default()
+            },
+            GoalRunStep {
+                id: "step-3".into(),
+                title: "[HIGH] High step".into(),
+                order: 2,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+
+    let state = GoalWorkspaceState::new();
+    let plain = render_plain_text_for_tasks(&tasks, &state, 0);
+    assert!(!plain.contains("[LOW]"), "{plain}");
+    assert!(!plain.contains("[MEDIUM]"), "{plain}");
+    assert!(!plain.contains("[HIGH]"), "{plain}");
+    assert!(plain.contains("1. Low step"), "{plain}");
+    assert!(plain.contains("2. Medium step"), "{plain}");
+    assert!(plain.contains("3. High step"), "{plain}");
+    assert!(plain.contains("Low step ˅"), "{plain}");
+    assert!(plain.contains("Medium step ="), "{plain}");
+    assert!(plain.contains("High step ˄"), "{plain}");
+
+    let (area, buffer) = render_buffer_for_tasks(&tasks, &state, 0);
+    let plan_inner = ratatui::widgets::Block::default()
+        .borders(ratatui::widgets::Borders::ALL)
+        .inner(workspace_layout(area).expect("workspace layout").plan);
+
+    let icon_for = |title: &str, symbol: &str| {
+        let y = (plan_inner.y..plan_inner.y.saturating_add(plan_inner.height))
+            .find(|y| {
+                let row = (plan_inner.x..plan_inner.x.saturating_add(plan_inner.width))
+                    .filter_map(|x| buffer.cell((x, *y)).map(|cell| cell.symbol()))
+                    .collect::<String>();
+                row.contains(title)
+            })
+            .expect("step row should exist");
+        (plan_inner.x..plan_inner.x.saturating_add(plan_inner.width))
+            .filter_map(|x| {
+                buffer
+                    .cell((x, y))
+                    .map(|cell| (cell.symbol().to_string(), cell.fg))
+            })
+            .find(|(cell_symbol, _)| cell_symbol == symbol)
+            .expect("confidence icon should exist")
+    };
+
+    let low_icon = icon_for("Low step", "˅");
+    let medium_icon = icon_for("Medium step", "=");
+    let high_icon = icon_for("High step", "˄");
+
+    assert_eq!(low_icon.1, theme.accent_danger.fg.expect("danger fg"));
+    assert_eq!(
+        medium_icon.1,
+        theme.accent_secondary.fg.expect("secondary fg")
+    );
+    assert_eq!(high_icon.1, theme.accent_success.fg.expect("success fg"));
 }

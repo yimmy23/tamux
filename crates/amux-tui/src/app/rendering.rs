@@ -335,17 +335,9 @@ impl TuiModel {
 
     fn render_conversation_return_banner(&self, frame: &mut Frame, area: Rect) {
         if self.mission_control_return_to_thread_id().is_some() {
-            widgets::goal_mission_control::render_return_to_thread_banner(
-                frame,
-                area,
-                &self.theme,
-            );
+            widgets::goal_mission_control::render_return_to_thread_banner(frame, area, &self.theme);
         } else {
-            widgets::goal_mission_control::render_return_to_goal_banner(
-                frame,
-                area,
-                &self.theme,
-            );
+            widgets::goal_mission_control::render_return_to_goal_banner(frame, area, &self.theme);
         }
     }
 
@@ -1608,6 +1600,9 @@ impl TuiModel {
             let overlay_area = match modal_kind {
                 modal::ModalKind::Settings => render_helpers::centered_rect(90, 88, area),
                 modal::ModalKind::ApprovalOverlay => render_helpers::centered_rect(60, 40, area),
+                modal::ModalKind::GoalApprovalRejectPrompt => {
+                    render_helpers::centered_rect(54, 32, area)
+                }
                 modal::ModalKind::OperatorQuestionOverlay => {
                     render_helpers::centered_rect(68, 34, area)
                 }
@@ -1705,6 +1700,17 @@ impl TuiModel {
                 }
                 modal::ModalKind::ApprovalOverlay => {
                     widgets::approval::render(frame, overlay_area, &self.approval, &self.theme);
+                }
+                modal::ModalKind::GoalApprovalRejectPrompt => {
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        "GOAL APPROVAL REJECTED",
+                        &self.goal_approval_reject_prompt_body(),
+                        0,
+                        false,
+                        &self.theme,
+                    );
                 }
                 modal::ModalKind::OperatorQuestionOverlay => {}
                 modal::ModalKind::ApprovalCenter => {
@@ -1924,6 +1930,9 @@ impl TuiModel {
         let rect = match kind {
             modal::ModalKind::Settings => render_helpers::centered_rect(90, 88, area),
             modal::ModalKind::ApprovalOverlay => render_helpers::centered_rect(60, 40, area),
+            modal::ModalKind::GoalApprovalRejectPrompt => {
+                render_helpers::centered_rect(54, 32, area)
+            }
             modal::ModalKind::OperatorQuestionOverlay => {
                 render_helpers::centered_rect(68, 34, area)
             }

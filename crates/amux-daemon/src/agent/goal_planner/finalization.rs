@@ -1,5 +1,34 @@
 use super::*;
 
+async fn persist_reflection_skill_activation_note(
+    data_dir: &std::path::Path,
+    goal_run: &GoalRun,
+    activated_skill: &str,
+) -> Result<std::path::PathBuf> {
+    let execution_dir =
+        crate::agent::goal_dossier::goal_inventory_execution_dir(data_dir, &goal_run.id);
+    tokio::fs::create_dir_all(&execution_dir).await?;
+
+    let note_path = execution_dir.join("reflection-skill-activation.md");
+    let mut body = format!(
+        "# Reflected Skill Activation\n\n- Goal run: {}\n- Activated skill: {}\n- Recorded at: {}\n",
+        goal_run.id,
+        activated_skill,
+        now_millis(),
+    );
+    if let Some(path) = goal_run.generated_skill_path.as_deref() {
+        body.push_str(&format!("- Generated skill artifact: {path}\n"));
+    }
+    if let Some(summary) = goal_run.reflection_summary.as_deref() {
+        body.push_str("\n## Reflection Summary\n");
+        body.push_str(summary);
+        body.push('\n');
+    }
+
+    tokio::fs::write(&note_path, body).await?;
+    Ok(note_path)
+}
+
 impl AgentEngine {
     pub(in crate::agent) async fn complete_goal_run(&self, goal_run_id: &str) -> Result<()> {
         let snapshot = self
@@ -33,6 +62,12 @@ impl AgentEngine {
         } else {
             None
         };
+        let activated_skill = reflection
+            .activate_skill
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
 
         let cost_summary = {
             let trackers = self.cost_trackers.lock().await;
@@ -55,7 +90,7 @@ impl AgentEngine {
             if let Some(update) = applied_memory_update {
                 goal_run.memory_updates.push(update);
             }
-            if let Some(path) = generated_skill_path {
+            if let Some(path) = generated_skill_path.clone() {
                 goal_run.generated_skill_path = Some(path);
             }
             if let Some(ref summary) = cost_summary {
@@ -75,11 +110,51 @@ impl AgentEngine {
                 "goal run completed",
                 goal_run.reflection_summary.clone(),
             ));
+            if let Some(skill) = activated_skill.as_deref() {
+                goal_run.events.push(make_goal_run_event(
+                    "reflection_skill_activation",
+                    "goal reflection activated a skill",
+                    Some(skill.to_string()),
+                ));
+            }
             goal_run.clone()
         };
 
         self.persist_goal_runs().await;
         self.record_generated_skill_work_context(&updated).await;
+        if let Some(skill) = activated_skill.as_deref() {
+            if let Some(thread_id) = updated.thread_id.as_deref() {
+                if let Some(state) = super::skill_preflight::build_reflection_skill_activation_state(
+                    &updated.goal,
+                    skill,
+                ) {
+                    self.set_thread_skill_discovery_state(thread_id, state.clone())
+                        .await;
+                    self.emit_workflow_notice(
+                        thread_id,
+                        "goal_reflection_skill_activation",
+                        format!("Goal reflection activated skill: {skill}"),
+                        serde_json::to_string(&state).ok(),
+                    );
+                }
+            }
+            match persist_reflection_skill_activation_note(&self.data_dir, &updated, skill).await {
+                Ok(path) => {
+                    if let Some(thread_id) = updated.thread_id.as_deref() {
+                        self.record_file_work_context(
+                            thread_id,
+                            None,
+                            "goal_reflection_skill_activation",
+                            &path.to_string_lossy(),
+                        )
+                        .await;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(goal_run_id, skill, error = %error, "failed to persist reflected skill activation note");
+                }
+            }
+        }
         self.settle_goal_skill_consultations(&updated, "success")
             .await;
         self.settle_goal_plan_causal_traces(&updated.id, "success", None)
@@ -92,6 +167,7 @@ impl AgentEngine {
                 "goal_run_id": updated.id,
                 "reflection_summary": updated.reflection_summary,
                 "generated_skill_path": updated.generated_skill_path,
+                "activated_skill": activated_skill,
                 "memory_updates": updated.memory_updates,
             }),
             Some(updated.id.as_str()),

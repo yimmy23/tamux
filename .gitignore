@@ -10,6 +10,7 @@ crates/amux-daemon/target/
 /docs/superpowers/
 node_modules
 .ignored_docs
+/target-*
 tmp
 .claude
 .superpowers

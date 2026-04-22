@@ -18,6 +18,8 @@ pub(crate) struct GoalWorkspacePlanRow {
     pub(crate) target: Option<GoalWorkspaceHitTarget>,
     pub(crate) marker_state: Option<GoalWorkspacePlanMarkerState>,
     pub(crate) marker_span_index: Option<usize>,
+    pub(crate) confidence: Option<super::GoalStepConfidence>,
+    pub(crate) confidence_span_index: Option<usize>,
 }
 
 pub(crate) fn build_rows(
@@ -39,6 +41,8 @@ pub(crate) fn build_rows(
         target: Some(GoalWorkspaceHitTarget::PlanPromptToggle),
         marker_state: None,
         marker_span_index: None,
+        confidence: None,
+        confidence_span_index: None,
     });
     if prompt_expanded {
         let goal = run
@@ -52,6 +56,8 @@ pub(crate) fn build_rows(
                 target: None,
                 marker_state: None,
                 marker_span_index: None,
+                confidence: None,
+                confidence_span_index: None,
             });
         }
     }
@@ -71,6 +77,8 @@ pub(crate) fn build_rows(
             target: Some(GoalWorkspaceHitTarget::PlanMainThread(thread_id)),
             marker_state: None,
             marker_span_index: None,
+            confidence: None,
+            confidence_span_index: None,
         });
     } else {
         rows.push(GoalWorkspacePlanRow {
@@ -79,53 +87,43 @@ pub(crate) fn build_rows(
             target: None,
             marker_state: None,
             marker_span_index: None,
+            confidence: None,
+            confidence_span_index: None,
         });
     }
 
     for step in tasks.goal_steps_in_display_order(goal_run_id) {
         let expanded = state.is_step_expanded(&step.id);
+        let (confidence, cleaned_title) = super::split_goal_step_title(&step.title);
         let active = run.is_some_and(|run| {
             run.current_step_index == step.order as usize
-                || run.current_step_title.as_deref() == Some(step.title.as_str())
+                || super::goal_step_title_matches(&step.title, run.current_step_title.as_deref())
         });
         let marker_state = step_marker_state(&step, active);
+        let mut line_spans = vec![
+            Span::raw(if expanded { "▾ " } else { "▸ " }),
+            Span::raw("○ "),
+            Span::raw(format!("{}. {}", step.order + 1, cleaned_title)),
+        ];
+        let confidence_span_index = confidence.map(|confidence| {
+            line_spans.push(Span::raw(" "));
+            let icon_index = line_spans.len();
+            line_spans.push(Span::raw(confidence.symbol()));
+            icon_index
+        });
         rows.push(GoalWorkspacePlanRow {
-            line: Line::from(vec![
-                Span::raw(if expanded { "▾ " } else { "▸ " }),
-                Span::raw("○ "),
-                Span::raw(format!("{}. {}", step.order + 1, step.title)),
-            ]),
+            line: Line::from(line_spans),
             selection: Some(crate::state::goal_workspace::GoalPlanSelection::Step {
                 step_id: step.id.clone(),
             }),
             target: Some(GoalWorkspaceHitTarget::PlanStep(step.id.clone())),
             marker_state: Some(marker_state),
             marker_span_index: Some(1),
+            confidence,
+            confidence_span_index,
         });
 
         if expanded {
-            if !step.instructions.is_empty() {
-                for line in wrap_plain_text(&step.instructions, 52) {
-                    rows.push(GoalWorkspacePlanRow {
-                        line: Line::from(vec![Span::raw("    "), Span::raw(line)]),
-                        selection: None,
-                        target: Some(GoalWorkspaceHitTarget::PlanStep(step.id.clone())),
-                        marker_state: None,
-                        marker_span_index: None,
-                    });
-                }
-            }
-            if let Some(summary) = step.summary.as_deref() {
-                for line in wrap_plain_text(summary, 52) {
-                    rows.push(GoalWorkspacePlanRow {
-                        line: Line::from(vec![Span::raw("    "), Span::raw(line)]),
-                        selection: None,
-                        target: Some(GoalWorkspaceHitTarget::PlanStep(step.id.clone())),
-                        marker_state: None,
-                        marker_span_index: None,
-                    });
-                }
-            }
             for todo in tasks.goal_step_todos(goal_run_id, step.order as usize) {
                 rows.push(GoalWorkspacePlanRow {
                     line: Line::from(vec![
@@ -144,6 +142,8 @@ pub(crate) fn build_rows(
                     }),
                     marker_state: None,
                     marker_span_index: None,
+                    confidence: None,
+                    confidence_span_index: None,
                 });
             }
         }
@@ -156,6 +156,8 @@ pub(crate) fn build_rows(
             target: None,
             marker_state: None,
             marker_span_index: None,
+            confidence: None,
+            confidence_span_index: None,
         });
     }
 

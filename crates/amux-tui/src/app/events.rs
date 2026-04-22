@@ -302,8 +302,13 @@ impl TuiModel {
             ClientEvent::GoalHydrationScheduleFailed { goal_run_id } => {
                 self.clear_goal_hydration_refresh(&goal_run_id);
             }
-            ClientEvent::ThreadTodos { thread_id, items } => {
-                self.handle_thread_todos_event(thread_id, items);
+            ClientEvent::ThreadTodos {
+                thread_id,
+                goal_run_id,
+                step_index,
+                items,
+            } => {
+                self.handle_thread_todos_event(thread_id, goal_run_id, step_index, items);
             }
             ClientEvent::WorkContext(context) => {
                 self.handle_work_context_event(context);

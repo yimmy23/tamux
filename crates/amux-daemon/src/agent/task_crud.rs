@@ -789,17 +789,23 @@ impl AgentEngine {
             }
         }
 
-        let now = now_millis();
-        if let (Some(thread_id), Some(client_surface)) = (thread_id.as_deref(), client_surface) {
-            self.set_thread_client_surface(thread_id, client_surface)
-                .await;
-        }
         let normalized_title = title
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| summarize_goal_title(&goal));
+        let mut goal_thread_id = thread_id;
+        if goal_thread_id.is_none() {
+            let (created_thread_id, _) = self.get_or_create_thread(None, &normalized_title).await;
+            goal_thread_id = Some(created_thread_id);
+        }
+        let now = now_millis();
+        if let (Some(thread_id), Some(client_surface)) = (goal_thread_id.as_deref(), client_surface)
+        {
+            self.set_thread_client_surface(thread_id, client_surface)
+                .await;
+        }
         let adaptation_mode = {
             let model = self.operator_model.read().await;
             SatisfactionAdaptationMode::from_label(&model.operator_satisfaction.label)
@@ -819,7 +825,7 @@ impl AgentEngine {
             updated_at: now,
             started_at: None,
             completed_at: None,
-            thread_id,
+            thread_id: goal_thread_id,
             root_thread_id: None,
             active_thread_id: None,
             execution_thread_ids: Vec::new(),

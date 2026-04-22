@@ -158,6 +158,61 @@ async fn start_goal_run_seeds_launch_assignment_snapshot_and_thread_routing_defa
 }
 
 #[tokio::test]
+async fn start_goal_run_without_thread_still_creates_pinned_main_thread() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let goal_run = engine
+        .start_goal_run(
+            "validate threadless mission control launch".to_string(),
+            Some("threadless launch".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let thread_id = goal_run
+        .thread_id
+        .clone()
+        .expect("goal run should create a main thread when none is provided");
+    assert_eq!(goal_run.root_thread_id.as_deref(), Some(thread_id.as_str()));
+    assert_eq!(
+        goal_run.active_thread_id.as_deref(),
+        Some(thread_id.as_str())
+    );
+    assert_eq!(goal_run.execution_thread_ids, vec![thread_id.clone()]);
+
+    let thread = engine
+        .get_thread(&thread_id)
+        .await
+        .expect("goal run should persist the created main thread");
+    assert_eq!(thread.id, thread_id);
+
+    let serialized = goal_run_json(&goal_run);
+    assert_eq!(
+        serialized["thread_id"],
+        serde_json::json!(thread.id.clone())
+    );
+    assert_eq!(
+        serialized["root_thread_id"],
+        serde_json::json!(thread.id.clone())
+    );
+    assert_eq!(
+        serialized["active_thread_id"],
+        serde_json::json!(thread.id.clone())
+    );
+    assert_eq!(
+        serialized["execution_thread_ids"],
+        serde_json::json!([thread.id])
+    );
+}
+
+#[tokio::test]
 async fn start_goal_run_uses_provided_launch_assignment_snapshot_when_present() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -2761,6 +2816,93 @@ async fn handle_goal_run_step_failure_surfaces_strained_replan_summary_guidance(
         dossier.units[0].summary.as_deref(),
         Some("managed command failed permanently")
     );
+}
+
+#[tokio::test]
+async fn complete_goal_run_activates_reflected_skill_in_thread_state_and_inventory() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = crate::agent::tests::spawn_goal_recording_server(
+        recorded_bodies,
+        serde_json::json!({
+            "summary": "Recovered a reusable debugging path.",
+            "stable_memory_update": null,
+            "generate_skill": false,
+            "skill_title": null,
+            "activate_skill": "systematic-debugging"
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let thread_id = "thread-reflection-skill-activation";
+    let (resolved_thread_id, created) = engine.get_or_create_thread(Some(thread_id), "goal").await;
+    assert_eq!(resolved_thread_id, thread_id);
+    assert!(created, "thread should be created for persistence");
+
+    let goal_run_id = "goal-reflection-skill-activation";
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Recover the failing workflow and extract the reusable skill",
+    );
+    goal_run.thread_id = Some(thread_id.to_string());
+    goal_run.status = GoalRunStatus::Running;
+    goal_run.steps[0].status = GoalRunStepStatus::Completed;
+    goal_run.steps[0].summary = Some("Recovered with a reusable debugging sequence".to_string());
+    goal_run.current_step_index = 0;
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    engine
+        .complete_goal_run(goal_run_id)
+        .await
+        .expect("goal completion should succeed");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.status, GoalRunStatus::Completed);
+    assert_eq!(
+        updated.reflection_summary.as_deref(),
+        Some("Recovered a reusable debugging path.")
+    );
+    assert!(updated.events.iter().any(|event| {
+        event.phase == "reflection_skill_activation"
+            && event.details.as_deref() == Some("systematic-debugging")
+    }));
+
+    let state = engine
+        .get_thread_skill_discovery_state(thread_id)
+        .await
+        .expect("thread should store reflected activation state");
+    assert_eq!(state.query, updated.goal);
+    assert_eq!(
+        state.recommended_skill.as_deref(),
+        Some("systematic-debugging")
+    );
+    assert_eq!(state.recommended_action, "read_skill systematic-debugging");
+    assert!(!state.compliant);
+
+    let note_path =
+        crate::agent::goal_dossier::goal_inventory_execution_dir(&engine.data_dir, goal_run_id)
+            .join("reflection-skill-activation.md");
+    let note = tokio::fs::read_to_string(&note_path)
+        .await
+        .expect("reflection activation note should exist");
+    assert!(note.contains("Activated skill: systematic-debugging"));
+    assert!(note.contains("Recovered a reusable debugging path."));
 }
 
 #[tokio::test]

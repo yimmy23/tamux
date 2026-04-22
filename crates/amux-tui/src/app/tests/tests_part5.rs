@@ -469,6 +469,8 @@ fn reselecting_same_sidebar_todo_closes_work_context() {
         .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
     model.tasks.reduce(task::TaskAction::ThreadTodosReceived {
         thread_id: "thread-1".to_string(),
+        goal_run_id: Some("goal-1".to_string()),
+        step_index: Some(0),
         items: vec![task::TodoItem {
             id: "todo-1".to_string(),
             content: "todo".to_string(),
@@ -518,6 +520,8 @@ fn attention_surface_uses_sidebar_tab_for_sidebar_focus() {
     });
     model.tasks.reduce(task::TaskAction::ThreadTodosReceived {
         thread_id: "thread_1".to_string(),
+        goal_run_id: None,
+        step_index: None,
         items: vec![task::TodoItem {
             id: "todo_1".to_string(),
             content: "todo".to_string(),
@@ -1676,6 +1680,8 @@ fn goal_view_renders_live_activity_with_tools_files_and_todos() {
     ));
     model.tasks.reduce(task::TaskAction::ThreadTodosReceived {
         thread_id: "thread-1".to_string(),
+        goal_run_id: None,
+        step_index: None,
         items: vec![task::TodoItem {
             id: "todo-1".to_string(),
             content: "Inspect failing test".to_string(),
@@ -1745,6 +1751,8 @@ fn goal_view_related_tasks_use_status_checkbox_without_duplicate_status_text() {
         }));
     model.tasks.reduce(task::TaskAction::ThreadTodosReceived {
         thread_id: "thread-1".to_string(),
+        goal_run_id: Some("goal-1".to_string()),
+        step_index: Some(0),
         items: vec![
             task::TodoItem {
                 id: "todo-1".to_string(),

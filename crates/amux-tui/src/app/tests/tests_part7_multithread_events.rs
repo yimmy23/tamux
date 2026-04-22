@@ -270,6 +270,8 @@ fn background_todos_and_work_context_stay_attached_to_origin_thread() {
 
     model.handle_client_event(ClientEvent::ThreadTodos {
         thread_id: "thread-other".to_string(),
+        goal_run_id: None,
+        step_index: None,
         items: vec![crate::wire::TodoItem {
             id: "todo-1".to_string(),
             content: "Check routed done event".to_string(),

@@ -42,6 +42,16 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
         prompt.push_str(&format!("\nGoal run context: {goal_run_id}"));
     }
 
+    if let (Some(goal_run_id), Some(goal_step_id), None) = (
+        task.goal_run_id.as_deref(),
+        task.goal_step_id.as_deref(),
+        task.parent_task_id.as_deref(),
+    ) {
+        prompt.push_str(&format!(
+            "\nWhen calling update_todo for this main goal task, include \"goal_run_id\": \"{goal_run_id}\" and \"goal_step_id\": \"{goal_step_id}\" at the top level. These bind the full todo list to the current goal step; do not use item.step_index for goal-step routing."
+        ));
+    }
+
     if let Some(parent_task_id) = task.parent_task_id.as_deref() {
         prompt.push_str(&format!(
             "\nParent task: {parent_task_id}\nYou are running as a supervised subagent. Stay tightly scoped to this assignment, avoid duplicating sibling work, and report concise results back through your normal response."

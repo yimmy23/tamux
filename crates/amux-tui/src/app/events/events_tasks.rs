@@ -445,6 +445,7 @@ impl TuiModel {
         self.finish_pending_reconnect_restore(&thread_id);
         let _ = self.maybe_request_auto_response_for_open_thread(&thread_id);
         let _ = self.maybe_auto_send_always_auto_response();
+        self.sync_contextual_approval_overlay();
     }
 
     pub(in crate::app) fn handle_thread_created_event(
@@ -540,6 +541,7 @@ impl TuiModel {
         self.clamp_detail_view_scroll();
         self.clear_replaced_task_approvals(&previous_tasks, &tasks);
         self.sync_pending_approvals_from_tasks();
+        self.sync_contextual_approval_overlay();
     }
 
     pub(in crate::app) fn handle_task_update_event(&mut self, task_item: crate::wire::AgentTask) {
@@ -562,6 +564,7 @@ impl TuiModel {
                 ));
         }
         self.upsert_task_backed_approval(&converted);
+        self.sync_contextual_approval_overlay();
     }
 
     pub(in crate::app) fn handle_goal_run_list_event(&mut self, runs: Vec<crate::wire::GoalRun>) {
@@ -583,16 +586,22 @@ impl TuiModel {
             self.sync_goal_picker_item_count();
         }
         self.clamp_detail_view_scroll();
+        self.sync_contextual_approval_overlay();
     }
 
     pub(in crate::app) fn handle_goal_run_started_event(&mut self, run: crate::wire::GoalRun) {
         let run = conversion::convert_goal_run(run);
+        let goal_run_id = run.id.clone();
         let target = sidebar::SidebarItemTarget::GoalRun {
-            goal_run_id: run.id.clone(),
+            goal_run_id: goal_run_id.clone(),
             step_id: None,
         };
-        self.tasks.reduce(task::TaskAction::GoalRunUpdate(run));
+        self.tasks
+            .reduce(task::TaskAction::GoalRunUpdate(run.clone()));
+        self.upsert_goal_run_backed_approval(&run);
         self.open_sidebar_target(target);
+        self.request_authoritative_goal_run_refresh(goal_run_id.clone());
+        self.schedule_goal_hydration_refresh(goal_run_id);
         self.status_line = "Goal run started".to_string();
     }
 
@@ -645,6 +654,7 @@ impl TuiModel {
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
         self.sync_goal_workspace_selection_for_active_goal_pane();
         self.clamp_detail_view_scroll();
+        self.sync_contextual_approval_overlay();
     }
 
     pub(in crate::app) fn handle_goal_run_update_event(&mut self, run: crate::wire::GoalRun) {
@@ -679,6 +689,7 @@ impl TuiModel {
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
         self.sync_goal_workspace_selection_for_active_goal_pane();
         self.clamp_detail_view_scroll();
+        self.sync_contextual_approval_overlay();
     }
 
     pub(in crate::app) fn handle_goal_run_checkpoints_event(
@@ -703,12 +714,28 @@ impl TuiModel {
     pub(in crate::app) fn handle_thread_todos_event(
         &mut self,
         thread_id: String,
+        goal_run_id: Option<String>,
+        step_index: Option<usize>,
         items: Vec<crate::wire::TodoItem>,
     ) {
+        let goal_run_binding = goal_run_id.clone();
+        let active_goal_run_id = match &self.main_pane_view {
+            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) => {
+                Some(goal_run_id.clone())
+            }
+            _ => None,
+        };
         self.tasks.reduce(task::TaskAction::ThreadTodosReceived {
-            thread_id,
+            thread_id: thread_id.clone(),
+            goal_run_id,
+            step_index,
             items: items.into_iter().map(conversion::convert_todo).collect(),
         });
+        if let Some(goal_run_id) = active_goal_run_id.filter(|active_goal_run_id| {
+            goal_run_binding.as_deref() == Some(active_goal_run_id.as_str())
+        }) {
+            self.schedule_goal_hydration_refresh(goal_run_id);
+        }
         self.clamp_detail_view_scroll();
     }
 
@@ -716,9 +743,22 @@ impl TuiModel {
         &mut self,
         context: crate::wire::ThreadWorkContext,
     ) {
+        let active_goal_run_id = match &self.main_pane_view {
+            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) => {
+                Some(goal_run_id.clone())
+            }
+            _ => None,
+        };
+        let thread_id = context.thread_id.clone();
         self.tasks.reduce(task::TaskAction::WorkContextReceived(
             conversion::convert_work_context(context),
         ));
+        if let Some(goal_run_id) = active_goal_run_id.filter(|goal_run_id| {
+            self.tasks
+                .thread_belongs_to_goal_run(goal_run_id, &thread_id)
+        }) {
+            self.schedule_goal_hydration_refresh(goal_run_id);
+        }
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
         self.sync_goal_workspace_selection_for_active_goal_pane();
         self.ensure_task_view_preview();

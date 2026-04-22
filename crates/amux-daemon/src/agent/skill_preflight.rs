@@ -1508,6 +1508,33 @@ fn build_latest_skill_discovery_state(
     }
 }
 
+pub(super) fn build_reflection_skill_activation_state(
+    query: &str,
+    skill_identifier: &str,
+) -> Option<LatestSkillDiscoveryState> {
+    let query = query.trim();
+    let skill_identifier = skill_identifier.trim();
+    if query.is_empty() || skill_identifier.is_empty() {
+        return None;
+    }
+
+    Some(LatestSkillDiscoveryState {
+        query: query.to_string(),
+        confidence_tier: "strong".to_string(),
+        recommended_skill: Some(skill_identifier.to_string()),
+        recommended_action: format!("read_skill {skill_identifier}"),
+        mesh_next_step: Some(crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill),
+        mesh_requires_approval: false,
+        mesh_approval_id: None,
+        read_skill_identifier: Some(skill_identifier.to_string()),
+        skip_rationale: Some("goal reflection skill activation".to_string()),
+        discovery_pending: false,
+        skill_read_completed: false,
+        compliant: false,
+        updated_at: now_millis(),
+    })
+}
+
 fn build_pending_skill_discovery_state(query: &str) -> LatestSkillDiscoveryState {
     LatestSkillDiscoveryState {
         query: query.to_string(),
@@ -1976,6 +2003,32 @@ mod tests {
         assert_eq!(state.confidence_tier, "none");
         assert_eq!(state.recommended_action, "justify_skill_skip");
         assert!(state.read_skill_identifier.is_none());
+    }
+
+    #[test]
+    fn reflection_skill_activation_state_requires_read_before_progress() {
+        let state = build_reflection_skill_activation_state(
+            "stabilize the failing rust workflow",
+            "systematic-debugging",
+        )
+        .expect("reflection activation state should be built");
+
+        assert_eq!(state.confidence_tier, "strong");
+        assert_eq!(
+            state.recommended_skill.as_deref(),
+            Some("systematic-debugging")
+        );
+        assert_eq!(state.recommended_action, "read_skill systematic-debugging");
+        assert_eq!(
+            state.mesh_next_step,
+            Some(crate::agent::skill_mesh::types::SkillMeshNextStep::ReadSkill)
+        );
+        assert_eq!(
+            state.read_skill_identifier.as_deref(),
+            Some("systematic-debugging")
+        );
+        assert!(!state.compliant);
+        assert!(!state.skill_read_completed);
     }
 
     #[tokio::test]

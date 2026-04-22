@@ -38,6 +38,7 @@ pub enum GoalWorkspaceAction {
     OpenActions,
     RetryStep,
     RerunFromStep,
+    RefreshGoal,
 }
 
 #[derive(Clone, Copy)]
@@ -77,6 +78,65 @@ fn workspace_layout(area: Rect) -> Option<GoalWorkspaceLayoutRects> {
         timeline: columns[1],
         details: columns[2],
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum GoalStepConfidence {
+    Low,
+    Medium,
+    High,
+}
+
+impl GoalStepConfidence {
+    fn symbol(self) -> &'static str {
+        match self {
+            Self::Low => "˅",
+            Self::Medium => "=",
+            Self::High => "˄",
+        }
+    }
+
+    fn style(self, theme: &ThemeTokens) -> Style {
+        match self {
+            Self::Low => theme.accent_danger,
+            Self::Medium => theme.accent_secondary,
+            Self::High => theme.accent_success,
+        }
+    }
+}
+
+pub(super) fn split_goal_step_title(title: &str) -> (Option<GoalStepConfidence>, &str) {
+    if let Some(rest) = title.strip_prefix("[LOW]") {
+        (Some(GoalStepConfidence::Low), rest.trim_start())
+    } else if let Some(rest) = title.strip_prefix("[MEDIUM]") {
+        (Some(GoalStepConfidence::Medium), rest.trim_start())
+    } else if let Some(rest) = title.strip_prefix("[HIGH]") {
+        (Some(GoalStepConfidence::High), rest.trim_start())
+    } else {
+        (None, title)
+    }
+}
+
+pub(super) fn goal_step_title_matches(step_title: &str, candidate: Option<&str>) -> bool {
+    let (_, cleaned_step_title) = split_goal_step_title(step_title);
+    candidate.is_some_and(|title| {
+        let (_, cleaned_candidate_title) = split_goal_step_title(title);
+        title == step_title || cleaned_candidate_title == cleaned_step_title
+    })
+}
+
+fn goal_step_title_spans(
+    title: &str,
+    title_style: Style,
+    theme: &ThemeTokens,
+) -> Vec<Span<'static>> {
+    let (confidence, cleaned_title) = split_goal_step_title(title);
+    let mut spans = vec![Span::styled(cleaned_title.to_string(), title_style)];
+    if let Some(confidence) = confidence {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(confidence.symbol(), confidence.style(theme)));
+    }
+    spans
 }
 
 pub fn render(
@@ -480,17 +540,20 @@ fn styled_plan_row(
     theme: &ThemeTokens,
     tick_counter: u64,
 ) -> Line<'static> {
-    let Some(marker_state) = row.marker_state else {
-        return row.line;
-    };
-    let Some(marker_span_index) = row.marker_span_index else {
-        return row.line;
-    };
-
-    let (symbol, style) = plan_marker_display(marker_state, theme, tick_counter);
     let mut spans = row.line.spans;
-    if let Some(span) = spans.get_mut(marker_span_index) {
-        *span = Span::styled(format!("{symbol} "), style);
+    if let (Some(marker_state), Some(marker_span_index)) = (row.marker_state, row.marker_span_index)
+    {
+        let (symbol, style) = plan_marker_display(marker_state, theme, tick_counter);
+        if let Some(span) = spans.get_mut(marker_span_index) {
+            *span = Span::styled(format!("{symbol} "), style);
+        }
+    }
+    if let (Some(confidence), Some(confidence_span_index)) =
+        (row.confidence, row.confidence_span_index)
+    {
+        if let Some(span) = spans.get_mut(confidence_span_index) {
+            *span = Span::styled(confidence.symbol(), confidence.style(theme));
+        }
     }
     Line::from(spans)
 }
@@ -708,11 +771,19 @@ fn footer_segments(
         style: theme.fg_dim,
         target: None,
     });
+    let (confidence, cleaned_title) = split_goal_step_title(&step.title);
     segments.push(FooterSegment {
-        text: format!(" {}", step.title),
+        text: format!(" {}", cleaned_title),
         style: theme.fg_active,
         target: None,
     });
+    if let Some(confidence) = confidence {
+        segments.push(FooterSegment {
+            text: format!(" {}", confidence.symbol()),
+            style: confidence.style(theme),
+            target: None,
+        });
+    }
     segments.push(FooterSegment {
         text: "  ".to_string(),
         style: theme.fg_dim,
@@ -753,7 +824,13 @@ fn footer_segments(
             GoalWorkspaceAction::RerunFromStep,
             "[Rerun from here]",
             "Shift+R",
-            theme.accent_primary,
+            theme.accent_danger,
+        ),
+        (
+            GoalWorkspaceAction::RefreshGoal,
+            "[Refresh]",
+            "Ctrl+R",
+            theme.accent_assistant,
         ),
     ] {
         segments.push(FooterSegment {
@@ -1223,11 +1300,14 @@ fn detail_lines(
                     &mut rows,
                     &mut visual_row,
                     None,
-                    Line::from(vec![
-                        Span::styled(format!("{}.", step.order + 1), theme.fg_dim),
-                        Span::raw(" "),
-                        Span::styled(step.title.clone(), theme.fg_active),
-                    ]),
+                    Line::from({
+                        let mut spans = vec![
+                            Span::styled(format!("{}.", step.order + 1), theme.fg_dim),
+                            Span::raw(" "),
+                        ];
+                        spans.extend(goal_step_title_spans(&step.title, theme.fg_active, theme));
+                        spans
+                    }),
                 );
                 if !step.instructions.is_empty() {
                     push_detail_wrapped(

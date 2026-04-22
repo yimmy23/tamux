@@ -291,6 +291,47 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     }
 
     #[tokio::test]
+    async fn todo_update_applies_top_level_step_index_to_items_missing_it() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        DaemonClient::dispatch_agent_event(
+            serde_json::json!({
+                "type": "todo_update",
+                "thread_id": "thread-1",
+                "goal_run_id": "goal-1",
+                "step_index": 2,
+                "items": [
+                    {
+                        "id": "todo-1",
+                        "content": "Verify note contents",
+                        "status": "in_progress",
+                        "position": 0
+                    }
+                ]
+            }),
+            &event_tx,
+        )
+        .await;
+
+        match event_rx.recv().await.expect("expected thread todos event") {
+            ClientEvent::ThreadTodos {
+                thread_id,
+                goal_run_id,
+                step_index,
+                items,
+            } => {
+                assert_eq!(thread_id, "thread-1");
+                assert_eq!(goal_run_id.as_deref(), Some("goal-1"));
+                assert_eq!(step_index, Some(2));
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].id, "todo-1");
+                assert_eq!(items[0].step_index, Some(2));
+            }
+            other => panic!("expected thread todos event, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
     async fn checkpoint_list_event_carries_goal_id_when_empty() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 

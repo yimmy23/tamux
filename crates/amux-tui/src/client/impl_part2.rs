@@ -144,7 +144,12 @@ impl DaemonClient {
             } => match serde_json::from_str::<Vec<crate::wire::TodoItem>>(&todos_json) {
                 Ok(items) => {
                     let _ = event_tx
-                        .send(ClientEvent::ThreadTodos { thread_id, items })
+                        .send(ClientEvent::ThreadTodos {
+                            thread_id,
+                            goal_run_id: None,
+                            step_index: None,
+                            items,
+                        })
                         .await;
                 }
                 Err(err) => warn!("Failed to parse todo detail: {}", err),

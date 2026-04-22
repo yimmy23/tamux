@@ -13,6 +13,65 @@ fn node_id_for_package(ecosystem: &str, package_name: &str) -> String {
     format!("node:package:{ecosystem}:{package_name}")
 }
 
+fn inferred_node_from_id(node_id: &str) -> MemoryGraphNodeUpsert {
+    if let Some(relative_path) = node_id.strip_prefix("node:file:") {
+        return MemoryGraphNodeUpsert {
+            id: node_id.to_string(),
+            label: relative_path.to_string(),
+            node_type: "file".to_string(),
+            summary_text: Some("structural path inferred from thread memory".to_string()),
+        };
+    }
+
+    if let Some(task_id) = node_id.strip_prefix("node:task:") {
+        return MemoryGraphNodeUpsert {
+            id: node_id.to_string(),
+            label: task_id.to_string(),
+            node_type: "task".to_string(),
+            summary_text: Some("task anchor inferred from thread memory".to_string()),
+        };
+    }
+
+    if let Some(thread_id) = node_id.strip_prefix("node:thread:") {
+        return MemoryGraphNodeUpsert {
+            id: node_id.to_string(),
+            label: thread_id.to_string(),
+            node_type: "thread".to_string(),
+            summary_text: Some("thread anchor inferred from thread memory".to_string()),
+        };
+    }
+
+    if let Some(label) = node_id.strip_prefix("node:error:") {
+        return MemoryGraphNodeUpsert {
+            id: node_id.to_string(),
+            label: label.to_string(),
+            node_type: "error".to_string(),
+            summary_text: Some("error node inferred from thread memory".to_string()),
+        };
+    }
+
+    if let Some(package_key) = node_id.strip_prefix("node:package:") {
+        let label = package_key
+            .rsplit(':')
+            .next()
+            .unwrap_or(package_key)
+            .to_string();
+        return MemoryGraphNodeUpsert {
+            id: node_id.to_string(),
+            label,
+            node_type: "package".to_string(),
+            summary_text: Some("package inferred from thread memory".to_string()),
+        };
+    }
+
+    MemoryGraphNodeUpsert {
+        id: node_id.to_string(),
+        label: node_id.to_string(),
+        node_type: "memory".to_string(),
+        summary_text: Some("memory graph node inferred from thread memory".to_string()),
+    }
+}
+
 pub(crate) fn build_memory_palace_update_batch(
     thread_id: Option<&str>,
     task_id: Option<&str>,
@@ -64,6 +123,8 @@ pub(crate) fn build_memory_palace_update_batch(
             }
         }
         for edge in &memory.edges {
+            batch.nodes.push(inferred_node_from_id(&edge.from));
+            batch.nodes.push(inferred_node_from_id(&edge.to));
             batch.edges.push(MemoryGraphEdgeUpsert {
                 source_node_id: edge.from.clone(),
                 target_node_id: edge.to.clone(),

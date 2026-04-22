@@ -1066,15 +1066,21 @@ impl TuiModel {
                 }
                 KeyCode::Char('n') | KeyCode::Char('N') => {
                     if let Some(ap) = self.approval.selected_approval() {
-                        self.resolve_approval(ap.approval_id.clone(), "reject");
-                    }
-                    if let Some(next) = self.next_current_thread_approval_id() {
-                        self.approval
-                            .reduce(crate::state::ApprovalAction::SelectApproval(next));
+                        self.handle_reject_selected_approval(ap.approval_id.clone());
                     } else {
-                        self.close_top_modal();
+                        self.sync_contextual_approval_overlay();
                     }
                 }
+                _ => {}
+            }
+            return false;
+        }
+
+        if kind == modal::ModalKind::GoalApprovalRejectPrompt {
+            match code {
+                KeyCode::Esc => self.close_top_modal(),
+                KeyCode::Char('r') | KeyCode::Char('R') => self.rewrite_active_goal_after_reject(),
+                KeyCode::Char('s') | KeyCode::Char('S') => self.stop_active_goal_after_reject(),
                 _ => {}
             }
             return false;
@@ -1189,7 +1195,7 @@ impl TuiModel {
                             self.chat.active_thread_id(),
                             self.current_workspace_id(),
                         ) {
-                            self.resolve_approval(ap.approval_id.clone(), "reject");
+                            self.handle_reject_selected_approval(ap.approval_id.clone());
                         }
                     }
                 }
@@ -1444,6 +1450,8 @@ impl TuiModel {
                 self.send_daemon_command(DaemonCommand::Refresh);
                 self.status_line = "Refreshing thread and goal lists".to_string();
             }
+            KeyCode::Down if kind == modal::ModalKind::CommandPalette => self.modal_navigate(1),
+            KeyCode::Up if kind == modal::ModalKind::CommandPalette => self.modal_navigate(-1),
             KeyCode::Down => self.modal.reduce(modal::ModalAction::Navigate(1)),
             KeyCode::Up => self.modal.reduce(modal::ModalAction::Navigate(-1)),
             KeyCode::Enter => {

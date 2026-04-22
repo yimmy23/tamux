@@ -556,8 +556,9 @@ impl AgentEngine {
         let prompt = format!(
             "You are reflecting on a completed tamux goal runner.\n\
              Produce strict JSON only with the shape:\n\
-             {{\"summary\":\"...\",\"stable_memory_update\":null,\"generate_skill\":false,\"skill_title\":null}}\n\
+             {{\"summary\":\"...\",\"stable_memory_update\":null,\"generate_skill\":false,\"skill_title\":null,\"activate_skill\":null}}\n\
              `stable_memory_update` must be null unless you learned a durable operator preference or stable workspace fact worth appending to MEMORY.md.\n\
+             `activate_skill` should be null unless the reflection discovered a concrete reusable workflow or generated skill artifact that the next step should explicitly consult. Prefer a compact skill name or generated skill path already available in this run context.\n\
              Goal: {}\n\
              Step outcomes:\n{}\n",
             goal_run.goal,

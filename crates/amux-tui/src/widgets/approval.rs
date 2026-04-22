@@ -36,6 +36,10 @@ pub fn render(frame: &mut Frame, area: Rect, approval: &ApprovalState, theme: &T
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(2)])
+        .split(inner);
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -99,38 +103,61 @@ pub fn render(frame: &mut Frame, area: Rect, approval: &ApprovalState, theme: &T
         )));
     }
 
-    // Pad to fill before action row
-    let action_rows = 2; // separator + action line
-    while lines.len() < inner.height.saturating_sub(action_rows as u16) as usize {
-        lines.push(Line::raw(""));
-    }
-
-    // Separator
-    lines.push(Line::from(Span::styled(
-        "\u{2500}".repeat(inner.width as usize),
-        theme.fg_dim,
-    )));
-
-    // Action row
-    lines.push(Line::from(vec![
-        Span::raw("  "),
-        Span::styled("[Y]", theme.accent_success),
-        Span::styled(" Allow once  ", theme.fg_active),
-        Span::styled("[A]", theme.accent_secondary),
-        Span::styled(" Allow for session  ", theme.fg_active),
-        Span::styled("[W]", theme.accent_primary),
-        Span::styled(" Always approve  ", theme.fg_active),
-        Span::styled("[N]", theme.accent_danger),
-        Span::styled(" Reject", theme.fg_active),
-    ]));
-
     let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
-    frame.render_widget(paragraph, inner);
+    frame.render_widget(paragraph, layout[0]);
+
+    let footer = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "\u{2500}".repeat(inner.width as usize),
+            theme.fg_dim,
+        )),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("[Y]", theme.accent_success),
+            Span::styled(" Allow once  ", theme.fg_active),
+            Span::styled("[A]", theme.accent_secondary),
+            Span::styled(" Allow for session  ", theme.fg_active),
+            Span::styled("[W]", theme.accent_primary),
+            Span::styled(" Always approve  ", theme.fg_active),
+            Span::styled("[N]", theme.accent_danger),
+            Span::styled(" Reject", theme.fg_active),
+        ]),
+    ])
+    .wrap(Wrap { trim: false });
+    frame.render_widget(footer, layout[1]);
 }
 
 #[cfg(test)]
 mod tests {
     use crate::state::approval::{ApprovalAction, ApprovalState, PendingApproval, RiskLevel};
+    use crate::theme::ThemeTokens;
+    use ratatui::backend::TestBackend;
+    use ratatui::prelude::Rect;
+    use ratatui::Terminal;
+
+    fn render_lines(approval: &ApprovalState, width: u16, height: u16) -> Vec<String> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+        terminal
+            .draw(|frame| {
+                super::render(
+                    frame,
+                    Rect::new(0, 0, width, height),
+                    approval,
+                    &ThemeTokens::default(),
+                )
+            })
+            .expect("approval render should succeed");
+
+        let buffer = terminal.backend().buffer();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect::<String>()
+            })
+            .collect()
+    }
 
     fn make_approval(risk: RiskLevel, command: &str) -> PendingApproval {
         PendingApproval {
@@ -164,5 +191,32 @@ mod tests {
             "kubectl delete pod",
         )));
         assert!(approval.selected_approval().is_some());
+    }
+
+    #[test]
+    fn approval_keeps_actions_visible_when_details_wrap() {
+        let mut approval = ApprovalState::new();
+        let mut pending = make_approval(
+            RiskLevel::Medium,
+            "review low-confidence goal plan with a very long command that wraps heavily",
+        );
+        pending.task_title = Some(
+            "Review plan: Meta-cognition in tamux: dynamic skill injection from self-reflection"
+                .to_string(),
+        );
+        pending.rationale = Some(
+            "Low-confidence steps require operator approval before execution: Step 1: [LOW] Find the minimal integration seam; Step 2: [LOW] Choose the smallest safe design; Step 3: [LOW] Implement dynamic skill injection; Step 4: [LOW] Run targeted verification and record results".to_string(),
+        );
+        approval.reduce(ApprovalAction::ApprovalRequired(pending));
+
+        let lines = render_lines(&approval, 80, 14);
+        assert!(
+            lines.iter().any(|line| line.contains("Allow once")),
+            "approval footer should remain visible even when body content wraps: {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("Always approve")),
+            "approval footer should include all actions: {lines:?}"
+        );
     }
 }

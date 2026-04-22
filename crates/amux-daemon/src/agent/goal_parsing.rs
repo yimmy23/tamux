@@ -65,6 +65,8 @@ pub(super) struct GoalReflectionResponse {
     pub generate_skill: bool,
     #[serde(default)]
     pub skill_title: Option<String>,
+    #[serde(default)]
+    pub activate_skill: Option<String>,
 }
 
 /// Check a plan for issues that the model should fix. Returns a list of human-readable problems.

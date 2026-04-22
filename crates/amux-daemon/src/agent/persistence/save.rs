@@ -251,20 +251,26 @@ impl AgentEngine {
         }
 
         for goal_run in goal_runs_snapshot {
-            if let Err(error) =
-                crate::agent::goal_dossier::write_goal_run_projection(self, &goal_run).await
-            {
-                tracing::warn!(
-                    goal_run_id = %goal_run.id,
-                    error = %error,
-                    "failed to persist goal projection files"
-                );
-                crate::agent::goal_dossier::record_goal_projection_failure(
-                    self,
-                    &goal_run.id,
-                    error.to_string(),
-                )
-                .await;
+            match crate::agent::goal_dossier::write_goal_run_projection(self, &goal_run).await {
+                Ok(()) => {
+                    // Projection files under .tamux/goals/<goal_run_id>/ are the authoritative
+                    // backing store for dossier/inventory views. Emit after the write completes
+                    // so live goal panes can hydrate against the fresh files.
+                    self.emit_goal_run_update(&goal_run, None);
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        goal_run_id = %goal_run.id,
+                        error = %error,
+                        "failed to persist goal projection files"
+                    );
+                    crate::agent::goal_dossier::record_goal_projection_failure(
+                        self,
+                        &goal_run.id,
+                        error.to_string(),
+                    )
+                    .await;
+                }
             }
         }
     }

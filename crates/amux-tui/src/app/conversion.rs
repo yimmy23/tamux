@@ -280,7 +280,11 @@ pub(crate) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
                 message: event.message,
                 details: event.details,
                 step_index: event.step_index,
-                todo_snapshot: event.todo_snapshot.into_iter().map(convert_todo).collect(),
+                todo_snapshot: event
+                    .todo_snapshot
+                    .into_iter()
+                    .map(|todo| convert_todo_with_fallback_step(todo, event.step_index))
+                    .collect(),
             })
             .collect(),
         older_page_pending: false,
@@ -424,6 +428,13 @@ pub(super) fn convert_checkpoint_summary(
 }
 
 pub(super) fn convert_todo(t: crate::wire::TodoItem) -> task::TodoItem {
+    convert_todo_with_fallback_step(t, None)
+}
+
+pub(super) fn convert_todo_with_fallback_step(
+    t: crate::wire::TodoItem,
+    fallback_step_index: Option<usize>,
+) -> task::TodoItem {
     task::TodoItem {
         id: t.id,
         content: t.content,
@@ -434,7 +445,7 @@ pub(super) fn convert_todo(t: crate::wire::TodoItem) -> task::TodoItem {
             crate::wire::TodoStatus::Blocked => task::TodoStatus::Blocked,
         }),
         position: t.position,
-        step_index: t.step_index,
+        step_index: t.step_index.or(fallback_step_index),
         created_at: t.created_at,
         updated_at: t.updated_at,
     }

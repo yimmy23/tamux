@@ -125,6 +125,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 .modal
                 .selected_command()
                 .map(|cmd| cmd.command.clone());
+            let selection_active = model.modal.command_palette_has_explicit_selection();
             let query = model.modal.command_query().trim().to_string();
             tracing::info!(
                 "selected_command: {:?}, cursor: {}, filtered: {:?}",
@@ -139,7 +140,11 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 .split_whitespace()
                 .next()
                 .unwrap_or("");
-            if !query.is_empty()
+            if selection_active {
+                if let Some(command) = cmd_name {
+                    model.execute_command(&command);
+                }
+            } else if !query.is_empty()
                 && !query_head.is_empty()
                 && (cmd_name.as_deref() == Some(query_head) || model.is_builtin_command(query_head))
             {

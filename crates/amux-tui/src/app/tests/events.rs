@@ -1983,6 +1983,45 @@ fn approval_required_in_background_thread_shows_notice_without_modal() {
 }
 
 #[test]
+fn opening_thread_with_existing_pending_approval_opens_blocking_modal() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Active Thread".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-2".to_string(),
+        title: "Background Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.handle_task_list_event(vec![crate::wire::AgentTask {
+        id: "task-2".to_string(),
+        title: "WELES review".to_string(),
+        thread_id: Some("thread-2".to_string()),
+        status: Some(crate::wire::TaskStatus::AwaitingApproval),
+        awaiting_approval_id: Some("approval-2".to_string()),
+        ..Default::default()
+    }]);
+
+    model.handle_client_event(ClientEvent::ApprovalRequired {
+        approval_id: "approval-2".to_string(),
+        command: "git clone".to_string(),
+        rationale: Some("Clone support repository into workspace".to_string()),
+        reasons: vec!["network access requested".to_string()],
+        risk_level: "medium".to_string(),
+        blast_radius: "workspace".to_string(),
+    });
+    assert_eq!(model.modal.top(), None);
+
+    model.open_thread_conversation("thread-2".to_string());
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ApprovalOverlay));
+    assert_eq!(model.approval.selected_approval_id(), Some("approval-2"));
+}
+
+#[test]
 fn task_list_hydrates_pending_approvals_from_awaiting_approval_tasks() {
     let mut model = make_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {
@@ -2034,6 +2073,58 @@ fn goal_run_update_hydrates_pending_approval_when_task_snapshot_is_missing() {
     assert_eq!(approval.thread_id.as_deref(), Some("thread-1"));
     assert_eq!(approval.thread_title.as_deref(), Some("Goal Thread"));
     assert_eq!(approval.task_title.as_deref(), Some("Goal plan review"));
+}
+
+#[test]
+fn goal_run_started_requests_authoritative_refresh_and_hydrates_pending_approval() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Goal Thread".to_string(),
+    });
+
+    model.handle_goal_run_started_event(crate::wire::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal plan review".to_string(),
+        thread_id: Some("thread-1".to_string()),
+        status: Some(crate::wire::GoalRunStatus::AwaitingApproval),
+        current_step_title: Some("review plan".to_string()),
+        approval_count: 1,
+        awaiting_approval_id: Some("approval-1".to_string()),
+        ..Default::default()
+    });
+
+    assert!(matches!(
+        &model.main_pane_view,
+        MainPaneView::Task(SidebarItemTarget::GoalRun { goal_run_id, step_id: None })
+            if goal_run_id == "goal-1"
+    ));
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_hydration_schedule(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert!(
+        model.pending_goal_hydration_refreshes.contains("goal-1"),
+        "started goal should remain pending until authoritative hydration lands"
+    );
+
+    let approval = model
+        .approval
+        .approval_by_id("approval-1")
+        .expect("started goal awaiting approval should hydrate approval queue");
+    assert_eq!(approval.thread_id.as_deref(), Some("thread-1"));
+    assert_eq!(approval.thread_title.as_deref(), Some("Goal Thread"));
+    assert_eq!(approval.task_title.as_deref(), Some("Goal plan review"));
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ApprovalOverlay));
+    assert_eq!(model.approval.selected_approval_id(), Some("approval-1"));
 }
 
 #[test]
@@ -4381,6 +4472,105 @@ fn goal_hydration_schedule_failed_clears_pending_marker_via_client_event() {
     assert!(
         !model.pending_goal_hydration_refreshes.contains("goal-1"),
         "background hydration failure should clear the exact pending marker"
+    );
+}
+
+#[test]
+fn goal_scoped_thread_todos_for_active_goal_schedule_background_hydration() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.handle_goal_run_detail_event(crate::wire::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal One".to_string(),
+        status: Some(crate::wire::GoalRunStatus::Running),
+        steps: vec![crate::wire::GoalRunStep {
+            id: "step-1".to_string(),
+            position: 0,
+            title: "Plan".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    model.handle_task_list_event(vec![crate::wire::AgentTask {
+        id: "task-1".to_string(),
+        title: "Child task".to_string(),
+        thread_id: Some("thread-task".to_string()),
+        goal_run_id: Some("goal-1".to_string()),
+        ..Default::default()
+    }]);
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    model.handle_client_event(ClientEvent::ThreadTodos {
+        thread_id: "thread-task".to_string(),
+        goal_run_id: Some("goal-1".to_string()),
+        step_index: Some(0),
+        items: vec![crate::wire::TodoItem {
+            id: "todo-1".to_string(),
+            content: "child thread todo".to_string(),
+            status: Some(crate::wire::TodoStatus::InProgress),
+            position: 0,
+            step_index: Some(0),
+            ..Default::default()
+        }],
+    });
+
+    assert_eq!(
+        next_goal_hydration_schedule(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert!(
+        model.pending_goal_hydration_refreshes.contains("goal-1"),
+        "goal-scoped todo updates should arm background hydration for the visible goal"
+    );
+}
+
+#[test]
+fn work_context_for_active_goal_linked_thread_schedules_background_hydration() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.handle_goal_run_detail_event(crate::wire::GoalRun {
+        id: "goal-1".to_string(),
+        title: "Goal One".to_string(),
+        status: Some(crate::wire::GoalRunStatus::Running),
+        steps: vec![crate::wire::GoalRunStep {
+            id: "step-1".to_string(),
+            position: 0,
+            title: "Plan".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    model.handle_task_list_event(vec![crate::wire::AgentTask {
+        id: "task-1".to_string(),
+        title: "Child task".to_string(),
+        thread_id: Some("thread-task".to_string()),
+        goal_run_id: Some("goal-1".to_string()),
+        ..Default::default()
+    }]);
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    model.handle_work_context_event(crate::wire::ThreadWorkContext {
+        thread_id: "thread-task".to_string(),
+        entries: vec![crate::wire::WorkContextEntry {
+            path: "/tmp/skill_injection_gap.md".to_string(),
+            goal_run_id: Some("goal-1".to_string()),
+            step_index: Some(0),
+            is_text: true,
+            ..Default::default()
+        }],
+    });
+
+    assert_eq!(
+        next_goal_hydration_schedule(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert!(
+        model.pending_goal_hydration_refreshes.contains("goal-1"),
+        "work-context updates should arm background hydration for the visible goal"
     );
 }
 

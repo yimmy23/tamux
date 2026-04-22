@@ -70,6 +70,8 @@ fn todos_tab_renders_todo_rows_in_body() {
     let mut tasks = TaskState::new();
     tasks.reduce(TaskAction::ThreadTodosReceived {
         thread_id: "thread-1".to_string(),
+        goal_run_id: None,
+        step_index: None,
         items: vec![TodoItem {
             id: "todo-1".to_string(),
             content: "continue debugging".to_string(),

@@ -203,6 +203,8 @@ fn goal_sidebar_model() -> TuiModel {
         });
     model.tasks.reduce(task::TaskAction::ThreadTodosReceived {
         thread_id: "thread-1".to_string(),
+        goal_run_id: None,
+        step_index: None,
         items: vec![
             task::TodoItem {
                 id: "todo-1".to_string(),
@@ -891,6 +893,51 @@ fn goal_workspace_plan_prompt_toggle_is_clickable_and_keyboard_expandable() {
     let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
     assert!(!handled);
     assert!(model.goal_workspace.prompt_expanded());
+}
+
+#[test]
+fn goal_workspace_plan_step_is_clickable_and_keyboard_expandable() {
+    let mut model = goal_sidebar_model();
+
+    let click = find_goal_workspace_hit_position(
+        &model,
+        widgets::goal_workspace::GoalWorkspaceHitTarget::PlanStep("step-1".to_string()),
+    );
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert!(model.goal_workspace.is_step_expanded("step-1"));
+    let plain = render_chat_plain(&mut model);
+    assert!(plain.contains("[~] Draft outline"), "{plain}");
+    assert!(plain.contains("[ ] Verify sources"), "{plain}");
+    assert!(!plain.contains("Ground the user's background before planning"), "{plain}");
+    assert!(!plain.contains("Gather current experience and constraints first."), "{plain}");
+
+    let mut model = goal_sidebar_model();
+    model.focus = FocusArea::Chat;
+    model.goal_workspace.set_selected_plan_row(2);
+    model.goal_workspace
+        .set_selected_plan_item(Some(goal_workspace::GoalPlanSelection::Step {
+            step_id: "step-1".to_string(),
+        }));
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(model.goal_workspace.is_step_expanded("step-1"));
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(!model.goal_workspace.is_step_expanded("step-1"));
 }
 
 #[test]

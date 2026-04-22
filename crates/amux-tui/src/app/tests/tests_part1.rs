@@ -286,6 +286,8 @@
             .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
         model.tasks.reduce(task::TaskAction::ThreadTodosReceived {
             thread_id: "thread-1".to_string(),
+            goal_run_id: None,
+            step_index: None,
             items: vec![task::TodoItem {
                 id: "todo-1".to_string(),
                 content: "Investigate crash".to_string(),

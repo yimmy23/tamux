@@ -403,4 +403,6 @@ pub(super) async fn record_goal_projection_failure(
             "failed to persist goal projection failure"
         );
     }
+
+    engine.emit_goal_run_update(&updated, None);
 }
