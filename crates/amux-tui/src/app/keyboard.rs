@@ -933,6 +933,23 @@ impl TuiModel {
             KeyCode::Char(ch)
                 if self.focus == FocusArea::Chat
                     && Self::matches_shift_char(KeyCode::Char(ch), modifiers, 'r')
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) =>
+            {
+                if let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
+                    ref goal_run_id,
+                    ..
+                }) = self.main_pane_view
+                {
+                    self.request_authoritative_goal_run_refresh(goal_run_id.clone());
+                    self.status_line = "Refreshing goal metadata".to_string();
+                }
+            }
+            KeyCode::Char(ch)
+                if self.focus == FocusArea::Chat
+                    && Self::matches_shift_char(KeyCode::Char(ch), modifiers, 'r')
                     && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
             {
                 if self.request_selected_goal_step_rerun_confirmation() {

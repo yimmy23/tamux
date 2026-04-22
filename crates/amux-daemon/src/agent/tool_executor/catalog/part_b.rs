@@ -96,6 +96,14 @@ fn add_available_tools_part_b(
         serde_json::json!({
             "type": "object",
             "properties": {
+                "goal_run_id": {
+                    "type": "string",
+                    "description": "Required when the current task is the main task for a goal run. Must match the active goal run ID."
+                },
+                "goal_step_id": {
+                    "type": "string",
+                    "description": "Required when the current task is the main task for a goal run. Must match the active goal step ID and binds the full todo list to that one goal step."
+                },
                 "items": {
                     "type": "array",
                     "description": "Ordered todo items representing the current plan",
@@ -104,7 +112,7 @@ fn add_available_tools_part_b(
                         "properties": {
                             "content": { "type": "string", "description": "Short todo item text" },
                             "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "blocked"], "description": "Current execution state" },
-                            "step_index": { "type": "integer", "description": "Optional goal-run step index for this todo item" }
+                            "step_index": { "type": "integer", "description": "Optional thread-local step label for non-goal todo displays. Do not use this to bind goal todos to a goal step." }
                         },
                         "required": ["content", "status"]
                     }
@@ -373,5 +381,4 @@ fn add_available_tools_part_b(
             "required": ["rationale"]
         }),
     ));
-
 }

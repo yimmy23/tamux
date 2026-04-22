@@ -462,7 +462,7 @@ fn make_goal_run_event_with_todos_preserves_snapshot() {
 }
 
 #[tokio::test]
-async fn replace_thread_todos_normalizes_goal_step_indexes_for_authoritative_goal_tasks() {
+async fn replace_thread_todos_binds_authoritative_goal_items_to_current_step() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
@@ -483,15 +483,26 @@ async fn replace_thread_todos_normalizes_goal_step_indexes_for_authoritative_goa
     engine
         .replace_thread_todos(
             "thread-main",
-            vec![TodoItem {
-                id: "todo-1".to_string(),
-                content: "Inspect current state".to_string(),
-                status: TodoStatus::InProgress,
-                position: 0,
-                step_index: Some(1),
-                created_at: 1,
-                updated_at: 1,
-            }],
+            vec![
+                TodoItem {
+                    id: "todo-1".to_string(),
+                    content: "Inspect current state".to_string(),
+                    status: TodoStatus::InProgress,
+                    position: 0,
+                    step_index: Some(1),
+                    created_at: 1,
+                    updated_at: 1,
+                },
+                TodoItem {
+                    id: "todo-2".to_string(),
+                    content: "Capture failing evidence".to_string(),
+                    status: TodoStatus::Pending,
+                    position: 1,
+                    step_index: Some(2),
+                    created_at: 1,
+                    updated_at: 1,
+                },
+            ],
             Some(task.id.as_str()),
         )
         .await;
@@ -505,8 +516,9 @@ async fn replace_thread_todos_normalizes_goal_step_indexes_for_authoritative_goa
         .last()
         .expect("authoritative goal todo update should record a goal event");
     assert_eq!(event.step_index, Some(0));
-    assert_eq!(event.todo_snapshot.len(), 1);
+    assert_eq!(event.todo_snapshot.len(), 2);
     assert_eq!(event.todo_snapshot[0].step_index, Some(0));
+    assert_eq!(event.todo_snapshot[1].step_index, Some(0));
 }
 
 #[tokio::test]

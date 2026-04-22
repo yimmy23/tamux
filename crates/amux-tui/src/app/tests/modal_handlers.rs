@@ -4772,6 +4772,64 @@ fn goal_view_retry_uses_current_step_without_explicit_step_selection() {
 }
 
 #[test]
+fn goal_view_shift_r_requests_authoritative_goal_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(make_goal_run(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Running,
+        )));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    let handled = model.handle_key(KeyCode::Char('R'), KeyModifiers::SHIFT);
+
+    assert!(!handled);
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+}
+
+#[test]
+fn goal_view_shift_r_lowercase_key_requests_authoritative_goal_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(make_goal_run(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Running,
+        )));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::SHIFT);
+
+    assert!(!handled);
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+}
+
+#[test]
 fn selected_goal_step_r_opens_retry_confirmation() {
     let (mut model, _daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
