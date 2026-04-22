@@ -1072,8 +1072,9 @@ fn command_palette_enter_prefers_highlighted_command_over_partial_query() {
             .map(|item| item.command.as_str()),
         Some("new-goal")
     );
-    assert_eq!(model.input.buffer(), "/new-goal");
-    assert_eq!(model.modal.command_display_query(), "/new-goal");
+    assert_eq!(model.input.buffer(), "/new");
+    assert_eq!(model.modal.command_display_query(), "/new");
+    assert!(model.modal.command_palette_has_explicit_selection());
 
     let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
     assert!(!quit);
@@ -1084,7 +1085,47 @@ fn command_palette_enter_prefers_highlighted_command_over_partial_query() {
 }
 
 #[test]
-fn command_palette_mouse_selection_replaces_input_and_executes_selected_command() {
+fn command_palette_typing_does_not_preview_first_match_before_navigation() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+
+    let quit = model.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+    assert!(!quit);
+    for ch in "new-g".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+
+    assert_eq!(model.input.buffer(), "/new-g");
+    assert_eq!(model.modal.command_display_query(), "/new-g");
+    assert!(!model.modal.command_palette_has_explicit_selection());
+}
+
+#[test]
+fn command_palette_enter_runs_first_match_without_navigation() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+
+    let quit = model.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+    assert!(!quit);
+    for ch in "new-g".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+
+    assert_eq!(model.input.buffer(), "/new-g");
+    assert_eq!(model.modal.command_display_query(), "/new-g");
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!quit);
+    assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
+    assert_eq!(model.focus, FocusArea::Input);
+    assert!(model.modal.top().is_none());
+    assert_eq!(model.input.buffer(), "");
+}
+
+#[test]
+fn command_palette_mouse_selection_executes_selected_command_without_rewriting_query() {
     let (mut model, _daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
 
@@ -1103,8 +1144,9 @@ fn command_palette_mouse_selection_replaces_input_and_executes_selected_command(
             .map(|item| item.command.as_str()),
         Some("new-goal")
     );
-    assert_eq!(model.input.buffer(), "/new-goal");
-    assert_eq!(model.modal.command_display_query(), "/new-goal");
+    assert_eq!(model.input.buffer(), "/new");
+    assert_eq!(model.modal.command_display_query(), "/new");
+    assert!(model.modal.command_palette_has_explicit_selection());
 
     model.handle_modal_enter(modal::ModalKind::CommandPalette);
     assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));

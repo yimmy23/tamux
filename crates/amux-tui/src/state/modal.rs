@@ -85,6 +85,7 @@ pub struct ModalState {
     stack: Vec<ModalKind>,
     command_query: String,
     command_preview: Option<String>,
+    command_palette_explicit_selection: bool,
     command_items: Vec<CommandItem>,
     filtered_indices: Vec<usize>,
     picker_cursor: usize,
@@ -135,6 +136,7 @@ impl ModalState {
             stack: Vec::new(),
             command_query: String::new(),
             command_preview: None,
+            command_palette_explicit_selection: false,
             command_items: items,
             filtered_indices: filtered,
             picker_cursor: 0,
@@ -164,6 +166,9 @@ impl ModalState {
     }
     pub fn set_command_preview(&mut self, preview: Option<String>) {
         self.command_preview = preview;
+    }
+    pub fn command_palette_has_explicit_selection(&self) -> bool {
+        self.command_palette_explicit_selection
     }
     pub fn command_items(&self) -> &[CommandItem] {
         &self.command_items
@@ -296,6 +301,7 @@ impl ModalState {
                 self.stack.push(kind);
                 self.command_query.clear();
                 self.command_preview = None;
+                self.command_palette_explicit_selection = false;
                 self.picker_cursor = 0;
                 self.picker_item_count = None;
                 if kind == ModalKind::ThreadPicker {
@@ -307,6 +313,7 @@ impl ModalState {
                 self.stack.pop();
                 self.command_query.clear();
                 self.command_preview = None;
+                self.command_palette_explicit_selection = false;
                 self.picker_cursor = 0;
                 self.refilter();
             }
@@ -314,12 +321,14 @@ impl ModalState {
                 self.stack.retain(|entry| *entry != kind);
                 self.command_query.clear();
                 self.command_preview = None;
+                self.command_palette_explicit_selection = false;
                 self.picker_cursor = 0;
                 self.refilter();
             }
             ModalAction::SetQuery(query) => {
                 self.command_query = query;
                 self.command_preview = None;
+                self.command_palette_explicit_selection = false;
                 self.refilter();
                 self.picker_cursor = 0;
             }
@@ -334,6 +343,9 @@ impl ModalState {
                     self.picker_cursor = (self.picker_cursor + delta as usize).min(len - 1);
                 } else {
                     self.picker_cursor = self.picker_cursor.saturating_sub((-delta) as usize);
+                }
+                if self.top() == Some(ModalKind::CommandPalette) {
+                    self.command_palette_explicit_selection = true;
                 }
             }
             ModalAction::Execute => {

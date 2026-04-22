@@ -174,6 +174,28 @@ fn push_resets_query_and_cursor() {
 }
 
 #[test]
+fn command_palette_query_starts_without_explicit_selection() {
+    let mut state = ModalState::new();
+
+    state.reduce(ModalAction::Push(ModalKind::CommandPalette));
+    state.reduce(ModalAction::SetQuery("/new".into()));
+
+    assert!(!state.command_palette_has_explicit_selection());
+    assert_eq!(state.command_display_query(), "/new");
+}
+
+#[test]
+fn command_palette_navigation_marks_explicit_selection() {
+    let mut state = ModalState::new();
+
+    state.reduce(ModalAction::Push(ModalKind::CommandPalette));
+    state.reduce(ModalAction::SetQuery("/new".into()));
+    state.reduce(ModalAction::Navigate(1));
+
+    assert!(state.command_palette_has_explicit_selection());
+}
+
+#[test]
 fn thread_picker_push_resets_to_swarog_tab() {
     let mut state = ModalState::new();
     state.set_thread_picker_tab(ThreadPickerTab::Internal);

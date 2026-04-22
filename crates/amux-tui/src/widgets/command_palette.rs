@@ -64,6 +64,7 @@ pub fn render(frame: &mut Frame, area: Rect, modal: &ModalState, theme: &ThemeTo
     let filtered = modal.filtered_items();
     let items = modal.command_items();
     let cursor = modal.picker_cursor();
+    let explicit_selection = modal.command_palette_has_explicit_selection();
     let list_h = chunks[2].height as usize;
     let (visible_start, visible_len) = visible_window(cursor, filtered.len(), list_h);
 
@@ -73,7 +74,7 @@ pub fn render(frame: &mut Frame, area: Rect, modal: &ModalState, theme: &ThemeTo
                 let absolute_index = visible_start + i;
                 let idx = filtered[absolute_index];
                 let item = &items[idx];
-                let is_selected = absolute_index == cursor;
+                let is_selected = explicit_selection && absolute_index == cursor;
 
                 if is_selected {
                     ListItem::new(Line::from(vec![

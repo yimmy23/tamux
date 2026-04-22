@@ -667,14 +667,7 @@ impl TuiModel {
             return;
         }
 
-        let preview = self
-            .modal
-            .selected_command()
-            .map(|command| format!("/{}", command.command));
-        self.modal.set_command_preview(preview.clone());
-        if let Some(preview) = preview {
-            self.set_input_text(&preview);
-        }
+        self.modal.set_command_preview(None);
     }
 
     pub(in super::super) fn settings_navigate_to(&mut self, target: usize) {
