@@ -70,6 +70,9 @@ pub struct GatewayState {
     /// Per-channel timestamp of last outgoing agent response (epoch millis).
     /// Key: "Platform:channel_id". Populated by send tools after successful sends.
     pub last_response_at: HashMap<String, u64>,
+    /// Per-channel content of the last successfully delivered outgoing response.
+    /// Key: "Platform:channel_id". Used to suppress duplicate sequential sends.
+    pub last_response_content: HashMap<String, String>,
     /// Per-channel timestamp of last incoming message (epoch millis).
     /// Key: "Platform:channel_id". Populated by inbound IPC event handling.
     pub last_incoming_at: HashMap<String, u64>,
@@ -90,6 +93,7 @@ impl GatewayState {
             reply_contexts: HashMap::new(),
             discord_dm_channels_by_user: HashMap::new(),
             last_response_at: HashMap::new(),
+            last_response_content: HashMap::new(),
             last_incoming_at: HashMap::new(),
         }
     }

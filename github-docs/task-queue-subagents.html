@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tasks & Subagents · tamux docs</title>
+  <meta name="description" content="Task queue, child tasks, bounded subagents, collaboration sessions, disagreement handling, and execution decomposition in tamux." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="task-queue-subagents.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+  <p class="eyebrow">Execution decomposition</p>
+  <h1>Task queue, subagents, and collaboration</h1>
+  <p class="lead">tamux separates durable objectives from executable work. Goals own the long-lived objective. The task queue owns dispatch and execution. Subagents let the runtime split large work into bounded, inspectable child paths instead of one giant loop.</p>
+</header>
+
+<section>
+  <h2>1. Task queue fundamentals</h2>
+  <p>Tasks are daemon-owned work records with status, priority, dependencies, scheduling, session affinity, retry policy, parent/child relationships, and approval-waiting state.</p>
+  <p>This means work can be queued, resumed, cancelled, scheduled, or inspected independently of the current chat surface.</p>
+</section>
+
+<section>
+  <h2>2. Goals above tasks</h2>
+  <p>Goal runners convert executable plan steps into child tasks. That keeps planning and queue execution separate:</p>
+  <ul class="check-list">
+    <li>Goals own objective, planning, replanning, and reflection.</li>
+    <li>Tasks own dispatch, retries, session execution, and approval waits.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>3. What subagents are</h2>
+  <p>Subagents are bounded child work units, not free-floating clones. They can have tool filtering, context budgets, termination conditions, supervision policies, and duration caps.</p>
+  <table>
+    <thead><tr><th>Control</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>Tool filtering</td><td>Restrict the tools the child can see or use</td></tr>
+      <tr><td>Context budget</td><td>Keep the child within bounded prompt size and overflow policy</td></tr>
+      <tr><td>Termination conditions</td><td>Auto-stop on timeout, error count, or tool-call limits</td></tr>
+      <tr><td>Supervisor config</td><td>Control health checks, retries, and intervention level</td></tr>
+      <tr><td>Duration limits</td><td>Prevent runaway execution</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>4. Collaboration protocol</h2>
+  <p>tamux can also model collaboration explicitly through sessions containing contributions, disagreement records, voting, and persisted shared state. This is important because multi-agent decomposition is only useful if the resulting coordination is inspectable.</p>
+</section>
+
+<section>
+  <h2>5. Why this matters</h2>
+  <ul class="check-list">
+    <li>Large work can be decomposed instead of forced through one loop.</li>
+    <li>Delegation remains bounded and governable.</li>
+    <li>Disagreements can become explicit instead of being hidden inside a merged answer.</li>
+    <li>The operator can inspect collaboration state rather than trusting black-box swarm behavior.</li>
+  </ul>
+</section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Deep dives</h3>
+        <ul>
+          <li><a href="mission-control.html">Mission Control</a></li>
+          <li><a href="task-queue-subagents.html">Tasks &amp; Subagents</a></li>
+          <li><a href="semantic-learning.html">Semantic &amp; Learning</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Surfaces</h3>
+        <ul>
+          <li><a href="tui.html">TUI</a></li>
+          <li><a href="gateway-mcp.html">Gateway &amp; MCP</a></li>
+          <li><a href="plugins.html">Plugins</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

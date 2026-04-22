@@ -182,6 +182,9 @@ pub struct AgentEngine {
         Mutex<HashMap<String, crate::agent::stalled_turns::StalledTurnCandidate>>,
     pub(super) active_operator_sessions: RwLock<HashMap<String, u64>>,
     pub(super) pending_operator_approvals: RwLock<HashMap<String, PendingApprovalObservation>>,
+    pub(super) pending_approval_commands: RwLock<HashMap<String, String>>,
+    pub(super) quiet_goal_recovery:
+        Mutex<HashMap<String, super::goal_quiet_recovery::QuietGoalRecoveryState>>,
     pub(super) critique_approval_continuations:
         Mutex<HashMap<String, CritiqueApprovalContinuation>>,
     pub(super) policy_escalation_session_grants: RwLock<HashSet<String>>,
@@ -383,6 +386,8 @@ impl AgentEngine {
             stalled_turn_candidates: Mutex::new(HashMap::new()),
             active_operator_sessions: RwLock::new(HashMap::new()),
             pending_operator_approvals: RwLock::new(HashMap::new()),
+            pending_approval_commands: RwLock::new(HashMap::new()),
+            quiet_goal_recovery: Mutex::new(HashMap::new()),
             critique_approval_continuations: Mutex::new(HashMap::new()),
             policy_escalation_session_grants: RwLock::new(HashSet::new()),
             task_approval_rules: RwLock::new(Vec::new()),

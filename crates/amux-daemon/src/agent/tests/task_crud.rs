@@ -689,6 +689,39 @@ async fn create_and_revoke_task_approval_rule_tracks_pending_task_command() {
 }
 
 #[tokio::test]
+async fn create_task_approval_rule_from_live_managed_approval_without_task() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let approval = ToolPendingApproval {
+        approval_id: "managed-approval-rule-1".to_string(),
+        execution_id: "exec-1".to_string(),
+        command: "git status --short".to_string(),
+        rationale: "Check repo status".to_string(),
+        risk_level: "medium".to_string(),
+        blast_radius: "thread".to_string(),
+        reasons: vec!["network access requested".to_string()],
+        session_id: Some("session-1".to_string()),
+    };
+
+    engine.remember_pending_approval_command(&approval).await;
+
+    let rule = engine
+        .create_task_approval_rule_from_pending(&approval.approval_id)
+        .await
+        .expect("create rule should succeed")
+        .expect("rule should be created from live approval metadata");
+
+    assert_eq!(rule.command, approval.command);
+    assert_eq!(engine.list_task_approval_rules().await.len(), 1);
+
+    engine
+        .forget_pending_approval_command(&approval.approval_id)
+        .await;
+    assert!(engine.revoke_task_approval_rule(&rule.id).await);
+}
+
+#[tokio::test]
 async fn cancelling_goal_run_settles_unresolved_goal_plan_trace() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

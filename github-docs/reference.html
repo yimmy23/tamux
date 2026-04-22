@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reference · tamux docs</title>
+  <meta name="description" content="Reference for paths, providers, build and run commands, packaging, notifications, and static-site publishing." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="reference.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+      <p class="eyebrow">Practical reference</p>
+      <h1>Reference</h1>
+      <p class="lead">This page collects the details you usually need when installing, configuring, building, packaging, or automating tamux.</p>
+    </header>
+
+    <section>
+      <h2>1. Important paths</h2>
+      <table>
+        <thead><tr><th>Thing</th><th>Path</th></tr></thead>
+        <tbody>
+          <tr><td>Linux config</td><td><code>~/.config/tamux/config.json</code></td></tr>
+          <tr><td>macOS config</td><td><code>~/Library/Application Support/tamux/config.json</code></td></tr>
+          <tr><td>Windows config</td><td><code>%APPDATA%\\tamux\\config.json</code></td></tr>
+          <tr><td>Unix runtime data</td><td><code>~/.tamux/</code></td></tr>
+          <tr><td>Windows runtime data</td><td><code>%LOCALAPPDATA%\\tamux\\</code></td></tr>
+          <tr><td>Source build outputs</td><td><code>target/debug</code> or <code>target/release</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>2. Supported providers</h2>
+      <p>tamux supports multiple upstream provider types, including OpenAI-compatible, Anthropic Messages, Alibaba Coding Plan, and custom endpoints.</p>
+      <table>
+        <thead><tr><th>Provider</th><th>ID</th><th>Default model</th><th>Base URL</th></tr></thead>
+        <tbody><tr><td>Featherless</td><td><code>featherless</code></td><td>meta-llama/Llama-3.3-70B-Instruct</td><td>api.featherless.ai</td></tr><tr><td>OpenAI</td><td><code>openai</code></td><td>gpt-4o</td><td>api.openai.com</td></tr><tr><td>Anthropic</td><td><code>anthropic</code></td><td>claude-sonnet-4-20250514</td><td>api.anthropic.com</td></tr><tr><td>Qwen</td><td><code>qwen</code></td><td>qwen-max</td><td>api.qwen.com</td></tr><tr><td>Qwen (DeepInfra)</td><td><code>qwen-deepinfra</code></td><td>Qwen/Qwen2.5-72B-Instruct</td><td>api.deepinfra.com</td></tr><tr><td>Kimi (Moonshot)</td><td><code>kimi</code></td><td>moonshot-v1-32k</td><td>api.moonshot.ai</td></tr><tr><td>Kimi Coding Plan</td><td><code>kimi-coding-plan</code></td><td>kimi-for-coding</td><td>api.kimi.com/coding</td></tr><tr><td>Z.AI</td><td><code>z.ai</code></td><td>glm-4-plus</td><td>api.z.ai</td></tr><tr><td>Z.AI Coding Plan</td><td><code>z.ai-coding-plan</code></td><td>glm-5</td><td>api.z.ai/api/coding/paas/v4</td></tr><tr><td>OpenRouter</td><td><code>openrouter</code></td><td>arcee-ai/trinity-large-thinking</td><td>openrouter.ai</td></tr><tr><td>Cerebras</td><td><code>cerebras</code></td><td>llama-3.3-70b</td><td>api.cerebras.ai</td></tr><tr><td>Together</td><td><code>together</code></td><td>meta-llama/Llama-3.3-70B-Instruct-Turbo</td><td>api.together.xyz</td></tr><tr><td>Groq</td><td><code>groq</code></td><td>llama-3.3-70b-versatile</td><td>api.groq.com</td></tr><tr><td>Ollama</td><td><code>ollama</code></td><td>llama3.1</td><td>localhost:11434</td></tr><tr><td>Chutes</td><td><code>chutes</code></td><td>deepseek-ai/DeepSeek-V3</td><td>llm.chutes.ai</td></tr><tr><td>Hugging Face</td><td><code>huggingface</code></td><td>meta-llama/Llama-3.3-70B-Instruct</td><td>api-inference.huggingface.co</td></tr><tr><td>MiniMax</td><td><code>minimax</code></td><td>MiniMax-M1-80k</td><td>api.minimax.io</td></tr><tr><td>MiniMax Coding Plan</td><td><code>minimax-coding-plan</code></td><td>MiniMax-M2.7</td><td>api.minimax.io/anthropic</td></tr><tr><td>Alibaba Coding Plan</td><td><code>alibaba-coding-plan</code></td><td>qwen3-coder</td><td>coding-intl.dashscope.aliyuncs.com</td></tr><tr><td>OpenCode Zen</td><td><code>opencode-zen</code></td><td>claude-sonnet-4-5</td><td>opencode.ai/zen</td></tr><tr><td>Custom</td><td><code>custom</code></td><td>user-defined</td><td>user-defined</td></tr></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>3. Build commands</h2>
+      <pre><code># Rust workspace
+cargo build --release
+
+# Individual crates
+cargo build --release -p tamux-daemon
+cargo build --release -p tamux-cli
+cargo build --release -p tamux-gateway
+cargo build --release -p tamux-mcp
+cargo build --release -p tamux-protocol
+
+# Frontend bundle
+cd frontend
+npm install
+npm run build
+
+# Electron package
+cd frontend
+npm run build:electron</code></pre>
+    </section>
+
+    <section>
+      <h2>4. Run commands</h2>
+      <pre><code># Start the daemon
+cargo run --release --bin tamux-daemon
+
+# Launch Electron
+cd frontend
+npm run dev:electron
+
+# CLI examples
+cargo run --release --bin tamux -- list
+cargo run --release --bin tamux -- new --shell bash
+cargo run --release --bin tamux -- attach &lt;session-id&gt;
+cargo run --release --bin tamux -- ping</code></pre>
+    </section>
+
+    <section>
+      <h2>5. Release packaging</h2>
+      <pre><code>./scripts/build-release.sh
+./scripts/build-production-releases.sh
+./scripts/build-release-macos.sh
+./scripts/build-release-wsl.sh</code></pre>
+      <p>Typical output lands under <code>dist-release/</code> with platform-specific Linux and Windows bundles, checksums, and release notes.</p>
+    </section>
+
+    <section>
+      <h2>6. Notifications and voice workflows</h2>
+      <p>tamux supports in-app attention notifications via OSC sequences and voice workflows through STT/TTS integrations.</p>
+      <pre><code>printf ']9;Claude needs attention'
+printf ']777;notify;Claude;Waiting for your input'
+printf ']99;Codex finished task'</code></pre>
+      <ul class="check-list">
+        <li>TUI shortcuts for voice workflows include record/transcribe, speak selected message, and stop playback.</li>
+        <li>Desktop app includes mic/speak controls backed by daemon configuration.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>7. Publishing this docs site on GitHub</h2>
+      <ol class="numbered-list">
+        <li>Keep authoring in <code>github-docs/</code>.</li>
+        <li>Either copy the contents into a GitHub Pages-served location such as <code>/docs</code>, or publish the folder from a dedicated Pages branch or workflow.</li>
+        <li>Because the site uses only relative links, it works cleanly under a repository subpath.</li>
+        <li>Keep the included <code>.nojekyll</code> file to avoid Jekyll interfering with raw assets.</li>
+      </ol>
+      <div class="callout success"><strong>No build step:</strong> the site is already plain HTML/CSS/JS and can be served directly.</div>
+    </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon is the source of truth</li>
+          <li>Goals are durable orchestration units</li>
+          <li>Memory and governance are first-class</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Pages</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-Agent</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; Handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

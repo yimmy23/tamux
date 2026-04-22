@@ -421,6 +421,13 @@ async fn enqueue_goal_run_step_marks_supervised_task_as_awaiting_approval_before
         step_task.awaiting_approval_id, goal.awaiting_approval_id,
         "task and goal should share the same gate identifier"
     );
+    assert!(
+        step_task
+            .tool_blacklist
+            .as_ref()
+            .is_some_and(|tools| tools.iter().any(|tool| tool == "ask_questions")),
+        "goal step tasks should not be allowed to call ask_questions directly"
+    );
 }
 
 #[tokio::test]

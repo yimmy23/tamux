@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guides · tamux docs</title>
+  <meta name="description" content="Installation, first-run setup, daily workflow patterns, and practical guidance for operating tamux." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="guides.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+      <p class="eyebrow">Operator guides</p>
+      <h1>Getting productive with tamux</h1>
+      <p class="lead">These guides are aimed at the real operator loop: getting the daemon running, choosing the right client surface, launching your first durable goal, and keeping long-running work reliable instead of vague.</p>
+    </header>
+
+    <section>
+      <h2>1. Installation paths</h2>
+      <div class="card-grid two-up">
+        <article class="card">
+          <h3>Quick install</h3>
+          <p>Use the shell installer when you want native binaries without pulling in npm.</p>
+          <pre><code>curl -fsSL https://raw.githubusercontent.com/mkurman/tamux/main/scripts/install.sh | sh
+tamux --help</code></pre>
+        </article>
+        <article class="card">
+          <h3>Source / development install</h3>
+          <p>Use source builds when you want the full daemon + Electron + TUI development workflow.</p>
+          <pre><code>git clone https://github.com/mkurman/tamux.git
+cd tamux
+./scripts/setup.sh --check --profile source</code></pre>
+        </article>
+      </div>
+      <p>For source work you will typically want Rust, Node.js, npm, git, and <code>uv</code>. The daemon is the thing that matters most operationally: start it first and treat the rest of the surfaces as clients that reconnect to its state.</p>
+    </section>
+
+    <section>
+      <h2>2. First-run checklist</h2>
+      <ol class="numbered-list">
+        <li>Run preflight checks with <code>./scripts/setup.sh --check --profile source</code>.</li>
+        <li>Start the daemon: <code>cargo run --release --bin tamux-daemon</code>.</li>
+        <li>Open the client surface you want to use first: Electron, TUI, CLI, or MCP.</li>
+        <li>Confirm the runtime is pointed at the daemon backend.</li>
+        <li>Inspect the goal, task, and approval surfaces exposed by your current client to verify the runtime is healthy.</li>
+      </ol>
+      <div class="callout info">
+        <strong>First-run truth:</strong> if the daemon is not up, the rest of the system is missing its source of truth.
+      </div>
+    </section>
+
+    <section>
+      <h2>3. Running your first goal</h2>
+      <p>The easiest way to understand tamux is to run a bounded, useful long objective instead of a casual chat turn. A good first goal is something concrete enough to verify, but large enough to benefit from planning, child tasks, approvals, and reflection.</p>
+      <pre><code>Investigate why the nightly Rust build is failing, identify the root cause,
+propose the smallest safe fix, and capture any reusable workflow as a skill.</code></pre>
+      <h3>What you should see</h3>
+      <ul class="check-list">
+        <li>The run enters <code>queued</code>, then <code>planning</code>.</li>
+        <li>The daemon generates a plan and child tasks.</li>
+        <li>Risky operations pause behind approvals instead of silently proceeding.</li>
+        <li>The run ends with a reflection, and possibly a durable memory update or generated skill.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>4. Choosing the right surface</h2>
+      <table>
+        <thead>
+          <tr><th>Surface</th><th>Best for</th><th>Typical use</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Electron</td><td>Broad desktop overview and settings control</td><td>Goal-oriented views, settings, plugin UI, and multi-pane visibility (surface area varies by build)</td></tr>
+          <tr><td>TUI</td><td>Keyboard-first control and SSH-friendly work</td><td>Inspect sessions, goals, tasks, approvals, threads from a terminal</td></tr>
+          <tr><td>CLI</td><td>Scripting and direct inspection</td><td>Automation, session management, health checks</td></tr>
+          <tr><td>MCP</td><td>External agent integration</td><td>Expose tamux capabilities to outside tools or agent environments</td></tr>
+          <tr><td>Gateway</td><td>Chat-platform entry points</td><td>Discord, Slack, Telegram, or WhatsApp driven work</td></tr>
+        </tbody>
+      </table>
+      <p>You do not need to pick one surface forever. The strength of tamux is that these are all clients of the same daemon state, even though feature depth is not yet perfectly identical across them.</p>
+    </section>
+
+    <section>
+      <h2>5. Good daily habits</h2>
+      <div class="card-grid two-up">
+        <article class="card">
+          <h3>Treat threads as durable work</h3>
+          <p>Keep one thread per objective. Continue it when the mission is the same. Start a new one only when the objective changes materially.</p>
+        </article>
+        <article class="card">
+          <h3>Use goal runners for real work</h3>
+          <p>If the task is multi-step, long-running, or needs recovery and approvals, use a goal run instead of babysitting a single chat thread.</p>
+        </article>
+        <article class="card">
+          <h3>Be explicit about success</h3>
+          <p>Tell the runtime what counts as done, what constraints matter, and what verification you expect. tamux rewards operational specificity.</p>
+        </article>
+        <article class="card">
+          <h3>Let the daemon own state</h3>
+          <p>Do not treat the UI closing as a failure. The daemon should keep the work alive and reconnectable.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>6. Model role guidance</h2>
+      <p>tamux works best when different built-in fires are configured for different jobs. A common anti-pattern is assigning the same expensive, high-reasoning model to every role. A better setup is role-specific:</p>
+      <ul class="check-list">
+        <li><strong>Svarog:</strong> strongest model available for primary execution, synthesis, and goal runs.</li>
+        <li><strong>Weles:</strong> strong review/governance model for compaction, skeptical review, and risky-path checks.</li>
+        <li><strong>Rarog:</strong> cheap, fast, and tool-reliable for lightweight operator assistance.</li>
+      </ul>
+      <div class="callout warning">
+        <strong>Do not starve governance:</strong> Weles does not need the single strongest model, but it should still be strong enough to make reliable review judgments.
+      </div>
+    </section>
+
+    <section>
+      <h2>7. Scenario playbooks</h2>
+      <div class="card-grid">
+        <article class="card">
+          <h3>Bug hunt in a repo</h3>
+          <p>Use a goal runner. Ask for a root-cause analysis, smallest safe fix, and explicit local verification. Let approvals guard risky mutation steps.</p>
+        </article>
+        <article class="card">
+          <h3>Release prep</h3>
+          <p>Use a thread for early discussion, then move to a durable goal when you need checklist execution, packaging, validation, and handoff continuity.</p>
+        </article>
+        <article class="card">
+          <h3>Long research task</h3>
+          <p>Use goal runners when the task spans multiple searches, comparisons, artifacts, or follow-up branches. That is where reflection and memory become valuable.</p>
+        </article>
+        <article class="card">
+          <h3>Remote / SSH operation</h3>
+          <p>Use the TUI as the control room, keep the daemon running remotely, and reconnect as needed. This is where the daemon-first model shines.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>8. When not to overuse tamux</h2>
+      <p>Use a simple chat turn when the task is short, disposable, and does not need queueing, goals, approvals, recovery, or durable artifacts. tamux is strongest when continuity matters.</p>
+    </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon is the source of truth</li>
+          <li>Goals are durable orchestration units</li>
+          <li>Memory and governance are first-class</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Pages</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-Agent</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; Handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

@@ -53,6 +53,11 @@ impl AgentEngine {
             tokio::spawn({
                 let engine = self.clone();
                 let rx = shutdown.clone();
+                async move { engine.run_quiet_goal_supervision_loop(rx).await }
+            }),
+            tokio::spawn({
+                let engine = self.clone();
+                let rx = shutdown.clone();
                 async move { engine.run_subagent_supervision_loop(rx).await }
             }),
         ];
@@ -331,6 +336,24 @@ impl AgentEngine {
             tokio::select! {
                 _ = tick.tick() => {
                     self.run_subagent_supervision_tick().await;
+                }
+                _ = shutdown.changed() => break,
+            }
+        }
+    }
+
+    async fn run_quiet_goal_supervision_loop(
+        self: Arc<Self>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(SUPERVISOR_TICK_SECS));
+
+        loop {
+            tokio::select! {
+                _ = tick.tick() => {
+                    if let Err(error) = self.supervise_quiet_goal_runs().await {
+                        tracing::warn!(error = %error, "quiet-goal supervision tick failed");
+                    }
                 }
                 _ = shutdown.changed() => break,
             }

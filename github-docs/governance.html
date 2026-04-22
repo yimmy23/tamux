@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Governance · tamux docs</title>
+  <meta name="description" content="Approvals, structured verdicts, critique, provenance, and why tamux governs transitions instead of only filtering commands." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="governance.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+  <p class="eyebrow">Trust architecture</p>
+  <h1>Governance, approvals, critique, and safety semantics</h1>
+  <p class="lead">tamux security is a governance system around transitions, blast radius, approvals, provenance, containment, and critique. It is designed so autonomy can be real without becoming reckless or opaque.</p>
+</header>
+
+<section>
+  <h2>1. Safety governs transitions, not raw strings</h2>
+  <p>The safety model evaluates transitions such as run admission, stage advancement, lane retry, rebind, compensation entry, blocked-to-resumed, and final disposition. A shell command string may be one input, but it is never the whole decision.</p>
+  <div class="callout info">
+    <strong>Why this is better:</strong> the same command can be low-risk in one context and dangerous in another depending on concurrency, target scope, sandbox posture, retries, and provenance continuity.
+  </div>
+</section>
+
+<section>
+  <h2>2. Structured risk and blast radius</h2>
+  <p>Risk is structural rather than cosmetic. tamux considers dimensions such as:</p>
+  <ul class="check-list">
+    <li>destructiveness</li>
+    <li>scope</li>
+    <li>reversibility</li>
+    <li>privilege</li>
+    <li>externality</li>
+    <li>concurrency</li>
+  </ul>
+  <p>Blast radius is compositional: lane-local, stage-wide, and run-wide.</p>
+</section>
+
+<section>
+  <h2>3. Structured verdicts</h2>
+  <table>
+    <thead><tr><th>Verdict class</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>allow</code></td><td>Proceed normally</td></tr>
+      <tr><td><code>allow_with_constraints</code></td><td>Proceed, but only under declared limits</td></tr>
+      <tr><td><code>require_approval</code></td><td>Operator approval is required</td></tr>
+      <tr><td><code>defer</code></td><td>Execution cannot proceed yet</td></tr>
+      <tr><td><code>deny</code></td><td>Execution must not proceed</td></tr>
+      <tr><td><code>halt_and_isolate</code></td><td>Stop and isolate the work</td></tr>
+      <tr><td><code>allow_only_with_compensation_plan</code></td><td>Proceed only with explicit mitigation obligations</td></tr>
+    </tbody>
+  </table>
+  <p>Binary allow/deny is too weak for real orchestration.</p>
+</section>
+
+<section>
+  <h2>4. Approval semantics</h2>
+  <p>Approvals are bound to actual execution conditions rather than treated as permanent permission slips. A valid approval is expected to bind to:</p>
+  <ul class="check-list">
+    <li>run or transition scope</li>
+    <li>target scope</li>
+    <li>risk rationale</li>
+    <li>attached constraints</li>
+    <li>freshness/expiry semantics</li>
+    <li>policy fingerprint</li>
+  </ul>
+  <p>If the target set, privilege posture, command family, or environment facts materially change, prior approval should be considered stale.</p>
+</section>
+
+<section>
+  <h2>5. Provenance as a blocking dependency</h2>
+  <p>The safety model explicitly treats provenance quality as a blocking dependency for side-effecting work. If the system cannot prove enough about who initiated the action, what policy inputs were evaluated, what verdict was returned, what approval authorized it, and what actually ran, governance should block advancement.</p>
+</section>
+
+<section>
+  <h2>6. Critique before risky action</h2>
+  <p>tamux includes an adversarial self-critique subsystem with advocate, critic, and arbiter roles. This lets the runtime challenge risky plans before execution, rewrite them into safer variants, or require explicit operator confirmation when risk remains high.</p>
+  <div class="callout warning">
+    <strong>This is not just prompt style:</strong> critique has explicit runtime behavior and retrievable session state.</div>
+</section>
+
+<section>
+  <h2>7. Containment and compensation</h2>
+  <p>tamux safety is designed to express honest outcomes such as blocked, compensated, partially compensated, or isolated. This is important because autonomy often fails in partial, recoverable, or risky ways that should not be flattened into one generic error state.</p>
+</section>
+
+<section>
+  <h2>8. Why governance helps tamux as a multi-agent environment</h2>
+  <ul class="check-list">
+    <li>It keeps multiple agents from silently escalating one another’s scope.</li>
+    <li>It binds approvals to real execution posture rather than vague intent.</li>
+    <li>It makes risky work reviewable and auditable.</li>
+    <li>It supports operator trust by showing the reasons behind blocked or constrained transitions.</li>
+    <li>It prevents “autonomy” from becoming invisible recklessness.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>9. The operator-facing expectation</h2>
+  <p>Operators should expect safety to show up as structured friction at the right moments: approval gates, critique retrieval, risk labels, provenance-aware explanations, and honest blocking behavior. In tamux, that friction is part of the product, not an accidental obstacle.</p>
+</section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Advanced topics</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-agent architecture</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness &amp; recovery</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon as source of truth</li>
+          <li>Durable goals and continuity</li>
+          <li>Governed autonomy with provenance</li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

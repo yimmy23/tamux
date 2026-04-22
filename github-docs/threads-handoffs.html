@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Threads & Handoffs · tamux docs</title>
+  <meta name="description" content="Detailed explanation of thread ownership, participants, hidden delegation, handoffs, and continuity of visible work in tamux." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="threads-handoffs.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+      <p class="eyebrow">Conversation control</p>
+      <h1>Threads, participants, hidden delegation, and handoffs</h1>
+      <p class="lead">tamux treats threads as durable lines of work, not disposable chats. Multi-agent behavior is layered onto that thread model through visible participants, hidden internal delegation, and explicit ownership handoffs.</p>
+    </header>
+
+    <section>
+      <h2>1. Threads are durable work containers</h2>
+      <p>A thread is a persisted ordered conversation with messages, tool results, model metadata, and timestamps. Threads are where the operator-facing history actually lives. Good tamux usage keeps one thread per real mission and continues it while that mission remains the same.</p>
+    </section>
+
+    <section>
+      <h2>2. Visible participants with <code>@agent</code></h2>
+      <p>Use <code>@agent ...</code> to register or update a resident participant on the current thread.</p>
+      <pre><code>@weles verify claims before answering
+@rarog jump in when the operator looks confused</code></pre>
+      <ul class="check-list">
+        <li>The main thread owner does not change.</li>
+        <li>Repeating <code>@agent</code> updates the participant instead of creating duplicates.</li>
+        <li>Participants stay registered until explicitly stopped.</li>
+      </ul>
+      <p>This is the right mode when you want advisory or visible specialist participation without changing who owns future replies.</p>
+    </section>
+
+    <section>
+      <h2>3. Hidden delegation with <code>!agent</code></h2>
+      <p>Use <code>!agent ...</code> for hidden internal coordination.</p>
+      <pre><code>!weles verify whether this claim is correct
+!rarog prepare a softer operator-facing summary</code></pre>
+      <ul class="check-list">
+        <li>The current visible thread stays where it is.</li>
+        <li>The request is sent internally to the target agent.</li>
+        <li>Current thread context can be attached when delegation originates from an existing thread.</li>
+      </ul>
+      <div class="callout warning">
+        <strong>Use this carefully:</strong> hidden delegation is for coordination, not for silently replacing the visible thread owner.
+      </div>
+    </section>
+
+    <section>
+      <h2>4. Stopping a participant</h2>
+      <p>Participants can be deactivated without changing thread ownership:</p>
+      <pre><code>@weles stop
+@weles leave
+@weles done
+@weles return</code></pre>
+    </section>
+
+    <section>
+      <h2>5. Handoffs are ownership changes</h2>
+      <p>A handoff is different from both <code>@agent</code> and <code>!agent</code>. It changes who owns future replies in the thread. This is the correct tool when another persona should become the primary responder going forward.</p>
+      <ul class="check-list">
+        <li>Ownership changes are explicit and visible.</li>
+        <li>Future operator messages route to the new owner.</li>
+        <li>Linked handoff context can remain hidden while the switch itself is recorded.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>6. Why this model matters</h2>
+      <table>
+        <thead><tr><th>Mechanism</th><th>Use it when</th><th>Do not use it when</th></tr></thead>
+        <tbody>
+          <tr><td><code>@agent</code></td><td>You want visible advisory participation</td><td>You need another agent to own future replies</td></tr>
+          <tr><td><code>!agent</code></td><td>You want hidden internal coordination</td><td>You want the user to talk directly to the other agent</td></tr>
+          <tr><td>handoff</td><td>Ownership should change</td><td>You only need a second opinion or background check</td></tr>
+        </tbody>
+      </table>
+      <p>This keeps thread state honest and prevents multi-agent work from becoming ambiguous to the operator.</p>
+    </section>
+
+    <section>
+      <h2>7. File references and directives</h2>
+      <p>Leading <code>@agent</code> is treated as an agent directive only when it matches a known agent alias. File references still work in other positions, which lets tamux preserve ordinary workspace mention behavior without breaking the directive model.</p>
+    </section>
+
+    <section>
+      <h2>8. Why continuity survives handoffs</h2>
+      <p>Because threads are daemon-owned and memory is shared, handoffs do not reset context. The receiving persona inherits durable thread history, linked runtime state, and the same goal/task associations. This is one of the reasons tamux can function as a real multi-agent environment instead of separate personas living in disconnected chat silos.</p>
+    </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Advanced topics</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-agent architecture</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness &amp; recovery</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon as source of truth</li>
+          <li>Durable goals and continuity</li>
+          <li>Governed autonomy with provenance</li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

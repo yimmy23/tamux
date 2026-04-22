@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Multi-Agent · tamux docs</title>
+  <meta name="description" content="How tamux uses multiple personas, shared daemon state, and role-specific responsibilities to operate as a multi-agent environment." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="multi-agent.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+    <p class="eyebrow">Advanced runtime model</p>
+    <h1>Multi-agent architecture</h1>
+    <p class="lead">tamux is not a single assistant wearing many hats. It hosts multiple agent personas over a shared daemon runtime. Those personas have distinct identities and working styles, but they share the same threads, tasks, memory substrate, safety controls, and durable execution model.</p>
+  </header>
+
+  <section>
+    <h2>1. What “multi-agent” means in tamux</h2>
+    <p>The system hosts multiple specialized personas rather than pretending one generic assistant can cleanly represent every mode of work. Each persona has its own identity scaffold and role logic, but the daemon remains the common authority for state.</p>
+    <div class="callout info">
+      <strong>Important distinction:</strong> the agents are specialized fronts over one shared runtime, not isolated separate applications.
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Shared substrate, distinct personas</h2>
+    <div class="card-grid two-up">
+      <article class="card"><h3>Shared across all personas</h3><p>Threads, tasks, goal runs, approvals, task queue, provenance, memory files, operator model, and persistent daemon state.</p></article>
+      <article class="card"><h3>Distinct per persona</h3><p>SOUL identity, role emphasis, response style, and how the persona is used in visible threads, hidden coordination, or governance review.</p></article>
+    </div>
+    <p>This split matters because it allows tamux to have real specialization without losing continuity when work moves between agents.</p>
+  </section>
+
+  <section>
+    <h2>3. Why personas exist</h2>
+    <ul class="check-list">
+      <li><strong>Svarog</strong> drives primary execution, planning, tool use, and durable work.</li>
+      <li><strong>Rarog</strong> provides lightweight guidance, onboarding, summaries, and conversational glue.</li>
+      <li><strong>Weles</strong> adds governance, risk review, skeptical inspection, and guarded friction.</li>
+      <li>Other fires can be configured for narrower roles such as fast implementation, maintenance, synthesis, or architectural review.</li>
+    </ul>
+    <p>The point is not mythology for its own sake. The point is to encode specialization into runtime behavior and operator expectations.</p>
+  </section>
+
+  <section>
+    <h2>4. Multi-agent does not mean chaotic</h2>
+    <p>tamux keeps multi-agent work legible by using thread ownership, participant registration, hidden delegation, and explicit handoffs rather than letting all agents speak at once. A thread always has a current owner. Other agents may participate or advise, but ownership stays visible.</p>
+    <pre class="diagram"><code>Current thread owner
+|
++-- visible participants (@agent)
++-- hidden internal delegates (!agent)
++-- explicit ownership handoffs
++-- shared daemon memory and task state</code></pre>
+  </section>
+
+  <section>
+    <h2>5. Shared memory is what makes the system coherent</h2>
+    <p>The shared daemon-owned memory stack means that handoffs and sub-agents do not need to rebuild the entire world from scratch. Identity memory, durable fact memory, operator profile, structured runtime state, recall systems, and provenance all give the multi-agent environment continuity.</p>
+    <div class="callout success">
+      <strong>Why this matters:</strong> without shared durable context, “multi-agent” usually degenerates into multiple disconnected chats. tamux avoids that by making the daemon the memory authority.
+    </div>
+  </section>
+
+  <section>
+    <h2>6. Where multi-agent capability shows up</h2>
+    <table>
+      <thead><tr><th>Capability</th><th>How it shows up</th><th>Why it matters</th></tr></thead>
+      <tbody>
+        <tr><td>Visible participants</td><td><code>@agent ...</code> on the current thread</td><td>Lets specialists watch and contribute without changing ownership</td></tr>
+        <tr><td>Hidden coordination</td><td><code>!agent ...</code> internal delegation</td><td>Keeps behind-the-scenes checks out of the visible thread when needed</td></tr>
+        <tr><td>Handoff</td><td>Explicit ownership change to another persona</td><td>Makes thread control honest when another agent should lead</td></tr>
+        <tr><td>Subagents</td><td>Bounded child work with budget and tool filtering</td><td>Splits large tasks without collapsing into unbounded delegation</td></tr>
+        <tr><td>Collaboration protocol</td><td>Shared state, contributions, disagreements, and voting</td><td>Turns multi-agent work into inspectable coordination</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>7. What makes tamux good at multi-agent work</h2>
+    <ul class="check-list">
+      <li>The daemon owns the shared state.</li>
+      <li>Personas are explicit and role-shaped.</li>
+      <li>Visible and hidden coordination are separate mechanisms.</li>
+      <li>Thread ownership is explicit rather than ambiguous.</li>
+      <li>Goals, tasks, approvals, and provenance remain common infrastructure.</li>
+      <li>Memory and learning loops let work compound instead of reset.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>8. Beyond fork-join</h2>
+    <p>The more advanced direction is explicit peer-style collaboration: agents sharing working memory, surfacing disagreements, and voting with confidence rather than only following a simple fork-join hierarchy.</p>
+  </section>
+
+  <section>
+    <h2>9. What would make it fail</h2>
+    <p>The multi-agent model would fail if every persona were configured identically, if ownership were implicit, if hidden delegation replaced visible control, or if shared memory were weak. The current architecture is designed specifically to avoid that collapse.</p>
+  </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Advanced topics</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-agent architecture</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness &amp; recovery</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon as source of truth</li>
+          <li>Durable goals and continuity</li>
+          <li>Governed autonomy with provenance</li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

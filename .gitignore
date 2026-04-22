@@ -11,6 +11,7 @@ crates/amux-daemon/target/
 node_modules
 .ignored_docs
 /target-*
+__pycache__/
 tmp
 .claude
 .superpowers

@@ -394,3 +394,55 @@ fn calendar_manifest_validates_through_plugin_loader() {
         .expect("calendar should have skills");
     assert_eq!(skills.len(), 1);
 }
+
+#[test]
+fn autosearch_manifest_validates_through_plugin_loader() {
+    let root = project_root();
+    let path = root.join("plugins/tamux-plugin-autosearch/autosearch/plugin.json");
+    let raw = std::fs::read(&path).expect("autosearch plugin.json should exist");
+    let validator = make_validator();
+
+    let (manifest, _) =
+        validate_manifest(&raw, &validator).expect("autosearch manifest should pass validation");
+
+    assert_eq!(manifest.name, "autosearch");
+    assert_eq!(manifest.version, "1.0.0");
+    assert_eq!(manifest.schema_version, 1);
+
+    let settings = manifest
+        .settings
+        .as_ref()
+        .expect("autosearch should have settings");
+    assert!(settings.contains_key("workspace_path"));
+    assert!(settings.contains_key("default_command_timeout_sec"));
+
+    assert!(
+        manifest.api.is_none(),
+        "autosearch MVP should not declare api endpoints"
+    );
+
+    let python = manifest
+        .python
+        .as_ref()
+        .expect("autosearch should have top-level python defaults");
+    assert_eq!(python.run_path, None);
+    assert_eq!(python.source, None);
+    assert_eq!(python.dependencies.len(), 0);
+
+    let commands = manifest
+        .commands
+        .as_ref()
+        .expect("autosearch should have commands");
+    assert!(commands.contains_key("check"));
+    assert!(commands.contains_key("prepare"));
+    assert!(commands.contains_key("train"));
+    assert!(commands["check"].python.is_some());
+    assert!(commands["prepare"].python.is_some());
+    assert!(commands["train"].python.is_some());
+
+    let skills = manifest
+        .skills
+        .as_ref()
+        .expect("autosearch should have skills");
+    assert_eq!(skills.len(), 1);
+}

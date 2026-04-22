@@ -5,6 +5,30 @@ use super::*;
 #[path = "task_crud/tasks.rs"]
 mod tasks;
 
+pub(crate) const GOAL_AUTONOMY_TOOL_BLACKLIST: &[&str] = &["ask_questions"];
+
+pub(crate) fn merge_tool_blacklist(
+    existing: Option<Vec<String>>,
+    additions: &[&str],
+) -> Option<Vec<String>> {
+    let mut merged = existing.unwrap_or_default();
+    for addition in additions {
+        let trimmed = addition.trim();
+        if trimmed.is_empty() || merged.iter().any(|entry| entry == trimmed) {
+            continue;
+        }
+        merged.push(trimmed.to_string());
+    }
+    (!merged.is_empty()).then_some(merged)
+}
+
+pub(crate) fn enforce_goal_task_autonomy_tool_blacklist(task: &mut AgentTask) {
+    if task.goal_run_id.is_some() {
+        task.tool_blacklist =
+            merge_tool_blacklist(task.tool_blacklist.take(), GOAL_AUTONOMY_TOOL_BLACKLIST);
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct GoalRunDetailWindow {
     loaded_step_start: usize,

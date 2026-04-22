@@ -4,7 +4,9 @@
 
 use std::sync::Arc;
 
-use super::agent_identity::{is_main_agent_scope, MAIN_AGENT_ID};
+use super::agent_identity::{
+    is_main_agent_scope, MAIN_AGENT_ID, MAIN_AGENT_NAME, WELES_AGENT_NAME,
+};
 use super::task_scheduler::describe_scheduled_time;
 use super::types::*;
 
@@ -40,6 +42,21 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
 
     if let Some(goal_run_id) = task.goal_run_id.as_deref() {
         prompt.push_str(&format!("\nGoal run context: {goal_run_id}"));
+        prompt.push_str(
+            "\nThis task is part of a fully autonomous goal run. Do not stop for operator clarification unless a daemon-owned approval or governance gate explicitly blocks execution.",
+        );
+        prompt.push_str(
+            "\nIn autonomous goal work, ask_questions is intentionally unavailable. Do not create operator-facing question buttons from this task.",
+        );
+        if task.parent_task_id.is_some() {
+            prompt.push_str(&format!(
+                "\nIf you need clarification or a narrow decision from the main executor, use message_agent targeting {MAIN_AGENT_NAME} and ask for the smallest concrete answer needed to continue."
+            ));
+        } else {
+            prompt.push_str(&format!(
+                "\nIf you need a review, challenge, or second opinion before proceeding, use message_agent targeting {WELES_AGENT_NAME} so the review happens on its own internal thread instead of the operator thread."
+            ));
+        }
     }
 
     if let (Some(goal_run_id), Some(goal_step_id), None) = (
@@ -444,6 +461,33 @@ mod tests {
         assert!(prompt.contains("curl"));
         assert!(prompt.contains("wget"));
         assert!(prompt.contains("large or binary"));
+    }
+
+    #[test]
+    fn build_task_prompt_for_goal_run_forbids_operator_questions_and_routes_autonomously() {
+        let mut task = sample_task();
+        task.goal_run_id = Some("goal-123".to_string());
+        task.goal_step_id = Some("step-1".to_string());
+        task.goal_step_title = Some("Review integration notes".to_string());
+
+        let prompt = build_task_prompt(&task);
+
+        assert!(
+            prompt.contains("fully autonomous"),
+            "goal-run prompts should explicitly state autonomous execution"
+        );
+        assert!(
+            prompt.contains("ask_questions is intentionally unavailable"),
+            "goal-run prompts should forbid direct operator questions"
+        );
+        assert!(
+            prompt.contains("message_agent"),
+            "goal-run prompts should redirect blockers into agent-to-agent messaging"
+        );
+        assert!(
+            prompt.contains("Weles"),
+            "main goal tasks should be pointed at the review agent instead of the operator"
+        );
     }
 
     #[test]

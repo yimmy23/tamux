@@ -300,6 +300,30 @@ impl AgentEngine {
         .await
     }
 
+    pub(in crate::agent) async fn resend_existing_user_message_for_task(
+        &self,
+        thread_id: &str,
+        content: &str,
+        task_id: &str,
+    ) -> Result<SendMessageOutcome> {
+        self.send_message_inner_with_options(
+            Some(thread_id),
+            content,
+            None,
+            Some(task_id),
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            true,
+            true,
+            true,
+        )
+        .await
+    }
+
     pub(in crate::agent) async fn continue_existing_user_message_without_queue_drain(
         &self,
         thread_id: &str,

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plugins · tamux docs</title>
+  <meta name="description" content="Plugin system overview, in-tree and runtime-installed plugins, interface shape, assistant tools, and publishing model." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="plugins.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+      <p class="eyebrow">Extensibility</p>
+      <h1>The tamux plugin system</h1>
+      <p class="lead">tamux plugins are frontend-registered extensions that can contribute components, commands, YAML views, assistant-callable tools and executors, plus startup and teardown hooks. This is how tamux grows beyond built-in features without forcing every vertical workflow into core.</p>
+    </header>
+
+    <section>
+      <h2>1. What a plugin can contribute</h2>
+      <div class="card-grid two-up">
+        <article class="card"><h3>React components</h3><p>Custom UI panels and embedded components.</p></article>
+        <article class="card"><h3>Commands</h3><p>Explicit UI actions and slash-command style behaviors.</p></article>
+        <article class="card"><h3>YAML views</h3><p>Plugin-owned view documents persisted under the plugin views path.</p></article>
+        <article class="card"><h3>Assistant tools</h3><p>Function-style tools that the built-in assistant can call at runtime.</p></article>
+        <article class="card"><h3>Executors</h3><p>Runtime handlers for plugin tools and plugin-owned actions.</p></article>
+        <article class="card"><h3>Lifecycle hooks</h3><p>Startup and teardown logic via <code>onLoad</code> and <code>onUnload</code>.</p></article>
+      </div>
+    </section>
+
+    <section>
+      <h2>2. Plugin models</h2>
+      <div class="card-grid two-up">
+        <article class="card">
+          <h3>In-tree plugins</h3>
+          <p>Live under <code>frontend/src/plugins</code>, are imported during app startup, and are built with the main frontend. This is the model used by built-in plugin-style extensions such as coding agents.</p>
+        </article>
+        <article class="card">
+          <h3>Runtime-installed npm plugins</h3>
+          <p>Installed with <code>tamux install plugin &lt;npm-package-or-local-path&gt;</code>. They ship as self-contained browser scripts that register themselves through <code>window.TamuxApi.registerPlugin(...)</code>.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>3. Runtime plugin interface</h2>
+      <pre><code>export interface Plugin {
+  id: string;
+  name: string;
+  version: string;
+  components?: Record&lt;string, React.ComponentType&lt;any&gt;&gt;;
+  commands?: Record&lt;string, CommandAction&gt;;
+  views?: Record&lt;string, unknown&gt;;
+  assistantTools?: PluginAssistantToolDefinition[];
+  assistantToolExecutors?: Record&lt;string, PluginAssistantToolExecutor&gt;;
+  onLoad?: () =&gt; void;
+  onUnload?: () =&gt; void;
+}</code></pre>
+      <p>Names are namespaced automatically. Components become <code>${plugin.id}:${name}</code>. The same namespacing logic applies to commands.</p>
+    </section>
+
+    <section>
+      <h2>4. npm packaging contract</h2>
+      <p>Runtime-installed plugins should expose a <code>tamuxPlugin</code> field in <code>package.json</code> (the older <code>amuxPlugin</code> alias is still accepted for compatibility).</p>
+      <pre><code>{
+  "name": "tamux-plugin-example",
+  "version": "0.6.3",
+  "tamuxPlugin": {
+    "entry": "dist/tamux-plugin.js",
+    "format": "script"
+  }
+}</code></pre>
+      <ul class="check-list">
+        <li><code>entry</code> is required.</li>
+        <li>Only <code>format: "script"</code> is currently supported.</li>
+        <li>The entry bundle must be self-contained and directly executable in the renderer.</li>
+        <li>Published packages must already contain built entry assets because installers run with <code>npm install --ignore-scripts</code>.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>5. Views, commands, and assistant tools</h2>
+      <table>
+        <thead><tr><th>Extension point</th><th>When to use it</th><th>Typical output</th></tr></thead>
+        <tbody>
+          <tr><td>Components</td><td>You need custom UI</td><td>Custom panels and renderable nodes</td></tr>
+          <tr><td>Commands</td><td>You need explicit user-triggered actions</td><td>Buttons, command palette actions, slash-style actions</td></tr>
+          <tr><td>Views</td><td>You own a whole surface</td><td>Plugin YAML views under <code>views/plugins</code></td></tr>
+          <tr><td>Assistant tools</td><td>The built-in assistant should call your plugin directly</td><td>Function-tool style schemas + runtime execution</td></tr>
+        </tbody>
+      </table>
+      <p>A plugin should not add a core view just because it can. Use a plugin when the feature is truly plugin-owned or vertical-specific.</p>
+    </section>
+
+    <section>
+      <h2>6. Gmail plugin as a reference pattern</h2>
+      <p>The repository includes a Gmail/Calendar plugin package whose manifest shows the shape of a runtime-installed integration:</p>
+      <ul class="check-list">
+        <li>plugin metadata (<code>name</code>, <code>version</code>, compatibility)</li>
+        <li>auth block (OAuth2, scopes, PKCE)</li>
+        <li>settings fields</li>
+        <li>API base URL and endpoint templates</li>
+        <li>commands mapped to actions</li>
+        <li>optional bundled skills</li>
+      </ul>
+      <p>That is a good reference for service plugins. More ambitious vertical plugins can use the same extension model but add plugin-owned views and assistant tools on top.</p>
+    </section>
+
+    <section>
+      <h2>7. Plugin author workflow</h2>
+      <ol class="numbered-list">
+        <li>Decide whether the plugin is in-tree or runtime-installed.</li>
+        <li>Define the plugin <code>id</code>, surface area, and namespaced commands/components.</li>
+        <li>Create views and components only where the plugin truly owns a workflow.</li>
+        <li>Add assistant tools only when the built-in assistant should invoke the plugin directly.</li>
+        <li>Package as a self-contained script if you want runtime installation.</li>
+        <li>Install with <code>tamux install plugin</code> and validate in the actual UI runtime.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>8. When to use a plugin instead of core</h2>
+      <div class="callout success">
+        <strong>Use a plugin</strong> when the feature is a domain-specific extension, owns its own UI/workflow, or adds commands/tools that should stay decoupled from tamux core.
+      </div>
+      <div class="callout warning">
+        <strong>Use core</strong> when the feature belongs to tamux itself: daemon state, built-in mission control, native task/goals flows, or platform-wide primitives.
+      </div>
+    </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon is the source of truth</li>
+          <li>Goals are durable orchestration units</li>
+          <li>Memory and governance are first-class</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Pages</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-Agent</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; Handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

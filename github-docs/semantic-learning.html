@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Semantic & Learning · tamux docs</title>
+  <meta name="description" content="Semantic environment model, operator model, collaboration, generated tools, skill evolution, and higher-order learning features in tamux." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="semantic-learning.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+  <p class="eyebrow">Higher-order capabilities</p>
+  <h1>Semantic environment, learning loops, and generated tools</h1>
+  <p class="lead">tamux already goes beyond simple message history and tool calling. It includes operator modeling, semantic workspace inspection, collaboration state, provenance-backed memory, skill evolution, and runtime tool synthesis.</p>
+</header>
+
+<section>
+  <h2>1. Operator model</h2>
+  <p>The daemon can learn aggregate patterns about the operator such as output density preference, approval behavior, session rhythm, attention transitions, and implicit feedback signals. That lets future responses and execution choices adapt to the actual user rather than a generic prompt assumption.</p>
+</section>
+
+<section>
+  <h2>2. Semantic environment model</h2>
+  <p>The daemon can answer bounded semantic questions about the local workspace, such as packages, dependencies, Compose services, Terraform modules, Kubernetes resources, imports, conventions, and temporal workspace history.</p>
+  <div class="callout info">
+    <strong>Why this matters:</strong> the runtime can reason about a real project structure instead of treating the workspace as undifferentiated text.
+  </div>
+</section>
+
+<section>
+  <h2>3. Collaboration protocol</h2>
+  <p>Subagents and collaborating agents can use explicit collaboration sessions with contributions, disagreements, votes, and persisted shared state. That turns multi-agent reasoning into something inspectable and comparable.</p>
+</section>
+
+<section>
+  <h2>4. Genetic skill evolution</h2>
+  <p>Skills are not static notes. tamux tracks usage, success and failure settlement, promotion, deprecation, archive behavior, branching, and merge/convergence back into canonical variants.</p>
+</section>
+
+<section>
+  <h2>5. Runtime tool synthesis</h2>
+  <p>When enabled, tamux can synthesize guarded tools from conservative CLI or OpenAPI surfaces, keep them in a registry, and promote proven tools into reusable assets. This is a major differentiator because the system can expand its own safe tool surface over time.</p>
+</section>
+
+<section>
+  <h2>6. Anticipatory and causal intelligence</h2>
+  <p>The richer intelligence story also includes anticipatory pre-loading and causal execution traces. That means the system can pre-warm context before work starts and later explain not only what it did, but why it chose one path over others.</p>
+</section>
+
+<section>
+  <h2>7. Why these features matter together</h2>
+  <ul class="check-list">
+    <li>Operator model helps the system adapt.</li>
+    <li>Semantic environment helps the system understand real code/workspaces.</li>
+    <li>Skill evolution helps the system preserve winning procedures.</li>
+    <li>Generated tools help the system extend its safe action space.</li>
+    <li>Provenance keeps those gains auditable instead of magical.</li><li>Anticipatory and causal layers make the system more collaborative and less purely reactive.</li>
+  </ul>
+</section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Deep dives</h3>
+        <ul>
+          <li><a href="mission-control.html">Mission Control</a></li>
+          <li><a href="task-queue-subagents.html">Tasks &amp; Subagents</a></li>
+          <li><a href="semantic-learning.html">Semantic &amp; Learning</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Surfaces</h3>
+        <ul>
+          <li><a href="tui.html">TUI</a></li>
+          <li><a href="gateway-mcp.html">Gateway &amp; MCP</a></li>
+          <li><a href="plugins.html">Plugins</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

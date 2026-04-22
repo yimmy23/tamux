@@ -16,6 +16,30 @@ impl AgentEngine {
             .map(str::trim)
             .filter(|command| !command.is_empty())
             .map(str::to_string)
+            .or_else(|| {
+                task.command
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|command| !command.is_empty())
+                    .map(str::to_string)
+            })
+    }
+
+    pub(crate) async fn remember_pending_approval_command(
+        &self,
+        pending_approval: &ToolPendingApproval,
+    ) {
+        self.pending_approval_commands.write().await.insert(
+            pending_approval.approval_id.clone(),
+            pending_approval.command.clone(),
+        );
+    }
+
+    pub(crate) async fn forget_pending_approval_command(&self, approval_id: &str) {
+        self.pending_approval_commands
+            .write()
+            .await
+            .remove(approval_id);
     }
 
     pub(in crate::agent) async fn has_policy_escalation_session_grant(
@@ -83,6 +107,15 @@ impl AgentEngine {
                     .then(|| Self::approval_command_from_task(task))
                     .flatten()
             })
+        };
+        let command = match command {
+            Some(command) => Some(command),
+            None => self
+                .pending_approval_commands
+                .read()
+                .await
+                .get(approval_id)
+                .cloned(),
         };
         let Some(command) = command else {
             return Ok(None);
@@ -275,6 +308,8 @@ impl AgentEngine {
                 initial_schedule_reason,
             )],
         };
+        let mut task = task;
+        super::enforce_goal_task_autonomy_tool_blacklist(&mut task);
 
         self.tasks.lock().await.push_back(task);
         let task = self

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Goal Runners · tamux docs</title>
+  <meta name="description" content="Detailed explanation of tamux goal runners, lifecycle, approvals, child tasks, durable outputs, and the evolving goal-oriented surfaces around them." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="goal-runners.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+  <p class="eyebrow">Durable autonomy</p>
+  <h1>Goal runners</h1>
+  <p class="lead">Goal runners are tamux’s long-running autonomy layer. They let you hand the daemon a multi-step objective and have it plan, execute, replan, pause for approval, reflect, and preserve what it learns.</p>
+</header>
+
+<section>
+  <h2>1. What a goal run does</h2>
+  <ol class="numbered-list">
+    <li>Accepts a high-level objective from the UI or tool layer.</li>
+    <li>Uses the built-in daemon agent to generate a structured plan.</li>
+    <li>Converts executable steps into child tasks on the daemon queue.</li>
+    <li>Monitors retries, failures, approvals, and completion.</li>
+    <li>Reflects on the final trajectory.</li>
+    <li>May write durable memory and generate a reusable skill.</li>
+  </ol>
+  <div class="callout info">
+    <strong>Important:</strong> goal runners sit above the task queue. They orchestrate durable work; they do not replace the queue machinery underneath.
+  </div>
+</section>
+
+<section>
+  <h2>2. Top-level lifecycle</h2>
+  <table>
+    <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>queued</code></td><td>The daemon accepted the goal but planning has not started.</td></tr>
+      <tr><td><code>planning</code></td><td>The runtime is building the initial structured plan.</td></tr>
+      <tr><td><code>running</code></td><td>Execution is active or waiting on child-task progress.</td></tr>
+      <tr><td><code>awaiting_approval</code></td><td>A child task hit an approval boundary.</td></tr>
+      <tr><td><code>paused</code></td><td>Orchestration is paused by the operator.</td></tr>
+      <tr><td><code>completed</code></td><td>Steps finished and the final reflection was recorded.</td></tr>
+      <tr><td><code>failed</code></td><td>The run exhausted replanning or failed irrecoverably.</td></tr>
+      <tr><td><code>cancelled</code></td><td>The operator cancelled the run.</td></tr>
+    </tbody>
+  </table>
+  <p>Step-level status is tracked separately with <code>pending</code>, <code>in_progress</code>, <code>completed</code>, <code>failed</code>, and <code>skipped</code>.</p>
+</section>
+
+<section>
+  <h2>3. Launch flow in goal-oriented surfaces</h2>
+  <p>Goal runs are launched from daemon clients, and richer Mission Control-style preflight is still evolving. What is already shipped is the durable goal object itself plus client surfaces that can expose the requested outcome, provider/model choices, role roster, and inherited defaults before or after launch.</p>
+  <ul class="check-list">
+    <li><strong>Goal prompt:</strong> what the run is trying to accomplish.</li>
+    <li><strong>Primary agent:</strong> the main provider/model/reasoning choice.</li>
+    <li><strong>Role assignments:</strong> which runtime roster will be used for planning and execution.</li>
+    <li><strong>Preset source:</strong> whether the roster came from prior snapshot state or current main-agent inheritance.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>4. Execution visibility today</h2>
+  <div class="card-grid two-up">
+    <article class="card"><h3>Goal overview</h3><p>Status, current step, approvals, and run controls.</p></article>
+    <article class="card"><h3>Execution feed</h3><p>Live tool calls, file updates, messages, errors, and TODO changes.</p></article>
+    <article class="card"><h3>Thread router</h3><p>Open the active execution thread while preserving a “return to goal” path.</p></article>
+    <article class="card"><h3>Step board and dossier</h3><p>See step-level history, evidence, reports, and run-level summaries.</p></article>
+  </div>
+  <p>During a run, Goals stays the orchestration surface and Threads stays the conversational surface. In the TUI this already includes a real goal workspace with goal, files, progress, active-agent, threads, and needs-attention modes; richer desktop goal shells continue to mature around the same daemon state.</p>
+</section>
+
+<section>
+  <h2>5. Child tasks and the queue</h2>
+  <p>Each executable plan step becomes a child task. Those tasks inherit the normal daemon machinery:</p>
+  <ul class="check-list">
+    <li>lane scheduling</li>
+    <li>session affinity</li>
+    <li>retry policy</li>
+    <li>approval waiting state</li>
+    <li>managed terminal execution</li>
+    <li>queue visibility and control</li>
+  </ul>
+  <p>This design keeps goal runners consistent with the rest of tamux instead of inventing a separate execution runtime.</p>
+</section>
+
+<section>
+  <h2>6. Approvals and replanning</h2>
+  <p>When a child task hits an approval gate, the task enters <code>awaiting_approval</code> and the goal run surfaces the same blocked state. Once the operator resolves the approval request, work resumes.</p>
+  <p>When a child task fails, the goal runner records the failure and decides whether to replan. If replanning budget remains, the daemon asks for revised remaining steps. If not, the run becomes <code>failed</code>.</p>
+  <div class="callout warning">
+    <strong>Operational nuance:</strong> pausing a goal run stops future orchestration but does not forcibly kill a child task that is already running.
+  </div>
+</section>
+
+<section>
+  <h2>7. Durable outputs</h2>
+  <p>On successful completion, goal runners can produce two especially important durable outputs:</p>
+  <ul class="check-list">
+    <li><strong>Memory update:</strong> appended only when a stable fact, operator preference, or durable strategy hint is identified.</li>
+    <li><strong>Generated skill:</strong> a procedural artifact derived from a successful trajectory.</li>
+  </ul>
+  <p>The structured run history itself stays persisted in SQLite while the editable memory and skill artifacts remain on disk.</p>
+</section>
+
+<section>
+  <h2>8. When to use a goal run</h2>
+  <ul class="check-list">
+    <li>The task will take multiple steps.</li>
+    <li>You want approvals and child-task visibility.</li>
+    <li>You want work to survive closing a client UI.</li>
+    <li>You want reflection, reusable skills, or durable memory from the result.</li>
+  </ul>
+  <p>Use a normal chat turn when the task is short, disposable, or only needs reasoning rather than durable orchestration.</p>
+</section>
+
+<section>
+  <h2>9. Example first goals</h2>
+  <div class="card-grid">
+    <article class="card"><h3>Build investigation</h3><p>Investigate a failing build, identify the root cause, propose the smallest safe fix, and capture the workflow as a skill.</p></article>
+    <article class="card"><h3>Release readiness</h3><p>Assemble a release checklist, verify packaging outputs, and summarize blockers before shipping.</p></article>
+    <article class="card"><h3>Research synthesis</h3><p>Collect, compare, and summarize domain information into a durable artifact with follow-up goals.</p></article>
+  </div>
+</section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon is the source of truth</li>
+          <li>Goals are durable orchestration units</li>
+          <li>Memory and governance are first-class</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Pages</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-Agent</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; Handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

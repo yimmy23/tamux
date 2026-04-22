@@ -178,88 +178,124 @@ async fn execute_managed_command(
                 &pending_approval.risk_level,
             )
             .to_string();
+            agent
+                .remember_pending_approval_command(&pending_approval)
+                .await;
 
-            match agent
-                .learned_approval_decision(&pending_approval.command, &pending_approval.risk_level)
+            if agent
+                .mark_task_approval_rule_used(&pending_approval.command)
                 .await
             {
-                Some(amux_protocol::ApprovalDecision::ApproveOnce)
-                | Some(amux_protocol::ApprovalDecision::ApproveSession) => {
-                    agent
-                        .record_operator_approval_requested(&pending_approval)
-                        .await?;
-                    let responses = session_manager
-                        .resolve_approval(
-                            resolved_session_id,
-                            &pending_approval.approval_id,
-                            amux_protocol::ApprovalDecision::ApproveOnce,
+                agent
+                    .record_operator_approval_requested(&pending_approval)
+                    .await?;
+                let responses = session_manager
+                    .resolve_approval(
+                        resolved_session_id,
+                        &pending_approval.approval_id,
+                        amux_protocol::ApprovalDecision::ApproveOnce,
+                    )
+                    .await?;
+                agent
+                    .record_operator_approval_resolution(
+                        &pending_approval.approval_id,
+                        amux_protocol::ApprovalDecision::ApproveOnce,
+                    )
+                    .await?;
+                responses
+                    .into_iter()
+                    .find(|message| matches!(message, DaemonMessage::ManagedCommandQueued { .. }))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "managed command auto-approved by saved rule but queue response was missing"
                         )
-                        .await?;
-                    agent
-                        .record_operator_approval_resolution(
-                            &pending_approval.approval_id,
-                            amux_protocol::ApprovalDecision::ApproveOnce,
-                        )
-                        .await?;
-                    responses
-                        .into_iter()
-                        .find(|message| {
-                            matches!(message, DaemonMessage::ManagedCommandQueued { .. })
-                        })
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "managed command auto-approved but queue response was missing"
+                    })?
+            } else {
+                match agent
+                    .learned_approval_decision(
+                        &pending_approval.command,
+                        &pending_approval.risk_level,
+                    )
+                    .await
+                {
+                    Some(amux_protocol::ApprovalDecision::ApproveOnce)
+                    | Some(amux_protocol::ApprovalDecision::ApproveSession) => {
+                        agent
+                            .record_operator_approval_requested(&pending_approval)
+                            .await?;
+                        let responses = session_manager
+                            .resolve_approval(
+                                resolved_session_id,
+                                &pending_approval.approval_id,
+                                amux_protocol::ApprovalDecision::ApproveOnce,
                             )
-                        })?
-                }
-                Some(amux_protocol::ApprovalDecision::Deny) => {
-                    agent
-                        .record_operator_approval_requested(&pending_approval)
-                        .await?;
-                    let responses = session_manager
-                        .resolve_approval(
-                            resolved_session_id,
-                            &pending_approval.approval_id,
-                            amux_protocol::ApprovalDecision::Deny,
-                        )
-                        .await?;
-                    agent
-                        .record_operator_approval_resolution(
-                            &pending_approval.approval_id,
-                            amux_protocol::ApprovalDecision::Deny,
-                        )
-                        .await?;
-                    let rejection_message = responses
-                        .iter()
-                        .find_map(|message| match message {
-                            DaemonMessage::ManagedCommandRejected { message, .. } => {
-                                Some(message.clone())
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or_else(|| {
-                            "execution denied by learned operator policy".to_string()
-                        });
-                    return Ok((
+                            .await?;
+                        agent
+                            .record_operator_approval_resolution(
+                                &pending_approval.approval_id,
+                                amux_protocol::ApprovalDecision::ApproveOnce,
+                            )
+                            .await?;
+                        responses
+                            .into_iter()
+                            .find(|message| {
+                                matches!(message, DaemonMessage::ManagedCommandQueued { .. })
+                            })
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "managed command auto-approved but queue response was missing"
+                                )
+                            })?
+                    }
+                    Some(amux_protocol::ApprovalDecision::Deny) => {
+                        agent
+                            .record_operator_approval_requested(&pending_approval)
+                            .await?;
+                        let responses = session_manager
+                            .resolve_approval(
+                                resolved_session_id,
+                                &pending_approval.approval_id,
+                                amux_protocol::ApprovalDecision::Deny,
+                            )
+                            .await?;
+                        agent
+                            .record_operator_approval_resolution(
+                                &pending_approval.approval_id,
+                                amux_protocol::ApprovalDecision::Deny,
+                            )
+                            .await?;
+                        let rejection_message = responses
+                            .iter()
+                            .find_map(|message| match message {
+                                DaemonMessage::ManagedCommandRejected { message, .. } => {
+                                    Some(message.clone())
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or_else(|| {
+                                "execution denied by learned operator policy".to_string()
+                            });
+                        return Ok((
                         format!(
                             "Managed command auto-denied by learned operator policy for category {}. {}",
                             command_category, rejection_message
                         ),
                         None,
                     ));
-                }
-                None => {
-                    return Ok((
-                        format!(
-                            "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
-                            pending_approval.approval_id,
-                            pending_approval.risk_level,
-                            pending_approval.blast_radius,
-                            pending_approval.command,
-                            pending_approval.reasons.join("\n- "),
-                        ),
-                        Some(pending_approval),
-                    ));
+                    }
+                    None => {
+                        return Ok((
+                            format!(
+                                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                                pending_approval.approval_id,
+                                pending_approval.risk_level,
+                                pending_approval.blast_radius,
+                                pending_approval.command,
+                                pending_approval.reasons.join("\n- "),
+                            ),
+                            Some(pending_approval),
+                        ));
+                    }
                 }
             }
         }

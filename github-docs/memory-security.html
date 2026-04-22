@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Memory & Security · tamux docs</title>
+  <meta name="description" content="Layered memory model, provenance, durable facts, governance, approvals, critique, and structural risk in tamux." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="memory-security.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+  <p class="eyebrow">Persistence and governance</p>
+  <h1>Memory and security in tamux</h1>
+  <p class="lead">tamux memory is layered, curated, and daemon-owned. Security is a governance and trust control plane around transitions, approvals, provenance, isolation, critique, and auditability—not just a warning before shell execution.</p>
+</header>
+
+<section>
+  <h2>1. The memory stack</h2>
+  <div class="card-grid">
+    <article class="card"><h3>SOUL.md</h3><p>Identity memory: role, principles, operating identity, and stable specialization hints.</p></article>
+    <article class="card"><h3>MEMORY.md</h3><p>Durable fact and strategy memory: project facts, conventions, recurring corrections, and stable workflow rules.</p></article>
+    <article class="card"><h3>USER.md</h3><p>Operator profile memory: preferences, workflow signals, and user-facing profile information.</p></article>
+    <article class="card"><h3>Structured runtime memory</h3><p>Threads, tasks, goal runs, checkpoints, telemetry, operator profile records, and causal traces in daemon-owned persistence.</p></article>
+    <article class="card"><h3>Recall memory</h3><p>Search and retrieval surfaces such as session search, history search, and optional cross-session recall integrations.</p></article>
+    <article class="card"><h3>Procedural memory</h3><p>Skills and generated workflows: reusable procedures rather than just facts.</p></article>
+  </div>
+  <p>If you describe tamux memory as “three markdown files,” you are describing only the most visible surface, not the full system.</p>
+  <div class="callout info">
+    <strong>Status note:</strong> provenance-backed writes, reports, confirm/retract actions, and critique/session records are implemented in the runtime today. Richer inspection UI exists unevenly across clients, so surface parity is still catching up to the backend.
+  </div>
+</section>
+
+<section>
+  <h2>2. Why memory is daemon-owned</h2>
+  <ul class="check-list">
+    <li>Memory survives UI restarts and disconnects.</li>
+    <li>Multiple clients can reconnect to the same durable context.</li>
+    <li>Handoffs and subagents can share persistent state honestly.</li>
+    <li>Learning loops can operate over real persisted history.</li>
+  </ul>
+  <p>That is one of the sharpest distinctions between tamux and disposable terminal chat shells.</p>
+</section>
+
+<section>
+  <h2>3. The memory write pipeline</h2>
+  <ol class="numbered-list">
+    <li>A candidate durable fact, preference, or strategy hint emerges from a thread, task, goal, or reflection.</li>
+    <li>The runtime decides which memory layer it belongs to.</li>
+    <li>The write is bounded and normalized instead of dumping raw history.</li>
+    <li>Contradiction and replacement rules are applied when needed.</li>
+    <li>The memory artifact is updated.</li>
+    <li>Provenance metadata is persisted alongside the write.</li>
+  </ol>
+  <div class="callout info">
+    <strong>Curation is the point:</strong> without it, memory becomes a bloated transcript graveyard and loses its value.
+  </div>
+</section>
+
+<section>
+  <h2>4. Security as a control plane</h2>
+  <p>tamux security is broader than “don’t run dangerous shell commands.” It is governance around transitions, side effects, scope, reversibility, provenance, isolation, critique, and operator authority.</p>
+  <div class="card-grid two-up">
+    <article class="card"><h3>Execution substrate</h3><p>Reports what happened or what is about to happen.</p></article>
+    <article class="card"><h3>Orchestration plane</h3><p>Manages runs, stages, lanes, retries, and advancement.</p></article>
+    <article class="card"><h3>Governance plane</h3><p>Decides whether advancement is allowed, constrained, deferred, denied, or isolated.</p></article>
+    <article class="card"><h3>Audit layer</h3><p>Preserves provenance and operator-visible history for later inspection and trust.</p></article>
+  </div>
+</section>
+
+<section>
+  <h2>5. Governance acts on transitions</h2>
+  <p>One of the most important design ideas in tamux security is that risk applies to transitions, not just raw commands. Examples include:</p>
+  <ul class="check-list">
+    <li>run admission</li>
+    <li>lane admission</li>
+    <li>stage advancement</li>
+    <li>retry</li>
+    <li>blocked-to-resumed</li>
+    <li>final disposition</li>
+  </ul>
+  <p>The same command string can have very different risk depending on target scope, retries, sandbox posture, concurrency, and provenance continuity.</p>
+</section>
+
+<section>
+  <h2>6. Structured verdicts instead of booleans</h2>
+  <table>
+    <thead><tr><th>Verdict</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>allow</code></td><td>Proceed normally.</td></tr>
+      <tr><td><code>allow_with_constraints</code></td><td>Proceed, but only with narrowed scope or constraints.</td></tr>
+      <tr><td><code>require_approval</code></td><td>Operator must explicitly authorize the transition.</td></tr>
+      <tr><td><code>defer</code></td><td>Do not proceed yet; more conditions must be satisfied.</td></tr>
+      <tr><td><code>deny</code></td><td>Do not perform the action.</td></tr>
+      <tr><td><code>halt_and_isolate</code></td><td>Stop and isolate the work because risk is too high.</td></tr>
+      <tr><td><code>allow_only_with_compensation_plan</code></td><td>Proceed only if mitigation/compensation is explicitly attached.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>7. Approvals are scope-bound and can go stale</h2>
+  <p>Approvals in tamux are intended to bind to real execution conditions:</p>
+  <ul class="check-list">
+    <li>target scope</li>
+    <li>risk rationale</li>
+    <li>attached constraints</li>
+    <li>freshness/expiry window</li>
+    <li>policy fingerprint</li>
+  </ul>
+  <p>An approval can become stale if the target scope widens, privilege posture changes, sandbox availability changes, or the action shifts from read-only to side-effecting work.</p>
+</section>
+
+<section>
+  <h2>8. Critique before risky action</h2>
+  <p>tamux already includes a real adversarial self-critique subsystem for risky or suspicious tool executions. It uses advocate, critic, and arbiter roles to decide whether a risky action should proceed, be rewritten into a safer variant, or require confirmation.</p>
+  <div class="callout warning">
+    <strong>Why this matters:</strong> critique is not prompt theater here. It is part of the structured runtime and its sessions can be retrieved and inspected.</div>
+</section>
+
+<section>
+  <h2>9. Provenance is a safety dependency</h2>
+  <p>Provenance is not just for later analytics. The system should be able to show:</p>
+  <ul class="check-list">
+    <li>who initiated the action</li>
+    <li>what policy inputs were evaluated</li>
+    <li>what verdict was returned</li>
+    <li>what approval authorized the step</li>
+    <li>what tool or command actually ran</li>
+  </ul>
+  <p>If provenance continuity is weak, the system should not pretend side effects were safely governed.</p>
+</section>
+
+<section>
+  <h2>10. Memory as a moat</h2>
+  <p>The sharper public description is that tamux combines readable curated memory, structured operational memory, and provenance-aware lifecycle control. That makes its memory system substantially stronger than a single context window or generic vector-store framing.</p>
+</section>
+
+<section>
+  <h2>11. Practical operator advice</h2>
+  <ul class="check-list">
+    <li>Write only durable facts, preferences, or strategy hints into memory—not task progress.</li>
+    <li>Treat prior approval as stale when scope, privilege posture, or execution mode changes materially.</li>
+    <li>Use goal runners when the work needs visible approvals, checkpoints, and durable state.</li>
+    <li>Prefer bounded work and clear verification paths; that improves both safety and memory quality.</li>
+  </ul>
+</section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon is the source of truth</li>
+          <li>Goals are durable orchestration units</li>
+          <li>Memory and governance are first-class</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Pages</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-Agent</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; Handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

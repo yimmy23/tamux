@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Architecture · tamux docs</title>
+  <meta name="description" content="Technical deep dive into the tamux daemon, clients, agent runtime, task queue, goal runners, and self-orchestration layers." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="architecture.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+      <p class="eyebrow">Technical deep dive</p>
+      <h1>The tamux runtime architecture</h1>
+      <p class="lead">tamux is a daemon-first multiplexer with an agent runtime built into the daemon. The key to understanding the system is seeing where state lives, how the agent executes work, and how durability, safety, and learning sit above the hot path.</p>
+    </header>
+
+    <section>
+      <h2>1. System boundary</h2>
+      <p>The important architectural boundary is that the daemon owns state and the UIs are clients of that state. That sounds simple, but it changes the entire product model. Sessions, goal runs, tasks, threads, approvals, memory, transcripts, and telemetry do not belong to the current browser window or terminal tab.</p>
+      <pre class="diagram"><code>Operator
+  +-- Electron / React UI
+  +-- TUI
+  +-- CLI
+  +-- MCP clients
+  +-- Chat gateways
+
+
+           tamux daemon
+
+       state + execution + memory</code></pre>
+    </section>
+
+    <section>
+      <h2>2. Main runtime components</h2>
+      <div class="card-grid">
+        <article class="card"><h3>Daemon</h3><p>Owns PTY sessions, workspace state, agent threads, task queue, goal runs, approvals, persistence, telemetry, and memory.</p></article>
+        <article class="card"><h3>Clients</h3><p>Electron, TUI, CLI, MCP, and gateways are alternate operator surfaces over the same daemon-owned runtime.</p></article>
+        <article class="card"><h3>Session manager</h3><p>Handles PTY lifecycle, terminal input/output, history, transcript indexing, mission event rows, and snapshot metadata.</p></article>
+        <article class="card"><h3>Agent runtime</h3><p>Runs threaded conversations, tool execution, background tasks, goal planning, memory maintenance, health supervision, and learning loops.</p></article>
+      </div>
+    </section>
+
+    <section>
+      <h2>3. Thread, task, and goal relationships</h2>
+      <p>tamux separates short conversational turns from durable execution:</p>
+      <ul class="check-list">
+        <li><strong>Threads</strong> hold persisted conversations and tool messages.</li>
+        <li><strong>Tasks</strong> are daemon-owned units of work with status, priority, dependencies, retries, and session affinity.</li>
+        <li><strong>Goal runs</strong> are the durable autonomy layer that plans, dispatches child tasks, monitors progress, replans, and reflects.</li>
+      </ul>
+      <div class="callout info">
+        <strong>Practical rule:</strong> goal runs sit above the queue. They do not replace it. They use it.
+      </div>
+    </section>
+
+    <section>
+      <h2>4. The execution hot path</h2>
+      <ol class="numbered-list">
+        <li>A user or external client sends a message into a daemon thread.</li>
+        <li>The daemon persists the message immediately.</li>
+        <li>The runtime builds a prompt from system prompt, SOUL/MEMORY/USER, skills, operator model, operational context, and optional recall systems.</li>
+        <li>The agent executes a bounded loop of model calls and tool calls.</li>
+        <li>Tool results are persisted back into the thread.</li>
+        <li>The assistant result is stored and broadcast to clients.</li>
+        <li>Background learning, provenance, and health state are updated around the turn.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>5. Self-orchestrating layers</h2>
+      <pre class="diagram"><code>Layer 3: Learning
+  traces · patterns · heuristics · effectiveness
+Layer 2: Meta-cognition
+  self-assessment · replanning · escalation · resource allocation
+Layer 1: Liveness &amp; monitoring
+  checkpoints · health monitor · stuck detection · recovery
+Layer 0: Execution
+  agent loop · dispatcher · tool executor · goal planner</code></pre>
+      <div class="card-grid two-up">
+        <article class="card">
+          <h3>Layer 0 — Execution</h3>
+          <p>The hot path: LLM streaming, tool calls, child-task dispatch, goal-step progression, and direct runtime work.</p>
+        </article>
+        <article class="card">
+          <h3>Layer 1 — Liveness</h3>
+          <p>Checkpointing, health monitoring, stuck detection, and recovery make long-running work durable instead of brittle.</p>
+        </article>
+        <article class="card">
+          <h3>Layer 2 — Meta-cognition</h3>
+          <p>The runtime can assess its own progress, dynamically replan, escalate through multiple levels, and manage resource pressure.</p>
+        </article>
+        <article class="card">
+          <h3>Layer 3 — Learning</h3>
+          <p>Execution traces, pattern mining, heuristics, and tool-effectiveness tracking help future runs make better decisions.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>6. Important agent subsystems</h2>
+      <table>
+        <thead><tr><th>Subsystem</th><th>Purpose</th><th>Why it matters</th></tr></thead>
+        <tbody>
+          <tr><td>Goal planner</td><td>Creates plans, replans, reflections, and goal-step lifecycle</td><td>Turns objectives into durable structured work</td></tr>
+          <tr><td>Tool executor</td><td>Routes tool calls to the right subsystem</td><td>Makes tool use a persisted runtime path, not just prompt text</td></tr>
+          <tr><td>Checkpointing</td><td>Saves pre/post-step state and runtime context</td><td>Enables recovery and honest long-lived state</td></tr>
+          <tr><td>Health monitor</td><td>Assesses degradation, stuck behavior, and crashes</td><td>Prevents silent failure in long autonomous work</td></tr>
+          <tr><td>Escalation</td><td>Moves from self-correction to sub-agent to operator to external notice</td><td>Lets autonomy fail safely instead of blindly retrying forever</td></tr>
+          <tr><td>Learning traces</td><td>Captures tool and execution patterns</td><td>Supports future optimization and effectiveness analysis</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>7. Why daemon ownership is a product advantage</h2>
+      <ul class="check-list">
+        <li>Long-running work survives UI disconnects.</li>
+        <li>Multiple clients can attach to the same execution state.</li>
+        <li>Memory and tasks stay coherent across surfaces.</li>
+        <li>Approvals, audit trails, and run history stay central rather than fragmented.</li>
+        <li>Plugins and gateways can extend the same runtime instead of implementing separate mini-runtimes.</li>
+      </ul>
+      <p>Without this ownership model, tamux would collapse back into a fancy prompt shell. The daemon is what makes the system feel like an operating environment.</p>
+    </section>
+
+    <section>
+      <h2>8. What to read after this</h2>
+      <p>If you are implementing on top of tamux, read the pages on <a href="goal-runners.html">Goal Runners</a>, <a href="memory-security.html">Memory &amp; Security</a>, and <a href="plugins.html">Plugins</a> next. Those pages explain how the execution substrate is surfaced to operators and extension authors.</p>
+    </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon is the source of truth</li>
+          <li>Goals are durable orchestration units</li>
+          <li>Memory and governance are first-class</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Pages</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-Agent</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; Handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

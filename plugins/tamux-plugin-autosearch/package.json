@@ -1,0 +1,16 @@
+{
+  "name": "tamux-plugin-autosearch",
+  "version": "1.0.0",
+  "description": "AutoResearch workflow plugin for tamux",
+  "author": "tamux",
+  "license": "MIT",
+  "keywords": ["tamux", "plugin", "autoresearch", "autosearch", "research"],
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/anthropic/cmux-next"
+  },
+  "files": [
+    "autosearch/",
+    "README.md"
+  ]
+}

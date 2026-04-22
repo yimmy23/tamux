@@ -896,6 +896,7 @@ impl AgentEngine {
         approval_id: &str,
         decision: ApprovalDecision,
     ) -> Result<()> {
+        self.forget_pending_approval_command(approval_id).await;
         let settings = self.config.read().await.operator_model.clone();
         if !settings.enabled || !settings.allow_approval_learning {
             return Ok(());

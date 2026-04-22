@@ -563,6 +563,104 @@ async fn execute_managed_command_auto_approves_learned_git_category() {
 }
 
 #[tokio::test]
+async fn execute_managed_command_auto_approves_saved_rule() {
+    let recorded_bodies = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.operator_model.enabled = false;
+    config.provider = "openai".to_string();
+    config.base_url = part4::spawn_stub_assistant_server_for_tool_executor(
+        recorded_bodies,
+        serde_json::json!({
+            "verdict": "allow",
+            "reasons": ["runtime approved managed command test"],
+            "audit_id": "audit-weles-managed-saved-rule"
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = crate::agent::types::ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let repo_dir = root.path().join("git-repo");
+    std::fs::create_dir_all(&repo_dir).expect("create repo dir");
+    std::process::Command::new("git")
+        .arg("init")
+        .current_dir(&repo_dir)
+        .output()
+        .expect("git init should succeed");
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/bash".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn session");
+
+    engine
+        .task_approval_rules
+        .write()
+        .await
+        .push(amux_protocol::TaskApprovalRule {
+            id: "rule-managed-git".to_string(),
+            command: "git status --short".to_string(),
+            created_at: 1,
+            last_used_at: None,
+            use_count: 0,
+        });
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-managed-saved-rule".to_string(),
+        ToolFunction {
+            name: "execute_managed_command".to_string(),
+            arguments: serde_json::json!({
+                "session": session_id.to_string(),
+                "command": "git status --short",
+                "rationale": "Check repo status",
+                "cwd": repo_dir,
+                "allow_network": true,
+                "timeout_seconds": 5
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-managed-saved-rule",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "saved-rule auto-approve should execute successfully: {}",
+        result.content
+    );
+    assert!(result.pending_approval.is_none());
+    assert!(result.content.contains("Managed command finished"));
+
+    let rule = engine
+        .list_task_approval_rules()
+        .await
+        .into_iter()
+        .find(|rule| rule.id == "rule-managed-git")
+        .expect("saved rule should remain");
+    assert_eq!(rule.use_count, 1);
+    assert!(rule.last_used_at.is_some());
+}
+
+#[tokio::test]
 async fn message_agent_rejects_self_target_for_active_responder() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
@@ -2958,6 +3056,18 @@ async fn spawn_subagent_bootstraps_todos_for_goal_run_tasks() {
     assert!(
         todos[0].content.contains("Review release notes"),
         "goal-run bootstrap todo should reflect the delegated work"
+    );
+    let tasks = engine.tasks.lock().await;
+    let spawned = tasks
+        .iter()
+        .find(|task| task.parent_task_id.as_deref() == Some(task_id))
+        .expect("spawned goal subagent should be enqueued");
+    assert!(
+        spawned
+            .tool_blacklist
+            .as_ref()
+            .is_some_and(|tools| tools.iter().any(|tool| tool == "ask_questions")),
+        "goal-owned subagents should inherit the ask_questions blacklist"
     );
 }
 

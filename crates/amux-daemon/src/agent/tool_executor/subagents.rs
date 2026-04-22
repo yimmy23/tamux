@@ -449,6 +449,7 @@ async fn execute_spawn_subagent(
             if def.supervisor_config.is_some() {
                 subagent.supervisor_config = def.supervisor_config.clone();
             }
+            crate::agent::task_crud::enforce_goal_task_autonomy_tool_blacklist(&mut subagent);
             // Persist the updated task fields.
             let mut tasks = agent.tasks.lock().await;
             if let Some(existing) = tasks.iter_mut().find(|t| t.id == subagent.id) {

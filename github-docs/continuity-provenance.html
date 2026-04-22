@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Continuity · tamux docs</title>
+  <meta name="description" content="How tamux preserves continuity across turns, clients, agents, goals, and time through memory, persistence, and provenance." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="continuity-provenance.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+  <p class="eyebrow">Long-horizon state</p>
+  <h1>Continuity, memory, and provenance</h1>
+  <p class="lead">tamux is designed so that work survives across turns, restarts, clients, and agent boundaries. That continuity comes from daemon-owned persistence, layered memory, structured runtime state, checkpoints, and provenance-backed durable writes.</p>
+</header>
+
+<section>
+  <h2>1. Continuity is a core feature, not a convenience</h2>
+  <p>Many AI tools lose context the moment the UI closes, the tab refreshes, or the operator starts a new thread. tamux is built to avoid that failure mode. The daemon owns the enduring state, so a line of work can survive disconnects and reconnect from another client surface.</p>
+</section>
+
+<section>
+  <h2>2. Where continuity lives</h2>
+  <div class="card-grid">
+    <article class="card"><h3>SQLite state</h3><p>Threads, tasks, goals, checkpoints, provenance, telemetry, operator model, and collaboration records.</p></article>
+    <article class="card"><h3>Memory files</h3><p>SOUL.md, MEMORY.md, and USER.md as curated durable artifacts with strong semantic roles.</p></article>
+    <article class="card"><h3>Skills</h3><p>Procedural memory derived from successful workflows and reusable operating patterns.</p></article>
+    <article class="card"><h3>Recall systems</h3><p>Search and retrieval over history, telemetry, structural context, and optional external recall integrations.</p></article>
+  </div>
+</section>
+
+<section>
+  <h2>3. The persistence split</h2>
+  <p>tamux deliberately uses a persistence split:</p>
+  <ul class="check-list">
+    <li><strong>Structured state:</strong> SQLite for threads, tasks, goals, provenance, telemetry, and runtime records.</li>
+    <li><strong>Editable artifacts:</strong> markdown memory, skills, ledgers, and selected on-disk outputs.</li>
+  </ul>
+  <p>This keeps the system both durable and operator-auditable. Not everything should be a text file, and not everything should be hidden in a database.</p>
+</section>
+
+<section>
+  <h2>4. Provenance-backed memory</h2>
+  <p>Durable memory writes in tamux are provenance-backed. The system can track where a fact came from, when it was written, which thread or goal produced it, whether it has been confirmed or retracted, and what later event invalidated it.</p>
+  <div class="callout success">
+    <strong>Why that matters:</strong> memory becomes inspectable and correctable rather than an opaque pile of auto-summaries.
+  </div>
+  <div class="callout info">
+    <strong>Surface note:</strong> the provenance model itself is shipped in the daemon, APIs, and CLI flows today. Richer inspection and confirm/retract experiences exist unevenly across clients, so UI parity should be treated as evolving rather than complete.
+  </div>
+</section>
+
+<section>
+  <h2>5. Continuity across multi-agent work</h2>
+  <p>Handoffs, visible participants, hidden delegation, subagents, and collaboration sessions all create additional memory-bearing state. Because that state is daemon-owned, multi-agent coordination does not destroy continuity.</p>
+  <ul class="check-list">
+    <li>Handoffs preserve thread context.</li>
+    <li>Goal runners preserve objective-level continuity.</li>
+    <li>Operator profile learning preserves working-style continuity.</li>
+    <li>Provenance preserves trust continuity.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>6. Continuity across long-running goals</h2>
+  <p>Goal runners add another layer of continuity by persisting plan state, step state, events, reports, reflections, and checkpoints. That means a long investigation is not just “a big chat” — it is a durable object with inspectable history.</p>
+</section>
+
+<section>
+  <h2>7. Operator continuity and the USER layer</h2>
+  <p>USER memory is not just a note file. tamux learns structured operator profile state from onboarding, explicit profile edits, behavior patterns, revision history, and interaction signals. That gives future sessions a better model of how the operator works.</p>
+</section>
+
+<section>
+  <h2>8. What continuity enables</h2>
+  <table>
+    <thead><tr><th>Capability</th><th>Enabled by</th></tr></thead>
+    <tbody>
+      <tr><td>Resume work after restart</td><td>Daemon-owned state + goal/task persistence</td></tr>
+      <tr><td>Reconnect from another client</td><td>Shared runtime authority in the daemon</td></tr>
+      <tr><td>Trust durable facts</td><td>Curated writes + provenance</td></tr>
+      <tr><td>Compound skill over time</td><td>Procedural memory and generated skills</td></tr>
+      <tr><td>Preserve multi-agent context</td><td>Shared memory and thread continuity</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>9. Deep storage direction</h2>
+  <p>A more advanced continuity model is that memory should not only remember facts, but know what it knows: source, confidence, lifecycle state, and explicit retraction relationships. tamux is already close to that direction through provenance-backed memory.</p>
+</section>
+
+<section>
+  <h2>10. What breaks continuity</h2>
+  <p>Continuity gets weaker when operators constantly start fresh threads for the same mission, use chat turns for work that should be a goal run, or treat memory as a dumping ground rather than a curated layer. tamux is designed to preserve continuity, but the workflow still needs to respect the model.</p>
+</section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Advanced topics</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-agent architecture</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness &amp; recovery</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon as source of truth</li>
+          <li>Durable goals and continuity</li>
+          <li>Governed autonomy with provenance</li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

@@ -51,6 +51,7 @@ pub(crate) mod goal_dossier;
 mod goal_llm;
 mod goal_parsing;
 mod goal_planner;
+mod goal_quiet_recovery;
 mod goal_routing;
 mod heartbeat;
 mod heartbeat_checks;

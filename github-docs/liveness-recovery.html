@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Liveness · tamux docs</title>
+  <meta name="description" content="Checkpoints, health monitoring, stuck detection, recovery, escalation, and why tamux can keep long-running work honest." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="liveness-recovery.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+  <p class="eyebrow">Operational durability</p>
+  <h1>Liveness, checkpoints, stuck detection, and recovery</h1>
+  <p class="lead">tamux is built for long-running autonomous work. That only works if the runtime can detect when it is getting stuck, preserve state before risky transitions, recover from failure, and escalate instead of pretending everything is fine.</p>
+</header>
+
+<section>
+  <h2>1. Why liveness matters</h2>
+  <p>A system that can plan work but cannot detect degradation is not reliable autonomy. tamux treats liveness as a separate architectural layer above execution, with checkpointing, health monitoring, stuck-pattern analysis, and recovery planning.</p>
+</section>
+
+<section>
+  <h2>2. Checkpointing</h2>
+  <p>Goal runs are checkpointed before and after meaningful step transitions. The checkpoint model captures multiple layers of state rather than just a shallow status string.</p>
+  <ul class="check-list">
+    <li>Goal state</li>
+    <li>Execution state</li>
+    <li>Context state</li>
+    <li>Runtime state</li>
+  </ul>
+  <p>This is what lets the system recover honestly after crashes or other failures.</p>
+</section>
+
+<section>
+  <h2>3. Health monitoring</h2>
+  <p>The health monitor periodically evaluates the runtime instead of waiting until the operator notices something is wrong. It watches metrics such as tool-call frequency, error rate, context pressure, and consecutive failures.</p>
+  <div class="card-grid two-up">
+    <article class="card"><h3>Healthy</h3><p>Execution is progressing normally and indicators remain within expected bounds.</p></article>
+    <article class="card"><h3>Degraded</h3><p>Progress exists, but the system is showing signs of rising risk, instability, or inefficiency.</p></article>
+    <article class="card"><h3>Stuck</h3><p>The runtime is looping, not making progress, or exhausting a key resource.</p></article>
+    <article class="card"><h3>Crashed</h3><p>The runtime has crossed error thresholds that require recovery, not optimistic continuation.</p></article>
+  </div>
+</section>
+
+<section>
+  <h2>4. Stuck detection patterns</h2>
+  <p>tamux does not reduce “stuck” to a single timeout. It can classify several failure patterns:</p>
+  <table>
+    <thead><tr><th>Pattern</th><th>What it means</th></tr></thead>
+    <tbody>
+      <tr><td>No progress</td><td>The runtime is idle or stagnant for too long.</td></tr>
+      <tr><td>Error loop</td><td>The same or equivalent errors repeat with no real change.</td></tr>
+      <tr><td>Tool-call loop</td><td>The runtime cycles through repeated tool patterns without progress.</td></tr>
+      <tr><td>Resource exhaustion</td><td>Context or runtime pressure is too high to continue honestly.</td></tr>
+      <tr><td>Timeout</td><td>Work exceeds its allowed duration in a way that implies failure or intervention.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>5. Recovery and escalation</h2>
+  <p>When the runtime detects problems, it should not always jump directly to operator interruption. tamux uses a graduated escalation pathway:</p>
+  <ol class="numbered-list">
+    <li><strong>Self-correction:</strong> retry, rotate strategy, compress context, or change local behavior.</li>
+    <li><strong>Sub-agent help:</strong> use a narrower specialist or bounded child path.</li>
+    <li><strong>Operator escalation:</strong> ask for input or show the blockage honestly.</li>
+    <li><strong>External escalation:</strong> notify through external channels when configured and appropriate.</li>
+  </ol>
+  <p>This keeps the system from both over-escalating and silently grinding forever.</p>
+</section>
+
+<section>
+  <h2>6. Why this makes tamux better than a plain agent loop</h2>
+  <ul class="check-list">
+    <li>It can preserve work across failure boundaries.</li>
+    <li>It can explain what went wrong instead of just timing out.</li>
+    <li>It can detect loops and stagnation structurally.</li>
+    <li>It can replan or escalate instead of silently retrying forever.</li>
+    <li>It makes long-running goals trustworthy enough to use in real workflows.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>7. Relation to goal runners</h2>
+  <p>Liveness features are most visible in goal runs because that is where long-duration work lives. Checkpointing, health monitoring, stuck detection, and recovery are what make goal runners more than a superficial planning wrapper.</p>
+</section>
+
+<section>
+  <h2>8. What operators should expect</h2>
+  <p>Operators should expect that tamux will sometimes pause, replan, ask for approval, or escalate rather than forcing forward motion. That is a sign of a more trustworthy autonomous environment, not a sign of weakness.</p>
+</section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Advanced topics</h3>
+        <ul>
+          <li><a href="multi-agent.html">Multi-agent architecture</a></li>
+          <li><a href="threads-handoffs.html">Threads &amp; handoffs</a></li>
+          <li><a href="liveness-recovery.html">Liveness &amp; recovery</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Core ideas</h3>
+        <ul>
+          <li>Daemon as source of truth</li>
+          <li>Durable goals and continuity</li>
+          <li>Governed autonomy with provenance</li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

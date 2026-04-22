@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gateway & MCP · tamux docs</title>
+  <meta name="description" content="How tamux connects to external chat platforms and MCP-capable clients while keeping the daemon as the shared execution authority." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body data-page="gateway-mcp.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">t</span>
+        <span>
+          <strong>tamux</strong>
+          <small>daemon-first agentic terminal multiplexer</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+      <nav id="site-nav" class="site-nav" aria-label="Primary"><a href="index.html" data-nav="index.html">Overview</a><a href="guides.html" data-nav="guides.html">Guides</a><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a><a href="architecture.html" data-nav="architecture.html">Architecture</a><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a><a href="governance.html" data-nav="governance.html">Governance</a><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a><a href="tui.html" data-nav="tui.html">TUI</a><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a><a href="plugins.html" data-nav="plugins.html">Plugins</a><a href="reference.html" data-nav="reference.html">Reference</a></nav>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <ul class="side-links"><li><a href="index.html" data-nav="index.html">Overview</a></li><li><a href="guides.html" data-nav="guides.html">Guides</a></li><li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li><li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li><li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li><li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li><li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li><li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li><li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li><li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li><li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li><li><a href="governance.html" data-nav="governance.html">Governance</a></li><li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li><li><a href="tui.html" data-nav="tui.html">TUI</a></li><li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li><li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li><li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li><li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li><li><a href="reference.html" data-nav="reference.html">Reference</a></li></ul>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Static site</p>
+        <p>No build step required. Open locally or publish through GitHub Pages.</p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+          <p class="eyebrow">External interfaces</p>
+          <h1>Gateway and MCP integrations</h1>
+          <p class="lead">tamux is not sealed inside one desktop UI. It exposes the same daemon-backed runtime to chat gateways and MCP-capable clients so external tools and messaging channels can submit work into the system and receive structured results back.</p>
+        </header>
+
+        <section>
+          <h2>1. Chat gateways</h2>
+          <p>The gateway layer lets Slack, Discord, Telegram, WhatsApp, and similar channels become operator entry points into the daemon. This means the user can launch or steer work from messaging platforms without creating a separate execution model.</p>
+        </section>
+
+        <section>
+          <h2>2. MCP integration</h2>
+          <p><code>tamux-mcp</code> exposes daemon capabilities to MCP-capable agents and toolchains. This lets external agent environments treat tamux as a durable system component rather than reimplementing sessions, tasks, or goal runners on their own.</p>
+          <pre><code>{
+  "mcpServers": {
+    "tamux": {
+      "command": "tamux-mcp"
+    }
+  }
+}</code></pre>
+        </section>
+
+        <section>
+          <h2>3. Why the daemon-first model matters here</h2>
+          <p>Whether a request comes from Electron, the TUI, the CLI, an MCP client, or a chat gateway, it still lands in the same runtime. That means goals, approvals, tasks, threads, and memory remain coherent across all of those entry points.</p>
+        </section>
+
+        <section>
+          <h2>4. Operational benefits</h2>
+          <ul class="check-list">
+            <li>Use Discord or Slack as a control channel without creating disconnected bot state.</li>
+            <li>Use MCP to let other agents drive tamux’s terminals, goals, and memory responsibly.</li>
+            <li>Keep approvals and provenance in the same governance model regardless of entry channel.</li>
+          </ul>
+        </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux docs</h3>
+        <p>Static HTML documentation for GitHub hosting. The content is based on the current repository architecture and runtime model.</p>
+      </div>
+      <div>
+        <h3>Deep dives</h3>
+        <ul>
+          <li><a href="mission-control.html">Mission Control</a></li>
+          <li><a href="task-queue-subagents.html">Tasks &amp; Subagents</a></li>
+          <li><a href="semantic-learning.html">Semantic &amp; Learning</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Surfaces</h3>
+        <ul>
+          <li><a href="tui.html">TUI</a></li>
+          <li><a href="gateway-mcp.html">Gateway &amp; MCP</a></li>
+          <li><a href="plugins.html">Plugins</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

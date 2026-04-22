@@ -1332,6 +1332,82 @@ fn apply_patch_tool_uses_top_level_object_schema() {
     }
 
     #[tokio::test]
+    async fn send_slack_message_blocks_duplicate_after_successful_send() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        engine.init_gateway().await;
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        engine.set_gateway_ipc_sender(Some(tx)).await;
+
+        let first_engine = engine.clone();
+        let first_send = tokio::spawn(async move {
+            execute_gateway_message(
+                "send_slack_message",
+                &serde_json::json!({
+                    "channel": "C123",
+                    "message": "Still working on it."
+                }),
+                &first_engine,
+                &reqwest::Client::new(),
+            )
+            .await
+        });
+
+        let first_request = match timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .expect("first gateway send request should be emitted")
+            .expect("first gateway send request should exist")
+        {
+            DaemonMessage::GatewaySendRequest { request } => request,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        };
+
+        engine
+            .complete_gateway_send_result(GatewaySendResult {
+                correlation_id: first_request.correlation_id.clone(),
+                platform: "slack".to_string(),
+                channel_id: "C123".to_string(),
+                requested_channel_id: Some("C123".to_string()),
+                delivery_id: Some("1712345678.000200".to_string()),
+                ok: true,
+                error: None,
+                completed_at_ms: 1,
+            })
+            .await;
+
+        first_send
+            .await
+            .expect("first send task should join")
+            .expect("first send should succeed");
+
+        let duplicate = execute_gateway_message(
+            "send_slack_message",
+            &serde_json::json!({
+                "channel": "C123",
+                "message": "Still working on it."
+            }),
+            &engine,
+            &reqwest::Client::new(),
+        )
+        .await
+        .expect_err("duplicate gateway send should be blocked");
+
+        assert!(
+            duplicate
+                .to_string()
+                .contains("same message you already sent successfully"),
+            "duplicate block should explain the prior successful send: {duplicate}"
+        );
+        assert!(
+            timeout(Duration::from_millis(100), rx.recv()).await.is_err(),
+            "blocked duplicate should not emit a second gateway request"
+        );
+    }
+
+    #[tokio::test]
     async fn send_discord_message_emits_gateway_ipc_request() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;

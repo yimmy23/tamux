@@ -39,6 +39,7 @@ fn background_runtime_splits_maintenance_work_into_separate_loops() {
         "engine.run_watcher_refresh_loop(rx).await",
         "engine.run_gateway_supervision_loop(rx).await",
         "engine.run_stalled_turn_supervision_loop(rx).await",
+        "engine.run_quiet_goal_supervision_loop(rx).await",
         "engine.run_subagent_supervision_loop(rx).await",
     ] {
         assert!(

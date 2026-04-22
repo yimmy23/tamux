@@ -373,6 +373,7 @@ impl AgentEngine {
                     task.max_duration_secs = definition.max_duration_secs;
                     task.supervisor_config = definition.supervisor_config.clone();
                     task.sub_agent_def_id = Some(definition.id.clone());
+                    crate::agent::task_crud::enforce_goal_task_autonomy_tool_blacklist(task);
                     if definition.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID {
                         mark_trusted_weles = Some(task.id.clone());
                     }

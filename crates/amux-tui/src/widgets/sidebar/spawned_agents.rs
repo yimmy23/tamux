@@ -85,7 +85,8 @@ pub(super) fn selected_thread_id(
         .filter(|item| item.openable)
         .and_then(|item| item.thread_id.clone())
         .or_else(|| {
-            items.into_iter()
+            items
+                .into_iter()
                 .find(|item| item.openable)
                 .and_then(|item| item.thread_id)
         })

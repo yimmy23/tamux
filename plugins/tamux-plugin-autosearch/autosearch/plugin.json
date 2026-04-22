@@ -1,0 +1,49 @@
+{
+  "name": "autosearch",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "AutoResearch workflow integration — validate workspace, prepare data, and run training",
+  "author": "tamux",
+  "license": "MIT",
+  "tamux_version": ">=2.0.0",
+  "settings": {
+    "workspace_path": {
+      "type": "string",
+      "label": "Default workspace path",
+      "required": false,
+      "secret": false,
+      "description": "Default local AutoResearch workspace path"
+    },
+    "default_command_timeout_sec": {
+      "type": "number",
+      "label": "Default command timeout (seconds)",
+      "required": false,
+      "default": 1800,
+      "description": "Optional timeout hint for long-running commands"
+    }
+  },
+  "python": {
+    "env": true
+  },
+  "commands": {
+    "check": {
+      "description": "Validate an AutoResearch workspace path",
+      "python": {
+        "command": "python scripts/autosearch_helper.py check \"${AUTOSEARCH_WORKSPACE:?set AUTOSEARCH_WORKSPACE}\""
+      }
+    },
+    "prepare": {
+      "description": "Run uv run prepare.py in an AutoResearch workspace",
+      "python": {
+        "command": "python scripts/autosearch_helper.py prepare \"${AUTOSEARCH_WORKSPACE:?set AUTOSEARCH_WORKSPACE}\""
+      }
+    },
+    "train": {
+      "description": "Run uv run train.py in an AutoResearch workspace",
+      "python": {
+        "command": "python scripts/autosearch_helper.py train \"${AUTOSEARCH_WORKSPACE:?set AUTOSEARCH_WORKSPACE}\""
+      }
+    }
+  },
+  "skills": ["skills/autosearch-train.md"]
+}

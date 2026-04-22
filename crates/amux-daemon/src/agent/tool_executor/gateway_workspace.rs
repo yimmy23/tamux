@@ -18,6 +18,65 @@ fn should_use_linked_whatsapp_transport(
     wa_link_state == "connected" || has_native_client || has_sidecar_process
 }
 
+fn gateway_channel_key(platform: &str, channel_id: &str) -> Option<String> {
+    let label = match platform.to_ascii_lowercase().as_str() {
+        "slack" => "Slack",
+        "discord" => "Discord",
+        "telegram" => "Telegram",
+        "whatsapp" => "WhatsApp",
+        _ => return None,
+    };
+    Some(format!("{label}:{channel_id}"))
+}
+
+async fn block_if_duplicate_gateway_message(
+    agent: &AgentEngine,
+    platform: &str,
+    channel_id: &str,
+    message: &str,
+) -> Result<()> {
+    let Some(channel_key) = gateway_channel_key(platform, channel_id) else {
+        return Ok(());
+    };
+    let gw_guard = agent.gateway_state.lock().await;
+    let Some(gw) = gw_guard.as_ref() else {
+        return Ok(());
+    };
+    if gw
+        .last_response_content
+        .get(&channel_key)
+        .is_some_and(|previous| previous == message)
+    {
+        anyhow::bail!(
+            "Blocked duplicate gateway send for {channel_key}: this is the same message you already sent successfully."
+        );
+    }
+    Ok(())
+}
+
+async fn remember_successful_gateway_message(
+    agent: &AgentEngine,
+    platform: &str,
+    requested_channel_id: &str,
+    delivered_channel_id: Option<&str>,
+    message: &str,
+) {
+    let mut gw_guard = agent.gateway_state.lock().await;
+    let Some(gw) = gw_guard.as_mut() else {
+        return;
+    };
+    for channel_id in [Some(requested_channel_id), delivered_channel_id] {
+        let Some(channel_id) = channel_id else {
+            continue;
+        };
+        let Some(channel_key) = gateway_channel_key(platform, channel_id) else {
+            continue;
+        };
+        gw.last_response_content
+            .insert(channel_key, message.to_string());
+    }
+}
+
 pub(in crate::agent) async fn execute_gateway_message(
     tool_name: &str,
     args: &serde_json::Value,
@@ -45,6 +104,7 @@ pub(in crate::agent) async fn execute_gateway_message(
                 ));
             }
             let channel = channel.as_str();
+            block_if_duplicate_gateway_message(agent, "slack", channel, message).await?;
 
             // Thread context: auto-inject thread_ts from reply_contexts or agent args
             let thread_ts = args
@@ -81,6 +141,14 @@ pub(in crate::agent) async fn execute_gateway_message(
                     result.error.unwrap_or_else(|| "unknown error".to_string())
                 ));
             }
+            remember_successful_gateway_message(
+                agent,
+                "slack",
+                channel,
+                Some(result.channel_id.as_str()),
+                message,
+            )
+            .await;
 
             Ok(format!("Slack message sent to #{channel}"))
         }
@@ -125,6 +193,13 @@ pub(in crate::agent) async fn execute_gateway_message(
                     .cloned()
                     .unwrap_or_else(|| target_channel.clone())
             };
+            block_if_duplicate_gateway_message(
+                agent,
+                "discord",
+                &reply_context_channel,
+                message,
+            )
+            .await?;
 
             // Thread context: auto-inject message_reference from reply_contexts or agent args
             let reply_msg_id = args
@@ -161,6 +236,14 @@ pub(in crate::agent) async fn execute_gateway_message(
                     result.error.unwrap_or_else(|| "unknown error".to_string())
                 ));
             }
+            remember_successful_gateway_message(
+                agent,
+                "discord",
+                &target_channel,
+                Some(result.channel_id.as_str()),
+                message,
+            )
+            .await;
 
             Ok(format!("Discord message sent to {target_channel}"))
         }
@@ -176,6 +259,7 @@ pub(in crate::agent) async fn execute_gateway_message(
                 ));
             }
             let chat_id = chat_id.as_str();
+            block_if_duplicate_gateway_message(agent, "telegram", chat_id, message).await?;
 
             // Thread context: auto-inject reply_to_message_id from reply_contexts or agent args
             let reply_to_id = args
@@ -209,6 +293,14 @@ pub(in crate::agent) async fn execute_gateway_message(
                     result.error.unwrap_or_else(|| "unknown error".to_string())
                 ));
             }
+            remember_successful_gateway_message(
+                agent,
+                "telegram",
+                chat_id,
+                Some(result.channel_id.as_str()),
+                message,
+            )
+            .await;
 
             Ok(format!("Telegram message sent to {chat_id}"))
         }
@@ -224,6 +316,7 @@ pub(in crate::agent) async fn execute_gateway_message(
                 ));
             }
             let phone = phone.as_str();
+            block_if_duplicate_gateway_message(agent, "whatsapp", phone, message).await?;
             let wa_link_state = agent.whatsapp_link.status_snapshot().await.state;
             let has_native_client = agent.whatsapp_link.has_native_client().await;
             let has_sidecar_process = agent.whatsapp_link.has_sidecar_process().await;
@@ -240,6 +333,8 @@ pub(in crate::agent) async fn execute_gateway_message(
                             .insert(format!("WhatsApp:{phone}"), now_epoch_millis());
                     }
                 }
+                remember_successful_gateway_message(agent, "whatsapp", phone, Some(phone), message)
+                    .await;
                 return Ok(format!("WhatsApp linked message sent to {phone}"));
             }
             let wa_token = gateway.whatsapp_token.as_str();
@@ -263,6 +358,8 @@ pub(in crate::agent) async fn execute_gateway_message(
                 .send()
                 .await?;
             if resp.status().is_success() {
+                remember_successful_gateway_message(agent, "whatsapp", phone, Some(phone), message)
+                    .await;
                 Ok(format!("WhatsApp message sent to {phone}"))
             } else {
                 let body = resp.text().await.unwrap_or_default();
