@@ -277,6 +277,7 @@ pub(crate) fn goal_inventory_prompt_block(data_dir: &std::path::Path, goal_run_i
     )
 }
 
+#[cfg(test)]
 pub(crate) fn goal_step_completion_marker_relative_path(
     goal_run_id: &str,
     step_index: usize,
@@ -284,6 +285,7 @@ pub(crate) fn goal_step_completion_marker_relative_path(
     projection::goal_step_completion_marker_relative_path(goal_run_id, step_index)
 }
 
+#[cfg(test)]
 pub(crate) fn goal_inventory_dir(
     data_dir: &std::path::Path,
     goal_run_id: &str,
@@ -291,6 +293,7 @@ pub(crate) fn goal_inventory_dir(
     projection::goal_inventory_dir(data_dir, goal_run_id)
 }
 
+#[cfg(test)]
 pub(crate) fn goal_inventory_specs_dir(
     data_dir: &std::path::Path,
     goal_run_id: &str,
@@ -298,6 +301,7 @@ pub(crate) fn goal_inventory_specs_dir(
     projection::goal_inventory_specs_dir(data_dir, goal_run_id)
 }
 
+#[cfg(test)]
 pub(crate) fn goal_inventory_plans_dir(
     data_dir: &std::path::Path,
     goal_run_id: &str,
@@ -318,6 +322,20 @@ pub(crate) fn goal_step_completion_marker_path(
     step_index: usize,
 ) -> std::path::PathBuf {
     projection::goal_step_completion_marker_path(data_dir, goal_run_id, step_index)
+}
+
+pub(crate) fn goal_final_review_marker_path(
+    data_dir: &std::path::Path,
+    goal_run_id: &str,
+) -> std::path::PathBuf {
+    projection::goal_final_review_marker_path(data_dir, goal_run_id)
+}
+
+pub(crate) fn goal_final_summary_path(
+    data_dir: &std::path::Path,
+    goal_run_id: &str,
+) -> std::path::PathBuf {
+    projection::goal_final_summary_path(data_dir, goal_run_id)
 }
 
 pub(crate) fn goal_step_completion_marker_prompt_block_for_data_dir(

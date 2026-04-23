@@ -700,6 +700,156 @@ async fn resolve_bids_prefers_role_with_stronger_consensus_prior_when_confidence
 }
 
 #[tokio::test]
+async fn repeated_bid_round_reuses_recorded_outcome_learning_after_roles_were_assigned() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Choose the best owner for the next workstream".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let mut child_research = engine
+        .enqueue_task(
+            "Research child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_execution = engine
+        .enqueue_task(
+            "Execution child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child_research)
+        .await;
+    engine
+        .register_subagent_collaboration(&parent.id, &child_execution)
+        .await;
+
+    engine
+        .call_for_bids(
+            &parent.id,
+            &[child_research.id.clone(), child_execution.id.clone()],
+        )
+        .await
+        .expect("first call_for_bids should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_research.id,
+            0.83,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("first research bid should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_execution.id,
+            0.71,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("first execution bid should succeed");
+    engine
+        .resolve_bids(&parent.id)
+        .await
+        .expect("first resolve_bids should succeed");
+
+    child_research.result = Some("implemented successfully".to_string());
+    engine
+        .record_collaboration_outcome(&child_research, "success")
+        .await;
+
+    engine
+        .call_for_bids(
+            &parent.id,
+            &[child_research.id.clone(), child_execution.id.clone()],
+        )
+        .await
+        .expect("second call_for_bids should succeed");
+
+    let reset_report = engine
+        .collaboration_sessions_json(Some(&parent.id))
+        .await
+        .expect("collaboration session should be readable");
+    assert!(reset_report["agents"].as_array().is_some_and(|agents| {
+        agents
+            .iter()
+            .any(|agent| agent["task_id"] == child_research.id && agent["role"] == "research")
+    }));
+    assert!(reset_report["agents"].as_array().is_some_and(|agents| {
+        agents
+            .iter()
+            .any(|agent| agent["task_id"] == child_execution.id && agent["role"] == "execution")
+    }));
+
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_research.id,
+            0.69,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("second research bid should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_execution.id,
+            0.71,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("second execution bid should succeed");
+
+    let resolution = engine
+        .resolve_bids(&parent.id)
+        .await
+        .expect("second resolve_bids should succeed");
+
+    assert_eq!(resolution["primary_task_id"], child_research.id);
+    assert_eq!(resolution["reviewer_task_id"], child_execution.id);
+}
+
+#[tokio::test]
 async fn dispatch_via_bid_protocol_runs_bid_flow_end_to_end_through_collaboration_runtime() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

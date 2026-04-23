@@ -130,6 +130,7 @@ pub enum ClientMessage {
     AgentRetireGeneratedTool { tool_name: String },
     AgentValidateProvider { provider_id: String, base_url: String, api_key: String, auth_source: String },
     AgentGetProviderAuthStates,
+    AgentGetProviderCatalog,
     AgentLoginProvider { provider_id: String, api_key: String, #[serde(default)] base_url: String },
     AgentStoreGithubCopilotAuthToken { access_token: String, source: String },
     AgentLogoutProvider { provider_id: String },

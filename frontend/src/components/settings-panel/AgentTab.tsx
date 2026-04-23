@@ -10,6 +10,7 @@ import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
 import { applySttReuseDecision, getModelSelectionEffects } from "./modelSelectionEffects";
 import {
     audioModelOptions,
+    buildProviderOptions,
     filterAudioProviderOptions,
     filterImageGenerationProviderOptions,
     imageGenerationModelOptions,
@@ -55,7 +56,7 @@ export function AgentTab({
         }
     };
 
-    const allProviderOptions: ProviderOption[] = [
+    const builtInProviderOptions: ProviderOption[] = [
         { id: "featherless", label: "Featherless" },
         { id: "anthropic", label: "Anthropic" },
         { id: "openai", label: "OpenAI / ChatGPT" },
@@ -85,13 +86,7 @@ export function AgentTab({
         { id: "opencode-zen", label: "OpenCode Zen" },
         { id: "custom", label: "Custom" },
     ];
-    const providerOptions = allProviderOptions.filter((provider) =>
-        provider.id === "custom"
-        || provider.id === "azure-openai"
-        || providerAuthStates.some(
-            (state) => state.authenticated && state.provider_id === provider.id,
-        ),
-    );
+    const { allProviderOptions, providerOptions } = buildProviderOptions(builtInProviderOptions, providerAuthStates);
     const audioSttProviderOptions = filterAudioProviderOptions(providerOptions, "stt");
     const audioTtsProviderOptions = filterAudioProviderOptions(providerOptions, "tts");
     const imageGenerationProviderOptions = filterImageGenerationProviderOptions(providerOptions);
@@ -122,12 +117,14 @@ export function AgentTab({
         effectiveAuthSource,
     );
     const activeProviderAuthState = providerAuthStates.find((state) => state.provider_id === settings.active_provider);
+    const providerHasDaemonAuth = (providerId: AgentProviderId) =>
+        Boolean(providerAuthStates.find((state) => state.provider_id === providerId)?.authenticated);
     const subscriptionAuthUi = deriveOpenAICodexAuthUi(subscriptionAuthStatus);
     const providerAuthenticated = effectiveAuthSource === "chatgpt_subscription"
         ? Boolean(subscriptionAuthStatus?.available)
         : effectiveAuthSource === "github_copilot"
             ? Boolean(activeProviderAuthState?.authenticated)
-            : Boolean(providerConfig.api_key);
+            : Boolean(providerConfig.api_key || activeProviderAuthState?.authenticated);
     const daemonDelayControlsDisabled = settings.agent_backend === "openclaw" || settings.agent_backend === "hermes";
     const daemonDelayInputStyle = daemonDelayControlsDisabled
         ? { ...inputStyle, width: 80, opacity: 0.6, cursor: "not-allowed" as const }
@@ -362,6 +359,7 @@ export function AgentTab({
                             base_url={audioSttProviderConfig.base_url}
                             api_key={audioSttProviderConfig.api_key}
                             auth_source={audioSttProviderConfig.auth_source}
+                            allowProviderAuthFetch={providerHasDaemonAuth(settings.audio_stt_provider)}
                             modelOptions={audioModelOptions(settings.audio_stt_provider, "stt")}
                             remoteModelFilter={(model) => filterFetchedModelsForAudio([model], "stt").length > 0}
                             disabled={!settings.audio_stt_enabled}
@@ -406,6 +404,7 @@ export function AgentTab({
                             base_url={audioTtsProviderConfig.base_url}
                             api_key={audioTtsProviderConfig.api_key}
                             auth_source={audioTtsProviderConfig.auth_source}
+                            allowProviderAuthFetch={providerHasDaemonAuth(settings.audio_tts_provider)}
                             modelOptions={audioModelOptions(settings.audio_tts_provider, "tts")}
                             remoteModelFilter={(model) => filterFetchedModelsForAudio([model], "tts").length > 0}
                             disabled={!settings.audio_tts_enabled}
@@ -452,6 +451,7 @@ export function AgentTab({
                         base_url={imageGenerationProviderConfig.base_url}
                         api_key={imageGenerationProviderConfig.api_key}
                         auth_source={imageGenerationProviderConfig.auth_source}
+                        allowProviderAuthFetch={providerHasDaemonAuth(settings.image_generation_provider)}
                         modelOptions={imageGenerationModelOptions(settings.image_generation_provider)}
                         remoteModelFilter={(model) => filterFetchedModelsForImageGeneration([model]).length > 0}
                     />
@@ -561,6 +561,7 @@ export function AgentTab({
                             base_url={providerConfig.base_url || providerDef?.defaultBaseUrl}
                             api_key={providerConfig.api_key}
                             auth_source={effectiveAuthSource}
+                            allowProviderAuthFetch={Boolean(activeProviderAuthState?.authenticated)}
                         />
                     </SettingRow>
                     {pendingSttReuseModelId ? (

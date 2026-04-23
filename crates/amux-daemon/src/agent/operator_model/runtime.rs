@@ -305,6 +305,7 @@ impl AgentEngine {
         None
     }
 
+    #[cfg(test)]
     pub(crate) async fn should_suppress_duplicate_low_value_approval_bundle(
         &self,
         pending_approval: &ToolPendingApproval,

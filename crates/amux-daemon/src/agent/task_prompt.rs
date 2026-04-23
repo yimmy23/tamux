@@ -152,6 +152,72 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
     prompt
 }
 
+fn goal_run_task_context(goal_run: &GoalRun, task: &AgentTask) -> String {
+    let completed_steps = goal_run
+        .steps
+        .iter()
+        .enumerate()
+        .filter(|(_, step)| step.status == GoalRunStepStatus::Completed)
+        .collect::<Vec<_>>();
+    let total_steps = goal_run.steps.len();
+    let current_progress = if total_steps == 0 {
+        "planning pending; no goal steps have been completed yet".to_string()
+    } else {
+        let mut line = format!(
+            "{} of {} steps completed",
+            completed_steps.len(),
+            total_steps
+        );
+        if let Some(step) = goal_run.steps.get(goal_run.current_step_index) {
+            line.push_str(&format!(
+                "; current focus: step {} `{}`",
+                goal_run.current_step_index + 1,
+                step.title
+            ));
+        } else {
+            line.push_str("; all planned steps are currently marked complete");
+        }
+        line
+    };
+
+    let mut context = format!(
+        "\n\n## Goal Big Picture\nTitle: {}\nObjective: {}\nCurrent progress: {}",
+        goal_run.title, goal_run.goal, current_progress
+    );
+    if let Some(plan_summary) = goal_run
+        .plan_summary
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        context.push_str(&format!("\nPlan summary: {plan_summary}"));
+    }
+    if let Some(step_title) = task.goal_step_title.as_deref() {
+        context.push_str(&format!(
+            "\nYour exact assignment in this goal: {step_title}"
+        ));
+    }
+    if !completed_steps.is_empty() {
+        context.push_str("\nCompleted steps so far:");
+        for (index, step) in completed_steps.into_iter().take(5) {
+            let summary = step
+                .summary
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("completed without a recorded summary");
+            context.push_str(&format!(
+                "\n- Step {} `{}`: {}",
+                index + 1,
+                step.title,
+                summary
+            ));
+        }
+    }
+
+    context
+}
+
 /// Append available sub-agent registry to a task prompt so the LLM
 /// knows what specialist sub-agents it can delegate work to.
 pub(super) fn append_sub_agent_registry(prompt: &mut String, sub_agents: &[SubAgentDefinition]) {
@@ -187,6 +253,20 @@ pub(super) async fn append_effective_sub_agent_registry(
 ) {
     let sub_agents = engine.list_sub_agents().await;
     append_sub_agent_registry(prompt, &sub_agents);
+}
+
+pub(super) async fn append_goal_run_context(
+    engine: &crate::agent::AgentEngine,
+    prompt: &mut String,
+    task: &AgentTask,
+) {
+    let Some(goal_run_id) = task.goal_run_id.as_deref() else {
+        return;
+    };
+    let Some(goal_run) = engine.get_goal_run(goal_run_id).await else {
+        return;
+    };
+    prompt.push_str(&goal_run_task_context(&goal_run, task));
 }
 
 pub(super) async fn resolve_preferred_session_id(
@@ -394,6 +474,7 @@ pub async fn load_config_from_history(
 mod tests {
     use super::*;
     use crate::agent::agent_identity::{MAIN_AGENT_ID, RADOGOST_AGENT_ID};
+    use crate::agent::AutonomyLevel;
     use tempfile::tempdir;
 
     fn sample_task() -> AgentTask {
@@ -488,6 +569,105 @@ mod tests {
             prompt.contains("Weles"),
             "main goal tasks should be pointed at the review agent instead of the operator"
         );
+    }
+
+    #[test]
+    fn goal_run_task_context_includes_big_picture_and_progress() {
+        let mut task = sample_task();
+        task.goal_run_id = Some("goal-123".to_string());
+        task.goal_step_title = Some("Review integration notes".to_string());
+
+        let goal_run = GoalRun {
+            id: "goal-123".to_string(),
+            title: "Release Goal".to_string(),
+            goal: "Ship the release with full verification".to_string(),
+            client_request_id: None,
+            status: GoalRunStatus::Running,
+            priority: TaskPriority::Normal,
+            created_at: 1,
+            updated_at: 1,
+            started_at: Some(1),
+            completed_at: None,
+            thread_id: Some("thread-goal".to_string()),
+            session_id: None,
+            current_step_index: 1,
+            current_step_title: Some("step-2".to_string()),
+            current_step_kind: Some(GoalRunStepKind::Command),
+            planner_owner_profile: None,
+            current_step_owner_profile: None,
+            replan_count: 0,
+            max_replans: 2,
+            plan_summary: Some("Implement, verify, and package the release.".to_string()),
+            reflection_summary: None,
+            memory_updates: Vec::new(),
+            generated_skill_path: None,
+            last_error: None,
+            failure_cause: None,
+            stopped_reason: None,
+            child_task_ids: Vec::new(),
+            child_task_count: 0,
+            approval_count: 0,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            active_task_id: None,
+            duration_ms: None,
+            steps: vec![
+                GoalRunStep {
+                    id: "step-1".to_string(),
+                    position: 0,
+                    title: "step-1".to_string(),
+                    instructions: "Implement".to_string(),
+                    kind: GoalRunStepKind::Command,
+                    success_criteria: "done".to_string(),
+                    session_id: None,
+                    status: GoalRunStepStatus::Completed,
+                    task_id: None,
+                    summary: Some("Implementation landed".to_string()),
+                    error: None,
+                    started_at: Some(1),
+                    completed_at: Some(2),
+                },
+                GoalRunStep {
+                    id: "step-2".to_string(),
+                    position: 1,
+                    title: "step-2".to_string(),
+                    instructions: "Review".to_string(),
+                    kind: GoalRunStepKind::Command,
+                    success_criteria: "review passes".to_string(),
+                    session_id: None,
+                    status: GoalRunStepStatus::InProgress,
+                    task_id: Some("task-2".to_string()),
+                    summary: None,
+                    error: None,
+                    started_at: Some(3),
+                    completed_at: None,
+                },
+            ],
+            events: Vec::new(),
+            dossier: None,
+            total_prompt_tokens: 0,
+            total_completion_tokens: 0,
+            estimated_cost_usd: None,
+            autonomy_level: AutonomyLevel::Autonomous,
+            authorship_tag: None,
+            launch_assignment_snapshot: Vec::new(),
+            runtime_assignment_list: Vec::new(),
+            root_thread_id: Some("thread-goal".to_string()),
+            active_thread_id: Some("thread-goal".to_string()),
+            execution_thread_ids: vec!["thread-goal".to_string()],
+        };
+
+        let context = goal_run_task_context(&goal_run, &task);
+        assert!(context.contains("## Goal Big Picture"));
+        assert!(context.contains("Ship the release with full verification"));
+        assert!(context.contains("Implement, verify, and package the release."));
+        assert!(context.contains("1 of 2 steps completed"));
+        assert!(context.contains("Review integration notes"));
+        assert!(context.contains("Implementation landed"));
     }
 
     #[test]

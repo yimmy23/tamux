@@ -296,6 +296,7 @@ const bridgeApi = {
     agentResolveTaskApproval: (approvalId, decision) => ipcRenderer.invoke('agent-resolve-task-approval', approvalId, decision),
     agentFetchModels: (providerId, baseUrl, apiKey) => ipcRenderer.invoke('agent-fetch-models', providerId, baseUrl, apiKey),
     agentGetProviderAuthStates: () => ipcRenderer.invoke('agent-get-provider-auth-states'),
+    agentGetProviderCatalog: () => ipcRenderer.invoke('agent-get-provider-catalog'),
     agentLoginProvider: (providerId, apiKey, baseUrl) => ipcRenderer.invoke('agent-login-provider', providerId, apiKey, baseUrl),
     agentLogoutProvider: (providerId) => ipcRenderer.invoke('agent-logout-provider', providerId),
     agentValidateProvider: (providerId, baseUrl, apiKey, authSource) => ipcRenderer.invoke('agent-validate-provider', providerId, baseUrl, apiKey, authSource),

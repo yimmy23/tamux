@@ -44,20 +44,13 @@ fn current_step_verification_requirements(
     goal_run: &GoalRun,
 ) -> Option<(GoalRunStep, GoalRoleBinding, Vec<GoalProofCheck>)> {
     let step = goal_run.steps.get(goal_run.current_step_index)?.clone();
-    let unit = goal_run
+    let proof_checks = goal_run
         .dossier
-        .as_ref()?
-        .units
-        .iter()
-        .find(|unit| unit.id == step.id)?;
-    if unit.proof_checks.is_empty() {
-        return None;
-    }
-    Some((
-        step,
-        unit.verification_binding.clone(),
-        unit.proof_checks.clone(),
-    ))
+        .as_ref()
+        .and_then(|dossier| dossier.units.iter().find(|unit| unit.id == step.id))
+        .map(|unit| unit.proof_checks.clone())
+        .unwrap_or_default();
+    Some((step, default_verification_binding(), proof_checks))
 }
 
 fn current_step_completion_marker_context(
@@ -77,7 +70,129 @@ fn current_step_completion_marker_context(
     })
 }
 
+fn current_step_review_result(task: &AgentTask, thread_summary: Option<&str>) -> Option<String> {
+    task.result
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            thread_summary
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            task.last_error
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            task.error
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+}
+
 impl AgentEngine {
+    async fn current_step_incomplete_todos(
+        &self,
+        snapshot: &GoalRun,
+        task: &AgentTask,
+    ) -> Vec<TodoItem> {
+        let Some(thread_id) = task.thread_id.as_deref().or(snapshot.thread_id.as_deref()) else {
+            return Vec::new();
+        };
+        self.get_todos(thread_id)
+            .await
+            .into_iter()
+            .filter(|item| {
+                (item.step_index == Some(snapshot.current_step_index) || item.step_index.is_none())
+                    && item.status != TodoStatus::Completed
+            })
+            .collect()
+    }
+
+    async fn requeue_goal_step_to_pending(
+        &self,
+        goal_run_id: &str,
+        reason: &str,
+        task: Option<&AgentTask>,
+    ) -> Result<()> {
+        let updated = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                anyhow::bail!("goal run missing while re-queuing step");
+            };
+            if let Some(step) = goal_run.steps.get_mut(goal_run.current_step_index) {
+                step.task_id = None;
+                step.status = GoalRunStepStatus::Pending;
+                step.error = Some(reason.to_string());
+                step.completed_at = None;
+            }
+            goal_run.status = GoalRunStatus::Running;
+            goal_run.updated_at = now_millis();
+            goal_run.last_error = Some(reason.to_string());
+            goal_run.failure_cause = Some(reason.to_string());
+            goal_run.awaiting_approval_id = None;
+            goal_run.active_task_id = None;
+            goal_run.current_step_owner_profile = None;
+            goal_run.events.push(make_goal_run_event(
+                "review",
+                "goal step re-queued after failed completion gate",
+                Some(reason.to_string()),
+            ));
+            if let Some(step_id) = goal_run
+                .steps
+                .get(goal_run.current_step_index)
+                .map(|step| step.id.clone())
+            {
+                super::goal_dossier::set_goal_unit_verification_state(
+                    goal_run,
+                    &step_id,
+                    GoalProjectionState::Failed,
+                    reason.to_string(),
+                    vec!["review or completion gate failed".to_string()],
+                    Some("goal review failure"),
+                    Some(reason.to_string()),
+                );
+                super::goal_dossier::set_goal_resume_decision(
+                    goal_run,
+                    GoalResumeAction::Replan,
+                    "step_review_failed",
+                    Some(reason.to_string()),
+                    Vec::new(),
+                );
+            }
+            goal_run.clone()
+        };
+
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(&updated, Some("Goal step re-queued".into()));
+        if let Some(task) = task {
+            self.record_provenance_event(
+                "step_requeued",
+                "goal step re-queued after failed completion gate",
+                serde_json::json!({
+                    "goal_run_id": updated.id,
+                    "task_id": task.id,
+                    "reason": reason,
+                }),
+                Some(updated.id.as_str()),
+                Some(task.id.as_str()),
+                updated.thread_id.as_deref(),
+                None,
+                None,
+            )
+            .await;
+        }
+        Ok(())
+    }
+
     async fn requeue_goal_step_for_missing_completion_marker(
         &self,
         snapshot: &GoalRun,
@@ -244,17 +359,23 @@ impl AgentEngine {
         completed_task: &AgentTask,
         implementation_summary: Option<String>,
     ) -> Result<()> {
-        let proof_check_lines = proof_checks
-            .iter()
-            .map(|check| format!("- {}: {}", check.id, check.title))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let proof_check_lines = if proof_checks.is_empty() {
+            "- none specified; perform a strict reviewer pass against the step instructions, success criteria, todos, and completion artifacts".to_string()
+        } else {
+            proof_checks
+                .iter()
+                .map(|check| format!("- {}: {}", check.id, check.title))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         let binding_label = match verification_binding {
             GoalRoleBinding::Builtin(value) => format!("builtin:{value}"),
             GoalRoleBinding::Subagent(value) => format!("subagent:{value}"),
         };
         let verification_description = format!(
-            "Validate completed goal step `{}`.\n\n\
+            "Review completed goal step `{}`.\n\n\
+             Return the first line exactly as either `VERDICT: PASS` or `VERDICT: FAIL`.\n\
+             If the verdict is FAIL, list the concrete fixes required before the step can advance.\n\n\
              Original instructions:\n{}\n\n\
              Success criteria:\n{}\n\n\
              Implementation summary:\n{}\n\n\
@@ -537,6 +658,20 @@ impl AgentEngine {
             .get_goal_run(goal_run_id)
             .await
             .context("goal run missing during step completion")?;
+        let incomplete_todos = self.current_step_incomplete_todos(&snapshot, task).await;
+        if !incomplete_todos.is_empty() {
+            let detail = format!(
+                "current step still has incomplete todos: {}",
+                incomplete_todos
+                    .iter()
+                    .map(|todo| todo.content.clone())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            );
+            self.requeue_goal_step_to_pending(goal_run_id, &detail, Some(task))
+                .await?;
+            return Ok(());
+        }
         if task.source != GOAL_VERIFICATION_SOURCE {
             if let Some((step, verification_binding, proof_checks)) =
                 current_step_verification_requirements(&snapshot)
@@ -587,6 +722,29 @@ impl AgentEngine {
             Some(thread_id) => self.goal_thread_summary(thread_id).await,
             None => None,
         };
+        if task.source == GOAL_VERIFICATION_SOURCE {
+            let review_result = current_step_review_result(task, thread_summary.as_deref())
+                .unwrap_or_else(|| "review completed without a structured verdict".to_string());
+            if !matches!(
+                parse_goal_review_verdict(&review_result),
+                Some(GoalReviewVerdict::Pass)
+            ) {
+                let failure_reason = if matches!(
+                    parse_goal_review_verdict(&review_result),
+                    Some(GoalReviewVerdict::Fail)
+                ) {
+                    review_result
+                } else {
+                    format!(
+                        "review did not return a pass verdict; reviewer output was: {}",
+                        review_result
+                    )
+                };
+                self.requeue_goal_step_to_pending(goal_run_id, &failure_reason, Some(task))
+                    .await?;
+                return Ok(());
+            }
+        }
         let updated = {
             let mut goal_runs = self.goal_runs.lock().await;
             let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {

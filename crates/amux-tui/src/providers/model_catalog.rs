@@ -7,6 +7,7 @@ pub(super) fn known_models_for_provider_auth(
 ) -> Vec<FetchedModel> {
     let models: &[(&str, &str, u32)] = match provider {
         PROVIDER_ID_OPENAI if auth_source == "chatgpt_subscription" => &[
+            ("gpt-5.5", "GPT-5.5", 1_000_000),
             ("gpt-5.4", "GPT-5.4", 1_000_000),
             ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
             ("gpt-5.3-codex", "GPT-5.3 Codex", 400_000),
@@ -16,6 +17,7 @@ pub(super) fn known_models_for_provider_auth(
             ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", 400_000),
         ],
         PROVIDER_ID_OPENAI => &[
+            ("gpt-5.5", "GPT-5.5", 1_000_000),
             ("gpt-5.4", "GPT-5.4", 1_000_000),
             ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
             ("gpt-5.4-nano", "GPT-5.4 Nano", 400_000),

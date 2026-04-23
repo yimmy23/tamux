@@ -4,6 +4,139 @@ use amux_shared::providers::{
 };
 
     #[test]
+    fn custom_auth_yaml_hydrates_provider_definition_with_models() {
+        let _lock = crate::test_support::env_test_lock();
+        let _env_guard = crate::test_support::EnvGuard::new(&["TAMUX_CUSTOM_AUTH_PATH"]);
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let custom_auth_path = temp_dir.path().join("custom-auth.yaml");
+        std::fs::write(
+            &custom_auth_path,
+            r#"
+providers:
+  - id: local-openai
+    name: Local OpenAI-Compatible
+    default_base_url: http://127.0.0.1:11434/v1
+    default_model: llama3.3
+    api_type: openai
+    auth_method: bearer
+    supports_model_fetch: true
+    supported_transports: [chat_completions, responses]
+    default_transport: chat_completions
+    supports_response_continuity: true
+    models:
+      - id: llama3.3
+        name: Llama 3.3
+        context_window: 128000
+        modalities: [text, image]
+"#,
+        )
+        .expect("write custom auth");
+        std::env::set_var("TAMUX_CUSTOM_AUTH_PATH", &custom_auth_path);
+
+        let report = reload_custom_provider_catalog_from_default_path();
+
+        assert_eq!(report.loaded_provider_count, 1);
+        assert!(report.diagnostics.is_empty());
+        let provider = get_provider_definition("local-openai").expect("custom provider");
+        assert_eq!(provider.name, "Local OpenAI-Compatible");
+        assert_eq!(provider.default_base_url, "http://127.0.0.1:11434/v1");
+        assert_eq!(provider.default_model, "llama3.3");
+        assert_eq!(provider.default_transport, ApiTransport::ChatCompletions);
+        assert_eq!(
+            provider.supported_transports,
+            &[ApiTransport::ChatCompletions, ApiTransport::Responses]
+        );
+        assert!(provider.supports_model_fetch);
+        assert!(provider.supports_response_continuity);
+        assert_eq!(provider.models.len(), 1);
+        assert_eq!(provider.models[0].id, "llama3.3");
+        assert_eq!(provider.models[0].modalities, TEXT_IMAGE);
+    }
+
+    #[test]
+    fn custom_auth_yaml_accepts_scalar_api_key_values() {
+        let _lock = crate::test_support::env_test_lock();
+        let _env_guard = crate::test_support::EnvGuard::new(&["TAMUX_CUSTOM_AUTH_PATH"]);
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let custom_auth_path = temp_dir.path().join("custom-auth.yaml");
+        std::fs::write(
+            &custom_auth_path,
+            r#"
+providers:
+  - id: local-openai
+    name: Local OpenAI-Compatible
+    default_base_url: http://127.0.0.1:11434/v1
+    default_model: llama3.3
+    api_key: 1231
+    models:
+      - id: llama3.3
+        context_window: 128000
+"#,
+        )
+        .expect("write custom auth");
+        std::env::set_var("TAMUX_CUSTOM_AUTH_PATH", &custom_auth_path);
+
+        let report = reload_custom_provider_catalog_from_default_path();
+
+        assert_eq!(report.loaded_provider_count, 1);
+        assert!(report.diagnostics.is_empty());
+        let provider_config = custom_provider_config("local-openai").expect("custom provider");
+        assert_eq!(provider_config.api_key, "1231");
+    }
+
+    #[test]
+    fn custom_auth_yaml_reports_invalid_entries_without_dropping_valid_providers() {
+        let _lock = crate::test_support::env_test_lock();
+        let _env_guard = crate::test_support::EnvGuard::new(&["TAMUX_CUSTOM_AUTH_PATH"]);
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let custom_auth_path = temp_dir.path().join("custom-auth.yaml");
+        std::fs::write(
+            &custom_auth_path,
+            r#"
+providers:
+  - id: openai
+    name: Should Not Override
+    default_base_url: http://127.0.0.1:9999/v1
+    default_model: nope
+    models:
+      - id: nope
+        name: Nope
+        context_window: 1000
+  - id: custom-valid
+    name: Custom Valid
+    default_base_url: http://127.0.0.1:8080/v1
+    default_model: custom-model
+    models:
+      - id: custom-model
+        name: Custom Model
+        context_window: 64000
+"#,
+        )
+        .expect("write custom auth");
+        std::env::set_var("TAMUX_CUSTOM_AUTH_PATH", &custom_auth_path);
+
+        let report = reload_custom_provider_catalog_from_default_path();
+
+        assert_eq!(report.loaded_provider_count, 1);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.provider_id.as_deref() == Some("openai")
+                    && diagnostic.message.contains("built-in provider id")),
+            "expected diagnostic for built-in provider collision, got {:?}",
+            report.diagnostics
+        );
+        assert_eq!(
+            get_provider_definition("openai")
+                .expect("built-in openai")
+                .default_base_url,
+            "https://api.openai.com/v1"
+        );
+        assert!(get_provider_definition("custom-valid").is_some());
+    }
+
+    #[test]
     fn circuit_breaker_event_deserializes_richer_outage_metadata() {
         let json = serde_json::json!({
             "type": "provider_circuit_open",

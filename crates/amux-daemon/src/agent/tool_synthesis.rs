@@ -212,6 +212,7 @@ pub(super) fn list_generated_tools(agent_data_dir: &Path) -> Result<String> {
     )?)?)
 }
 
+#[cfg(test)]
 pub(crate) fn has_equivalent_generated_cli_tool(
     agent_data_dir: &Path,
     proposal: &CliWrapperSynthesisProposal,

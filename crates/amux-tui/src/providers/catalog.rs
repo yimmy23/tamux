@@ -15,7 +15,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         id: PROVIDER_ID_OPENAI,
         name: "OpenAI / ChatGPT",
         default_base_url: "https://api.openai.com/v1",
-        default_model: "gpt-5.4",
+        default_model: "gpt-5.5",
         supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
         default_transport: "responses",
         supported_auth_sources: OPENAI_AUTH_SOURCES,

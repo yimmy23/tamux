@@ -45,6 +45,8 @@ pub struct WelesHealthStatus {
 include!("provider_basics.rs");
 include!("provider_catalog_a.rs");
 include!("provider_catalog_b.rs");
+include!("custom_provider_catalog.rs");
+include!("custom_provider_runtime.rs");
 include!("provider_registry.rs");
 include!("config_core.rs");
 include!("config_skill.rs");

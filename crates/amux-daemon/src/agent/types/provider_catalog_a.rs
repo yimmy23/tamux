@@ -1,5 +1,11 @@
 pub const OPENAI_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
+        id: "gpt-5.5",
+        name: "GPT-5.5",
+        context_window: 1_000_000,
+        modalities: MULTIMODAL,
+    },
+    ModelDefinition {
         id: "gpt-5.4",
         name: "GPT-5.4",
         context_window: 1_000_000,

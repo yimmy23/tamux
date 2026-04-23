@@ -1,4 +1,8 @@
 import {
+  getDefaultApiTransport,
+  getDefaultAuthSource,
+  getDefaultModelForProvider,
+  getProviderDefinition,
   normalizeAgentProviderId,
   normalizeApiTransport,
   normalizeAuthSource,
@@ -53,6 +57,7 @@ export interface AgentSkillRecommendationSettings {
 }
 
 export interface AgentSettings {
+  [providerId: string]: any;
   enabled: boolean;
   agent_name: string;
   handler: string;
@@ -176,7 +181,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   active_provider: "openai",
   featherless: { base_url: "https://api.featherless.ai/v1", model: "meta-llama/Llama-3.3-70B-Instruct", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   anthropic: { base_url: "https://api.anthropic.com", model: "claude-opus-4-7", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
-  openai: { base_url: "https://api.openai.com/v1", model: "gpt-5.4", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
+  openai: { base_url: "https://api.openai.com/v1", model: "gpt-5.5", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
   xai: { base_url: "https://api.x.ai/v1", model: "grok-4", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
   "azure-openai": { base_url: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1", model: "", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
   "github-copilot": { base_url: "https://api.githubcopilot.com", model: "gpt-4.1", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "github_copilot", context_window_tokens: null },
@@ -443,6 +448,17 @@ function providerConfigFromRaw(
   providerId: AgentProviderId,
   source: DiskAgentSettings | null | undefined,
 ): AgentProviderConfig {
+  const definition = getProviderDefinition(providerId);
+  const fallback = (DEFAULT_AGENT_SETTINGS as Record<string, AgentProviderConfig>)[providerId] ?? {
+    base_url: definition?.defaultBaseUrl ?? "",
+    model: getDefaultModelForProvider(providerId),
+    custom_model_name: "",
+    api_key: "",
+    assistant_id: "",
+    api_transport: getDefaultApiTransport(providerId),
+    auth_source: getDefaultAuthSource(providerId),
+    context_window_tokens: null,
+  };
   const providerMapValue = source?.providers?.[providerId];
   const flatValue = source?.[providerId] as Partial<AgentProviderConfig> | undefined;
   const mergedValue: Partial<AgentProviderConfig> = {
@@ -458,7 +474,7 @@ function providerConfigFromRaw(
         ? providerMapValue.context_window_tokens
         : flatValue?.context_window_tokens,
   };
-  return normalizeProviderConfig(providerId, DEFAULT_AGENT_SETTINGS[providerId], mergedValue);
+  return normalizeProviderConfig(providerId, fallback, mergedValue);
 }
 
 export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): AgentSettings {

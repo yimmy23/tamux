@@ -83,6 +83,7 @@ fn client_message_requires_startup_readiness(msg: &ClientMessage) -> bool {
             | ClientMessage::AgentGetConfig
             | ClientMessage::AgentGetGatewayConfig
             | ClientMessage::AgentGetEffectiveConfigState
+            | ClientMessage::AgentGetProviderCatalog
             | ClientMessage::GatewayRegister { .. }
             | ClientMessage::GatewayAck { .. }
             | ClientMessage::GatewayIncomingEvent { .. }

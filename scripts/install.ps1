@@ -218,6 +218,44 @@ function Install-Skills {
     Write-Host "Installed bundled skills -> $SkillsDir"
 }
 
+function Install-CustomAuthTemplate {
+    $rootDir = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "tamux" } else { Join-Path $HOME ".tamux" }
+    $customAuthPath = Join-Path $rootDir "custom-auth.yaml"
+    New-Item -ItemType Directory -Force -Path $rootDir | Out-Null
+
+    if (Test-Path $customAuthPath) {
+        return
+    }
+
+    @"
+# Add named custom providers here. The daemon reloads this file before
+# provider/model setup in the TUI and desktop app.
+# Prefer api_key_env for secrets, for example:
+# providers:
+#   - id: local-openai
+#     name: Local OpenAI-Compatible
+#     default_base_url: http://127.0.0.1:11434/v1
+#     default_model: llama3.3
+#     api_key_env: LOCAL_OPENAI_API_KEY
+providers: []
+"@ | Set-Content -Path $customAuthPath -Encoding UTF8
+    Write-Host "Created custom provider template -> $customAuthPath"
+}
+
+function Start-DaemonAfterUpgrade {
+    if ($env:TAMUX_START_DAEMON_AFTER_INSTALL -ne "1") {
+        return
+    }
+
+    $daemonPath = Join-Path $InstallDir "tamux-daemon.exe"
+    if (-not (Test-Path $daemonPath)) {
+        throw "Installed daemon binary not found: $daemonPath"
+    }
+
+    Write-Host "Starting tamux-daemon..."
+    Start-Process -FilePath $daemonPath -WindowStyle Hidden | Out-Null
+}
+
 # ---------------------------------------------------------------------------
 # PATH update
 # ---------------------------------------------------------------------------
@@ -272,7 +310,9 @@ try {
     Download-AndVerify
     Install-Binaries
     Install-Skills
+    Install-CustomAuthTemplate
     Update-Path
+    Start-DaemonAfterUpgrade
 } finally {
     if ($script:TmpDir -and (Test-Path $script:TmpDir)) {
         Remove-Item -Recurse -Force $script:TmpDir -ErrorAction SilentlyContinue

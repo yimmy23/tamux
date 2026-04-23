@@ -392,6 +392,7 @@ pub(super) fn project_goal_run_snapshot(
     related_tasks: &[AgentTask],
     now: u64,
 ) -> GoalRun {
+    let persisted_active_task_id = goal_run.active_task_id.clone();
     goal_run.current_step_title = goal_run
         .steps
         .get(goal_run.current_step_index)
@@ -416,6 +417,22 @@ pub(super) fn project_goal_run_snapshot(
                             | TaskStatus::AwaitingApproval
                     ))
                 .then(|| task.id.clone())
+            })
+        })
+        .or_else(|| {
+            persisted_active_task_id.as_deref().and_then(|task_id| {
+                related_tasks.iter().find_map(|task| {
+                    (task.id == task_id
+                        && matches!(
+                            task.status,
+                            TaskStatus::Queued
+                                | TaskStatus::InProgress
+                                | TaskStatus::Blocked
+                                | TaskStatus::FailedAnalyzing
+                                | TaskStatus::AwaitingApproval
+                        ))
+                    .then(|| task.id.clone())
+                })
             })
         });
     goal_run.awaiting_approval_id = related_tasks

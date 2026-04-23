@@ -1,5 +1,14 @@
-use crate::cli::{Commands, GoalAction, ThreadAction};
+use clap::Parser;
+
+use crate::cli::{Cli, Commands, GoalAction, ThreadAction};
 use crate::commands::core::should_check_for_updates;
+
+#[test]
+fn update_alias_parses_as_upgrade_command() {
+    let cli = Cli::try_parse_from(["tamux", "update"]).expect("update alias should parse");
+
+    assert!(matches!(cli.command, Some(Commands::Upgrade)));
+}
 
 #[test]
 fn checks_updates_for_user_facing_commands() {

@@ -701,6 +701,39 @@ if matches!(
                     api_key,
                     output_modalities,
                 } => {
+                    let _ = crate::agent::types::reload_custom_provider_catalog_from_default_path();
+                    let (resolved_url, resolved_key) = {
+                        let config = agent.config.read().await;
+                        let url = if base_url.is_empty() {
+                            config
+                                .providers
+                                .get(&provider_id)
+                                .map(|pc| pc.base_url.clone())
+                                .filter(|value| !value.is_empty())
+                                .or_else(|| {
+                                    crate::agent::types::custom_provider_config(&provider_id)
+                                        .map(|pc| pc.base_url)
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            base_url
+                        };
+                        let key = if api_key.is_empty() {
+                            config
+                                .providers
+                                .get(&provider_id)
+                                .map(|pc| pc.api_key.clone())
+                                .filter(|value| !value.is_empty())
+                                .or_else(|| {
+                                    crate::agent::types::custom_provider_config(&provider_id)
+                                        .map(|pc| pc.api_key)
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            api_key
+                        };
+                        (url, key)
+                    };
                     if !background_daemon_pending.has_capacity(BackgroundSubsystem::ProviderIo) {
                         background_daemon_pending.note_rejection(BackgroundSubsystem::ProviderIo);
                         framed
@@ -741,8 +774,8 @@ if matches!(
                         async move {
                             let result = crate::agent::llm_client::fetch_models(
                                 &provider_id,
-                                &base_url,
-                                &api_key,
+                                &resolved_url,
+                                &resolved_key,
                                 output_modalities.as_deref(),
                             )
                             .await;

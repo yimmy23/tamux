@@ -1,5 +1,84 @@
 use super::*;
 
+fn all_goal_steps_completed(goal_run: &GoalRun) -> bool {
+    !goal_run.steps.is_empty()
+        && goal_run
+            .steps
+            .iter()
+            .all(|step| step.status == GoalRunStepStatus::Completed)
+}
+
+fn final_review_prompt(goal_run: &GoalRun) -> String {
+    let planned = goal_run
+        .plan_summary
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(goal_run.goal.as_str());
+    let completed_steps = goal_run
+        .steps
+        .iter()
+        .enumerate()
+        .map(|(index, step)| {
+            format!(
+                "- Step {}: {}\n  Planned: {}\n  Done: {}",
+                index + 1,
+                step.title,
+                step.success_criteria,
+                step.summary
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or("no completion summary recorded")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "Perform the final review for goal `{}`.\n\n\
+         Return the first line exactly as `VERDICT: PASS` or `VERDICT: FAIL`.\n\
+         PASS only when all planned steps are complete, all goal todos are complete, every step has a completion markdown artifact, and the delivered work matches the plan.\n\
+         FAIL when any step is incomplete, any todo remains unchecked, a completion marker is missing, or the delivered work does not satisfy the plan.\n\n\
+         Goal:\n{}\n\n\
+         Planned summary:\n{}\n\n\
+         Completed steps:\n{}",
+        goal_run.title, goal_run.goal, planned, completed_steps
+    )
+}
+
+fn final_summary_markdown(goal_run: &GoalRun, reflection_summary: &str) -> String {
+    let planned = goal_run
+        .plan_summary
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(goal_run.goal.as_str());
+    let mut body = vec![
+        "# Final Goal Summary".to_string(),
+        String::new(),
+        format!("- Goal run: {}", goal_run.id),
+        format!("- Title: {}", goal_run.title),
+        String::new(),
+        "## Planned".to_string(),
+        planned.to_string(),
+        String::new(),
+        "## Done".to_string(),
+    ];
+    for (index, step) in goal_run.steps.iter().enumerate() {
+        body.push(format!("### Step {}: {}", index + 1, step.title));
+        body.push(format!("Planned: {}", step.success_criteria));
+        body.push(format!(
+            "Done: {}",
+            step.summary
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("no completion summary recorded")
+        ));
+        body.push(String::new());
+    }
+    body.push("## Reflection".to_string());
+    body.push(reflection_summary.to_string());
+    body.push(String::new());
+    body.join("\n")
+}
+
 async fn persist_reflection_skill_activation_note(
     data_dir: &std::path::Path,
     goal_run: &GoalRun,
@@ -30,6 +109,173 @@ async fn persist_reflection_skill_activation_note(
 }
 
 impl AgentEngine {
+    async fn enqueue_goal_final_review(&self, snapshot: &GoalRun) -> Result<()> {
+        let review_description = final_review_prompt(snapshot);
+        let review_task = self
+            .enqueue_task(
+                format!("Final review: {}", snapshot.title),
+                review_description.clone(),
+                task_priority_to_str(snapshot.priority),
+                None,
+                snapshot.session_id.clone(),
+                Vec::new(),
+                None,
+                GOAL_FINAL_REVIEW_SOURCE,
+                Some(snapshot.id.clone()),
+                None,
+                snapshot.thread_id.clone(),
+                None,
+            )
+            .await;
+
+        let synthetic_step = GoalRunStep {
+            id: "final-review".to_string(),
+            position: snapshot.steps.len(),
+            title: "Final review".to_string(),
+            instructions: review_description,
+            kind: GoalRunStepKind::Reason,
+            success_criteria: "Return VERDICT: PASS only when the goal is truly complete."
+                .to_string(),
+            session_id: snapshot.session_id.clone(),
+            status: GoalRunStepStatus::InProgress,
+            task_id: Some(review_task.id.clone()),
+            summary: None,
+            error: None,
+            started_at: None,
+            completed_at: None,
+        };
+        let review_binding = default_verification_binding();
+        let resolved_target = self
+            .resolve_goal_target_for_binding(snapshot, &synthetic_step, &review_binding)
+            .await;
+        let updated_task = self
+            .apply_goal_resolved_target_to_task(review_task.id.as_str(), resolved_target.as_ref())
+            .await
+            .unwrap_or(review_task);
+        let owner_profile = Some(
+            self.goal_owner_profile_for_task_target(&updated_task, resolved_target.as_ref())
+                .await,
+        );
+
+        let updated_goal = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == snapshot.id) else {
+                anyhow::bail!("goal run missing while queuing final review");
+            };
+            goal_run.status = GoalRunStatus::Running;
+            goal_run.updated_at = now_millis();
+            goal_run.awaiting_approval_id = None;
+            goal_run.active_task_id = Some(updated_task.id.clone());
+            goal_run.current_step_owner_profile = owner_profile;
+            goal_run.events.push(make_goal_run_event(
+                "final_review",
+                "final review queued",
+                Some(updated_task.id.clone()),
+            ));
+            goal_run.clone()
+        };
+
+        self.persist_tasks().await;
+        self.persist_goal_runs().await;
+        self.emit_task_update(&updated_task, Some(status_message(&updated_task).into()));
+        self.emit_goal_run_update(&updated_goal, Some("Final review queued".into()));
+        Ok(())
+    }
+
+    pub(in crate::agent) async fn handle_goal_run_final_review_completion(
+        &self,
+        goal_run_id: &str,
+        task: &AgentTask,
+    ) -> Result<()> {
+        let review_output = task
+            .result
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                task.last_error
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "final review completed without a structured verdict".to_string());
+        if !matches!(
+            parse_goal_review_verdict(&review_output),
+            Some(GoalReviewVerdict::Pass)
+        ) {
+            self.handle_goal_run_final_review_failure(goal_run_id, task)
+                .await?;
+            return Ok(());
+        }
+
+        let snapshot = self
+            .get_goal_run(goal_run_id)
+            .await
+            .context("goal run missing during final review completion")?;
+        let marker_path =
+            crate::agent::goal_dossier::goal_final_review_marker_path(&self.data_dir, goal_run_id);
+        if let Some(parent) = marker_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        tokio::fs::write(&marker_path, format!("{review_output}\n")).await?;
+
+        let updated = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                anyhow::bail!("goal run missing while recording final review");
+            };
+            goal_run.status = GoalRunStatus::Running;
+            goal_run.updated_at = now_millis();
+            goal_run.awaiting_approval_id = None;
+            goal_run.active_task_id = None;
+            goal_run.current_step_owner_profile = None;
+            goal_run.last_error = None;
+            goal_run.failure_cause = None;
+            goal_run.events.push(make_goal_run_event(
+                "final_review",
+                "final review passed",
+                Some(review_output.clone()),
+            ));
+            goal_run.clone()
+        };
+
+        self.persist_goal_runs().await;
+        if let Some(thread_id) = snapshot.thread_id.as_deref() {
+            self.record_file_work_context(
+                thread_id,
+                None,
+                "goal_final_review",
+                &marker_path.to_string_lossy(),
+            )
+            .await;
+        }
+        self.emit_goal_run_update(&updated, Some("Final review passed".into()));
+        self.complete_goal_run(goal_run_id).await
+    }
+
+    pub(in crate::agent) async fn handle_goal_run_final_review_failure(
+        &self,
+        goal_run_id: &str,
+        task: &AgentTask,
+    ) -> Result<()> {
+        let failure = task
+            .last_error
+            .clone()
+            .or_else(|| task.error.clone())
+            .or_else(|| task.result.clone())
+            .unwrap_or_else(|| "final review did not pass".to_string());
+        self.fail_goal_run(
+            goal_run_id,
+            &failure,
+            "final_review",
+            task.thread_id.clone(),
+        )
+        .await;
+        Ok(())
+    }
+
     pub(in crate::agent) async fn complete_goal_run(&self, goal_run_id: &str) -> Result<()> {
         let snapshot = self
             .get_goal_run(goal_run_id)
@@ -37,6 +283,46 @@ impl AgentEngine {
             .context("goal run missing during completion")?;
         if self.goal_run_has_active_tasks(goal_run_id).await {
             anyhow::bail!("goal run still has active child work");
+        }
+        if !all_goal_steps_completed(&snapshot) {
+            anyhow::bail!("goal run completion blocked: not all steps are completed");
+        }
+        for step_index in 0..snapshot.steps.len() {
+            let marker_path = crate::agent::goal_dossier::goal_step_completion_marker_path(
+                &self.data_dir,
+                goal_run_id,
+                step_index,
+            );
+            if tokio::fs::metadata(&marker_path).await.is_err() {
+                anyhow::bail!(
+                    "goal run completion blocked: missing step completion marker {}",
+                    marker_path.display()
+                );
+            }
+        }
+        if let Some(thread_id) = snapshot.thread_id.as_deref() {
+            let incomplete_todos = self
+                .get_todos(thread_id)
+                .await
+                .into_iter()
+                .filter(|item| item.status != TodoStatus::Completed)
+                .collect::<Vec<_>>();
+            if !incomplete_todos.is_empty() {
+                anyhow::bail!(
+                    "goal run completion blocked: incomplete todos remain: {}",
+                    incomplete_todos
+                        .into_iter()
+                        .map(|todo| todo.content)
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                );
+            }
+        }
+        let final_review_marker =
+            crate::agent::goal_dossier::goal_final_review_marker_path(&self.data_dir, goal_run_id);
+        if tokio::fs::metadata(&final_review_marker).await.is_err() {
+            self.enqueue_goal_final_review(&snapshot).await?;
+            return Ok(());
         }
         let reflection = self.request_goal_reflection(&snapshot).await?;
         let mut applied_memory_update = None;
@@ -68,6 +354,16 @@ impl AgentEngine {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+        let final_summary_path =
+            crate::agent::goal_dossier::goal_final_summary_path(&self.data_dir, goal_run_id);
+        if let Some(parent) = final_summary_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        tokio::fs::write(
+            &final_summary_path,
+            final_summary_markdown(&snapshot, &reflection.summary),
+        )
+        .await?;
 
         let cost_summary = {
             let trackers = self.cost_trackers.lock().await;
@@ -122,6 +418,15 @@ impl AgentEngine {
 
         self.persist_goal_runs().await;
         self.record_generated_skill_work_context(&updated).await;
+        if let Some(thread_id) = updated.thread_id.as_deref() {
+            self.record_file_work_context(
+                thread_id,
+                None,
+                "goal_final_summary",
+                &final_summary_path.to_string_lossy(),
+            )
+            .await;
+        }
         if let Some(skill) = activated_skill.as_deref() {
             if let Some(thread_id) = updated.thread_id.as_deref() {
                 if let Some(state) = super::skill_preflight::build_reflection_skill_activation_state(

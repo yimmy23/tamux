@@ -615,7 +615,52 @@ fn cap_goal_run_window_for_ipc(
     None
 }
 
+fn goal_run_thread_context_message(goal_run: &GoalRun, source_thread_id: Option<&str>) -> String {
+    let source_line = source_thread_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("- Source thread: {value}"))
+        .unwrap_or_else(|| "- Source thread: direct goal launch".to_string());
+    format!(
+        "Dedicated goal thread initialized.\n\n\
+         - Goal run: {}\n\
+         - Title: {}\n\
+         - Big picture: {}\n\
+         {}\n\
+         - Current progress: planning pending; no goal steps have completed yet.\n\n\
+         This thread owns the full lifecycle of the goal. First plan the work into concrete steps. \
+         Then execute the current step completely, review it, persist the required artifacts, and continue until the final review passes.",
+        goal_run.id, goal_run.title, goal_run.goal, source_line
+    )
+}
+
 impl AgentEngine {
+    async fn initialize_goal_run_thread(&self, goal_run: &GoalRun, source_thread_id: Option<&str>) {
+        let Some(goal_thread_id) = goal_run.thread_id.as_deref() else {
+            return;
+        };
+        self.ensure_thread_messages_loaded(goal_thread_id).await;
+
+        let normalized_source_thread_id = source_thread_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != goal_thread_id)
+            .map(ToOwned::to_owned);
+        {
+            let mut threads = self.threads.write().await;
+            let Some(thread) = threads.get_mut(goal_thread_id) else {
+                return;
+            };
+            thread.upstream_thread_id = normalized_source_thread_id;
+            thread.updated_at = now_millis();
+        }
+        self.persist_thread_by_id(goal_thread_id).await;
+        self.append_system_thread_message(
+            goal_thread_id,
+            goal_run_thread_context_message(goal_run, source_thread_id),
+        )
+        .await;
+    }
+
     pub async fn restore_checkpoint(
         &self,
         checkpoint_id: &str,
@@ -819,11 +864,13 @@ impl AgentEngine {
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| summarize_goal_title(&goal));
-        let mut goal_thread_id = thread_id;
-        if goal_thread_id.is_none() {
-            let (created_thread_id, _) = self.get_or_create_thread(None, &normalized_title).await;
-            goal_thread_id = Some(created_thread_id);
-        }
+        let source_thread_id = thread_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let (created_thread_id, _) = self.get_or_create_thread(None, &normalized_title).await;
+        let goal_thread_id = Some(created_thread_id);
         let now = now_millis();
         if let (Some(thread_id), Some(client_surface)) = (goal_thread_id.as_deref(), client_surface)
         {
@@ -835,7 +882,10 @@ impl AgentEngine {
             SatisfactionAdaptationMode::from_label(&model.operator_satisfaction.label)
         };
         let launch_assignment_snapshot = match launch_assignments {
-            Some(assignments) if !assignments.is_empty() => assignments,
+            Some(assignments) if !assignments.is_empty() => {
+                self.normalized_goal_launch_assignment_snapshot(assignments)
+                    .await
+            }
             _ => self.goal_launch_assignment_snapshot().await,
         };
         let goal_run = GoalRun {
@@ -897,6 +947,8 @@ impl AgentEngine {
         let goal_thread_id = goal_run.thread_id.clone();
         super::goal_run_apply_thread_routing(&mut goal_run, goal_thread_id);
         crate::agent::goal_dossier::refresh_goal_run_dossier(&mut goal_run);
+        self.initialize_goal_run_thread(&goal_run, source_thread_id.as_deref())
+            .await;
 
         self.goal_runs.lock().await.push_back(goal_run.clone());
         if let Some(client_surface) = client_surface {
@@ -913,6 +965,7 @@ impl AgentEngine {
                 "title": goal_run.title.clone(),
                 "goal": goal_run.goal.clone(),
                 "priority": format!("{:?}", goal_run.priority).to_lowercase(),
+                "source_thread_id": source_thread_id,
             }),
             Some(goal_run.id.as_str()),
             None,

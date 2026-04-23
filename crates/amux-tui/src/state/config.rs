@@ -235,7 +235,7 @@ impl ConfigState {
         Self {
             provider: PROVIDER_ID_OPENAI.to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
-            model: "gpt-5.4".to_string(),
+            model: "gpt-5.5".to_string(),
             custom_model_name: String::new(),
             api_key: String::new(),
             assistant_id: String::new(),

@@ -48,7 +48,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         id: PROVIDER_ID_OPENAI,
         name: "OpenAI",
         default_base_url: "https://api.openai.com/v1",
-        default_model: "gpt-5.4",
+        default_model: "gpt-5.5",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: OPENAI_MODELS,
@@ -463,7 +463,13 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
 ];
 
 pub fn get_provider_definition(id: &str) -> Option<&'static ProviderDefinition> {
-    PROVIDER_DEFINITIONS.iter().find(|p| p.id == id)
+    custom_provider_definition(id).or_else(|| PROVIDER_DEFINITIONS.iter().find(|p| p.id == id))
+}
+
+pub fn all_provider_definitions() -> Vec<&'static ProviderDefinition> {
+    let mut definitions = PROVIDER_DEFINITIONS.iter().collect::<Vec<_>>();
+    definitions.extend(custom_provider_definitions());
+    definitions
 }
 
 pub fn provider_supports_transport(provider_id: &str, transport: ApiTransport) -> bool {

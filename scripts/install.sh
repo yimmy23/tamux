@@ -216,6 +216,44 @@ install_skills() {
   echo "Installed bundled skills -> ${SKILLS_DIR}"
 }
 
+install_custom_auth_template() {
+  root_dir="${HOME}/.tamux"
+  custom_auth_path="${root_dir}/custom-auth.yaml"
+  mkdir -p "$root_dir"
+
+  if [ -e "$custom_auth_path" ]; then
+    return
+  fi
+
+  cat > "$custom_auth_path" <<'YAML'
+# Add named custom providers here. The daemon reloads this file before
+# provider/model setup in the TUI and desktop app.
+# Prefer api_key_env for secrets, for example:
+# providers:
+#   - id: local-openai
+#     name: Local OpenAI-Compatible
+#     default_base_url: http://127.0.0.1:11434/v1
+#     default_model: llama3.3
+#     api_key_env: LOCAL_OPENAI_API_KEY
+providers: []
+YAML
+  echo "Created custom provider template -> ${custom_auth_path}"
+}
+
+start_daemon_after_upgrade() {
+  if [ "${TAMUX_START_DAEMON_AFTER_INSTALL:-}" != "1" ]; then
+    return
+  fi
+
+  daemon_path="${INSTALL_DIR}/tamux-daemon"
+  if [ ! -x "$daemon_path" ]; then
+    die "Installed daemon binary is missing or not executable: ${daemon_path}"
+  fi
+
+  echo "Starting tamux-daemon..."
+  "$daemon_path" >/dev/null 2>&1 &
+}
+
 print_path_hint() {
   case ":${PATH:-}:" in
     *":$INSTALL_DIR:"*)
@@ -278,6 +316,8 @@ extract_archive
 echo "Verifying extracted binaries..."
 install_binaries "$verify_extracted_binaries"
 install_skills
+install_custom_auth_template
+start_daemon_after_upgrade
 
 echo ""
 echo "tamux installed successfully."

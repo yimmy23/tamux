@@ -2,6 +2,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const install = require("./install");
@@ -140,8 +142,108 @@ test("getRuntimeSkillsDir resolves to the canonical tamux skills root", function
   );
 });
 
+test("getRuntimeCustomAuthPath resolves beside daemon runtime data", function () {
+  assert.equal(
+    install.getRuntimeCustomAuthPath("linux", {
+      HOME: "/home/aline",
+    }),
+    "/home/aline/.tamux/custom-auth.yaml"
+  );
+
+  assert.equal(
+    install.getRuntimeCustomAuthPath("win32", {
+      LOCALAPPDATA: "C:\\Users\\aline\\AppData\\Local",
+    }),
+    "C:\\Users\\aline\\AppData\\Local\\tamux\\custom-auth.yaml"
+  );
+});
+
+test("ensureCustomAuthTemplate creates default yaml without overwriting", function () {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamux-custom-auth-"));
+  const customAuthPath = install.getRuntimeCustomAuthPath("linux", { HOME: root });
+
+  install.ensureCustomAuthTemplate("linux", { HOME: root });
+
+  assert.equal(
+    fs.readFileSync(customAuthPath, "utf8"),
+    "# Add named custom providers here. The daemon reloads this file before\n" +
+      "# provider/model setup in the TUI and desktop app.\n" +
+      "# Prefer api_key_env for secrets, for example:\n" +
+      "# providers:\n" +
+      "#   - id: local-openai\n" +
+      "#     name: Local OpenAI-Compatible\n" +
+      "#     default_base_url: http://127.0.0.1:11434/v1\n" +
+      "#     default_model: llama3.3\n" +
+      "#     api_key_env: LOCAL_OPENAI_API_KEY\n" +
+      "providers: []\n"
+  );
+
+  fs.writeFileSync(customAuthPath, "providers:\n  - id: already-here\n");
+  install.ensureCustomAuthTemplate("linux", { HOME: root });
+
+  assert.equal(
+    fs.readFileSync(customAuthPath, "utf8"),
+    "providers:\n  - id: already-here\n"
+  );
+});
+
 test("release bundle metadata includes bundled skills payload", function () {
   const info = install.getReleaseAssetInfo("linux", "x64", "0.2.0");
 
   assert.equal(info.skillsArchiveRoot, "skills");
+});
+
+test("global npm install stops processes before replacing binaries and restarts daemon after success", async function () {
+  const events = [];
+
+  await install.maybeRefreshDaemonAfterInstall(
+    {
+      isGlobalInstall: true,
+      platform: "linux",
+      binDir: "/tmp/tamux-bin",
+    },
+    async function () {
+      events.push("install");
+    },
+    {
+      stopProcesses: async function (platform) {
+        events.push("stop:" + platform);
+      },
+      startDaemon: function (platform, binDir) {
+        events.push("start:" + platform + ":" + binDir);
+        return path.join(binDir, "tamux-daemon");
+      },
+    }
+  );
+
+  assert.deepEqual(events, [
+    "stop:linux",
+    "install",
+    "start:linux:/tmp/tamux-bin",
+  ]);
+});
+
+test("local npm install does not stop or restart daemon", async function () {
+  const events = [];
+
+  await install.maybeRefreshDaemonAfterInstall(
+    {
+      isGlobalInstall: false,
+      platform: "linux",
+      binDir: "/tmp/tamux-bin",
+    },
+    async function () {
+      events.push("install");
+    },
+    {
+      stopProcesses: async function () {
+        events.push("stop");
+      },
+      startDaemon: function () {
+        events.push("start");
+      },
+    }
+  );
+
+  assert.deepEqual(events, ["install"]);
 });

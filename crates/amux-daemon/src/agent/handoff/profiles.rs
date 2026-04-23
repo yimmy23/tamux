@@ -343,6 +343,7 @@ pub(crate) fn compute_learned_routing_weights(
     weights
 }
 
+#[cfg(test)]
 pub(crate) fn select_learned_specialist(
     learned_weights: &[LearnedRoutingWeight],
     confidence_threshold: f64,

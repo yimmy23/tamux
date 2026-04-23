@@ -275,8 +275,8 @@ html, body {
 .page-sidebar {
   top: calc(var(--header-height) + 1.5rem); 
   height: max-content;
-  max-height: calc(100vh - var(--header-height) - 3rem);
-  overflow-y: auto;
+  max-height: 100%;
+  overflow-y: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
   width: 100%;
@@ -289,6 +289,9 @@ html, body {
 }
 
 .sidebar-card { 
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   background: var(--bg-card);
   border: 1px solid var(--line);
   border-radius: var(--radius); 

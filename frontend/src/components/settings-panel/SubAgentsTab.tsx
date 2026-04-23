@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAgentStore } from "../../lib/agentStore";
 import type { SubAgentDefinition, AgentProviderId } from "../../lib/agentStore";
 import { getSubAgentCapabilities } from "../../lib/agentStore/providerActions";
+import { selectableProviderAuthStates } from "./agentTabHelpers";
 import { Section, SettingRow, ModelSelector, inputStyle, smallBtnStyle, addBtnStyle } from "./shared";
 
 type SubAgentForm = {
@@ -79,7 +80,7 @@ export function SubAgentsTab() {
     const [showForm, setShowForm] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [form, setForm] = useState<SubAgentForm>(emptyForm);
-    const selectableProviders = providerAuthStates.filter((provider) => provider.authenticated);
+    const selectableProviders = selectableProviderAuthStates(providerAuthStates);
 
     useEffect(() => {
         refreshSubAgents();
@@ -299,6 +300,7 @@ export function SubAgentsTab() {
                                     providerId={form.provider as AgentProviderId}
                                     value={form.model}
                                     onChange={(model) => setForm({ ...form, model })}
+                                    allowProviderAuthFetch={Boolean(providerAuthStates.find((p) => p.provider_id === form.provider)?.authenticated)}
                                 />
                             ) : (
                                 <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>Select a provider first</span>

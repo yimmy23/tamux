@@ -345,12 +345,27 @@ fn interval_mins_to_cron_converts_correctly() {
 fn openai_curated_media_modalities_match_expectations() {
     let provider = get_provider_definition(PROVIDER_ID_OPENAI).expect("openai provider");
 
+    assert_eq!(provider.default_model, "gpt-5.5");
+    assert_eq!(
+        provider.models.first().map(|model| model.id),
+        Some("gpt-5.5")
+    );
+    assert_eq!(model_modalities(PROVIDER_ID_OPENAI, "gpt-5.5"), MULTIMODAL);
     assert_eq!(model_modalities(PROVIDER_ID_OPENAI, "gpt-5.4"), MULTIMODAL);
     assert_eq!(
         model_modalities(PROVIDER_ID_OPENAI, "gpt-5.4-mini"),
         TEXT_IMAGE
     );
-    assert_eq!(provider.default_model, "gpt-5.4");
+    assert!(model_supports(
+        PROVIDER_ID_OPENAI,
+        "gpt-5.5",
+        Modality::Audio
+    ));
+    assert!(model_supports(
+        PROVIDER_ID_OPENAI,
+        "gpt-5.5",
+        Modality::Video
+    ));
     assert!(model_supports(
         PROVIDER_ID_OPENAI,
         "gpt-5.4",

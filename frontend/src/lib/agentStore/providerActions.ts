@@ -1,5 +1,6 @@
 import { getBridge } from "../bridge";
 import { isValidProviderAuthStates } from "./history";
+import { hydrateProviderDefinitionsFromCatalog } from "./providers";
 import type { AgentState, AgentStoreGet, AgentStoreSet } from "./storeTypes";
 import type { ProviderAuthState, SubAgentDefinition } from "./types";
 
@@ -55,6 +56,13 @@ export function createProviderActions(
         return;
       }
       try {
+        if (bridge.agentGetProviderCatalog) {
+          const catalog = await bridge.agentGetProviderCatalog();
+          const { diagnostics } = hydrateProviderDefinitionsFromCatalog(catalog);
+          if (diagnostics.length > 0) {
+            console.warn("custom provider configuration diagnostics", diagnostics);
+          }
+        }
         const states = await bridge.agentGetProviderAuthStates();
         if (isValidProviderAuthStates(states)) {
           set({ providerAuthStates: states as ProviderAuthState[] });

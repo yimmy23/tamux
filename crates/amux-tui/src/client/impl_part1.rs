@@ -433,6 +433,7 @@ impl DaemonClient {
                 Self::handle_daemon_message_part1(message, event_tx, thread_detail_chunks).await
             }
             message @ (DaemonMessage::AgentProviderAuthStates { .. }
+            | DaemonMessage::AgentProviderCatalog { .. }
             | DaemonMessage::AgentOpenAICodexAuthStatus { .. }
             | DaemonMessage::AgentOpenAICodexAuthLoginResult { .. }
             | DaemonMessage::AgentOpenAICodexAuthLogoutResult { .. }

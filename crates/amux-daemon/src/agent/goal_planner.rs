@@ -7,6 +7,11 @@ mod finalization_impl;
 #[path = "goal_planner/progress.rs"]
 mod progress_impl;
 
+pub(super) const GOAL_FINAL_REVIEW_SOURCE: &str = "goal_final_review";
+const GOAL_REVIEWER_ROLE_ID: &str = "reviewer";
+const GOAL_REVIEW_VERDICT_PASS: &str = "VERDICT: PASS";
+const GOAL_REVIEW_VERDICT_FAIL: &str = "VERDICT: FAIL";
+
 fn parse_goal_role_binding(raw: Option<&str>, fallback: GoalRoleBinding) -> GoalRoleBinding {
     let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
         return fallback;
@@ -36,7 +41,7 @@ fn default_execution_binding(kind: &GoalRunStepKind) -> GoalRoleBinding {
 }
 
 fn default_verification_binding() -> GoalRoleBinding {
-    GoalRoleBinding::Builtin(crate::agent::agent_identity::MAIN_AGENT_ID.to_string())
+    GoalRoleBinding::Builtin(GOAL_REVIEWER_ROLE_ID.to_string())
 }
 
 fn goal_runtime_owner_profile(
@@ -80,7 +85,112 @@ fn sub_agent_matches_identifier(def: &SubAgentDefinition, identifier: &str) -> b
             .is_some_and(|value| value.eq_ignore_ascii_case(identifier))
 }
 
+fn normalize_goal_assignment_role(raw: &str) -> String {
+    raw.trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn is_goal_reviewer_role(role_id: &str) -> bool {
+    matches!(
+        normalize_goal_assignment_role(role_id).as_str(),
+        "reviewer" | "review" | "verifier" | "verify" | "qa"
+    )
+}
+
+pub(super) enum GoalReviewVerdict {
+    Pass,
+    Fail,
+}
+
+pub(super) fn parse_goal_review_verdict(raw: &str) -> Option<GoalReviewVerdict> {
+    let first_line = raw
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    if first_line.eq_ignore_ascii_case(GOAL_REVIEW_VERDICT_PASS) {
+        return Some(GoalReviewVerdict::Pass);
+    }
+    if first_line.eq_ignore_ascii_case(GOAL_REVIEW_VERDICT_FAIL) {
+        return Some(GoalReviewVerdict::Fail);
+    }
+    None
+}
+
 impl AgentEngine {
+    pub(super) async fn normalized_goal_launch_assignment_snapshot(
+        &self,
+        assignments: Vec<GoalAgentAssignment>,
+    ) -> Vec<GoalAgentAssignment> {
+        if assignments
+            .iter()
+            .any(|assignment| assignment.enabled && is_goal_reviewer_role(&assignment.role_id))
+        {
+            return assignments;
+        }
+
+        let mut assignments = assignments;
+        let inherited = assignments
+            .iter()
+            .find(|assignment| {
+                assignment.enabled
+                    && assignment.role_id == crate::agent::agent_identity::MAIN_AGENT_ID
+            })
+            .cloned();
+        let reviewer = if let Some(main) = inherited {
+            goal_agent_assignment(
+                GOAL_REVIEWER_ROLE_ID.to_string(),
+                true,
+                main.provider,
+                main.model,
+                main.reasoning_effort,
+                true,
+            )
+        } else {
+            let config = self.config.read().await;
+            let resolved =
+                resolve_active_provider_config(&config).unwrap_or_else(|_| ProviderConfig {
+                    base_url: config.base_url.clone(),
+                    model: config.model.clone(),
+                    api_key: config.api_key.clone(),
+                    assistant_id: config.assistant_id.clone(),
+                    auth_source: config.auth_source,
+                    api_transport: config.api_transport,
+                    reasoning_effort: config.reasoning_effort.clone(),
+                    context_window_tokens: config.context_window_tokens,
+                    response_schema: None,
+                    stop_sequences: None,
+                    temperature: None,
+                    top_p: None,
+                    top_k: None,
+                    metadata: None,
+                    service_tier: None,
+                    container: None,
+                    inference_geo: None,
+                    cache_control: None,
+                    max_tokens: None,
+                    anthropic_tool_choice: None,
+                    output_effort: None,
+                });
+            goal_agent_assignment(
+                GOAL_REVIEWER_ROLE_ID.to_string(),
+                true,
+                config.provider.clone(),
+                resolved.model,
+                Some(resolved.reasoning_effort),
+                true,
+            )
+        };
+        assignments.push(reviewer);
+        assignments
+    }
+
     pub(crate) async fn goal_launch_assignment_snapshot(&self) -> Vec<GoalAgentAssignment> {
         let config = self.config.read().await;
         let resolved = resolve_active_provider_config(&config).unwrap_or_else(|_| ProviderConfig {
@@ -106,14 +216,17 @@ impl AgentEngine {
             anthropic_tool_choice: None,
             output_effort: None,
         });
-        vec![goal_agent_assignment(
+        let assignments = vec![goal_agent_assignment(
             crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
             true,
             config.provider.clone(),
             resolved.model,
             Some(resolved.reasoning_effort),
             false,
-        )]
+        )];
+        drop(config);
+        self.normalized_goal_launch_assignment_snapshot(assignments)
+            .await
     }
 
     async fn planner_owner_profile(&self) -> GoalRuntimeOwnerProfile {
