@@ -22,6 +22,7 @@ const GITHUB_COPILOT_AUTH_SOURCES: AuthSource[] = ["github_copilot", "api_key"];
 
 const M_MULTI: Modality[] = ["text", "image", "video", "audio"];
 const M_TI: Modality[] = ["text", "image"];
+const M_TA: Modality[] = ["text", "audio"];
 
 const OPENAI_API_MODELS: ModelDefinition[] = [
   { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000, modalities: M_MULTI },
@@ -169,6 +170,11 @@ const ALIBABA_CODING_COMPAT_MODELS: ModelDefinition[] = [
 const XIAOMI_MIMO_TOKEN_PLAN_MODELS: ModelDefinition[] = [
   { id: "mimo-v2-pro", name: "MiMo V2 Pro", contextWindow: 1_000_000 },
   { id: "mimo-v2-omni", name: "MiMo V2 Omni", contextWindow: 256_000, modalities: M_MULTI },
+  { id: "mimo-v2.5-pro", name: "MiMo V2.5 Pro", contextWindow: 1_000_000 },
+  { id: "mimo-v2.5", name: "MiMo V2.5", contextWindow: 1_000_000, modalities: M_MULTI },
+  { id: "mimo-v2.5-tts", name: "MiMo V2.5 TTS", contextWindow: 128_000, modalities: M_TA },
+  { id: "mimo-v2.5-tts-voiceclone", name: "MiMo V2.5 TTS VoiceClone", contextWindow: 128_000, modalities: M_TA },
+  { id: "mimo-v2.5-tts-voicedesign", name: "MiMo V2.5 TTS VoiceDesign", contextWindow: 128_000, modalities: M_TA },
 ];
 
 const NOUS_PORTAL_MODELS: ModelDefinition[] = [
@@ -237,14 +243,25 @@ export function normalizeAgentProviderId(value: unknown): AgentProviderId {
 
 export function providerSupportsAudioTool(
   providerId: AgentProviderId,
-  _kind: AudioToolEndpoint,
+  kind: AudioToolEndpoint,
 ): boolean {
+  if (kind === "stt") {
+    return providerId === "custom"
+      || providerId === "openai"
+      || providerId === "azure-openai"
+      || providerId === "groq"
+      || providerId === "openrouter"
+      || providerId === "xai";
+  }
   return providerId === "custom"
     || providerId === "openai"
     || providerId === "azure-openai"
     || providerId === "groq"
+    || providerId === "minimax"
+    || providerId === "minimax-coding-plan"
     || providerId === "openrouter"
-    || providerId === "xai";
+    || providerId === "xai"
+    || providerId === "xiaomi-mimo-token-plan";
 }
 
 export function normalizeApiTransport(

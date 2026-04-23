@@ -2264,6 +2264,75 @@ fn file_preview_view_renders_visible_scrollbar_when_preview_overflows() {
 }
 
 #[test]
+fn file_preview_scrollbar_thumb_drags_detail_scroll() {
+    let mut model = build_model();
+    model.focus = FocusArea::Chat;
+    model.show_sidebar_override = Some(false);
+    model
+        .tasks
+        .reduce(task::TaskAction::FilePreviewReceived(task::FilePreview {
+            path: "/tmp/demo.txt".to_string(),
+            content: (1..=240)
+                .map(|idx| format!("line {idx}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            truncated: false,
+            is_text: true,
+        }));
+    model.main_pane_view = MainPaneView::FilePreview(ChatFilePreviewTarget {
+        path: "/tmp/demo.txt".to_string(),
+        repo_root: None,
+        repo_relative_path: None,
+    });
+    model.task_view_scroll = 40;
+
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("file preview render should succeed");
+
+    let chat_area = rendered_chat_area(&model);
+    let buffer = terminal.backend().buffer();
+    let thumb_row = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+        .find(|y| {
+            buffer
+                .cell((chat_area.x + chat_area.width - 1, *y))
+                .is_some_and(|cell| cell.symbol() == "█")
+        })
+        .expect("expected draggable scrollbar thumb to be visible");
+    let drag_row = thumb_row
+        .saturating_add(6)
+        .min(chat_area.y.saturating_add(chat_area.height).saturating_sub(1));
+
+    let initial_scroll = model.task_view_scroll;
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: chat_area.x + chat_area.width - 1,
+        row: thumb_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: chat_area.x + chat_area.width - 1,
+        row: drag_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: chat_area.x + chat_area.width - 1,
+        row: drag_row,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert!(
+        model.task_view_scroll > initial_scroll,
+        "dragging the visible preview scrollbar thumb should advance preview scroll"
+    );
+}
+
+#[test]
 fn file_preview_view_renders_image_preview_instead_of_binary_placeholder() {
     use base64::Engine as _;
 

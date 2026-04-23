@@ -618,11 +618,18 @@ use amux_shared::providers::{
         assert_eq!(provider.auth_method, AuthMethod::Bearer);
         assert!(!provider.supports_model_fetch);
         assert_eq!(provider.default_transport, ApiTransport::ChatCompletions);
-        assert_eq!(provider.models.len(), 2);
+        assert_eq!(provider.models.len(), 7);
         assert_eq!(provider.models[0].id, "mimo-v2-pro");
         assert_eq!(provider.models[0].context_window, 1_000_000);
         assert_eq!(provider.models[1].id, "mimo-v2-omni");
         assert_eq!(provider.models[1].context_window, 256_000);
+        assert_eq!(provider.models[2].id, "mimo-v2.5-pro");
+        assert_eq!(provider.models[2].context_window, 1_000_000);
+        assert_eq!(provider.models[3].id, "mimo-v2.5");
+        assert_eq!(provider.models[3].context_window, 1_000_000);
+        assert_eq!(provider.models[4].id, "mimo-v2.5-tts");
+        assert_eq!(provider.models[5].id, "mimo-v2.5-tts-voiceclone");
+        assert_eq!(provider.models[6].id, "mimo-v2.5-tts-voicedesign");
         assert_eq!(
             get_provider_api_type(
                 "xiaomi-mimo-token-plan",

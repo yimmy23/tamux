@@ -19,10 +19,10 @@
   --muted-subtle: #5a6275;
   
   /* Accent colors - refined */
-  --accent: #6b8cff;
-  --accent-soft: rgba(107, 140, 255, 0.1);
-  --accent-2: #4dd9c0;
-  --accent-2-soft: rgba(77, 217, 192, 0.08);
+  --accent: #ff6347;
+  --accent-soft: rgba(255, 99, 71, 0.1);
+  --accent-2: #cd853f;
+  --accent-2-soft: rgba(205, 133, 63, 0.08);
   
   /* Status colors */
   --warning: #f0b863;
@@ -312,6 +312,19 @@ pre code {
 }
 
 .side-links li + li { margin-top: 0.0625rem; }
+.nav-group + .nav-group {
+  margin-top: 0.95rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line-subtle);
+}
+.nav-group-title {
+  margin: 0 0 0.45rem 0.625rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-subtle);
+}
 .side-links a {
   display: block; 
   padding: 0.4rem 0.625rem; 
@@ -422,14 +435,14 @@ pre code {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 .button.primary {
-  background: linear-gradient(135deg, var(--accent), #5a7fff);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: #080a0e; 
   border-color: transparent; 
   font-weight: 700;
-  box-shadow: 0 4px 16px rgba(107, 140, 255, 0.35);
+  box-shadow: 0 4px 16px rgba(255, 99, 71, 0.2);
 }
 .button.primary:hover {
-  box-shadow: 0 6px 20px rgba(107, 140, 255, 0.5);
+  box-shadow: 0 6px 20px rgba(255, 99, 71, 0.35);
   transform: translateY(-1px);
 }
 

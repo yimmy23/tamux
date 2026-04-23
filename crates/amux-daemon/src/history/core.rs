@@ -84,10 +84,6 @@ impl HistoryStore {
             .join(format!("{payload_id}.txt"))
     }
 
-    pub(crate) fn tool_output_preview_root(&self) -> PathBuf {
-        self.data_root().join(".cache").join("tools")
-    }
-
     pub(crate) fn tool_output_preview_path(
         &self,
         thread_id: &str,
@@ -96,26 +92,15 @@ impl HistoryStore {
         timestamp: u64,
     ) -> PathBuf {
         let safe_tool_name = sanitize_tool_output_segment(tool_name);
+        let preview_dir = amux_protocol::thread_previews_dir(self.data_root(), thread_id);
         match goal_run_id {
-            Some(goal_run_id) => self
-                .tool_output_preview_root()
-                .join(format!(
-                    "goal-{}",
-                    sanitize_tool_output_segment(goal_run_id)
-                ))
-                .join(format!(
-                    "{}-{}-{}.txt",
-                    safe_tool_name,
-                    sanitize_tool_output_segment(thread_id),
-                    timestamp
-                )),
-            None => self
-                .tool_output_preview_root()
-                .join(format!(
-                    "thread-{}",
-                    sanitize_tool_output_segment(thread_id)
-                ))
-                .join(format!("{safe_tool_name}-{timestamp}.txt")),
+            Some(goal_run_id) => preview_dir.join(format!(
+                "{}-{}-{}.txt",
+                safe_tool_name,
+                sanitize_tool_output_segment(goal_run_id),
+                timestamp
+            )),
+            None => preview_dir.join(format!("{safe_tool_name}-{timestamp}.txt")),
         }
     }
 

@@ -3209,7 +3209,8 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
     let result = super::execute_spawn_subagent(
         &serde_json::json!({
             "title": "Dazhbog",
-            "description": "Refactor docs design without semantic changes."
+            "description": "Refactor docs design without semantic changes.",
+            "reasoning_effort": "low"
         }),
         &engine,
         "thread-parent",
@@ -3253,7 +3254,7 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
         detail
             .get("profile_reasoning_effort")
             .and_then(|value| value.as_str()),
-        Some("high")
+        Some("low")
     );
     assert_eq!(
         detail

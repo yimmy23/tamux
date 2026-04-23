@@ -1,4 +1,12 @@
-![Tamux Slavic Mythology](docs/assets/tamux-slavic.jpg)
+![Tamux Slavic Mythology](docs/assets/og_image.jpg)
+<div align="center" style="display: flex; flex-direction: column; justify-content: center; gap: 8px">
+  <b style="font-size: 22px">Read our docs</b>
+  <div class="display: flex; flex-direction: row; gap: 4px">
+    <a href="https://docs.tamux.app" style="text-decoration: none">🌐</a>
+    <a style="font-size: 16px; text-decoration: none" href="https://docs.tamux.app">docs.tamux.app</a>
+  </div>
+</div>
+
 # tamux
 
 **Terminal Agentic Multiplexer and TUI with a super-powerful agent** - a daemon-first environment for long-running AI work.

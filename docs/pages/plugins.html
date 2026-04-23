@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="../assets/icon.ico" />
 </head>
 <body data-page="plugins.html">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -29,28 +30,63 @@
   <main id="main" class="container page-shell">
     <aside class="page-sidebar">
       <div class="sidebar-card">
-        <p class="eyebrow">Navigate</p>
-        <ul class="side-links">
-          <li><a href="../index.html" data-nav="index.html">Overview</a></li>
-          <li><a href="guides.html" data-nav="guides.html">Guides</a></li>
-          <li><a href="why-tamux.html" data-nav="why-tamux.html">Why</a></li>
-          <li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li>
-          <li><a href="mission-control.html" data-nav="mission-control.html">Mission</a></li>
-          <li><a href="goal-runners.html" data-nav="goal-runners.html">Goals</a></li>
-          <li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks</a></li>
-          <li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
-          <li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads</a></li>
-          <li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
-          <li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
-          <li><a href="governance.html" data-nav="governance.html">Governance</a></li>
-          <li><a href="memory-security.html" data-nav="memory-security.html">Memory</a></li>
-          <li><a href="tui.html" data-nav="tui.html">TUI</a></li>
-          <li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway</a></li>
-          <li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic</a></li>
-          <li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats</a></li>
-          <li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li>
-          <li><a href="reference.html" data-nav="reference.html">Reference</a></li>
-        </ul>
+        <p class="eyebrow">Docs map</p>
+        <div class="nav-group">
+          <p class="nav-group-title">Orientation</p>
+          <ul class="side-links">
+            <li><a href="../index.html" data-nav="index.html">Overview</a></li>
+            <li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li>
+            <li><a href="guides.html" data-nav="guides.html">Guides</a></li>
+            <li><a href="best-practices.html" data-nav="best-practices.html">Best Practices</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Runtime</p>
+          <ul class="side-links">
+            <li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li>
+            <li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li>
+            <li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li>
+            <li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
+            <li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
+            <li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reliability</p>
+          <ul class="side-links">
+            <li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
+            <li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Trust & Control</p>
+          <ul class="side-links">
+            <li><a href="memory.html" data-nav="memory.html">Memory</a></li>
+            <li><a href="security.html" data-nav="security.html">Security</a></li>
+            <li><a href="governance.html" data-nav="governance.html">Governance</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Interfaces</p>
+          <ul class="side-links">
+            <li><a href="tui.html" data-nav="tui.html">TUI</a></li>
+            <li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Extension & Learning</p>
+          <ul class="side-links">
+            <li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li>
+            <li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li>
+            <li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reference</p>
+          <ul class="side-links">
+            <li><a href="reference.html" data-nav="reference.html">Reference</a></li>
+          </ul>
+        </div>
       </div>
       <div class="sidebar-card compact">
         <p class="eyebrow">Community</p>
@@ -164,6 +200,307 @@
           <li>Package as a self-contained script if you want runtime installation.</li>
           <li>Install with <code>tamux install plugin</code> and validate in the actual UI runtime.</li>
         </ol>
+      </section>
+
+      <section>
+        <h2>Detailed plugin authoring guide</h2>
+        <p>There are two practical authoring paths in the current plugin system:</p>
+        <div class="card-grid two-up">
+          <article class="card">
+            <h3>API-backed plugin</h3>
+            <p>Use this when the plugin is primarily a wrapper over a remote HTTP API. Gmail and Google Calendar are the reference examples in this repo.</p>
+          </article>
+          <article class="card">
+            <h3>Python-executable plugin</h3>
+            <p>Use this when the plugin drives a local workflow, repository tool, or executable. AutoResearch is the reference example in this repo.</p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Pattern 1: API plugin (Gmail / Calendar example)</h2>
+        <p>The Gmail and Calendar plugins show the shape of an API-first tamux plugin. At the package level, the published npm package simply ships plugin directories plus a README:</p>
+        <pre><code>tamux-plugin-gmail-calendar/
+├── package.json
+├── README.md
+├── gmail/
+│   ├── plugin.json
+│   └── skills/
+│       └── gmail-inbox.md
+└── calendar/
+    ├── plugin.json
+    └── skills/
+        └── calendar-today.md</code></pre>
+        <p>That package contains <strong>two separate plugins</strong>, one for Gmail and one for Calendar. Each plugin gets its own <code>plugin.json</code>, commands, settings, auth block, API endpoints, and skills.</p>
+
+        <h3>Step 1: package your plugin for distribution</h3>
+        <p>The outer <code>package.json</code> is simple. It mainly declares the npm package metadata and which plugin directories are published:</p>
+        <pre><code>{
+  "name": "tamux-plugin-gmail-calendar",
+  "version": "1.0.0",
+  "files": [
+    "gmail/",
+    "calendar/",
+    "README.md"
+  ]
+}</code></pre>
+        <p>If you are publishing a single plugin, your <code>files</code> array would usually contain just one plugin directory plus optional docs.</p>
+
+        <h3>Step 2: create <code>plugin.json</code></h3>
+        <p>The real plugin contract lives in the plugin directory. For Gmail, that starts like this:</p>
+        <pre><code>{
+  "name": "gmail",
+  "version": "1.1.0",
+  "schema_version": 1,
+  "description": "Gmail integration — read, search, send, trash, and manage emails",
+  "tamux_version": ">=2.0.0"
+}</code></pre>
+        <p>At minimum, give the plugin a stable name, schema version, description, and tamux compatibility range.</p>
+
+        <h3>Step 3: define authentication</h3>
+        <p>Gmail and Calendar both use OAuth2 with PKCE. The manifest-level auth block is what tells tamux how to obtain and refresh tokens:</p>
+        <pre><code>{
+  "auth": {
+    "type": "oauth2",
+    "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.send"
+    ],
+    "pkce": true
+  }
+}</code></pre>
+        <p>Use the auth block when the plugin needs tamux to manage API credentials interactively instead of relying on a separate external login step.</p>
+
+        <h3>Step 4: expose settings to the operator</h3>
+        <p>The Gmail and Calendar plugins declare user-editable settings for OAuth credentials and runtime defaults:</p>
+        <pre><code>{
+  "settings": {
+    "client_id": {
+      "type": "string",
+      "label": "Google Client ID",
+      "required": true,
+      "secret": false,
+      "description": "OAuth2 Client ID from Google Cloud Console"
+    },
+    "client_secret": {
+      "type": "string",
+      "label": "Google Client Secret",
+      "required": true,
+      "secret": true,
+      "description": "OAuth2 Client Secret from Google Cloud Console"
+    }
+  }
+}</code></pre>
+        <p>Use plugin settings for the values the operator must supply. Mark them <code>secret: true</code> when they should be masked in UI surfaces.</p>
+
+        <h3>Step 5: define the API surface</h3>
+        <p>This is the heart of an API plugin. You declare a base URL and a set of named endpoints. Gmail uses endpoints such as <code>list_inbox</code>, <code>search_messages</code>, <code>send_message</code>, and <code>get_thread</code>. Calendar uses endpoints such as <code>list_events</code>, <code>create_event</code>, and <code>delete_event</code>.</p>
+        <pre><code>{
+  "api": {
+    "base_url": "https://www.googleapis.com",
+    "endpoints": {
+      "list_events": {
+        "method": "GET",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events?...",
+        "headers": { "Authorization": "Bearer ***REDACTED***" },
+        "response_template": "## Calendar Events\n\n{{#each items}}...{{/each}}"
+      }
+    },
+    "rate_limit": {
+      "requests_per_minute": 60
+    }
+  }
+}</code></pre>
+        <p>Important pieces:</p>
+        <ul class="check-list">
+          <li><strong><code>base_url</code></strong> selects the remote service host.</li>
+          <li><strong><code>endpoints</code></strong> gives each API operation a stable internal name.</li>
+          <li><strong><code>path</code></strong> can template parameters into the final request URL.</li>
+          <li><strong><code>headers</code></strong> declares auth and content-type requirements.</li>
+          <li><strong><code>body</code></strong> is used for POST/PUT-style endpoints.</li>
+          <li><strong><code>response_template</code></strong> shapes what the agent sees after the call.</li>
+        </ul>
+
+        <h3>Step 6: map slash commands to actions</h3>
+        <p>The command layer is intentionally thin. API-backed commands point to endpoint names using <code>action</code>:</p>
+        <pre><code>{
+  "commands": {
+    "inbox": {
+      "description": "Show recent inbox messages",
+      "action": "list_inbox"
+    },
+    "search": {
+      "description": "Search emails by query",
+      "action": "search_messages"
+    },
+    "today": {
+      "description": "Show today's calendar events",
+      "action": "list_events"
+    }
+  }
+}</code></pre>
+        <p>If your plugin is API-backed, this is the main pattern: command descriptions for the operator, endpoint names for the runtime.</p>
+
+        <h3>Step 7: add plugin skills</h3>
+        <p>The Gmail and Calendar examples both ship skill files and reference them directly from the manifest:</p>
+        <pre><code>{
+  "skills": ["skills/gmail-inbox.md"]
+}</code></pre>
+        <p>Those skill files teach the assistant how to turn natural-language requests into the right plugin commands and parameters.</p>
+
+        <h3>Step 8: install and validate</h3>
+        <pre><code>tamux plugin add tamux-plugin-gmail-calendar</code></pre>
+        <p>After installation, validate three things:</p>
+        <ul class="check-list">
+          <li>settings fields show up correctly,</li>
+          <li>the OAuth flow succeeds,</li>
+          <li>commands and natural-language requests route to the expected endpoint.</li>
+        </ul>
+
+        <h3>When to use the API pattern</h3>
+        <p>Choose this pattern when your plugin is mainly a structured wrapper over a remote service and the runtime can express the integration as auth + settings + endpoints + actions + skills.</p>
+      </section>
+
+      <section>
+        <h2>Pattern 2: Python executable plugin (AutoResearch example)</h2>
+        <p>The AutoResearch plugin shows the local-executable pattern. Instead of OAuth and HTTP endpoints, it drives a workspace-local Python workflow.</p>
+        <pre><code>tamux-plugin-autosearch/
+├── package.json
+├── README.md
+└── autosearch/
+    ├── plugin.json
+    ├── scripts/
+    │   └── autosearch_helper.py
+    └── skills/
+        └── autosearch-train.md</code></pre>
+        <p>This plugin is ideal when tamux should orchestrate a local toolchain instead of a remote API.</p>
+
+        <h3>Step 1: package the plugin</h3>
+        <p>The outer npm package again just ships the plugin directory:</p>
+        <pre><code>{
+  "name": "tamux-plugin-autosearch",
+  "version": "1.0.0",
+  "files": [
+    "autosearch/",
+    "README.md"
+  ]
+}</code></pre>
+
+        <h3>Step 2: define a minimal manifest</h3>
+        <p>The AutoResearch manifest starts with the same core metadata but does not need an <code>auth</code> or <code>api</code> section:</p>
+        <pre><code>{
+  "name": "autosearch",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "AutoResearch workflow integration — validate workspace, prepare data, and run training",
+  "tamux_version": ">=2.0.0"
+}</code></pre>
+
+        <h3>Step 3: expose runtime settings</h3>
+        <p>For local executable plugins, settings usually describe the target workspace and runtime defaults rather than remote credentials. AutoResearch uses:</p>
+        <pre><code>{
+  "settings": {
+    "workspace_path": {
+      "type": "string",
+      "label": "Default workspace path",
+      "required": false,
+      "description": "Default local AutoResearch workspace path"
+    },
+    "default_command_timeout_sec": {
+      "type": "number",
+      "label": "Default command timeout (seconds)",
+      "required": false,
+      "default": 1800
+    }
+  }
+}</code></pre>
+
+        <h3>Step 4: define Python defaults</h3>
+        <p>The key difference is the top-level <code>python</code> block. AutoResearch uses:</p>
+        <pre><code>{
+  "python": {
+    "env": true
+  }
+}</code></pre>
+        <p>This tells tamux the plugin expects a Python environment bootstrap. The plugin docs also support richer inherited defaults such as:</p>
+        <ul class="check-list">
+          <li><code>run_path</code> for workspace-relative execution,</li>
+          <li><code>source</code> for bootstrap/download location,</li>
+          <li><code>env</code> for activation behavior,</li>
+          <li><code>dependencies</code> for packages the plugin needs.</li>
+        </ul>
+
+        <h3>Step 5: map commands to Python execution</h3>
+        <p>Instead of <code>action</code>, executable plugins declare a <code>python.command</code> string per command:</p>
+        <pre><code>{
+  "commands": {
+    "check": {
+      "description": "Validate an AutoResearch workspace path",
+      "python": {
+        "command": "python scripts/autosearch_helper.py check \"${AUTOSEARCH_WORKSPACE:?set AUTOSEARCH_WORKSPACE}\""
+      }
+    },
+    "prepare": {
+      "description": "Run uv run prepare.py in an AutoResearch workspace",
+      "python": {
+        "command": "python scripts/autosearch_helper.py prepare \"${AUTOSEARCH_WORKSPACE:?set AUTOSEARCH_WORKSPACE}\""
+      }
+    },
+    "train": {
+      "description": "Run uv run train.py in an AutoResearch workspace",
+      "python": {
+        "command": "python scripts/autosearch_helper.py train \"${AUTOSEARCH_WORKSPACE:?set AUTOSEARCH_WORKSPACE}\""
+      }
+    }
+  }
+}</code></pre>
+        <p>This is the core executable-plugin pattern: each slash command expands to a concrete Python command line that the agent/runtime can execute.</p>
+
+        <h3>Step 6: provide helper scripts</h3>
+        <p>AutoResearch uses a helper script instead of embedding all logic in the manifest. That is the right move when validation, environment checks, workspace inspection, or multi-step execution would become messy in inline command strings.</p>
+        <p>Use helper scripts when you need to:</p>
+        <ul class="check-list">
+          <li>validate repository/workspace shape,</li>
+          <li>normalize environment variables,</li>
+          <li>provide cleaner failure messages,</li>
+          <li>wrap a more complex workflow behind simple slash commands.</li>
+        </ul>
+
+        <h3>Step 7: add a plugin skill</h3>
+        <p>Just like the API pattern, AutoResearch ships a skill file and references it from the manifest:</p>
+        <pre><code>{
+  "skills": ["skills/autosearch-train.md"]
+}</code></pre>
+        <p>The skill is what teaches the assistant when to run <code>/autosearch.check</code>, <code>/autosearch.prepare</code>, and <code>/autosearch.train</code> rather than guessing blindly.</p>
+
+        <h3>Step 8: install and validate</h3>
+        <pre><code>tamux plugin add tamux-plugin-autosearch</code></pre>
+        <p>Then validate:</p>
+        <ul class="check-list">
+          <li>the workspace path setting is visible,</li>
+          <li>the environment/bootstrap logic works,</li>
+          <li>the helper script can validate the target workspace,</li>
+          <li>prepare/train commands emit useful status and errors.</li>
+        </ul>
+
+        <h3>When to use the Python pattern</h3>
+        <p>Choose this pattern when the plugin should orchestrate a local repository workflow, Python toolchain, or executable rather than wrap a remote API.</p>
+      </section>
+
+      <section>
+        <h2>Choosing between API and Python plugins</h2>
+        <table>
+          <thead><tr><th>Need</th><th>Prefer</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td>OAuth-backed HTTP service</td><td>API plugin</td><td>Manifest can express auth, endpoints, and actions directly</td></tr>
+            <tr><td>Remote REST/JSON operations</td><td>API plugin</td><td>Response templates let tamux shape results cleanly</td></tr>
+            <tr><td>Local repository workflow</td><td>Python plugin</td><td>Commands can wrap local tools and helper scripts</td></tr>
+            <tr><td>Workspace validation and shell execution</td><td>Python plugin</td><td>Executable commands fit better than HTTP endpoints</td></tr>
+            <tr><td>Complex local orchestration</td><td>Python plugin</td><td>Helper scripts keep the manifest simple</td></tr>
+          </tbody>
+        </table>
       </section>
 
       <section>

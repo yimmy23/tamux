@@ -1,6 +1,8 @@
 use amux_shared::providers::{
     AudioToolKind, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
+    PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
+    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
+    PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
 };
 
 impl TuiModel {
@@ -78,6 +80,29 @@ impl TuiModel {
             (PROVIDER_ID_XAI, "stt" | "tts") => {
                 vec![model("grok-4", "Grok 4", Some(262_144))]
             }
+            (PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "tts") => vec![
+                model("mimo-v2.5-tts", "MiMo V2.5 TTS", Some(128_000)),
+                model(
+                    "mimo-v2.5-tts-voiceclone",
+                    "MiMo V2.5 TTS VoiceClone",
+                    Some(128_000),
+                ),
+                model(
+                    "mimo-v2.5-tts-voicedesign",
+                    "MiMo V2.5 TTS VoiceDesign",
+                    Some(128_000),
+                ),
+            ],
+            (PROVIDER_ID_MINIMAX | PROVIDER_ID_MINIMAX_CODING_PLAN, "tts") => vec![
+                model("speech-2.8-hd", "MiniMax Speech 2.8 HD", None),
+                model("speech-2.8-turbo", "MiniMax Speech 2.8 Turbo", None),
+                model("speech-2.6-hd", "MiniMax Speech 2.6 HD", None),
+                model("speech-2.6-turbo", "MiniMax Speech 2.6 Turbo", None),
+                model("speech-02-hd", "MiniMax Speech 02 HD", None),
+                model("speech-02-turbo", "MiniMax Speech 02 Turbo", None),
+                model("speech-01-hd", "MiniMax Speech 01 HD", None),
+                model("speech-01-turbo", "MiniMax Speech 01 Turbo", None),
+            ],
             _ => Vec::new(),
         }
     }
@@ -114,6 +139,9 @@ impl TuiModel {
                     model("openai/gpt-image-1", "OpenAI GPT Image 1", None),
                     model("openai/gpt-image-2", "OpenAI GPT Image 2", None),
                 ]
+            }
+            PROVIDER_ID_MINIMAX | PROVIDER_ID_MINIMAX_CODING_PLAN => {
+                vec![model("image-01", "MiniMax Image 01", None)]
             }
             _ => Vec::new(),
         }

@@ -72,6 +72,12 @@ describe("frontend xAI audio/provider settings coverage", () => {
     expect(providerSupportsAudioTool("openai", "stt")).toBe(true);
     expect(providerSupportsAudioTool("openrouter", "tts")).toBe(true);
     expect(providerSupportsAudioTool("xai", "stt")).toBe(true);
+    expect(providerSupportsAudioTool("xiaomi-mimo-token-plan", "tts")).toBe(true);
+    expect(providerSupportsAudioTool("xiaomi-mimo-token-plan", "stt")).toBe(false);
+    expect(providerSupportsAudioTool("minimax", "tts")).toBe(true);
+    expect(providerSupportsAudioTool("minimax", "stt")).toBe(false);
+    expect(providerSupportsAudioTool("minimax-coding-plan", "tts")).toBe(true);
+    expect(providerSupportsAudioTool("minimax-coding-plan", "stt")).toBe(false);
     expect(providerSupportsAudioTool("anthropic", "stt")).toBe(false);
     expect(providerSupportsAudioTool("together", "tts")).toBe(false);
   });
@@ -176,6 +182,11 @@ describe("frontend Xiaomi MiMo token plan provider catalog", () => {
     expect(mimo?.models.map((model) => [model.id, model.contextWindow])).toEqual([
       ["mimo-v2-pro", 1_000_000],
       ["mimo-v2-omni", 256_000],
+      ["mimo-v2.5-pro", 1_000_000],
+      ["mimo-v2.5", 1_000_000],
+      ["mimo-v2.5-tts", 128_000],
+      ["mimo-v2.5-tts-voiceclone", 128_000],
+      ["mimo-v2.5-tts-voicedesign", 128_000],
     ]);
   });
 
@@ -265,6 +276,12 @@ describe("frontend curated media provider catalog", () => {
     expect(
       getModelModalities(getModelDefinition("xiaomi-mimo-token-plan", "mimo-v2-omni")),
     ).toEqual(["text", "image", "video", "audio"]);
+    expect(
+      getModelModalities(getModelDefinition("xiaomi-mimo-token-plan", "mimo-v2.5")),
+    ).toEqual(["text", "image", "video", "audio"]);
+    expect(
+      getModelModalities(getModelDefinition("xiaomi-mimo-token-plan", "mimo-v2.5-tts")),
+    ).toEqual(["text", "audio"]);
     expect(getModelModalities(getModelDefinition("arcee", "trinity-large-thinking"))).toEqual([
       "text",
     ]);

@@ -1345,13 +1345,7 @@ async fn operator_send_rejects_budget_exceeded_thread() {
     });
 
     let error = engine
-        .send_message_with_session_and_surface(
-            Some("thread-budget"),
-            None,
-            "continue",
-            None,
-            None,
-        )
+        .send_message_with_session_and_surface(Some("thread-budget"), None, "continue", None, None)
         .await
         .expect_err("budget exceeded thread should reject operator send");
 

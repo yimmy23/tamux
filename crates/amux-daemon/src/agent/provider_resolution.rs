@@ -75,7 +75,8 @@ pub(super) fn apply_provider_model_override(
     {
         provider_config.api_transport = ApiTransport::Responses;
     }
-    if let Some(fixed_transport) = fixed_api_transport_for_model(provider_id, &provider_config.model)
+    if let Some(fixed_transport) =
+        fixed_api_transport_for_model(provider_id, &provider_config.model)
     {
         provider_config.api_transport = fixed_transport;
     }

@@ -361,6 +361,7 @@ fn add_available_tools_part_c(
             "runtime": { "type": "string", "enum": ["daemon", "hermes", "openclaw"], "description": "Preferred runtime for the child agent (default: daemon)" },
             "provider": { "type": "string", "description": "Optional authenticated provider override. Use `list_providers` first." },
             "model": { "type": "string", "description": "Optional model override for the chosen provider. Requires `provider`; use `list_models` first." },
+            "reasoning_effort": { "type": "string", "description": "Optional reasoning-effort override for the spawned child, such as `off`, `low`, `medium`, or `high` when supported by the selected provider/model." },
             "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Child task priority" },
             "command": { "type": "string", "description": "Optional preferred entrypoint or command" },
             "session": { "type": "string", "description": "Optional explicit session ID or unique substring. If omitted, tamux allocates a fresh lane in the same workspace when possible." },

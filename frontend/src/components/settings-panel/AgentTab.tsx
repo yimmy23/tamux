@@ -92,7 +92,8 @@ export function AgentTab({
             (state) => state.authenticated && state.provider_id === provider.id,
         ),
     );
-    const audioProviderOptions = filterAudioProviderOptions(providerOptions);
+    const audioSttProviderOptions = filterAudioProviderOptions(providerOptions, "stt");
+    const audioTtsProviderOptions = filterAudioProviderOptions(providerOptions, "tts");
     const imageGenerationProviderOptions = filterImageGenerationProviderOptions(providerOptions);
 
     const providerConfig = settings[settings.active_provider] as AgentProviderConfig;
@@ -337,7 +338,7 @@ export function AgentTab({
                     <SettingRow label="STT Provider">
                         <SelectInput
                             value={settings.audio_stt_provider}
-                            options={audioProviderOptions.map((provider) => provider.id)}
+                            options={audioSttProviderOptions.map((provider) => provider.id)}
                             onChange={(value) => {
                                 const providerId = value as AgentProviderId;
                                 updateSetting("audio_stt_provider", providerId);
@@ -381,7 +382,7 @@ export function AgentTab({
                     <SettingRow label="TTS Provider">
                         <SelectInput
                             value={settings.audio_tts_provider}
-                            options={audioProviderOptions.map((provider) => provider.id)}
+                            options={audioTtsProviderOptions.map((provider) => provider.id)}
                             onChange={(value) => {
                                 const providerId = value as AgentProviderId;
                                 updateSetting("audio_tts_provider", providerId);

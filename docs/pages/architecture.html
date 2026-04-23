@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="../assets/icon.ico" />
 </head>
 <body data-page="architecture.html">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -29,28 +30,63 @@
   <main id="main" class="container page-shell">
     <aside class="page-sidebar">
       <div class="sidebar-card">
-        <p class="eyebrow">Navigate</p>
-        <ul class="side-links">
-          <li><a href="../index.html" data-nav="index.html">Overview</a></li>
-          <li><a href="guides.html" data-nav="guides.html">Guides</a></li>
-          <li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li>
-          <li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li>
-          <li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li>
-          <li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li>
-          <li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
-          <li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
-          <li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
-          <li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
-          <li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
-          <li><a href="governance.html" data-nav="governance.html">Governance</a></li>
-          <li><a href="memory-security.html" data-nav="memory-security.html">Memory & Security</a></li>
-          <li><a href="tui.html" data-nav="tui.html">TUI</a></li>
-          <li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li>
-          <li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li>
-          <li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li>
-          <li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li>
-          <li><a href="reference.html" data-nav="reference.html">Reference</a></li>
-        </ul>
+        <p class="eyebrow">Docs map</p>
+        <div class="nav-group">
+          <p class="nav-group-title">Orientation</p>
+          <ul class="side-links">
+            <li><a href="../index.html" data-nav="index.html">Overview</a></li>
+            <li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li>
+            <li><a href="guides.html" data-nav="guides.html">Guides</a></li>
+            <li><a href="best-practices.html" data-nav="best-practices.html">Best Practices</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Runtime</p>
+          <ul class="side-links">
+            <li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li>
+            <li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li>
+            <li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li>
+            <li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
+            <li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
+            <li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reliability</p>
+          <ul class="side-links">
+            <li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
+            <li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Trust & Control</p>
+          <ul class="side-links">
+            <li><a href="memory.html" data-nav="memory.html">Memory</a></li>
+            <li><a href="security.html" data-nav="security.html">Security</a></li>
+            <li><a href="governance.html" data-nav="governance.html">Governance</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Interfaces</p>
+          <ul class="side-links">
+            <li><a href="tui.html" data-nav="tui.html">TUI</a></li>
+            <li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Extension & Learning</p>
+          <ul class="side-links">
+            <li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li>
+            <li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li>
+            <li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reference</p>
+          <ul class="side-links">
+            <li><a href="reference.html" data-nav="reference.html">Reference</a></li>
+          </ul>
+        </div>
       </div>
       <div class="sidebar-card compact">
         <p class="eyebrow">Community</p>
@@ -188,7 +224,7 @@ Layer 0: Execution
 
       <section>
         <h2>Next steps</h2>
-        <p>For implementation, read <a href="goal-runners.html">Goal Runners</a>, <a href="memory-security.html">Memory &amp; Security</a>, and <a href="plugins.html">Plugins</a>. These explain how the execution substrate surfaces to operators and extension authors.</p>
+        <p>For implementation, read <a href="goal-runners.html">Goal Runners</a>, <a href="memory.html">Memory</a>, <a href="security.html">Security</a>, and <a href="plugins.html">Plugins</a>. These explain how the execution substrate surfaces to operators and extension authors.</p>
       </section>
     </article>
   </main>
@@ -211,7 +247,7 @@ Layer 0: Execution
         <h3>Navigate</h3>
         <ul>
           <li><a href="goal-runners.html">Goals</a></li>
-          <li><a href="memory-security.html">Memory</a></li>
+          <li><a href="memory.html">Memory</a></li>
           <li><a href="plugins.html">Plugins</a></li>
         </ul>
       </div>

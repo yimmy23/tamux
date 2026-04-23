@@ -352,6 +352,12 @@ async fn execute_spawn_subagent(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let reasoning_effort_override = args
+        .get("reasoning_effort")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
     if model_override.is_some() && provider_override.is_none() {
         anyhow::bail!(
             "'model' requires an explicit 'provider'. Use `list_providers` first, then `list_models` for the chosen provider."
@@ -505,8 +511,16 @@ async fn execute_spawn_subagent(
         crate::agent::task_crud::enforce_goal_task_autonomy_tool_blacklist(&mut subagent);
     }
 
-    let effective_provider_config =
+    let mut effective_provider_config =
         resolve_effective_subagent_provider_config(agent, &subagent).await?;
+    if let Some(reasoning_effort) = reasoning_effort_override
+        .clone()
+        .or_else(|| matched_def.as_ref().and_then(|def| def.reasoning_effort.clone()))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        effective_provider_config.reasoning_effort = reasoning_effort;
+    }
     let derived_limits = derive_subagent_limits(
         task_snapshot.as_ref(),
         &existing_tasks,

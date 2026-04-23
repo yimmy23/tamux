@@ -20,6 +20,27 @@ pub fn legacy_agent_skills_dir(agent_data_dir: &Path) -> PathBuf {
     agent_data_dir.join("skills")
 }
 
+pub fn thread_root_dir(root: &Path, thread_id: &str) -> PathBuf {
+    root.join("threads")
+        .join(sanitize_runtime_path_segment(thread_id))
+}
+
+pub fn thread_artifacts_dir(root: &Path, thread_id: &str) -> PathBuf {
+    thread_root_dir(root, thread_id).join("artifacts")
+}
+
+pub fn thread_specs_dir(root: &Path, thread_id: &str) -> PathBuf {
+    thread_artifacts_dir(root, thread_id).join("specs")
+}
+
+pub fn thread_media_dir(root: &Path, thread_id: &str) -> PathBuf {
+    thread_artifacts_dir(root, thread_id).join("media")
+}
+
+pub fn thread_previews_dir(root: &Path, thread_id: &str) -> PathBuf {
+    thread_artifacts_dir(root, thread_id).join("previews")
+}
+
 fn canonical_tamux_root_dir_from_parts(
     is_windows: bool,
     home_dir: Option<&Path>,
@@ -42,6 +63,15 @@ fn canonical_tamux_skills_dir_from_parts(
     local_data_dir: Option<&Path>,
 ) -> PathBuf {
     canonical_tamux_root_dir_from_parts(is_windows, home_dir, local_data_dir).join("skills")
+}
+
+fn sanitize_runtime_path_segment(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => ch,
+            _ => '_',
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -83,6 +113,40 @@ mod tests {
         assert_eq!(
             legacy_agent_skills_dir(agent_data_dir),
             PathBuf::from("/tmp/tamux/agent/skills")
+        );
+    }
+
+    #[test]
+    fn thread_artifact_dirs_live_under_threads_subtree() {
+        let root = Path::new("/home/aline/.tamux");
+        assert_eq!(
+            thread_root_dir(root, "thread-123"),
+            PathBuf::from("/home/aline/.tamux/threads/thread-123")
+        );
+        assert_eq!(
+            thread_artifacts_dir(root, "thread-123"),
+            PathBuf::from("/home/aline/.tamux/threads/thread-123/artifacts")
+        );
+        assert_eq!(
+            thread_specs_dir(root, "thread-123"),
+            PathBuf::from("/home/aline/.tamux/threads/thread-123/artifacts/specs")
+        );
+        assert_eq!(
+            thread_media_dir(root, "thread-123"),
+            PathBuf::from("/home/aline/.tamux/threads/thread-123/artifacts/media")
+        );
+        assert_eq!(
+            thread_previews_dir(root, "thread-123"),
+            PathBuf::from("/home/aline/.tamux/threads/thread-123/artifacts/previews")
+        );
+    }
+
+    #[test]
+    fn thread_artifact_dirs_sanitize_path_segments() {
+        let root = Path::new("/home/aline/.tamux");
+        assert_eq!(
+            thread_root_dir(root, "../thread bad"),
+            PathBuf::from("/home/aline/.tamux/threads/___thread_bad")
         );
     }
 }

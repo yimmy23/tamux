@@ -114,6 +114,7 @@ impl TuiModel {
             chat_drag_current_point: None,
             chat_selection_snapshot: None,
             chat_scrollbar_drag_grab_offset: None,
+            file_preview_scrollbar_drag_grab_offset: None,
             work_context_drag_anchor: None,
             work_context_drag_current: None,
             work_context_drag_anchor_point: None,

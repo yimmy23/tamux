@@ -8,6 +8,7 @@ const DEFAULT_STT_MODEL: &str = "whisper-1";
 const DEFAULT_TTS_MODEL: &str = "gpt-4o-mini-tts";
 const DEFAULT_TTS_VOICE: &str = "alloy";
 const DEFAULT_XAI_TTS_VOICE: &str = "eve";
+const DEFAULT_MINIMAX_TTS_VOICE: &str = "English_expressive_narrator";
 const DEFAULT_IMAGE_OUTPUT_FORMAT: &str = "png";
 const DEFAULT_TTS_OUTPUT_FORMAT: &str = "mp3";
 
@@ -32,14 +33,17 @@ enum MediaKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AudioToolRoute {
     OpenAiCompatibleDirect,
+    MiniMaxTts,
     ProviderMultimodalCompletion,
     OpenRouterTts,
+    XiaomiChatCompletionsTts,
     XaiStt,
     XaiTts,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ImageGenerationRoute {
+    MiniMaxDirect,
     OpenAiCompatibleDirect,
     OpenRouterChatCompletions,
 }
@@ -176,9 +180,19 @@ fn file_extension_for_generated_mime(mime_type: &str, fallback: &str) -> String 
 fn image_generation_route(provider_id: &str) -> ImageGenerationRoute {
     if provider_id == amux_shared::providers::PROVIDER_ID_OPENROUTER {
         ImageGenerationRoute::OpenRouterChatCompletions
+    } else if is_minimax_provider(provider_id) {
+        ImageGenerationRoute::MiniMaxDirect
     } else {
         ImageGenerationRoute::OpenAiCompatibleDirect
     }
+}
+
+fn is_minimax_provider(provider_id: &str) -> bool {
+    matches!(
+        provider_id,
+        amux_shared::providers::PROVIDER_ID_MINIMAX
+            | amux_shared::providers::PROVIDER_ID_MINIMAX_CODING_PLAN
+    )
 }
 
 fn openrouter_image_generation_modalities(model: &str) -> &'static [&'static str] {
@@ -692,6 +706,9 @@ fn build_image_analysis_blocks(
 }
 
 fn provider_auth_method(provider_id: &str) -> crate::agent::types::AuthMethod {
+    if is_minimax_provider(provider_id) {
+        return crate::agent::types::AuthMethod::Bearer;
+    }
     crate::agent::types::get_provider_definition(provider_id)
         .map(|definition| definition.auth_method)
         .unwrap_or(crate::agent::types::AuthMethod::Bearer)
@@ -762,6 +779,26 @@ fn audio_tool_route(
         };
     }
 
+    if is_minimax_provider(provider_id) {
+        return match audio_tool_kind {
+            amux_shared::providers::AudioToolKind::SpeechToText => {
+                AudioToolRoute::OpenAiCompatibleDirect
+            }
+            amux_shared::providers::AudioToolKind::TextToSpeech => AudioToolRoute::MiniMaxTts,
+        };
+    }
+
+    if provider_id == amux_shared::providers::PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN {
+        return match audio_tool_kind {
+            amux_shared::providers::AudioToolKind::SpeechToText => {
+                AudioToolRoute::OpenAiCompatibleDirect
+            }
+            amux_shared::providers::AudioToolKind::TextToSpeech => {
+                AudioToolRoute::XiaomiChatCompletionsTts
+            }
+        };
+    }
+
     AudioToolRoute::OpenAiCompatibleDirect
 }
 
@@ -802,6 +839,305 @@ fn tts_endpoint_for_route(base_url: &str, route: AudioToolRoute) -> String {
         }
         _ => openai_like_endpoint(base_url, "audio/speech"),
     }
+}
+
+fn build_minimax_tts_body(
+    model: &str,
+    input: &str,
+    voice: Option<&str>,
+    output_format: &str,
+) -> serde_json::Value {
+    let voice_id = voice
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_MINIMAX_TTS_VOICE);
+    let codec = minimax_tts_codec(output_format);
+    serde_json::json!({
+        "model": model.trim(),
+        "text": input,
+        "stream": false,
+        "output_format": "hex",
+        "voice_setting": {
+            "voice_id": voice_id,
+            "speed": 1,
+            "vol": 1,
+            "pitch": 0,
+        },
+        "audio_setting": {
+            "sample_rate": 32_000,
+            "bitrate": 128_000,
+            "format": codec,
+            "channel": 1,
+        },
+    })
+}
+
+fn extract_minimax_tts_audio_bytes(payload: &serde_json::Value) -> Result<Vec<u8>> {
+    let audio_data = payload
+        .pointer("/data/audio")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("MiniMax TTS response did not include data.audio"))?;
+    decode_hex_string(audio_data)
+}
+
+fn build_minimax_image_generation_body(
+    args: &serde_json::Value,
+    model: &str,
+    prompt: &str,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": model.trim(),
+        "prompt": prompt,
+        "response_format": "base64",
+    });
+
+    if let Some(size) = args
+        .get("size")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(aspect_ratio) = minimax_image_aspect_ratio(size) {
+            body["aspect_ratio"] = serde_json::Value::String(aspect_ratio.to_string());
+        }
+        if let Some((width, height)) = size.split_once('x') {
+            if let (Ok(width), Ok(height)) = (width.parse::<u32>(), height.parse::<u32>()) {
+                body["width"] = serde_json::Value::Number(width.into());
+                body["height"] = serde_json::Value::Number(height.into());
+            }
+        }
+    }
+
+    body
+}
+
+fn extract_minimax_generated_image_base64(payload: &serde_json::Value) -> Result<String> {
+    payload
+        .pointer("/data/image_base64/0")
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| anyhow::anyhow!("MiniMax image generation returned no base64 image"))
+}
+
+async fn execute_minimax_text_to_speech(
+    args: &serde_json::Value,
+    media_http_client: &reqwest::Client,
+    provider_id: &str,
+    provider_config: &crate::agent::types::ProviderConfig,
+    input: &str,
+) -> Result<String> {
+    let requested_format = args
+        .get("response_format")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_TTS_OUTPUT_FORMAT);
+    let voice = args
+        .get("voice")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let codec = minimax_tts_codec(requested_format);
+    let body = build_minimax_tts_body(&provider_config.model, input, voice, codec);
+    let url = format!("{}/t2a_v2", minimax_media_base_url(&provider_config.base_url));
+    let request =
+        apply_media_auth_headers(media_http_client.post(&url), provider_id, provider_config)?;
+    let response = request.json(&body).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        anyhow::bail!("text_to_speech failed: HTTP {status} {text}");
+    }
+
+    let payload: serde_json::Value = response.json().await?;
+    let bytes = extract_minimax_tts_audio_bytes(&payload)?;
+    let mime_type = output_mime_type_for_codec(codec);
+    let extension = file_extension_for_generated_mime(mime_type, codec);
+    let output_path = temp_output_path("speech", &extension);
+    tokio::fs::write(&output_path, &bytes).await?;
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "provider": provider_id,
+        "model": provider_config.model,
+        "voice": voice.unwrap_or(DEFAULT_MINIMAX_TTS_VOICE),
+        "path": output_path,
+        "mime_type": mime_type,
+        "bytes": bytes.len(),
+    }))
+    .map_err(Into::into)
+}
+
+fn xiaomi_tts_model_requires_voice(model: &str) -> bool {
+    matches!(
+        model.trim(),
+        "mimo-v2.5-tts-voiceclone" | "mimo-v2.5-tts-voicedesign"
+    )
+}
+
+fn xiaomi_tts_output_format(output_format: &str) -> &str {
+    match output_format.trim().to_ascii_lowercase().as_str() {
+        "pcm" => "pcm16",
+        other if !other.is_empty() => output_format.trim(),
+        _ => DEFAULT_TTS_OUTPUT_FORMAT,
+    }
+}
+
+fn build_xiaomi_tts_body(
+    provider_config: &crate::agent::types::ProviderConfig,
+    input: &str,
+    voice: Option<&str>,
+    output_format: &str,
+) -> Result<serde_json::Value> {
+    let model = provider_config.model.trim();
+    let trimmed_voice = voice.map(str::trim).filter(|value| !value.is_empty());
+    let messages = match model {
+        "mimo-v2.5-tts-voicedesign" => vec![
+            serde_json::json!({
+                "role": "user",
+                "content": trimmed_voice.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Xiaomi MiMo voice design requires a non-empty 'voice' style prompt"
+                    )
+                })?,
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": input,
+            }),
+        ],
+        "mimo-v2.5-tts-voiceclone" => vec![serde_json::json!({
+            "role": "assistant",
+            "content": input,
+        })],
+        _ => vec![serde_json::json!({
+            "role": "assistant",
+            "content": input,
+        })],
+    };
+
+    let mut audio = serde_json::json!({
+        "format": xiaomi_tts_output_format(output_format),
+    });
+    if let Some(voice) = trimmed_voice {
+        audio["voice"] = serde_json::Value::String(voice.to_string());
+    } else if xiaomi_tts_model_requires_voice(model) {
+        anyhow::bail!("Xiaomi MiMo model '{}' requires a non-empty 'voice' argument", model);
+    }
+
+    Ok(serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "audio": audio,
+    }))
+}
+
+fn minimax_media_base_url(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.ends_with("/v1") {
+        return trimmed.to_string();
+    }
+    if let Some(stripped) = trimmed.strip_suffix("/anthropic") {
+        return format!("{stripped}/v1");
+    }
+    format!("{trimmed}/v1")
+}
+
+fn minimax_tts_codec(output_format: &str) -> &'static str {
+    match output_format.trim().to_ascii_lowercase().as_str() {
+        "wav" => "wav",
+        "flac" => "flac",
+        _ => "mp3",
+    }
+}
+
+fn minimax_image_aspect_ratio(size: &str) -> Option<&'static str> {
+    match size.trim() {
+        "1024x1024" | "512x512" | "2048x2048" => Some("1:1"),
+        "1344x768" => Some("16:9"),
+        "1152x864" | "1184x864" => Some("4:3"),
+        "1248x832" => Some("3:2"),
+        "832x1248" => Some("2:3"),
+        "864x1152" | "864x1184" => Some("3:4"),
+        "768x1344" => Some("9:16"),
+        "1536x672" => Some("21:9"),
+        _ => None,
+    }
+}
+
+fn decode_hex_string(payload: &str) -> Result<Vec<u8>> {
+    let trimmed = payload.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("hex payload was empty");
+    }
+    if trimmed.len() % 2 != 0 {
+        anyhow::bail!("hex payload had an odd number of characters");
+    }
+
+    let mut bytes = Vec::with_capacity(trimmed.len() / 2);
+    let mut chars = trimmed.as_bytes().chunks_exact(2);
+    for pair in &mut chars {
+        let hex = std::str::from_utf8(pair)
+            .map_err(|error| anyhow::anyhow!("hex payload was not valid utf-8: {error}"))?;
+        let byte = u8::from_str_radix(hex, 16)
+            .map_err(|error| anyhow::anyhow!("invalid hex audio payload: {error}"))?;
+        bytes.push(byte);
+    }
+    Ok(bytes)
+}
+
+fn extract_xiaomi_tts_audio_bytes(payload: &serde_json::Value) -> Result<Vec<u8>> {
+    let audio_data = payload
+        .pointer("/choices/0/message/audio/data")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Xiaomi MiMo TTS response did not include audio data"))?;
+    base64::engine::general_purpose::STANDARD
+        .decode(audio_data)
+        .map_err(|error| anyhow::anyhow!("Xiaomi MiMo TTS returned invalid base64 audio: {error}"))
+}
+
+async fn execute_xiaomi_text_to_speech(
+    args: &serde_json::Value,
+    media_http_client: &reqwest::Client,
+    provider_id: &str,
+    provider_config: &crate::agent::types::ProviderConfig,
+    input: &str,
+) -> Result<String> {
+    let voice = args.get("voice").and_then(|value| value.as_str());
+    let output_format = args
+        .get("response_format")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_TTS_OUTPUT_FORMAT);
+    let body = build_xiaomi_tts_body(provider_config, input, voice, output_format)?;
+    let url = openai_like_endpoint(&provider_config.base_url, "chat/completions");
+    let request =
+        apply_media_auth_headers(media_http_client.post(&url), provider_id, provider_config)?;
+    let response = request.json(&body).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        anyhow::bail!("text_to_speech failed: HTTP {status} {text}");
+    }
+
+    let payload: serde_json::Value = response.json().await?;
+    let bytes = extract_xiaomi_tts_audio_bytes(&payload)?;
+    let mime_type = output_mime_type_for_codec(xiaomi_tts_output_format(output_format));
+    let extension = file_extension_for_generated_mime(mime_type, output_format);
+    let output_path = temp_output_path("speech", &extension);
+    tokio::fs::write(&output_path, &bytes).await?;
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "provider": provider_id,
+        "model": provider_config.model,
+        "voice": voice.unwrap_or_default(),
+        "path": output_path,
+        "mime_type": mime_type,
+        "bytes": bytes.len(),
+    }))
+    .map_err(Into::into)
 }
 
 fn push_nonempty_text_field(
@@ -1189,9 +1525,8 @@ fn thread_media_output_path(
     prefix: &str,
     extension: &str,
 ) -> PathBuf {
-    agent_data_dir
-        .join("thread-files")
-        .join(thread_id)
+    let data_root = agent_data_dir.parent().unwrap_or(agent_data_dir);
+    amux_protocol::thread_media_dir(data_root, thread_id)
         .join(format!(
             "{prefix}-{}.{}",
             now_millis(),
@@ -1506,6 +1841,42 @@ async fn execute_generate_image(
         return Ok(generated);
     }
 
+    if route == ImageGenerationRoute::MiniMaxDirect {
+        let url = format!(
+            "{}/image_generation",
+            minimax_media_base_url(&provider_config.base_url)
+        );
+        let body = build_minimax_image_generation_body(args, &provider_config.model, prompt);
+        let request =
+            apply_media_auth_headers(media_http_client.post(&url), &provider_id, &provider_config)?;
+        let response = request.json(&body).send().await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            anyhow::bail!("image generation failed: HTTP {status} {text}");
+        }
+
+        let payload: serde_json::Value = response.json().await?;
+        let b64 = extract_minimax_generated_image_base64(&payload)?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|error| anyhow::anyhow!("invalid image base64 payload: {error}"))?;
+        let output_path = temp_output_path("image", "jpg");
+        tokio::fs::write(&output_path, &bytes).await?;
+        let generated = serde_json::to_string_pretty(&serde_json::json!({
+            "provider": provider_id,
+            "model": provider_config.model,
+            "path": output_path,
+            "mime_type": "image/jpeg",
+            "bytes": bytes.len(),
+        }))?;
+        if let Some(thread_id) = thread_id {
+            return persist_generated_image_for_thread(agent, thread_id, prompt, &generated, false)
+                .await;
+        }
+        return Ok(generated);
+    }
+
     ensure_openai_like_media_endpoint(&provider_id, &provider_config)?;
 
     let output_format = args
@@ -1786,6 +2157,28 @@ async fn execute_text_to_speech(
         amux_shared::providers::AudioToolKind::TextToSpeech,
     )?;
 
+    if route == AudioToolRoute::XiaomiChatCompletionsTts {
+        return execute_xiaomi_text_to_speech(
+            args,
+            &media_http_client,
+            &provider_id,
+            &provider_config,
+            input,
+        )
+        .await;
+    }
+
+    if route == AudioToolRoute::MiniMaxTts {
+        return execute_minimax_text_to_speech(
+            args,
+            &media_http_client,
+            &provider_id,
+            &provider_config,
+            input,
+        )
+        .await;
+    }
+
     let voice = if route == AudioToolRoute::XaiTts {
         xai_tts_voice(args)
     } else {
@@ -1842,6 +2235,32 @@ async fn execute_text_to_speech(
 #[cfg(test)]
 mod media_tools_tests {
     use super::*;
+
+    fn test_provider_config(model: &str) -> crate::agent::types::ProviderConfig {
+        crate::agent::types::ProviderConfig {
+            base_url: "https://api.xiaomimimo.com/v1".to_string(),
+            model: model.to_string(),
+            api_key: "sk-mimo".to_string(),
+            assistant_id: String::new(),
+            auth_source: crate::agent::types::AuthSource::ApiKey,
+            api_transport: crate::agent::types::ApiTransport::ChatCompletions,
+            reasoning_effort: "off".to_string(),
+            context_window_tokens: 128_000,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        }
+    }
 
     #[test]
     fn infer_image_mime_from_extension() {
@@ -1937,6 +2356,131 @@ mod media_tools_tests {
             tts_endpoint_for_route("https://api.x.ai/v1", route),
             "https://api.x.ai/v1/tts"
         );
+    }
+
+    #[test]
+    fn xiaomi_text_to_speech_uses_completion_route() {
+        let route = audio_tool_route(
+            amux_shared::providers::PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+            amux_shared::providers::AudioToolKind::TextToSpeech,
+        );
+        assert_eq!(route, AudioToolRoute::XiaomiChatCompletionsTts);
+    }
+
+    #[test]
+    fn minimax_text_to_speech_uses_minimax_native_route() {
+        let route = audio_tool_route(
+            amux_shared::providers::PROVIDER_ID_MINIMAX,
+            amux_shared::providers::AudioToolKind::TextToSpeech,
+        );
+        assert_eq!(route, AudioToolRoute::MiniMaxTts);
+    }
+
+    #[test]
+    fn minimax_image_generation_uses_native_route() {
+        assert_eq!(
+            image_generation_route(amux_shared::providers::PROVIDER_ID_MINIMAX),
+            ImageGenerationRoute::MiniMaxDirect
+        );
+        assert_eq!(
+            image_generation_route(amux_shared::providers::PROVIDER_ID_MINIMAX_CODING_PLAN),
+            ImageGenerationRoute::MiniMaxDirect
+        );
+    }
+
+    #[test]
+    fn minimax_tts_body_maps_voice_and_audio_settings() {
+        let body = build_minimax_tts_body("speech-2.8-hd", "Read this aloud", Some("English_expressive_narrator"), "wav");
+
+        assert_eq!(body["model"], "speech-2.8-hd");
+        assert_eq!(body["text"], "Read this aloud");
+        assert_eq!(body["voice_setting"]["voice_id"], "English_expressive_narrator");
+        assert_eq!(body["audio_setting"]["format"], "wav");
+        assert_eq!(body["output_format"], "hex");
+    }
+
+    #[test]
+    fn minimax_image_generation_body_uses_base64_response_format() {
+        let body = build_minimax_image_generation_body(
+            &serde_json::json!({
+                "size": "1344x768",
+            }),
+            "image-01",
+            "Generate a poster",
+        );
+
+        assert_eq!(body["model"], "image-01");
+        assert_eq!(body["prompt"], "Generate a poster");
+        assert_eq!(body["aspect_ratio"], "16:9");
+        assert_eq!(body["response_format"], "base64");
+    }
+
+    #[test]
+    fn xiaomi_tts_body_uses_assistant_content_and_audio_settings() {
+        let provider_config = test_provider_config("mimo-v2.5-tts");
+
+        let body = build_xiaomi_tts_body(
+            &provider_config,
+            "Read this aloud",
+            Some("Chloe"),
+            "wav",
+        )
+        .expect("body should build");
+
+        assert_eq!(body["model"], "mimo-v2.5-tts");
+        assert_eq!(body["messages"][0]["role"], "assistant");
+        assert_eq!(body["messages"][0]["content"], "Read this aloud");
+        assert_eq!(body["audio"]["format"], "wav");
+        assert_eq!(body["audio"]["voice"], "Chloe");
+    }
+
+    #[test]
+    fn xiaomi_voice_design_uses_voice_as_style_prompt() {
+        let provider_config = test_provider_config("mimo-v2.5-tts-voicedesign");
+
+        let body = build_xiaomi_tts_body(
+            &provider_config,
+            "Say hello",
+            Some("Young male tone"),
+            "pcm",
+        )
+        .expect("body should build");
+
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["messages"][0]["content"], "Young male tone");
+        assert_eq!(body["messages"][1]["role"], "assistant");
+        assert_eq!(body["messages"][1]["content"], "Say hello");
+        assert_eq!(body["audio"]["format"], "pcm16");
+    }
+
+    #[test]
+    fn xiaomi_voice_clone_requires_voice_sample() {
+        let provider_config = test_provider_config("mimo-v2.5-tts-voiceclone");
+
+        let error = build_xiaomi_tts_body(
+            &provider_config,
+            "Say hello",
+            None,
+            "wav",
+        )
+        .expect_err("voiceclone should require a voice sample");
+        assert!(error.to_string().contains("requires a non-empty 'voice'"));
+    }
+
+    #[test]
+    fn xiaomi_tts_audio_bytes_decode_from_completion_payload() {
+        let payload = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "audio": {
+                        "data": "aGVsbG8="
+                    }
+                }
+            }]
+        });
+
+        let bytes = extract_xiaomi_tts_audio_bytes(&payload).expect("audio bytes should decode");
+        assert_eq!(bytes, b"hello");
     }
 
     #[test]
@@ -2298,8 +2842,8 @@ mod media_tools_tests {
             .and_then(|value| value.as_str())
             .expect("persisted result should include final path");
         assert!(
-            persisted_path.contains("/thread-files/"),
-            "expected generated image to move into thread files, got {persisted_path}"
+            persisted_path.contains("/threads/") && persisted_path.contains("/artifacts/media/"),
+            "expected generated image to move into thread artifact media dir, got {persisted_path}"
         );
         assert!(
             tokio::fs::metadata(persisted_path).await.is_ok(),

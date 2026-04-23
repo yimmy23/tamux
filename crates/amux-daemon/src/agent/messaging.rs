@@ -70,7 +70,10 @@ fn thread_message_token_totals(messages: &[AgentMessage]) -> (u64, u64) {
 }
 
 impl AgentEngine {
-    pub(super) async fn budget_exceeded_task_for_thread(&self, thread_id: &str) -> Option<AgentTask> {
+    pub(super) async fn budget_exceeded_task_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Option<AgentTask> {
         let tasks = self.tasks.lock().await;
         tasks
             .iter()
