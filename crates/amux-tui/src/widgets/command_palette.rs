@@ -48,7 +48,8 @@ pub fn render(frame: &mut Frame, area: Rect, modal: &ModalState, theme: &ThemeTo
     let query = modal.command_display_query();
     let input_line = Line::from(vec![
         Span::raw(" "),
-        Span::styled(if query.is_empty() { "/" } else { query }, theme.fg_active),
+        Span::styled("/", theme.fg_active),
+        Span::styled(query, theme.fg_active),
         Span::raw("\u{2588}"),
     ]);
     frame.render_widget(Paragraph::new(input_line), chunks[0]);
@@ -162,7 +163,7 @@ mod tests {
             new_row_has_selection,
             "expected the first filtered command row to stay highlighted"
         );
-        assert_eq!(modal.command_display_query(), "/new");
+        assert_eq!(modal.command_display_query(), "new");
     }
 
     #[test]

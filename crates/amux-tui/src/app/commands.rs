@@ -904,12 +904,7 @@ impl TuiModel {
                     thread_id: thread_id.clone(),
                     path: Some(path.clone()),
                 });
-                if let Some(index) = widgets::sidebar::filtered_file_index(
-                    &self.tasks,
-                    &self.sidebar,
-                    Some(thread_id.as_str()),
-                    &path,
-                ) {
+                if let Some(index) = self.filtered_sidebar_file_index(&path) {
                     let item_count = self.sidebar_item_count();
                     self.sidebar.select(index, item_count);
                 }
@@ -2123,22 +2118,97 @@ impl TuiModel {
         }
     }
 
+    pub(super) fn current_sidebar_snapshot(
+        &self,
+    ) -> Option<&widgets::sidebar::CachedSidebarSnapshot> {
+        let area = self.pane_layout().sidebar?;
+        self.sidebar_snapshot.as_ref().filter(|snapshot| {
+            widgets::sidebar::cached_snapshot_matches_render(
+                snapshot,
+                area,
+                &self.chat,
+                &self.sidebar,
+                &self.tasks,
+                self.chat.active_thread_id(),
+            )
+        })
+    }
+
+    pub(super) fn selected_sidebar_file_path(&self) -> Option<String> {
+        self.current_sidebar_snapshot()
+            .and_then(|snapshot| snapshot.selected_file_path(self.sidebar.selected_item()))
+            .or_else(|| {
+                widgets::sidebar::selected_file_path(
+                    &self.tasks,
+                    &self.sidebar,
+                    self.chat.active_thread_id(),
+                )
+            })
+    }
+
+    pub(super) fn filtered_sidebar_file_index(&self, path: &str) -> Option<usize> {
+        self.current_sidebar_snapshot()
+            .and_then(|snapshot| snapshot.filtered_file_index(path))
+            .or_else(|| {
+                widgets::sidebar::filtered_file_index(
+                    &self.tasks,
+                    &self.sidebar,
+                    self.chat.active_thread_id(),
+                    path,
+                )
+            })
+    }
+
+    pub(super) fn selected_sidebar_spawned_thread_id(&self) -> Option<String> {
+        self.current_sidebar_snapshot()
+            .and_then(|snapshot| snapshot.selected_spawned_thread_id(self.sidebar.selected_item()))
+            .or_else(|| {
+                widgets::sidebar::selected_spawned_thread_id(
+                    &self.tasks,
+                    &self.sidebar,
+                    self.chat.active_thread_id(),
+                )
+            })
+    }
+
+    pub(super) fn first_openable_sidebar_spawned_index(&self) -> Option<usize> {
+        self.current_sidebar_snapshot()
+            .and_then(widgets::sidebar::CachedSidebarSnapshot::first_openable_spawned_index)
+            .or_else(|| {
+                widgets::sidebar::first_openable_spawned_index(
+                    &self.tasks,
+                    self.chat.active_thread_id(),
+                )
+            })
+    }
+
+    pub(super) fn selected_sidebar_pinned_message(
+        &self,
+    ) -> Option<crate::state::chat::PinnedThreadMessage> {
+        self.current_sidebar_snapshot()
+            .and_then(|snapshot| {
+                snapshot.selected_pinned_message(&self.chat, self.sidebar.selected_item())
+            })
+            .or_else(|| widgets::sidebar::selected_pinned_message(&self.chat, &self.sidebar))
+    }
+
     pub(super) fn sidebar_item_count(&self) -> usize {
-        widgets::sidebar::body_item_count(
-            &self.tasks,
-            &self.chat,
-            &self.sidebar,
-            self.chat.active_thread_id(),
-        )
+        self.current_sidebar_snapshot()
+            .map(widgets::sidebar::CachedSidebarSnapshot::item_count)
+            .unwrap_or_else(|| {
+                widgets::sidebar::body_item_count(
+                    &self.tasks,
+                    &self.chat,
+                    &self.sidebar,
+                    self.chat.active_thread_id(),
+                )
+            })
     }
 
     pub(super) fn activate_sidebar_tab(&mut self, tab: sidebar::SidebarTab) {
         self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(tab));
         if tab == sidebar::SidebarTab::Spawned {
-            if let Some(index) = widgets::sidebar::first_openable_spawned_index(
-                &self.tasks,
-                self.chat.active_thread_id(),
-            ) {
+            if let Some(index) = self.first_openable_sidebar_spawned_index() {
                 self.sidebar.select(index, self.sidebar_item_count());
             }
         }
@@ -2148,11 +2218,7 @@ impl TuiModel {
         let Some(from_thread_id) = self.chat.active_thread_id().map(str::to_string) else {
             return;
         };
-        let Some(to_thread_id) = widgets::sidebar::selected_spawned_thread_id(
-            &self.tasks,
-            &self.sidebar,
-            Some(from_thread_id.as_str()),
-        ) else {
+        let Some(to_thread_id) = self.selected_sidebar_spawned_thread_id() else {
             return;
         };
 
@@ -3303,6 +3369,9 @@ impl TuiModel {
         self.input.set_mode(input::InputMode::Insert);
         self.status_line = "Prompt sent".to_string();
         let activity_thread_id = optimistic_thread_id;
+        if let Some(thread_id) = activity_thread_id.as_ref() {
+            self.mark_pending_prompt_response_thread(thread_id.clone());
+        }
         self.set_agent_activity_for(activity_thread_id, "thinking");
         self.error_active = false;
     }
@@ -3424,11 +3493,7 @@ impl TuiModel {
 
         match self.sidebar.active_tab() {
             sidebar::SidebarTab::Files => {
-                let Some(path) = widgets::sidebar::selected_file_path(
-                    &self.tasks,
-                    &self.sidebar,
-                    Some(thread_id.as_str()),
-                ) else {
+                let Some(path) = self.selected_sidebar_file_path() else {
                     return;
                 };
                 let status_line = path.clone();
@@ -3453,9 +3518,7 @@ impl TuiModel {
                 self.open_selected_spawned_thread();
             }
             sidebar::SidebarTab::Pinned => {
-                let Some(pinned_message) =
-                    widgets::sidebar::selected_pinned_message(&self.chat, &self.sidebar)
-                else {
+                let Some(pinned_message) = self.selected_sidebar_pinned_message() else {
                     return;
                 };
                 if let Some(message_index) = self
@@ -3553,11 +3616,7 @@ impl TuiModel {
 
         let text = match self.sidebar.active_tab() {
             sidebar::SidebarTab::Files => {
-                let Some(path) = widgets::sidebar::selected_file_path(
-                    &self.tasks,
-                    &self.sidebar,
-                    Some(thread_id.as_str()),
-                ) else {
+                let Some(path) = self.selected_sidebar_file_path() else {
                     return;
                 };
                 let Some(entry) = self
@@ -3587,11 +3646,10 @@ impl TuiModel {
                 .map(|todo| todo.content.clone())
                 .filter(|value| !value.trim().is_empty()),
             sidebar::SidebarTab::Spawned => None,
-            sidebar::SidebarTab::Pinned => {
-                widgets::sidebar::selected_pinned_message(&self.chat, &self.sidebar)
-                    .map(|message| message.content)
-                    .filter(|value| !value.trim().is_empty())
-            }
+            sidebar::SidebarTab::Pinned => self
+                .selected_sidebar_pinned_message()
+                .map(|message| message.content)
+                .filter(|value| !value.trim().is_empty()),
         };
 
         if let Some(text) = text {
@@ -3680,9 +3738,7 @@ impl TuiModel {
     }
 
     pub(super) fn unpin_selected_sidebar_message(&mut self) {
-        let Some(pinned_message) =
-            widgets::sidebar::selected_pinned_message(&self.chat, &self.sidebar)
-        else {
+        let Some(pinned_message) = self.selected_sidebar_pinned_message() else {
             return;
         };
         let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {

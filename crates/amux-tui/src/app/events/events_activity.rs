@@ -418,6 +418,7 @@ impl TuiModel {
             return;
         }
         self.clear_bootstrap_pending_activity_thread(thread_id.as_str());
+        self.clear_pending_prompt_response_thread(thread_id.as_str());
         self.clear_agent_activity_for(Some(thread_id.as_str()));
         if self.should_surface_thread_activity(&thread_id) {
             self.pending_stop = false;
@@ -742,6 +743,7 @@ impl TuiModel {
             self.chat.reduce(chat::ChatAction::ForceStopStreaming);
         }
         self.bootstrap_pending_activity_threads.clear();
+        self.pending_prompt_response_threads.clear();
         self.clear_active_thread_activity();
         self.clear_pending_stop();
         self.concierge
@@ -811,6 +813,7 @@ impl TuiModel {
         message: String,
     ) {
         self.clear_bootstrap_pending_activity_thread(thread_id.as_str());
+        self.clear_pending_prompt_response_thread(thread_id.as_str());
         if phase == "cleared" {
             self.reduce_chat_for_thread(
                 Some(thread_id.as_str()),

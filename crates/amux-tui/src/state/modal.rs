@@ -313,7 +313,11 @@ impl ModalState {
                 self.refilter();
             }
             ModalAction::SetQuery(query) => {
-                self.command_query = query;
+                self.command_query = if self.top() == Some(ModalKind::CommandPalette) {
+                    query.trim_start_matches('/').to_string()
+                } else {
+                    query
+                };
                 self.command_palette_explicit_selection = false;
                 self.refilter();
                 self.picker_cursor = 0;

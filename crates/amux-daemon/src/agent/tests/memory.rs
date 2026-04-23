@@ -79,6 +79,72 @@ fn contradiction_detection_allows_matching_fact() {
     .expect("identical facts should not conflict");
 }
 
+#[test]
+fn detect_memory_contradictions_returns_pairs_for_conflicting_facts() {
+    let contradictions = detect_memory_contradictions("- shell: bash", "- shell: zsh");
+    assert_eq!(contradictions.len(), 1);
+    assert_eq!(contradictions[0].0.key, "shell");
+    assert_eq!(contradictions[0].0.display, "shell: bash");
+    assert_eq!(contradictions[0].1.display, "shell: zsh");
+}
+
+#[tokio::test]
+async fn conflicting_memory_update_records_conflict_provenance_relationship() -> Result<()> {
+    let root = std::env::temp_dir().join(format!("tamux-memory-test-{}", Uuid::new_v4()));
+    let history = HistoryStore::new_test_store(&root).await?;
+    ensure_memory_files(&root).await?;
+    let memory_path = active_memory_dir(&root).join(MemoryTarget::Memory.file_name());
+    tokio::fs::write(&memory_path, "# Memory\n- shell: bash\n").await?;
+    let baseline_fact_keys = vec!["shell".to_string()];
+    history
+        .record_memory_provenance(&crate::history::MemoryProvenanceRecord {
+            id: "baseline-shell",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "test",
+            content: "- shell: bash",
+            fact_keys: &baseline_fact_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 1,
+        })
+        .await?;
+
+    let error = apply_memory_update(
+        &root,
+        &history,
+        MemoryTarget::Memory,
+        MemoryUpdateMode::Append,
+        "- shell: zsh",
+        test_write_context(),
+    )
+    .await
+    .expect_err("conflicting append should be rejected");
+    assert!(error
+        .to_string()
+        .contains("Potential contradiction detected"));
+
+    let report = history
+        .memory_provenance_report(Some("MEMORY.md"), 10)
+        .await?;
+    let conflict_entry = report
+        .entries
+        .iter()
+        .find(|entry| entry.mode == "conflict")
+        .expect("conflict provenance entry should exist");
+    assert_eq!(conflict_entry.status, "contradicted");
+    assert_eq!(conflict_entry.fact_keys, vec!["shell".to_string()]);
+    assert_eq!(conflict_entry.relationships.len(), 1);
+    assert_eq!(conflict_entry.relationships[0].relation_type, "contradicts");
+    assert_eq!(
+        conflict_entry.relationships[0].related_entry_id,
+        "baseline-shell"
+    );
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn user_append_while_reconciling_stages_without_conflicting_file_write() -> Result<()> {
     let _guard = acquire_user_sync_test_guard();

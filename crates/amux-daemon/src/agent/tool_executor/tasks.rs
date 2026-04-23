@@ -533,6 +533,67 @@ async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> 
     Ok(serde_json::to_string_pretty(&task).unwrap_or_else(|_| format!("queued task {}", task.id)))
 }
 
+async fn execute_start_goal_run(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    current_thread_id: &str,
+    current_session_id: Option<SessionId>,
+) -> Result<String> {
+    let goal = args
+        .get("goal")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'goal' argument"))?
+        .to_string();
+    let title = args
+        .get("title")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let thread_id = args
+        .get("thread_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| Some(current_thread_id.to_string()));
+    let session_id = args
+        .get("session_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| current_session_id.map(|value| value.to_string()));
+    let priority = args
+        .get("priority")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let autonomy_level = args
+        .get("autonomy_level")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let goal_run = agent
+        .start_goal_run(
+            goal,
+            title,
+            thread_id,
+            session_id,
+            priority,
+            None,
+            autonomy_level,
+            None,
+        )
+        .await;
+
+    Ok(serde_json::to_string_pretty(&goal_run).unwrap_or_else(|_| "{}".to_string()))
+}
+
 async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
     let status_filter = args
         .get("status")
@@ -558,6 +619,11 @@ async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Re
     }
 
     Ok(serde_json::to_string_pretty(&tasks).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_list_goal_runs(agent: &AgentEngine) -> Result<String> {
+    let goal_runs = agent.list_goal_runs().await;
+    Ok(serde_json::to_string_pretty(&goal_runs).unwrap_or_else(|_| "[]".to_string()))
 }
 
 async fn execute_list_triggers(_args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {

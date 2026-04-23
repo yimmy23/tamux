@@ -134,31 +134,65 @@ pub fn reorder_tools_by_heuristics(
     tools: &mut [ToolDefinition],
     heuristic_store: &super::learning::heuristics::HeuristicStore,
     task_type: &str,
+    preferred_tool_fallbacks: &[String],
 ) {
-    if task_type.is_empty() {
+    let scores: std::collections::HashMap<String, f64> = if task_type.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        heuristic_store
+            .tool_heuristics
+            .iter()
+            .filter(|h| h.task_type == task_type && h.usage_count >= 5)
+            .map(|h| (h.tool_name.clone(), h.effectiveness_score))
+            .collect()
+    };
+
+    let preferred_ranks: std::collections::HashMap<String, usize> =
+        preferred_tool_fallbacks.iter().enumerate().fold(
+            std::collections::HashMap::new(),
+            |mut ranks, (idx, tool_name)| {
+                ranks.entry(tool_name.to_ascii_lowercase()).or_insert(idx);
+                ranks
+            },
+        );
+
+    if scores.is_empty() && preferred_ranks.is_empty() {
         return;
     }
 
-    // Get effectiveness scores for tools relevant to this task type (min 5 samples)
-    let scores: std::collections::HashMap<String, f64> = heuristic_store
-        .tool_heuristics
-        .iter()
-        .filter(|h| h.task_type == task_type && h.usage_count >= 5)
-        .map(|h| (h.tool_name.clone(), h.effectiveness_score))
-        .collect();
-
-    if scores.is_empty() {
-        return;
-    }
-
-    // Stable sort: tools with heuristic scores go first (sorted by score desc),
-    // tools without scores keep their relative order after.
+    // Stable sort: preserve the existing heuristic ordering first, then apply a
+    // bounded promotion for preferred fallback tools inside the same score band.
+    // This keeps higher-confidence heuristic wins intact while moving known-good
+    // fallbacks earlier when the base heuristic is otherwise indifferent.
     tools.sort_by(|a, b| {
-        let score_a = scores.get(&a.function.name).copied().unwrap_or(-1.0);
-        let score_b = scores.get(&b.function.name).copied().unwrap_or(-1.0);
-        score_b
-            .partial_cmp(&score_a)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        let score_cmp = match (
+            scores.get(&a.function.name).copied(),
+            scores.get(&b.function.name).copied(),
+        ) {
+            (Some(score_a), Some(score_b)) => score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        };
+        if score_cmp != std::cmp::Ordering::Equal {
+            return score_cmp;
+        }
+
+        match (
+            preferred_ranks
+                .get(&a.function.name.to_ascii_lowercase())
+                .copied(),
+            preferred_ranks
+                .get(&b.function.name.to_ascii_lowercase())
+                .copied(),
+        ) {
+            (Some(rank_a), Some(rank_b)) => rank_a.cmp(&rank_b),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
     });
 }
 

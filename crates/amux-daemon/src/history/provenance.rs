@@ -156,15 +156,22 @@ impl HistoryStore {
         let goal_run_id = record.goal_run_id.map(str::to_string);
         let created_at = record.created_at;
         let fact_keys_owned: Vec<String> = record.fact_keys.to_vec();
-        let relationship_target = if record.mode == "remove" {
-            Some((
+        let relationship_target = match record.mode {
+            "remove" => Some((
                 target.clone(),
                 id.clone(),
                 fact_keys_owned.clone(),
                 created_at,
-            ))
-        } else {
-            None
+                "retracts",
+            )),
+            "conflict" => Some((
+                target.clone(),
+                id.clone(),
+                fact_keys_owned.clone(),
+                created_at,
+                "contradicts",
+            )),
+            _ => None,
         };
 
         let record = record;
@@ -186,9 +193,9 @@ impl HistoryStore {
                     created_at as i64,
                 ],
             )?;
-            if let Some((target, source_entry_id, fact_keys, created_at)) = relationship_target {
+            if let Some((target, source_entry_id, fact_keys, created_at, relation_type)) = relationship_target {
                 let mut stmt = conn.prepare(
-                    "SELECT id, fact_keys_json FROM memory_provenance WHERE target = ?1 AND id != ?2 AND mode != 'remove' ORDER BY created_at DESC LIMIT 64",
+                    "SELECT id, fact_keys_json FROM memory_provenance WHERE target = ?1 AND id != ?2 AND mode NOT IN ('remove', 'conflict') ORDER BY created_at DESC LIMIT 64",
                 )?;
                 let rows = stmt.query_map(params![target, source_entry_id], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -204,7 +211,7 @@ impl HistoryStore {
                                 format!("memrel_{}", Uuid::new_v4()),
                                 source_entry_id,
                                 target_entry_id,
-                                "retracts",
+                                relation_type,
                                 fact_key,
                                 created_at as i64,
                             ],

@@ -316,7 +316,11 @@ pub(super) async fn apply_memory_update(
     }
 
     if matches!(mode, MemoryUpdateMode::Append | MemoryUpdateMode::Replace) {
-        validate_no_memory_contradictions(target, &existing, trimmed)?;
+        let contradictions = detect_memory_contradictions(&existing, trimmed);
+        if !contradictions.is_empty() {
+            record_memory_conflict_provenance(history, target, &contradictions, &context).await?;
+            return Err(contradiction_error_message(target, &contradictions));
+        }
     }
 
     let next = match mode {
@@ -442,15 +446,14 @@ fn validate_memory_size(target: MemoryTarget, content: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_no_memory_contradictions(
-    target: MemoryTarget,
+fn detect_memory_contradictions(
     existing: &str,
     incoming: &str,
-) -> Result<()> {
+) -> Vec<(MemoryFactCandidate, MemoryFactCandidate)> {
     let existing_facts = extract_memory_fact_candidates(existing);
     let incoming_facts = extract_memory_fact_candidates(incoming);
     if existing_facts.is_empty() || incoming_facts.is_empty() {
-        return Ok(());
+        return Vec::new();
     }
 
     let mut contradictions = Vec::new();
@@ -459,26 +462,93 @@ fn validate_no_memory_contradictions(
             .iter()
             .find(|fact| fact.key == candidate.key && fact.normalized != candidate.normalized)
         {
-            contradictions.push((current.display.clone(), candidate.display.clone()));
+            contradictions.push((current.clone(), candidate.clone()));
         }
     }
+    contradictions.sort_by(|left, right| {
+        left.0
+            .key
+            .cmp(&right.0.key)
+            .then(left.1.normalized.cmp(&right.1.normalized))
+    });
     contradictions.dedup();
+    contradictions
+}
 
+fn contradiction_error_message(
+    target: MemoryTarget,
+    contradictions: &[(MemoryFactCandidate, MemoryFactCandidate)],
+) -> anyhow::Error {
+    let details = contradictions
+        .iter()
+        .take(3)
+        .map(|(current, proposed)| {
+            format!(
+                "- current: {}\n  proposed: {}",
+                current.display, proposed.display
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    anyhow::anyhow!(
+        "Potential contradiction detected while updating {}.\n{}\nUse remove mode to clear the old fact before writing a conflicting replacement.",
+        target.label(),
+        details
+    )
+}
+
+fn validate_no_memory_contradictions(
+    target: MemoryTarget,
+    existing: &str,
+    incoming: &str,
+) -> Result<()> {
+    let contradictions = detect_memory_contradictions(existing, incoming);
     if contradictions.is_empty() {
         return Ok(());
     }
 
-    let details = contradictions
-        .into_iter()
-        .take(3)
-        .map(|(current, proposed)| format!("- current: {current}\n  proposed: {proposed}"))
+    Err(contradiction_error_message(target, &contradictions))
+}
+
+async fn record_memory_conflict_provenance(
+    history: &HistoryStore,
+    target: MemoryTarget,
+    contradictions: &[(MemoryFactCandidate, MemoryFactCandidate)],
+    context: &MemoryWriteContext<'_>,
+) -> Result<()> {
+    if contradictions.is_empty() {
+        return Ok(());
+    }
+
+    let fact_keys = contradictions
+        .iter()
+        .map(|(current, _)| current.key.clone())
+        .collect::<Vec<_>>();
+    let content = contradictions
+        .iter()
+        .map(|(current, proposed)| {
+            format!(
+                "- current: {}\n  proposed: {}",
+                current.display, proposed.display
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
-    Err(anyhow::anyhow!(
-        "Potential contradiction detected while updating {}.\n{}\nUse remove mode to clear the old fact before writing a conflicting replacement.",
-        target.label(),
-        details
-    ))
+
+    history
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: &format!("memprov_{}", Uuid::new_v4()),
+            target: target.label(),
+            mode: "conflict",
+            source_kind: context.source_kind,
+            content: &content,
+            fact_keys: &fact_keys,
+            thread_id: context.thread_id,
+            task_id: context.task_id,
+            goal_run_id: context.goal_run_id,
+            created_at: now_millis(),
+        })
+        .await
 }
 
 async fn record_memory_provenance(

@@ -5206,6 +5206,52 @@ fn active_thread_reload_required_requests_detail_and_sidebar_context() {
 }
 
 #[test]
+fn active_thread_reload_required_reuses_loaded_page_window_when_viewing_older_history() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 123;
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-user".to_string(),
+            title: "Discord Alice".to_string(),
+            total_message_count: 400,
+            loaded_message_start: 154,
+            loaded_message_end: 277,
+            messages: (154..277)
+                .map(|index| crate::state::chat::AgentMessage {
+                    id: Some(format!("msg-{index}")),
+                    role: crate::state::chat::MessageRole::Assistant,
+                    content: format!("msg {index}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "thread-user".to_string(),
+    });
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestThread {
+            thread_id,
+            message_limit,
+            message_offset,
+        }) => {
+            assert_eq!(thread_id, "thread-user");
+            assert_eq!(message_limit, Some(123));
+            assert_eq!(message_offset, Some(123));
+        }
+        other => panic!("expected current page refresh request, got {other:?}"),
+    }
+}
+
+#[test]
 fn participant_managed_thread_reload_requests_expanded_latest_page() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.config.tui_chat_history_page_size = 123;
@@ -5640,6 +5686,77 @@ fn follow_up_prompt_keeps_thinking_during_stale_thread_list_refresh() {
         model.footer_activity_text().as_deref(),
         Some("thinking"),
         "stale thread list refresh should not clear pending thinking on a follow-up prompt"
+    );
+}
+
+#[test]
+fn follow_up_prompt_keeps_thinking_across_reload_after_stale_thread_detail_replaces_tail() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        messages: vec![
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::User,
+                content: "First question".to_string(),
+                timestamp: 1,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::Assistant,
+                content: "First answer".to_string(),
+                timestamp: 2,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+        ],
+        created_at: 1,
+        updated_at: 2,
+        ..Default::default()
+    })));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.submit_prompt("follow-up question".to_string());
+    assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
+
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        messages: vec![
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::User,
+                content: "First question".to_string(),
+                timestamp: 100,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::Assistant,
+                content: "First answer".to_string(),
+                timestamp: 200,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+        ],
+        total_message_count: 2,
+        loaded_message_start: 0,
+        loaded_message_end: 2,
+        created_at: 1,
+        updated_at: 2,
+        ..Default::default()
+    })));
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "thread-user".to_string(),
+    });
+
+    assert_eq!(
+        model.footer_activity_text().as_deref(),
+        Some("thinking"),
+        "reload should preserve thinking even if a stale thread detail temporarily drops the optimistic prompt tail"
     );
 }
 

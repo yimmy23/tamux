@@ -41,6 +41,7 @@ impl TuiModel {
             agent_activity: None,
             thread_agent_activity: std::collections::HashMap::new(),
             bootstrap_pending_activity_threads: std::collections::HashSet::new(),
+            pending_prompt_response_threads: std::collections::HashSet::new(),
             participant_playground_activity: std::collections::HashMap::new(),
             last_error: None,
             error_active: false,
@@ -113,6 +114,7 @@ impl TuiModel {
             chat_drag_anchor_point: None,
             chat_drag_current_point: None,
             chat_selection_snapshot: None,
+            sidebar_snapshot: None,
             chat_scrollbar_drag_grab_offset: None,
             file_preview_scrollbar_drag_grab_offset: None,
             work_context_drag_anchor: None,
@@ -907,6 +909,9 @@ impl TuiModel {
     fn set_agent_activity_for(&mut self, thread_id: Option<String>, activity: impl Into<String>) {
         let activity = activity.into();
         if let Some(thread_id) = thread_id {
+            if activity != "thinking" {
+                self.clear_pending_prompt_response_thread(thread_id.as_str());
+            }
             self.thread_agent_activity.insert(thread_id, activity);
         } else {
             self.agent_activity = Some(activity);
@@ -922,8 +927,16 @@ impl TuiModel {
             .insert(thread_id.into());
     }
 
+    fn mark_pending_prompt_response_thread(&mut self, thread_id: impl Into<String>) {
+        self.pending_prompt_response_threads.insert(thread_id.into());
+    }
+
     fn clear_bootstrap_pending_activity_thread(&mut self, thread_id: &str) {
         self.bootstrap_pending_activity_threads.remove(thread_id);
+    }
+
+    fn clear_pending_prompt_response_thread(&mut self, thread_id: &str) {
+        self.pending_prompt_response_threads.remove(thread_id);
     }
 
     fn should_preserve_pending_thinking_activity_on_reload(&self, thread_id: &str) -> bool {
@@ -935,6 +948,10 @@ impl TuiModel {
             || self.chat.is_streaming()
         {
             return false;
+        }
+
+        if self.pending_prompt_response_threads.contains(thread_id) {
+            return true;
         }
 
         if self.bootstrap_pending_activity_threads.contains(thread_id) {
@@ -969,12 +986,16 @@ impl TuiModel {
 
     fn clear_active_thread_activity(&mut self) {
         let thread_id = self.chat.active_thread_id().map(str::to_string);
+        if let Some(thread_id) = thread_id.as_deref() {
+            self.clear_pending_prompt_response_thread(thread_id);
+        }
         self.clear_agent_activity_for(thread_id.as_deref());
     }
 
     fn clear_all_agent_activity(&mut self) {
         self.agent_activity = None;
         self.thread_agent_activity.clear();
+        self.pending_prompt_response_threads.clear();
     }
 
     fn clear_matching_agent_activity(&mut self, target: &str) {

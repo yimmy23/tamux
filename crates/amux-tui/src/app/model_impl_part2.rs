@@ -200,14 +200,34 @@ impl TuiModel {
         })
     }
 
-    fn request_authoritative_thread_refresh(&mut self, thread_id: String, show_loading: bool) {
+    fn authoritative_thread_refresh_page(&self, thread_id: &str) -> (usize, usize) {
         let base_limit = self.chat_history_page_size();
-        let message_limit = if self.thread_needs_expanded_latest_page(&thread_id) {
+        let fallback_limit = if self.thread_needs_expanded_latest_page(thread_id) {
             base_limit.saturating_mul(2)
         } else {
             base_limit
         };
-        self.request_thread_page(thread_id, message_limit, 0, show_loading);
+        let Some(thread) = self.chat.threads().iter().find(|thread| thread.id == thread_id) else {
+            return (fallback_limit, 0);
+        };
+
+        let loaded_end = thread
+            .loaded_message_end
+            .max(thread.loaded_message_start.saturating_add(thread.messages.len()));
+        let loaded_len = loaded_end.saturating_sub(thread.loaded_message_start);
+        if loaded_len == 0 {
+            return (fallback_limit, 0);
+        }
+
+        let total_message_count = thread.total_message_count.max(loaded_end);
+        let message_limit = loaded_len.max(fallback_limit);
+        let message_offset = total_message_count.saturating_sub(loaded_end);
+        (message_limit, message_offset)
+    }
+
+    fn request_authoritative_thread_refresh(&mut self, thread_id: String, show_loading: bool) {
+        let (message_limit, message_offset) = self.authoritative_thread_refresh_page(&thread_id);
+        self.request_thread_page(thread_id, message_limit, message_offset, show_loading);
     }
 
     fn request_authoritative_goal_run_refresh(&mut self, goal_run_id: String) {
@@ -522,12 +542,11 @@ impl TuiModel {
         }
 
         match self.sidebar.active_tab() {
-            SidebarTab::Files => {
-                widgets::sidebar::selected_file_path(&self.tasks, &self.sidebar, Some(thread_id))
-                    .is_some_and(|path| {
-                        self.tasks.selected_work_path(thread_id) == Some(path.as_str())
-                    })
-            }
+            SidebarTab::Files => self
+                .selected_sidebar_file_path()
+                .is_some_and(|path: String| {
+                    self.tasks.selected_work_path(thread_id) == Some(path.as_str())
+                }),
             SidebarTab::Todos => self
                 .tasks
                 .todos_for_thread(thread_id)

@@ -46,6 +46,9 @@ pub(super) fn memory_provenance_entry_from_row(
     } else if confirmed_at.is_some() {
         confidence = confidence.max(0.95);
         "confirmed"
+    } else if mode == "conflict" {
+        confidence = confidence.min(0.35);
+        "contradicted"
     } else if mode == "remove" {
         "retracted"
     } else if confidence < 0.55 {

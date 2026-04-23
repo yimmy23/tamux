@@ -181,7 +181,7 @@ fn command_palette_query_starts_without_explicit_selection() {
     state.reduce(ModalAction::SetQuery("/new".into()));
 
     assert!(!state.command_palette_has_explicit_selection());
-    assert_eq!(state.command_display_query(), "/new");
+    assert_eq!(state.command_display_query(), "new");
 }
 
 #[test]

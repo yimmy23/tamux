@@ -659,3 +659,50 @@ fn goal_workspace_plan_confidence_suffixes_strip_prefixes_and_apply_colors() {
     );
     assert_eq!(high_icon.1, theme.accent_success.fg.expect("success fg"));
 }
+
+#[test]
+fn goal_workspace_plan_renders_section_labels_with_theme_styles() {
+    let theme = ThemeTokens::default();
+    let state = GoalWorkspaceState::new();
+    let (area, buffer) = render_buffer_for_tasks(&sample_tasks(), &state, 0);
+    let plan_inner = ratatui::widgets::Block::default()
+        .borders(ratatui::widgets::Borders::ALL)
+        .inner(workspace_layout(area).expect("workspace layout").plan);
+
+    let row_for = |needle: &str| {
+        (plan_inner.y..plan_inner.y.saturating_add(plan_inner.height))
+            .find(|y| {
+                let row = (plan_inner.x..plan_inner.x.saturating_add(plan_inner.width))
+                    .filter_map(|x| buffer.cell((x, *y)).map(|cell| cell.symbol()))
+                    .collect::<String>();
+                row.contains(needle)
+            })
+            .expect("row should exist")
+    };
+
+    let prompt_y = row_for("Goal Prompt");
+    let thread_y = row_for("[thread]");
+    let steps_y = row_for("Steps:");
+
+    let fg_for = |y: u16, symbol: &str| {
+        (plan_inner.x..plan_inner.x.saturating_add(plan_inner.width))
+            .filter_map(|x| {
+                buffer
+                    .cell((x, y))
+                    .map(|cell| (cell.symbol().to_string(), cell.fg))
+            })
+            .find(|(cell_symbol, _)| cell_symbol == symbol)
+            .map(|(_, fg)| fg)
+            .expect("styled symbol should exist")
+    };
+
+    assert_eq!(
+        fg_for(prompt_y, "G"),
+        theme.accent_primary.fg.expect("accent primary fg")
+    );
+    assert_eq!(fg_for(thread_y, "["), theme.fg_dim.fg.expect("dim fg"));
+    assert_eq!(
+        fg_for(steps_y, "S"),
+        theme.accent_primary.fg.expect("accent primary fg")
+    );
+}

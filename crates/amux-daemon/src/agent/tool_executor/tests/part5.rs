@@ -155,6 +155,117 @@
         let _ = fs::remove_dir_all(&root);
     }
 
+    fn named_tool(name: &str) -> crate::agent::types::ToolDefinition {
+        crate::agent::types::ToolDefinition {
+            tool_type: "function".to_string(),
+            function: crate::agent::types::ToolFunctionDef {
+                name: name.to_string(),
+                description: format!("tool {name}"),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+        }
+    }
+
+    #[test]
+    fn reorder_tools_by_heuristics_promotes_preferred_fallbacks_without_overriding_scores() {
+        let mut tools = vec![
+            named_tool("highest_score"),
+            named_tool("second_score"),
+            named_tool("unscored_a"),
+            named_tool("preferred_fallback"),
+            named_tool("unscored_b"),
+        ];
+        let store = crate::agent::learning::heuristics::HeuristicStore {
+            tool_heuristics: vec![
+                crate::agent::learning::heuristics::ToolHeuristic {
+                    tool_name: "highest_score".to_string(),
+                    task_type: "coding".to_string(),
+                    effectiveness_score: 0.95,
+                    avg_duration_ms: 10,
+                    usage_count: 5,
+                },
+                crate::agent::learning::heuristics::ToolHeuristic {
+                    tool_name: "second_score".to_string(),
+                    task_type: "coding".to_string(),
+                    effectiveness_score: 0.75,
+                    avg_duration_ms: 10,
+                    usage_count: 5,
+                },
+            ],
+            ..Default::default()
+        };
+
+        super::reorder_tools_by_heuristics(
+            &mut tools,
+            &store,
+            "coding",
+            &["preferred_fallback".to_string()],
+        );
+
+        let ordered = tools
+            .iter()
+            .map(|tool| tool.function.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ordered,
+            vec![
+                "highest_score",
+                "second_score",
+                "preferred_fallback",
+                "unscored_a",
+                "unscored_b",
+            ]
+        );
+    }
+
+    #[test]
+    fn reorder_tools_by_heuristics_keeps_order_stable_when_no_preferred_match_exists() {
+        let mut tools = vec![
+            named_tool("highest_score"),
+            named_tool("second_score"),
+            named_tool("unscored_a"),
+            named_tool("unscored_b"),
+        ];
+        let store = crate::agent::learning::heuristics::HeuristicStore {
+            tool_heuristics: vec![
+                crate::agent::learning::heuristics::ToolHeuristic {
+                    tool_name: "highest_score".to_string(),
+                    task_type: "coding".to_string(),
+                    effectiveness_score: 0.95,
+                    avg_duration_ms: 10,
+                    usage_count: 5,
+                },
+                crate::agent::learning::heuristics::ToolHeuristic {
+                    tool_name: "second_score".to_string(),
+                    task_type: "coding".to_string(),
+                    effectiveness_score: 0.75,
+                    avg_duration_ms: 10,
+                    usage_count: 5,
+                },
+            ],
+            ..Default::default()
+        };
+
+        super::reorder_tools_by_heuristics(
+            &mut tools,
+            &store,
+            "coding",
+            &["missing_tool".to_string()],
+        );
+
+        let ordered = tools
+            .iter()
+            .map(|tool| tool.function.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ordered,
+            vec!["highest_score", "second_score", "unscored_a", "unscored_b",]
+        );
+    }
+
     #[test]
     fn list_sessions_tool_requires_workspace_topology() {
         let config = AgentConfig::default();

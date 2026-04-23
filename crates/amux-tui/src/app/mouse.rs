@@ -509,7 +509,12 @@ impl TuiModel {
                         self.chat_drag_current_point = point;
                     } else if let MainPaneView::FilePreview(target) = self.main_pane_view.clone() {
                         let pos = Position::new(mouse.column, mouse.row);
-                        if pos.x == chat_area.x.saturating_add(chat_area.width).saturating_sub(1) {
+                        if pos.x
+                            == chat_area
+                                .x
+                                .saturating_add(chat_area.width)
+                                .saturating_sub(1)
+                        {
                             if let Some(layout) = widgets::file_preview::scrollbar_layout(
                                 chat_area,
                                 &self.tasks,
@@ -546,8 +551,8 @@ impl TuiModel {
                                             grab_offset,
                                         )
                                     {
-                                        self.task_view_scroll =
-                                            target_scroll.min(self.current_detail_view_max_scroll());
+                                        self.task_view_scroll = target_scroll
+                                            .min(self.current_detail_view_max_scroll());
                                     }
                                     self.file_preview_scrollbar_drag_grab_offset =
                                         Some(grab_offset);
@@ -555,6 +560,20 @@ impl TuiModel {
                                     return;
                                 }
                             }
+                        }
+                        if let Some(widgets::file_preview::FilePreviewHitTarget::ClosePreview) =
+                            widgets::file_preview::hit_test(
+                                chat_area,
+                                &self.tasks,
+                                &target,
+                                self.task_view_scroll,
+                                pos,
+                                &self.theme,
+                            )
+                        {
+                            let _ = self.dismiss_active_main_pane(FocusArea::Chat);
+                            self.status_line = "Closed preview".to_string();
+                            return;
                         }
                     } else if matches!(self.main_pane_view, MainPaneView::WorkContext) {
                         if let Some(
@@ -588,21 +607,6 @@ impl TuiModel {
                         );
                         self.work_context_drag_anchor_point = point;
                         self.work_context_drag_current_point = point;
-                    } else if let MainPaneView::FilePreview(target) = &self.main_pane_view {
-                        if let Some(widgets::file_preview::FilePreviewHitTarget::ClosePreview) =
-                            widgets::file_preview::hit_test(
-                                chat_area,
-                                &self.tasks,
-                                target,
-                                self.task_view_scroll,
-                                Position::new(mouse.column, mouse.row),
-                                &self.theme,
-                            )
-                        {
-                            let _ = self.dismiss_active_main_pane(FocusArea::Chat);
-                            self.status_line = "Closed preview".to_string();
-                            return;
-                        }
                     } else if let MainPaneView::Task(target) = self.main_pane_view.clone() {
                         let pos = Position::new(mouse.column, mouse.row);
                         if matches!(target, sidebar::SidebarItemTarget::GoalRun { .. }) {
@@ -675,28 +679,31 @@ impl TuiModel {
                             None => {}
                         }
                     } else {
-                        match widgets::sidebar::hit_test(
+                        let sidebar_snapshot =
+                            self.current_sidebar_snapshot().cloned().unwrap_or_else(|| {
+                                let snapshot = widgets::sidebar::build_cached_snapshot(
+                                    sidebar_area,
+                                    &self.chat,
+                                    &self.sidebar,
+                                    &self.tasks,
+                                    self.chat.active_thread_id(),
+                                );
+                                self.sidebar_snapshot = Some(snapshot.clone());
+                                snapshot
+                            });
+                        match widgets::sidebar::hit_test_cached(
                             sidebar_area,
-                            &self.chat,
                             &self.sidebar,
-                            &self.tasks,
-                            self.chat.active_thread_id(),
+                            &sidebar_snapshot,
                             Position::new(mouse.column, mouse.row),
                         ) {
                             Some(widgets::sidebar::SidebarHitTarget::Tab(tab)) => {
                                 self.activate_sidebar_tab(tab);
                             }
                             Some(widgets::sidebar::SidebarHitTarget::File(path)) => {
-                                if let Some(thread_id) =
-                                    self.chat.active_thread_id().map(str::to_string)
-                                {
-                                    let index = widgets::sidebar::filtered_file_index(
-                                        &self.tasks,
-                                        &self.sidebar,
-                                        Some(thread_id.as_str()),
-                                        &path,
-                                    )
-                                    .unwrap_or(0);
+                                if self.chat.active_thread_id().is_some() {
+                                    let index =
+                                        self.filtered_sidebar_file_index(&path).unwrap_or(0);
                                     self.sidebar.select(index, self.sidebar_item_count());
                                     self.handle_sidebar_enter();
                                 }

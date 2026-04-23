@@ -832,12 +832,18 @@ impl<'a> SendMessageRunner<'a> {
                 !PARTICIPANT_AGENT_FANOUT_TOOLS.contains(&tool.function.name.as_str())
             });
         }
-        if !task_type_for_trace.is_empty() {
+        let preferred_tool_fallbacks = {
+            let model = engine.operator_model.read().await;
+            crate::agent::operator_model::BehaviorAdaptationProfile::from_model(&model)
+                .preferred_tool_fallbacks
+        };
+        {
             let hs = engine.heuristic_store.read().await;
             super::tool_executor::reorder_tools_by_heuristics(
                 &mut tools,
                 &hs,
                 &task_type_for_trace,
+                &preferred_tool_fallbacks,
             );
         }
         if let Some(task) = current_task_snapshot.as_ref() {
@@ -1249,6 +1255,66 @@ mod tests {
         assert!(
             tool_names.contains(&"list_participants"),
             "participant-managed thread should expose list_participants"
+        );
+    }
+
+    #[tokio::test]
+    async fn runner_exposes_goal_run_tools_to_agents() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-goal-run-tools";
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(MAIN_AGENT_NAME.to_string()),
+                title: "Goal run tools".to_string(),
+                messages: vec![AgentMessage::user("start a real goal", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            Some(thread_id),
+            "start a real goal",
+            &[],
+            "start a real goal",
+            None,
+            None,
+            None,
+            None,
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        let tool_names = runner
+            .tools
+            .iter()
+            .map(|tool| tool.function.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            tool_names.contains(&"start_goal_run"),
+            "runner should expose start_goal_run"
+        );
+        assert!(
+            tool_names.contains(&"list_goal_runs"),
+            "runner should expose list_goal_runs"
         );
     }
 

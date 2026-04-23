@@ -1655,6 +1655,8 @@ async fn dispatch_tool_execution(
         "read_offloaded_payload" => execute_read_offloaded_payload(args, agent, thread_id).await,
         "enqueue_task" => execute_enqueue_task(args, agent).await,
         "list_tasks" => execute_list_tasks(args, agent).await,
+        "start_goal_run" => execute_start_goal_run(args, agent, thread_id, session_id).await,
+        "list_goal_runs" => execute_list_goal_runs(agent).await,
         "list_triggers" => execute_list_triggers(args, agent).await,
         "add_trigger" => execute_add_trigger(args, agent).await,
         "show_dreams" => execute_show_dreams(args, agent).await,

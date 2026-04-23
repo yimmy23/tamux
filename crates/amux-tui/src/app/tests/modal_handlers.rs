@@ -1073,7 +1073,7 @@ fn command_palette_enter_prefers_highlighted_command_over_partial_query() {
         Some("new-goal")
     );
     assert_eq!(model.input.buffer(), "");
-    assert_eq!(model.modal.command_display_query(), "/new");
+    assert_eq!(model.modal.command_display_query(), "new");
     assert!(model.modal.command_palette_has_explicit_selection());
 
     let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
@@ -1097,8 +1097,31 @@ fn command_palette_typing_does_not_preview_first_match_before_navigation() {
     }
 
     assert_eq!(model.input.buffer(), "");
-    assert_eq!(model.modal.command_display_query(), "/new-g");
+    assert_eq!(model.modal.command_display_query(), "new-g");
     assert!(!model.modal.command_palette_has_explicit_selection());
+}
+
+#[test]
+fn slash_opened_command_palette_keeps_raw_filter_text() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+
+    let quit = model.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+    assert!(!quit);
+    for ch in "new".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+
+    assert_eq!(model.modal.command_display_query(), "new");
+
+    let quit = model.handle_key_modal(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+        modal::ModalKind::CommandPalette,
+    );
+    assert!(!quit);
+    assert_eq!(model.modal.command_display_query(), "new");
 }
 
 #[test]
@@ -1185,7 +1208,7 @@ fn command_palette_enter_runs_first_match_without_navigation() {
     }
 
     assert_eq!(model.input.buffer(), "");
-    assert_eq!(model.modal.command_display_query(), "/new-g");
+    assert_eq!(model.modal.command_display_query(), "new-g");
 
     let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
     assert!(!quit);
@@ -1216,7 +1239,7 @@ fn command_palette_mouse_selection_executes_selected_command_without_rewriting_q
         Some("new-goal")
     );
     assert_eq!(model.input.buffer(), "");
-    assert_eq!(model.modal.command_display_query(), "/new");
+    assert_eq!(model.modal.command_display_query(), "new");
     assert!(model.modal.command_palette_has_explicit_selection());
 
     model.handle_modal_enter(modal::ModalKind::CommandPalette);

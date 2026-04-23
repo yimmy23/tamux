@@ -1462,6 +1462,26 @@ fn goal_thread_file_preview_escape_prefers_parent_thread_over_goal() {
 }
 
 #[test]
+fn goal_thread_file_preview_close_button_prefers_parent_thread_over_goal() {
+    let mut model = goal_sidebar_model();
+    open_goal_execution_thread(&mut model);
+
+    model.open_file_preview_path("/tmp/thread-child-preview.txt".to_string());
+    assert!(matches!(model.main_pane_view, MainPaneView::FilePreview(_)));
+
+    let chat_area = rendered_chat_area(&model);
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: chat_area.x.saturating_add(1),
+        row: chat_area.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-exec"));
+}
+
+#[test]
 fn goal_thread_work_context_escape_prefers_parent_thread_over_goal() {
     let mut model = goal_sidebar_model();
     open_goal_execution_thread(&mut model);

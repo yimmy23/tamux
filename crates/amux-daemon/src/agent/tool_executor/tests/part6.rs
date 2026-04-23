@@ -1758,6 +1758,118 @@ async fn spawn_subagent_does_not_require_todo_bootstrap_for_chat_threads() {
 }
 
 #[tokio::test]
+async fn start_goal_run_tool_creates_goal_and_list_goal_runs_returns_it() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-start-goal-run-tool";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                title: "Goal launch thread".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user(
+                    "Launch a real durable goal run here.",
+                    1,
+                )],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    let start_call = ToolCall::with_default_weles_review(
+        "tool-start-goal-run".to_string(),
+        ToolFunction {
+            name: "start_goal_run".to_string(),
+            arguments: serde_json::json!({
+                "goal": "Ship the release with full verification",
+                "title": "Release Goal",
+                "priority": "high"
+            })
+            .to_string(),
+        },
+    );
+
+    let start_result = execute_tool(
+        &start_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !start_result.is_error,
+        "start_goal_run should succeed: {}",
+        start_result.content
+    );
+    let started_goal: serde_json::Value =
+        serde_json::from_str(&start_result.content).expect("parse started goal run");
+    let goal_run_id = started_goal
+        .get("id")
+        .and_then(|value| value.as_str())
+        .expect("started goal run should expose id");
+    assert_eq!(
+        started_goal.get("thread_id").and_then(|value| value.as_str()),
+        Some(thread_id)
+    );
+
+    let list_call = ToolCall::with_default_weles_review(
+        "tool-list-goal-runs".to_string(),
+        ToolFunction {
+            name: "list_goal_runs".to_string(),
+            arguments: serde_json::json!({}).to_string(),
+        },
+    );
+
+    let list_result = execute_tool(
+        &list_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !list_result.is_error,
+        "list_goal_runs should succeed: {}",
+        list_result.content
+    );
+    let goal_runs: Vec<crate::agent::GoalRun> =
+        serde_json::from_str(&list_result.content).expect("parse goal run list");
+    assert!(
+        goal_runs.iter().any(|goal_run| goal_run.id == goal_run_id),
+        "list_goal_runs should include the started goal run"
+    );
+}
+
+#[tokio::test]
 async fn spawn_subagent_reserves_thread_id_immediately() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
@@ -3595,6 +3707,196 @@ async fn spawn_subagent_allows_recursive_spawn_when_parent_scope_permits_and_der
         task.context_overflow_action,
         Some(crate::agent::types::ContextOverflowAction::Error)
     );
+}
+
+#[tokio::test]
+async fn spawn_subagent_strained_mode_constrains_derived_budgets() {
+    let root_normal = tempdir().expect("tempdir should succeed");
+    let manager_normal = SessionManager::new_test(root_normal.path()).await;
+    let engine_normal =
+        AgentEngine::new_test(manager_normal.clone(), AgentConfig::default(), root_normal.path())
+            .await;
+    let (event_tx_normal, _) = broadcast::channel(8);
+
+    let normal_result = super::execute_spawn_subagent(
+        &serde_json::json!({
+            "title": "Budget baseline helper",
+            "description": "Collect the unadapted default subagent budget."
+        }),
+        &engine_normal,
+        "thread-parent",
+        None,
+        &manager_normal,
+        None,
+        &event_tx_normal,
+    )
+    .await
+    .expect("normal spawn_subagent should succeed");
+
+    let normal_task = engine_normal
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| normal_result.contains(&task.id))
+        .expect("normal spawned subagent should exist");
+
+    let root_strained = tempdir().expect("tempdir should succeed");
+    let manager_strained = SessionManager::new_test(root_strained.path()).await;
+    let engine_strained = AgentEngine::new_test(
+        manager_strained.clone(),
+        AgentConfig::default(),
+        root_strained.path(),
+    )
+    .await;
+    let (event_tx_strained, _) = broadcast::channel(8);
+    {
+        let mut model = engine_strained.operator_model.write().await;
+        model.operator_satisfaction.label = "strained".to_string();
+        model.operator_satisfaction.score = 0.18;
+    }
+
+    let strained_result = super::execute_spawn_subagent(
+        &serde_json::json!({
+            "title": "Budget constrained helper",
+            "description": "Collect the strained-mode default subagent budget."
+        }),
+        &engine_strained,
+        "thread-parent",
+        None,
+        &manager_strained,
+        None,
+        &event_tx_strained,
+    )
+    .await
+    .expect("strained spawn_subagent should succeed");
+
+    let strained_task = engine_strained
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| strained_result.contains(&task.id))
+        .expect("strained spawned subagent should exist");
+
+    let normal_tokens = normal_task
+        .context_budget_tokens
+        .expect("normal spawn should derive a context budget");
+    let strained_tokens = strained_task
+        .context_budget_tokens
+        .expect("strained spawn should derive a context budget");
+    assert_eq!(strained_tokens, ((normal_tokens as f64 * 0.6).round() as u32).max(256));
+
+    let normal_duration = normal_task
+        .max_duration_secs
+        .expect("normal spawn should derive a duration budget");
+    let strained_duration = strained_task
+        .max_duration_secs
+        .expect("strained spawn should derive a duration budget");
+    assert_eq!(strained_duration, ((normal_duration as f64 * 0.6).round() as u64).max(30));
+
+    let normal_tool_calls = super::extract_tool_call_limit(normal_task.termination_conditions.as_deref())
+        .expect("normal spawn should derive a tool-call budget");
+    let strained_tool_calls = super::extract_tool_call_limit(
+        strained_task.termination_conditions.as_deref(),
+    )
+    .expect("strained spawn should derive a tool-call budget");
+    assert_eq!(strained_tool_calls, ((normal_tool_calls as f64 * 0.6).round() as u32).max(1));
+}
+
+#[tokio::test]
+async fn spawn_subagent_fragile_mode_constrains_inherited_max_depth_without_explicit_request() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    {
+        let mut model = engine.operator_model.write().await;
+        model.operator_satisfaction.label = "fragile".to_string();
+        model.operator_satisfaction.score = 0.42;
+    }
+
+    engine
+        .tasks
+        .lock()
+        .await
+        .push_back(crate::agent::types::AgentTask {
+            id: "task-root-with-recursion".to_string(),
+            title: "Root task".to_string(),
+            description: "Parent task exposes a broader inherited recursion allowance".to_string(),
+            status: crate::agent::types::TaskStatus::Queued,
+            priority: crate::agent::types::TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some("thread-parent".to_string()),
+            source: "user".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: Some("thread-parent".to_string()),
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: Some("subagent-depth:0/3".to_string()),
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+    let result = super::execute_spawn_subagent(
+        &serde_json::json!({
+            "title": "Fragile-mode helper",
+            "description": "Spawn without an explicit max_depth so fragile mode can tighten inheritance."
+        }),
+        &engine,
+        "thread-parent",
+        Some("task-root-with-recursion"),
+        &manager,
+        None,
+        &event_tx,
+    )
+    .await
+    .expect("fragile spawn_subagent should succeed");
+
+    assert!(result.contains("Delegation depth: 1/2"));
+
+    let task = engine
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| result.contains(&task.id))
+        .expect("fragile spawned subagent should exist");
+    assert_eq!(task.containment_scope.as_deref(), Some("subagent-depth:1/2"));
 }
 
 #[tokio::test]

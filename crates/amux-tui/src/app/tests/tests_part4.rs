@@ -93,6 +93,8 @@ fn drag_selection_does_not_rebuild_full_transcript_for_every_mouse_event() {
 #[test]
 fn render_during_active_drag_reuses_cached_snapshot_and_shows_highlight() {
     let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
     model.show_sidebar_override = Some(false);
     model.focus = FocusArea::Chat;
     model.chat.reduce(chat::ChatAction::ThreadCreated {
@@ -199,6 +201,8 @@ fn render_during_active_drag_reuses_cached_snapshot_and_shows_highlight() {
 #[test]
 fn repeated_chat_renders_reuse_cached_snapshot_when_transcript_is_unchanged() {
     let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
     model.show_sidebar_override = Some(false);
     model.focus = FocusArea::Chat;
     model.chat.reduce(chat::ChatAction::ThreadCreated {
@@ -241,6 +245,8 @@ fn repeated_chat_renders_reuse_cached_snapshot_when_transcript_is_unchanged() {
 #[test]
 fn scrolling_reuses_cached_snapshot_and_updates_visible_window() {
     let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
     model.show_sidebar_override = Some(false);
     model.focus = FocusArea::Chat;
     model.chat.reduce(chat::ChatAction::ThreadCreated {
@@ -292,6 +298,8 @@ fn scrolling_reuses_cached_snapshot_and_updates_visible_window() {
 #[test]
 fn stale_cached_snapshot_is_ignored_after_sidebar_layout_change() {
     let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
     model.show_sidebar_override = Some(false);
     model.focus = FocusArea::Chat;
     model.chat.reduce(chat::ChatAction::ThreadCreated {
@@ -401,6 +409,182 @@ fn mouse_drag_snapshot_uses_rendered_chat_area_without_sidebar() {
     assert!(
         widgets::chat::cached_snapshot_matches_area(snapshot, chat_area),
         "drag snapshots must use the exact rendered chat area"
+    );
+}
+
+#[test]
+fn repeated_sidebar_renders_reuse_cached_snapshot_when_history_is_unchanged() {
+    let mut model = build_model();
+    model.show_sidebar_override = Some(true);
+    model.focus = FocusArea::Sidebar;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.tasks.reduce(task::TaskAction::WorkContextReceived(
+        task::ThreadWorkContext {
+            thread_id: "thread-1".to_string(),
+            entries: (0..200)
+                .map(|idx| task::WorkContextEntry {
+                    path: format!("/tmp/file-{idx:03}.rs"),
+                    change_kind: Some("modified".to_string()),
+                    is_text: true,
+                    ..Default::default()
+                })
+                .collect(),
+        },
+    ));
+    model.activate_sidebar_tab(SidebarTab::Files);
+
+    widgets::sidebar::reset_build_cached_snapshot_call_count();
+
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("first render should succeed");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("second render should succeed");
+
+    assert_eq!(
+        widgets::sidebar::build_cached_snapshot_call_count(),
+        1,
+        "unchanged sidebar renders should reuse the cached sidebar snapshot"
+    );
+}
+
+#[test]
+fn sidebar_mouse_click_reuses_cached_snapshot_for_spawned_history() {
+    let mut model = build_model();
+    model.show_sidebar_override = Some(true);
+    model.focus = FocusArea::Sidebar;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-root".to_string(),
+        title: "Root".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-child".to_string(),
+        title: "Child".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-root".to_string()));
+    model.tasks.reduce(task::TaskAction::TaskListReceived(vec![
+        task::AgentTask {
+            id: "root-task".to_string(),
+            title: "Root worker".to_string(),
+            created_at: 20,
+            thread_id: Some("thread-root".to_string()),
+            status: Some(task::TaskStatus::InProgress),
+            ..Default::default()
+        },
+        task::AgentTask {
+            id: "child-task".to_string(),
+            title: "Child worker".to_string(),
+            created_at: 10,
+            thread_id: Some("thread-child".to_string()),
+            parent_task_id: Some("root-task".to_string()),
+            parent_thread_id: Some("thread-root".to_string()),
+            status: Some(task::TaskStatus::InProgress),
+            ..Default::default()
+        },
+    ]));
+    model.activate_sidebar_tab(SidebarTab::Spawned);
+
+    widgets::sidebar::reset_build_cached_snapshot_call_count();
+
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("initial render should succeed");
+
+    let sidebar_area = model
+        .pane_layout()
+        .sidebar
+        .expect("sidebar should be visible");
+    let buffer = terminal.backend().buffer();
+    let child_row = (sidebar_area.y..sidebar_area.y.saturating_add(sidebar_area.height))
+        .find(|row| {
+            (sidebar_area.x..sidebar_area.x.saturating_add(sidebar_area.width))
+                .filter_map(|x| buffer.cell((x, *row)).map(|cell| cell.symbol()))
+                .collect::<String>()
+                .contains("Child worker")
+        })
+        .expect("rendered sidebar should include the child spawned row");
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: sidebar_area.x.saturating_add(2),
+        row: child_row,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(
+        widgets::sidebar::build_cached_snapshot_call_count(),
+        1,
+        "sidebar clicks should reuse the cached sidebar snapshot after the initial render"
+    );
+    assert_eq!(model.chat.active_thread_id(), Some("thread-child"));
+}
+
+#[test]
+fn repeated_spawned_sidebar_renders_do_not_reflatten_unchanged_tree() {
+    let mut model = build_model();
+    model.show_sidebar_override = Some(true);
+    model.focus = FocusArea::Sidebar;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-root".to_string(),
+        title: "Root".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-child".to_string(),
+        title: "Child".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-root".to_string()));
+    model.tasks.reduce(task::TaskAction::TaskListReceived(vec![
+        task::AgentTask {
+            id: "root-task".to_string(),
+            title: "Root worker".to_string(),
+            created_at: 20,
+            thread_id: Some("thread-root".to_string()),
+            status: Some(task::TaskStatus::InProgress),
+            ..Default::default()
+        },
+        task::AgentTask {
+            id: "child-task".to_string(),
+            title: "Child worker".to_string(),
+            created_at: 10,
+            thread_id: Some("thread-child".to_string()),
+            parent_task_id: Some("root-task".to_string()),
+            parent_thread_id: Some("thread-root".to_string()),
+            status: Some(task::TaskStatus::InProgress),
+            ..Default::default()
+        },
+    ]));
+    model.activate_sidebar_tab(SidebarTab::Spawned);
+
+    widgets::sidebar::reset_spawned_sidebar_flatten_call_count();
+
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("first render should succeed");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("second render should succeed");
+
+    assert_eq!(
+        widgets::sidebar::spawned_sidebar_flatten_call_count(),
+        1,
+        "unchanged spawned sidebar renders should not recompute the flattened tree"
     );
 }
 

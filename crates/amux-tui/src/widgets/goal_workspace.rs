@@ -367,7 +367,7 @@ pub fn selection_point_from_mouse(
 ) -> Option<SelectionPoint> {
     let (inner, row_index, wrapped_row_index) =
         plan_inner_row_index(area, tasks, goal_run_id, state, mouse)?;
-    let rows = plan::build_rows(tasks, goal_run_id, state);
+    let rows = plan::build_rows(tasks, goal_run_id, state, &ThemeTokens::default());
     let line = &rows.get(row_index)?.line;
     let width = line_display_width(line);
     let col = mouse.x.saturating_sub(inner.x) as usize;
@@ -389,7 +389,7 @@ pub fn selected_text(
     start: SelectionPoint,
     end: SelectionPoint,
 ) -> Option<String> {
-    let rows = plan::build_rows(tasks, goal_run_id, state);
+    let rows = plan::build_rows(tasks, goal_run_id, state, &ThemeTokens::default());
     let (start_point, end_point) =
         if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
             (start, end)
@@ -506,7 +506,7 @@ fn render_plan(
     let selected_visual_row =
         plan_visual_row_for_selection(tasks, goal_run_id, state, inner.width as usize);
     let mut visual_row = 0usize;
-    let lines = plan::build_rows(tasks, goal_run_id, state)
+    let lines = plan::build_rows(tasks, goal_run_id, state, theme)
         .into_iter()
         .map(|row| {
             let line = styled_plan_row(row, theme, tick_counter);
@@ -2635,7 +2635,7 @@ pub fn plan_selection_rows(
     goal_run_id: &str,
     state: &GoalWorkspaceState,
 ) -> Vec<(usize, crate::state::goal_workspace::GoalPlanSelection)> {
-    plan::build_rows(tasks, goal_run_id, state)
+    plan::build_rows(tasks, goal_run_id, state, &ThemeTokens::default())
         .into_iter()
         .enumerate()
         .filter_map(|(index, row)| row.selection.map(|selection| (index, selection)))
@@ -2649,7 +2649,7 @@ pub fn plan_visual_row_for_selection(
     width: usize,
 ) -> Option<usize> {
     let selected = state.selected_plan_item().cloned();
-    let rows = plan::build_rows(tasks, goal_run_id, state);
+    let rows = plan::build_rows(tasks, goal_run_id, state, &ThemeTokens::default());
     let mut visual_row = 0usize;
     let mut selection_index = 0usize;
 
@@ -2720,7 +2720,7 @@ fn plan_inner_row_index(
         return None;
     }
 
-    let rows = plan::build_rows(tasks, goal_run_id, state);
+    let rows = plan::build_rows(tasks, goal_run_id, state, &ThemeTokens::default());
     let visual_targets = plan_visual_row_targets(tasks, goal_run_id, state, inner.width as usize);
     let visual_row = resolved_plan_scroll(visual_targets.len(), inner.height as usize, state)
         .saturating_add(mouse.y.saturating_sub(inner.y) as usize);
@@ -2854,7 +2854,7 @@ fn plan_visual_row_targets(
     width: usize,
 ) -> Vec<Option<GoalWorkspaceHitTarget>> {
     let mut rows = Vec::new();
-    for row in plan::build_rows(tasks, goal_run_id, state) {
+    for row in plan::build_rows(tasks, goal_run_id, state, &ThemeTokens::default()) {
         let height = wrapped_visual_height(&row.line, width);
         for _ in 0..height {
             rows.push(row.target.clone());

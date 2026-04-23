@@ -112,6 +112,22 @@ fn add_available_tools_part_d(
             "limit": { "type": "integer", "description": "Maximum number of tasks to return" }
         }
     })));
+    tools.push(tool_def("start_goal_run", "Start a durable goal run for a long-running objective. When thread_id or session_id are omitted, tamux binds the goal to the current thread/session context.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "goal": { "type": "string", "description": "The durable objective to pursue" },
+            "title": { "type": "string", "description": "Optional short title for the goal run" },
+            "thread_id": { "type": "string", "description": "Optional explicit thread id override; defaults to the current thread" },
+            "session_id": { "type": "string", "description": "Optional explicit session id override; defaults to the current session when available" },
+            "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Goal priority" },
+            "autonomy_level": { "type": "string", "enum": ["supervised", "aware", "autonomous"], "description": "Optional autonomy level override for the goal run" }
+        },
+        "required": ["goal"]
+    })));
+    tools.push(tool_def("list_goal_runs", "List durable goal runs with their current status, active step metadata, and recent execution state.", serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })));
     tools.push(tool_def("list_triggers", "List configured event triggers with status, cooldown, and last-fired metadata.", serde_json::json!({
         "type": "object",
         "properties": {}

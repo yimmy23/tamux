@@ -1,5 +1,7 @@
 use crate::state::goal_workspace::GoalWorkspaceState;
 use crate::state::task::{GoalRunStatus, TaskState, TaskStatus, TodoStatus};
+use crate::theme::ThemeTokens;
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
 use super::GoalWorkspaceHitTarget;
@@ -26,16 +28,19 @@ pub(crate) fn build_rows(
     tasks: &TaskState,
     goal_run_id: &str,
     state: &GoalWorkspaceState,
+    theme: &ThemeTokens,
 ) -> Vec<GoalWorkspacePlanRow> {
     let mut rows = Vec::new();
     let run = tasks.goal_run_by_id(goal_run_id);
     let prompt_expanded = state.prompt_expanded();
     let prompt_button = if prompt_expanded { "[Hide]" } else { "[Show]" };
+    let section_style = theme.accent_primary.add_modifier(Modifier::BOLD);
     rows.push(GoalWorkspacePlanRow {
         line: Line::from(vec![
-            Span::raw(if prompt_expanded { "▾ " } else { "▸ " }),
-            Span::raw("Goal Prompt  "),
-            Span::raw(prompt_button),
+            Span::styled(if prompt_expanded { "▾ " } else { "▸ " }, theme.fg_dim),
+            Span::styled("Goal Prompt", section_style),
+            Span::raw("  "),
+            Span::styled(prompt_button, theme.fg_dim),
         ]),
         selection: Some(crate::state::goal_workspace::GoalPlanSelection::PromptToggle),
         target: Some(GoalWorkspaceHitTarget::PlanPromptToggle),
@@ -51,7 +56,7 @@ pub(crate) fn build_rows(
             .unwrap_or("No goal prompt available.");
         for line in wrap_plain_text(goal, 52) {
             rows.push(GoalWorkspacePlanRow {
-                line: Line::from(vec![Span::raw("    "), Span::raw(line)]),
+                line: Line::from(vec![Span::raw("    "), Span::styled(line, theme.fg_dim)]),
                 selection: None,
                 target: None,
                 marker_state: None,
@@ -65,9 +70,9 @@ pub(crate) fn build_rows(
     if let Some((thread_label, thread_id)) = run.and_then(|run| main_agent_thread(tasks, run)) {
         rows.push(GoalWorkspacePlanRow {
             line: Line::from(vec![
-                Span::raw("[thread] "),
-                Span::raw(format!("{thread_label}  ")),
-                Span::raw(thread_id.clone()),
+                Span::styled("[thread] ", theme.fg_dim),
+                Span::styled(format!("{thread_label}  "), theme.fg_active),
+                Span::styled(thread_id.clone(), theme.fg_active),
             ]),
             selection: Some(
                 crate::state::goal_workspace::GoalPlanSelection::MainThread {
@@ -82,7 +87,7 @@ pub(crate) fn build_rows(
         });
     } else {
         rows.push(GoalWorkspacePlanRow {
-            line: Line::from("No main agent thread yet."),
+            line: Line::from(Span::styled("No main agent thread yet.", theme.fg_dim)),
             selection: None,
             target: None,
             marker_state: None,
@@ -92,7 +97,20 @@ pub(crate) fn build_rows(
         });
     }
 
-    for step in tasks.goal_steps_in_display_order(goal_run_id) {
+    let steps = tasks.goal_steps_in_display_order(goal_run_id);
+    if !steps.is_empty() {
+        rows.push(GoalWorkspacePlanRow {
+            line: Line::from(Span::styled("Steps:", section_style)),
+            selection: None,
+            target: None,
+            marker_state: None,
+            marker_span_index: None,
+            confidence: None,
+            confidence_span_index: None,
+        });
+    }
+
+    for step in steps {
         let expanded = state.is_step_expanded(&step.id);
         let (confidence, cleaned_title) = super::split_goal_step_title(&step.title);
         let active = run.is_some_and(|run| {
@@ -151,7 +169,7 @@ pub(crate) fn build_rows(
 
     if rows.is_empty() {
         rows.push(GoalWorkspacePlanRow {
-            line: Line::from("No plan yet"),
+            line: Line::from(Span::styled("No plan yet", theme.fg_dim)),
             selection: None,
             target: None,
             marker_state: None,

@@ -519,6 +519,7 @@ pub struct TuiModel {
     agent_activity: Option<String>,
     thread_agent_activity: std::collections::HashMap<String, String>,
     bootstrap_pending_activity_threads: std::collections::HashSet<String>,
+    pending_prompt_response_threads: std::collections::HashSet<String>,
     participant_playground_activity:
         std::collections::HashMap<String, ParticipantPlaygroundActivity>,
 
@@ -626,6 +627,7 @@ pub struct TuiModel {
     chat_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
     chat_drag_current_point: Option<widgets::chat::SelectionPoint>,
     chat_selection_snapshot: Option<widgets::chat::CachedSelectionSnapshot>,
+    sidebar_snapshot: Option<widgets::sidebar::CachedSidebarSnapshot>,
     chat_scrollbar_drag_grab_offset: Option<u16>,
     file_preview_scrollbar_drag_grab_offset: Option<u16>,
 

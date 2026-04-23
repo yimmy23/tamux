@@ -1,20 +1,19 @@
-use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span};
-
 use crate::state::spawned_tree::{derive_spawned_agent_tree, SpawnedAgentTreeNode};
 use crate::state::task::{AgentTask, TaskState};
-use crate::theme::ThemeTokens;
 
-use super::{SidebarHitTarget, SidebarRow};
+#[cfg(test)]
+thread_local! {
+    static FLATTENED_ITEMS_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 #[derive(Debug, Clone)]
-struct SpawnedSidebarItem {
-    depth: usize,
-    title: String,
-    target_thread_id: Option<String>,
-    is_active: bool,
-    openable: bool,
-    live: bool,
+pub(super) struct SpawnedSidebarItem {
+    pub(super) depth: usize,
+    pub(super) title: String,
+    pub(super) target_thread_id: Option<String>,
+    pub(super) is_active: bool,
+    pub(super) openable: bool,
+    pub(super) live: bool,
 }
 
 fn branch_target_thread_id(
@@ -52,7 +51,13 @@ fn push_node_rows(
     }
 }
 
-fn flattened_items(tasks: &TaskState, thread_id: Option<&str>) -> Vec<SpawnedSidebarItem> {
+pub(super) fn flattened_items(
+    tasks: &TaskState,
+    thread_id: Option<&str>,
+) -> Vec<SpawnedSidebarItem> {
+    #[cfg(test)]
+    FLATTENED_ITEMS_CALLS.with(|calls| calls.set(calls.get() + 1));
+
     let Some(tree) = derive_spawned_agent_tree(tasks.spawned_tree_items(), thread_id) else {
         return Vec::new();
     };
@@ -71,22 +76,15 @@ fn flattened_items(tasks: &TaskState, thread_id: Option<&str>) -> Vec<SpawnedSid
     rows
 }
 
-fn truncated_title(title: &str, max_len: usize) -> String {
-    if title.chars().count() > max_len {
-        format!(
-            "{}…",
-            title
-                .chars()
-                .take(max_len.saturating_sub(1))
-                .collect::<String>()
-        )
-    } else {
-        title.to_string()
-    }
-}
-
 pub(super) fn has_content(tasks: &TaskState, thread_id: Option<&str>) -> bool {
-    !flattened_items(tasks, thread_id).is_empty()
+    let Some(active_thread_id) = thread_id.filter(|thread_id| !thread_id.is_empty()) else {
+        return false;
+    };
+
+    tasks.spawned_tree_items().iter().any(|task| {
+        task.thread_id.as_deref() == Some(active_thread_id)
+            || task.parent_thread_id.as_deref() == Some(active_thread_id)
+    })
 }
 
 pub(super) fn selected_thread_id(
@@ -105,68 +103,12 @@ pub(super) fn first_openable_index(tasks: &TaskState, thread_id: Option<&str>) -
         .position(|item| item.openable)
 }
 
-pub(super) fn item_count(tasks: &TaskState, thread_id: Option<&str>) -> usize {
-    flattened_items(tasks, thread_id).len().max(1)
+#[cfg(test)]
+pub(super) fn reset_flattened_items_call_count() {
+    FLATTENED_ITEMS_CALLS.with(|calls| calls.set(0));
 }
 
-pub(super) fn rows(
-    tasks: &TaskState,
-    selected_index: usize,
-    thread_id: Option<&str>,
-    theme: &ThemeTokens,
-    width: usize,
-) -> Vec<SidebarRow> {
-    let items = flattened_items(tasks, thread_id);
-    if items.is_empty() {
-        return vec![SidebarRow {
-            line: Line::from(Span::styled(" No spawned agents", theme.fg_dim)),
-            target: None,
-        }];
-    }
-
-    let selected_style = Style::default().bg(Color::Indexed(236));
-    items
-        .into_iter()
-        .enumerate()
-        .map(|(idx, item)| {
-            let indent = "  ".repeat(item.depth);
-            let marker = if item.is_active {
-                "@"
-            } else if item.openable {
-                ">"
-            } else {
-                "-"
-            };
-            let status = if item.live { "live" } else { "done" };
-            let max_len = width
-                .saturating_sub(indent.chars().count())
-                .saturating_sub(12)
-                .max(8);
-            let title_style = if item.target_thread_id.is_none() && !item.is_active {
-                theme.fg_dim
-            } else {
-                theme.fg_active
-            };
-            let line = Line::from(vec![
-                Span::styled(
-                    if idx == selected_index { "> " } else { "  " },
-                    theme.accent_primary,
-                ),
-                Span::raw(indent),
-                Span::styled(format!("[{marker}]"), theme.fg_dim),
-                Span::raw(" "),
-                Span::styled(truncated_title(&item.title, max_len), title_style),
-                Span::styled(format!(" [{status}]"), theme.fg_dim),
-            ]);
-
-            SidebarRow {
-                line: if idx == selected_index {
-                    line.style(selected_style)
-                } else {
-                    line
-                },
-                target: Some(SidebarHitTarget::Spawned(idx)),
-            }
-        })
-        .collect()
+#[cfg(test)]
+pub(super) fn flattened_items_call_count() -> usize {
+    FLATTENED_ITEMS_CALLS.with(std::cell::Cell::get)
 }

@@ -1110,7 +1110,7 @@ impl TuiModel {
             KeyCode::Char('/') if self.focus != FocusArea::Input => {
                 self.input.set_mode(input::InputMode::Insert);
                 self.focus = FocusArea::Input;
-                self.open_command_palette(Some("/".to_string()));
+                self.open_command_palette(None);
             }
             KeyCode::Char('w') if ctrl && self.focus == FocusArea::Input => {
                 self.input.reduce(input::InputAction::DeleteWord);
@@ -1133,7 +1133,7 @@ impl TuiModel {
                         && self.input.buffer().is_empty()
                         && self.modal.top() != Some(modal::ModalKind::CommandPalette)
                     {
-                        self.open_command_palette(Some("/".to_string()));
+                        self.open_command_palette(None);
                     } else {
                         self.input.reduce(input::InputAction::InsertChar(c));
                         if self.modal.top() == Some(modal::ModalKind::CommandPalette) {

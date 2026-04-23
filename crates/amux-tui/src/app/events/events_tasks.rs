@@ -270,6 +270,7 @@ impl TuiModel {
             let should_preserve = is_missing_from_refresh
                 && (thread_id.starts_with("local-")
                     || pending_loading_thread_id.as_deref() == Some(thread_id.as_str())
+                    || self.pending_prompt_response_threads.contains(thread_id)
                     || self.assistant_busy());
             should_preserve.then(|| active_thread.clone())
         });
@@ -480,6 +481,14 @@ impl TuiModel {
         let migrated_bootstrap_activity = pending_local_activity
             .as_ref()
             .is_some_and(|(_, activity)| activity == "thinking");
+        let migrated_pending_prompt_response = self
+            .chat
+            .active_thread_id()
+            .filter(|active_thread_id| active_thread_id.starts_with("local-"))
+            .is_some_and(|active_thread_id| {
+                self.pending_prompt_response_threads
+                    .remove(active_thread_id)
+            });
         if Self::is_hidden_agent_thread(&thread_id, Some(title.as_str())) {
             return;
         }
@@ -518,6 +527,9 @@ impl TuiModel {
         }
         if migrated_bootstrap_activity {
             self.mark_bootstrap_pending_activity_thread(thread_id.clone());
+        }
+        if migrated_pending_prompt_response {
+            self.mark_pending_prompt_response_thread(thread_id.clone());
         }
         self.sync_open_thread_picker();
         self.sync_pending_approvals_from_tasks();

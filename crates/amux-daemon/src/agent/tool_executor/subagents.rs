@@ -1,3 +1,4 @@
+use crate::agent::operator_model::SatisfactionAdaptationMode;
 use crate::agent::types::AgentTask;
 
 const MAX_RECURSIVE_SUBAGENT_DEPTH: u8 = 3;
@@ -26,6 +27,52 @@ fn budget_fraction_for_depth(depth: u8) -> f64 {
         .get(depth.saturating_sub(1) as usize)
         .copied()
         .unwrap_or(0.1)
+}
+
+fn adaptive_subagent_budget_factor(mode: SatisfactionAdaptationMode) -> f64 {
+    match mode {
+        SatisfactionAdaptationMode::Normal => 1.0,
+        SatisfactionAdaptationMode::Tightened => 0.8,
+        SatisfactionAdaptationMode::Minimal => 0.6,
+    }
+}
+
+fn adapt_default_subagent_max_depth(
+    mode: SatisfactionAdaptationMode,
+    child_depth: u8,
+    inherited_max_depth: u8,
+) -> u8 {
+    match mode {
+        SatisfactionAdaptationMode::Normal => inherited_max_depth,
+        SatisfactionAdaptationMode::Tightened => {
+            inherited_max_depth.min(child_depth.saturating_add(1))
+        }
+        SatisfactionAdaptationMode::Minimal => inherited_max_depth.min(child_depth),
+    }
+}
+
+fn adapt_derived_context_budget(
+    value: Option<u32>,
+    mode: SatisfactionAdaptationMode,
+) -> Option<u32> {
+    let factor = adaptive_subagent_budget_factor(mode);
+    value.map(|current| ((current as f64 * factor).round() as u32).max(256).min(current))
+}
+
+fn adapt_derived_duration_budget(
+    value: Option<u64>,
+    mode: SatisfactionAdaptationMode,
+) -> Option<u64> {
+    let factor = adaptive_subagent_budget_factor(mode);
+    value.map(|current| ((current as f64 * factor).round() as u64).max(30).min(current))
+}
+
+fn adapt_derived_tool_call_budget(
+    value: Option<u32>,
+    mode: SatisfactionAdaptationMode,
+) -> Option<u32> {
+    let factor = adaptive_subagent_budget_factor(mode);
+    value.map(|current| ((current as f64 * factor).round() as u32).max(1).min(current))
 }
 
 pub(super) fn parse_subagent_containment_scope(scope: Option<&str>) -> Option<(u8, u8)> {
@@ -185,6 +232,7 @@ fn derive_subagent_limits(
     requested_max_depth: Option<u8>,
     requested_budget: Option<RequestedSubagentBudget>,
     default_context_window_tokens: u32,
+    adaptation_mode: SatisfactionAdaptationMode,
 ) -> Result<DerivedSubagentLimits> {
     let parent_depth = current_task
         .map(|task| compute_task_delegation_depth(task, all_tasks))
@@ -201,7 +249,9 @@ fn derive_subagent_limits(
         );
     }
 
-    let max_depth = requested_max_depth.unwrap_or(parent_max_depth);
+    let max_depth = requested_max_depth.unwrap_or_else(|| {
+        adapt_default_subagent_max_depth(adaptation_mode, child_depth, parent_max_depth)
+    });
     if max_depth == 0 {
         anyhow::bail!("'max_depth' must be at least 1");
     }
@@ -293,9 +343,15 @@ fn derive_subagent_limits(
     Ok(DerivedSubagentLimits {
         child_depth,
         max_depth,
-        context_budget_tokens: requested_budget.max_tokens.or(derived_context_budget),
-        max_duration_secs: requested_budget.max_wall_time_secs.or(derived_max_duration),
-        max_tool_calls: requested_budget.max_tool_calls.or(derived_max_tool_calls),
+        context_budget_tokens: requested_budget
+            .max_tokens
+            .or_else(|| adapt_derived_context_budget(derived_context_budget, adaptation_mode)),
+        max_duration_secs: requested_budget.max_wall_time_secs.or_else(|| {
+            adapt_derived_duration_budget(derived_max_duration, adaptation_mode)
+        }),
+        max_tool_calls: requested_budget.max_tool_calls.or_else(|| {
+            adapt_derived_tool_call_budget(derived_max_tool_calls, adaptation_mode)
+        }),
     })
 }
 
@@ -521,12 +577,17 @@ async fn execute_spawn_subagent(
     {
         effective_provider_config.reasoning_effort = reasoning_effort;
     }
+    let adaptation_mode = {
+        let model = agent.operator_model.read().await;
+        SatisfactionAdaptationMode::from_label(&model.operator_satisfaction.label)
+    };
     let derived_limits = derive_subagent_limits(
         task_snapshot.as_ref(),
         &existing_tasks,
         requested_max_depth,
         requested_budget,
         effective_provider_config.context_window_tokens,
+        adaptation_mode,
     )?;
 
     subagent.containment_scope = Some(format_subagent_containment_scope(

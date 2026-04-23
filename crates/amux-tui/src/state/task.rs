@@ -334,6 +334,7 @@ pub enum TaskAction {
 
 pub struct TaskState {
     tasks: Vec<AgentTask>,
+    tasks_revision: u64,
     goal_runs: Vec<GoalRun>,
     goal_run_checkpoints: std::collections::HashMap<String, Vec<GoalRunCheckpointSummary>>,
     thread_todos: std::collections::HashMap<String, Vec<TodoItem>>,
@@ -350,6 +351,7 @@ impl TaskState {
     pub fn new() -> Self {
         Self {
             tasks: Vec::new(),
+            tasks_revision: 0,
             goal_runs: Vec::new(),
             goal_run_checkpoints: std::collections::HashMap::new(),
             thread_todos: std::collections::HashMap::new(),
@@ -365,6 +367,10 @@ impl TaskState {
 
     pub fn tasks(&self) -> &[AgentTask] {
         &self.tasks
+    }
+
+    pub fn tasks_revision(&self) -> u64 {
+        self.tasks_revision
     }
 
     pub fn goal_runs(&self) -> &[GoalRun] {
@@ -566,6 +572,7 @@ impl TaskState {
         match action {
             TaskAction::TaskListReceived(tasks) => {
                 self.tasks = tasks;
+                self.tasks_revision = self.tasks_revision.wrapping_add(1);
                 reconcile_goal_run_status_from_tasks(&self.tasks, &mut self.goal_runs);
             }
 
@@ -576,6 +583,7 @@ impl TaskState {
                 } else {
                     self.tasks.push(updated);
                 }
+                self.tasks_revision = self.tasks_revision.wrapping_add(1);
                 reconcile_goal_run_status_from_tasks(&self.tasks, &mut self.goal_runs);
             }
 
@@ -615,8 +623,12 @@ impl TaskState {
                 self.goal_run_checkpoints.remove(&goal_run_id);
                 self.goal_step_live_todos
                     .retain(|key, _| !key.starts_with(&format!("{goal_run_id}::")));
+                let previous_task_len = self.tasks.len();
                 self.tasks
                     .retain(|task| task.goal_run_id.as_deref() != Some(goal_run_id.as_str()));
+                if self.tasks.len() != previous_task_len {
+                    self.tasks_revision = self.tasks_revision.wrapping_add(1);
+                }
             }
 
             TaskAction::ThreadTodosReceived {

@@ -1084,6 +1084,14 @@ impl TuiModel {
             return;
         }
 
+        if self
+            .chat_selection_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| !widgets::chat::cached_snapshot_matches_area(snapshot, area))
+        {
+            self.chat_selection_snapshot = None;
+        }
+
         let mut area = area;
         if let Some(return_area) = self.conversation_return_area() {
             self.render_conversation_return_banner(frame, return_area);
@@ -1498,20 +1506,42 @@ impl TuiModel {
                     );
                 }
             } else {
-                widgets::sidebar::render(
+                let sidebar_snapshot = self
+                    .sidebar_snapshot
+                    .as_ref()
+                    .filter(|snapshot| {
+                        widgets::sidebar::cached_snapshot_matches_render(
+                            snapshot,
+                            sidebar_area,
+                            &self.chat,
+                            &self.sidebar,
+                            &self.tasks,
+                            self.chat.active_thread_id(),
+                        )
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        let snapshot = widgets::sidebar::build_cached_snapshot(
+                            sidebar_area,
+                            &self.chat,
+                            &self.sidebar,
+                            &self.tasks,
+                            self.chat.active_thread_id(),
+                        );
+                        self.sidebar_snapshot = Some(snapshot.clone());
+                        snapshot
+                    });
+                widgets::sidebar::render_cached(
                     frame,
                     sidebar_area,
                     &self.chat,
                     &self.sidebar,
-                    &self.tasks,
-                    self.chat.active_thread_id(),
                     &self.theme,
                     self.focus == FocusArea::Sidebar,
                     &self.gateway_statuses,
                     &self.tier,
-                    self.current_thread_agent_activity(),
-                    self.weles_health.as_ref(),
                     &self.recent_actions,
+                    &sidebar_snapshot,
                 );
             }
         } else {

@@ -245,9 +245,15 @@ pre code {
   font-weight: 500;
   cursor: pointer;
   transition: background var(--transition);
+  white-space: nowrap;
 }
 .nav-toggle:hover {
   background: rgba(255,255,255,0.06);
+}
+.nav-toggle[aria-expanded="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* Page Layout - improved spacing */
@@ -256,16 +262,25 @@ pre code {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   gap: 2.5rem; 
   padding: 2rem 0 4rem;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Ensure content doesn't overflow viewport */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 .page-sidebar {
-  position: sticky; 
   top: calc(var(--header-height) + 1.5rem); 
   height: max-content;
   max-height: calc(100vh - var(--header-height) - 3rem);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
+  width: 100%;
+  max-width: var(--sidebar-width);
 }
 .page-sidebar::-webkit-scrollbar { width: 3px; }
 .page-sidebar::-webkit-scrollbar-thumb { 
@@ -297,8 +312,8 @@ pre code {
 }
 
 .side-links { 
-  list-style: none; 
-  padding: 0; 
+  list-style: none;  
+  padding: 0 0 0 2px; 
   margin: 0;
   max-height: calc(100vh - 280px);
   overflow-y: auto;
@@ -311,7 +326,7 @@ pre code {
   border-radius: 2px; 
 }
 
-.side-links li + li { margin-top: 0.0625rem; }
+/* .side-links li + li { margin-top: 0.0625rem; } */
 .nav-group + .nav-group {
   margin-top: 0.95rem;
   padding-top: 0.9rem;
@@ -341,7 +356,7 @@ pre code {
   text-decoration: none; 
   color: var(--text); 
   background: rgba(255,255,255,0.03);
-  border-left-color: var(--accent-2);
+  border-left: 1px solid var(--accent-2);
 }
 .side-links a.active {
   color: var(--accent);
@@ -351,6 +366,12 @@ pre code {
 
 .page-content > * + * { margin-top: 2rem; }
 .page-content > section + section { margin-top: 2.75rem; }
+
+.page-content {
+  max-width: 100%;
+  overflow-x: hidden;
+  min-width: 0;
+}
 
 /* Hero & Page Header - premium styling */
 .hero, .page-header {
@@ -501,6 +522,12 @@ pre code {
   line-height: 1.55;
 }
 
+.card {
+  word-wrap: break-word;
+  max-width: 100%;
+  overflow: overlay;
+}
+
 .card h3, .doc-card h3 { 
   margin-top: 0; 
   margin-bottom: 0.625rem;
@@ -571,6 +598,8 @@ pre code {
 .diagram { 
   font-size: 0.85rem;
   line-height: 1.55;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 /* Lists - refined */
@@ -606,13 +635,39 @@ section p { margin: 0.625rem 0; }
 /* Tables - cleaner */
 table {
   width: 100%; 
-  border-collapse: separate;
-  border-spacing: 0;
-  overflow: hidden;
+  border-collapse: collapse;
   border-radius: var(--radius-sm); 
   border: 1px solid var(--line);
   background: rgba(255,255,255,0.015);
   margin: 1.25rem 0;
+}
+
+thead {
+  display: table-header-group;
+}
+
+tbody {
+  display: table-row-group;
+}
+
+tr {
+  display: table-row;
+}
+
+th, td {
+  display: table-cell;
+}
+
+/* Wrapper for tables that need horizontal scroll on mobile */
+.table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: var(--radius-sm);
+}
+
+.table-wrapper table {
+  margin: 0;
+  min-width: 100%;
 }
 thead th {
   text-align: left; 
@@ -628,7 +683,15 @@ th, td {
   border-bottom: 1px solid var(--line); 
   vertical-align: top; 
   font-size: 0.875rem;
+  width: 1%;
 }
+
+tbody tr td:last-child {
+  width: auto;
+}
+
+
+
 tbody tr:last-child td { border-bottom: none; }
 tbody tr { transition: background var(--transition); }
 tbody tr:hover { background: rgba(255,255,255,0.015); }
@@ -670,6 +733,18 @@ tbody tr:hover { background: rgba(255,255,255,0.015); }
 
 /* Responsive - refined breakpoints */
 @media (max-width: 1024px) {
+  .site-header {
+    .container {
+      padding: 0 1.25rem;
+    }
+  }
+
+  .container {
+    .page-content {
+      padding: 0 1.25rem;
+    }
+  }
+  
   .page-shell { 
     grid-template-columns: 1fr; 
     gap: 1.25rem;
@@ -681,6 +756,12 @@ tbody tr:hover { background: rgba(255,255,255,0.015); }
     grid-template-columns: 1fr 1fr;
     gap: 0.875rem;
     max-height: none;
+    max-width: 100%;
+  }
+  .site-footer {
+    .container {
+      padding: 0 1.25rem;
+    }
   }
   .sidebar-card { margin-bottom: 0; }
   .side-links { max-height: 260px; }
@@ -695,32 +776,45 @@ tbody tr:hover { background: rgba(255,255,255,0.015); }
   
   .nav-toggle { display: inline-flex; }
   
-  .site-nav {
-    display: none; 
-    position: absolute; 
-    left: 1rem; 
-    right: 1rem; 
-    top: calc(100% + 0.5rem);
-    flex-direction: column; 
-    padding: 0.625rem; 
-    border-radius: var(--radius-sm);
-    background: rgba(8, 10, 14, 0.98); 
-    border: 1px solid var(--line-strong);
+  /* Mobile sidebar as dropdown menu */
+  .page-sidebar {
+    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--header-height);
+    bottom: 0;
+    z-index: 99;
+    background: rgba(8, 10, 14, 0.98);
     backdrop-filter: blur(20px);
-    max-height: 70vh;
+    padding: 1rem;
     overflow-y: auto;
-    box-shadow: var(--shadow-lg);
-  }
-  .site-nav.open { display: flex; }
-  .site-nav a {
-    padding: 0.625rem 0.875rem;
-    border-radius: var(--radius-xs);
-  }
-  
-  .page-shell { padding: 1.25rem 0 2.5rem; }
-  .page-sidebar { 
     grid-template-columns: 1fr;
     order: 2;
+    max-height: none;
+    height: calc(100vh - var(--header-height));
+  }
+  
+  .page-sidebar.open { display: grid; }
+  
+  .page-sidebar .sidebar-card {
+    margin-bottom: 0.75rem;
+  }
+  
+  .page-sidebar .side-links {
+    max-height: none;
+  }
+  
+  .page-shell { 
+    padding: 1.25rem 0 2.5rem;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .page-content {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
   }
   
   .hero, .page-header { padding: 1.5rem; }
@@ -735,10 +829,31 @@ tbody tr:hover { background: rgba(255,255,255,0.015); }
   .footer-grid { grid-template-columns: 1fr; gap: 1.5rem; }
   
   .container { width: min(calc(100% - 1.5rem), var(--container)); }
+  
+  /* Ensure images and pre blocks don't overflow */
+  img, pre {
+    max-width: 100%;
+  }
+  
+  pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  
+  /* Tables: allow horizontal scroll on mobile */
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: inherit;
+  }
 }
 
 @media (max-width: 420px) {
   .brand small { display: none; }
   .hero-actions { flex-direction: column; }
   .button { width: 100%; }
+  
+  /* Smaller padding on very small screens */
+  .container { width: calc(100% - 1rem); }
+  .hero, .page-header { padding: 1.25rem; }
 }
