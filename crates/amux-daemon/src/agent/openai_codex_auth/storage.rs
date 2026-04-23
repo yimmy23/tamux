@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
+#[cfg(test)]
+use super::{auth_runtime, OpenAICodexAuthRuntime};
 use super::{
-    auth_runtime, now_millis, tombstone_auth_mode, CodexCliAuthFile, OpenAICodexAuthRuntime,
-    OpenAICodexAuthTombstone, StoredOpenAICodexAuth, OPENAI_AUTH_MODE, OPENAI_CODEX_AUTH_PROVIDER,
-    OPENAI_PROVIDER_ID,
+    now_millis, tombstone_auth_mode, CodexCliAuthFile, OpenAICodexAuthTombstone,
+    StoredOpenAICodexAuth, OPENAI_AUTH_MODE, OPENAI_CODEX_AUTH_PROVIDER, OPENAI_PROVIDER_ID,
 };
 use crate::agent::provider_auth_store;
 

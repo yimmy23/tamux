@@ -300,6 +300,10 @@ where
             let msg = serde_json::json!({"type":"provider-auth-states","data":serde_json::from_str::<serde_json::Value>(&states_json).unwrap_or_default()});
             emit_agent_event(&msg.to_string())?;
         }
+        Some(Ok(DaemonMessage::AgentProviderCatalog { catalog_json })) => {
+            let msg = serde_json::json!({"type":"provider-catalog","data":serde_json::from_str::<serde_json::Value>(&catalog_json).unwrap_or_default()});
+            emit_agent_event(&msg.to_string())?;
+        }
         Some(Ok(DaemonMessage::AgentSubAgentList { sub_agents_json })) => {
             let msg = serde_json::json!({"type":"sub-agent-list","data":serde_json::from_str::<serde_json::Value>(&sub_agents_json).unwrap_or_default()});
             emit_agent_event(&msg.to_string())?;

@@ -606,6 +606,18 @@ impl AgentEngine {
         if !self.config.read().await.collaboration.enabled {
             anyhow::bail!("collaboration capability is disabled in agent config");
         }
+        let inferred_roles_by_task = {
+            let tasks = self.tasks.lock().await;
+            eligible_agents
+                .iter()
+                .filter_map(|task_id| {
+                    tasks
+                        .iter()
+                        .find(|task| task.id == *task_id)
+                        .map(|task| (task.id.clone(), infer_collaboration_role(task)))
+                })
+                .collect::<HashMap<_, _>>()
+        };
         let mut collaboration = self.collaboration.write().await;
         let Some(session) = collaboration.get_mut(parent_task_id) else {
             anyhow::bail!("no collaboration session found for parent task {parent_task_id}");
@@ -621,6 +633,11 @@ impl AgentEngine {
                 .any(|task_id| task_id == &bid.task_id)
         });
         session.role_assignment = None;
+        for agent in session.agents.iter_mut() {
+            if let Some(inferred_role) = inferred_roles_by_task.get(&agent.task_id) {
+                agent.role = inferred_role.clone();
+            }
+        }
         session.updated_at = now_millis();
         let snapshot = session.clone();
         let report = serde_json::json!({

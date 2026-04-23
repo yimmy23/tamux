@@ -1,14 +1,70 @@
 import { expect, test } from "vitest";
 import {
+  buildProviderOptions,
   filterAudioProviderOptions,
+  selectableProviderAuthStates,
   normalizeAudioModelForProviderChange,
   normalizeLlmStreamTimeoutInput,
 } from "./agentTabHelpers";
+
+const builtInProviderOptions = [
+  { id: "openai", label: "OpenAI / ChatGPT" },
+  { id: "groq", label: "Groq" },
+  { id: "custom", label: "Custom" },
+] as const;
 
 test("normalizeLlmStreamTimeoutInput clamps and coerces input", () => {
   expect(normalizeLlmStreamTimeoutInput("30.5")).toBe(30);
   expect(normalizeLlmStreamTimeoutInput("9999")).toBe(1800);
   expect(normalizeLlmStreamTimeoutInput("29")).toBe(30);
+});
+
+test("buildProviderOptions keeps unauthenticated custom catalog providers selectable", () => {
+  const { allProviderOptions, providerOptions } = buildProviderOptions(builtInProviderOptions, [
+    {
+      provider_id: "groq",
+      provider_name: "Groq",
+      authenticated: false,
+      auth_source: "api_key",
+      model: "llama",
+      base_url: "https://api.groq.com/openai/v1",
+    },
+    {
+      provider_id: "local-openai",
+      provider_name: "Local OpenAI-Compatible",
+      authenticated: false,
+      auth_source: "api_key",
+      model: "llama3.3",
+      base_url: "http://127.0.0.1:11434/v1",
+    },
+  ]);
+
+  expect(allProviderOptions.map((provider) => provider.id)).toContain("local-openai");
+  expect(providerOptions.map((provider) => provider.id)).toContain("local-openai");
+  expect(providerOptions.map((provider) => provider.id)).not.toContain("groq");
+});
+
+test("selectableProviderAuthStates keeps unauthenticated custom catalog providers for subagent setup", () => {
+  const selectable = selectableProviderAuthStates([
+    {
+      provider_id: "groq",
+      provider_name: "Groq",
+      authenticated: false,
+      auth_source: "api_key",
+      model: "llama",
+      base_url: "https://api.groq.com/openai/v1",
+    },
+    {
+      provider_id: "local-openai",
+      provider_name: "Local OpenAI-Compatible",
+      authenticated: false,
+      auth_source: "api_key",
+      model: "llama3.3",
+      base_url: "http://127.0.0.1:11434/v1",
+    },
+  ]);
+
+  expect(selectable.map((provider) => provider.provider_id)).toEqual(["local-openai"]);
 });
 
 test("normalizeAudioModelForProviderChange resets stale xAI audio models", () => {

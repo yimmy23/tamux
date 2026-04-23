@@ -143,6 +143,7 @@ pub(crate) fn directives_for_modifications(modifications: &[String]) -> Vec<Crit
     directives
 }
 
+#[cfg(test)]
 pub(crate) fn resolve(
     advocate: &Argument,
     critic: &Argument,

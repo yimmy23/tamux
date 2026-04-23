@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Custom Providers · tamux</title>
+  <meta name="description" content="Configure additional tamux model providers with custom-auth.yaml." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="../assets/icon.ico" />
+</head>
+<body data-page="custom-providers.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <main id="main" class="container page-shell">
+    <article class="page-content">
+      <header class="page-header">
+        <p class="eyebrow">Provider setup</p>
+        <h1>Custom Providers</h1>
+        <p class="lead">Add named OpenAI-compatible or Anthropic-compatible providers without rebuilding tamux.</p>
+      </header>
+
+      <section>
+        <h2>Location</h2>
+        <p>Create <code>custom-auth.yaml</code> in the tamux runtime directory:</p>
+        <table>
+          <thead><tr><th>Platform</th><th>Path</th></tr></thead>
+          <tbody>
+            <tr><td>Linux/macOS</td><td><code>~/.tamux/custom-auth.yaml</code></td></tr>
+            <tr><td>Windows</td><td><code>%LOCALAPPDATA%\tamux\custom-auth.yaml</code></td></tr>
+          </tbody>
+        </table>
+        <p>The daemon reloads this file before it sends provider catalog data to TUI or React and before model fetch or provider validation paths use a provider definition.</p>
+      </section>
+
+      <section>
+        <h2>Example</h2>
+        <pre><code>providers:
+  - id: local-openai
+    name: Local OpenAI-Compatible
+    default_base_url: http://127.0.0.1:11434/v1
+    default_model: llama3.3
+    api_key_env: LOCAL_OPENAI_API_KEY
+    api_type: openai
+    auth_method: bearer
+    supports_model_fetch: true
+    supported_transports: [chat_completions, responses]
+    default_transport: chat_completions
+    supported_auth_sources: [api_key]
+    default_auth_source: api_key
+    supports_response_continuity: true
+    models:
+      - id: llama3.3
+        name: Llama 3.3
+        context_window: 128000
+        modalities: [text, image]</code></pre>
+      </section>
+
+      <section>
+        <h2>Fields</h2>
+        <table>
+          <thead><tr><th>Field</th><th>Required</th><th>Values</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>Yes</td><td>Unique provider id. Built-in ids cannot be overridden.</td></tr>
+            <tr><td><code>name</code></td><td>Yes</td><td>Display name in TUI and React.</td></tr>
+            <tr><td><code>default_base_url</code></td><td>Yes</td><td>Base URL without the final endpoint path, for example <code>https://example.com/v1</code>.</td></tr>
+            <tr><td><code>default_model</code></td><td>Yes</td><td>Default model id used when no saved model exists.</td></tr>
+            <tr><td><code>api_key</code></td><td>No</td><td>Plain API key for this provider. Kept daemon-side; not returned in provider catalog responses.</td></tr>
+            <tr><td><code>api_key_env</code></td><td>No</td><td>Name of an environment variable containing the API key. Preferred for secrets. Ignored when <code>api_key</code> is set.</td></tr>
+            <tr><td><code>api_type</code></td><td>No</td><td><code>openai</code> or <code>anthropic</code>. Defaults to <code>openai</code>.</td></tr>
+            <tr><td><code>auth_method</code></td><td>No</td><td><code>bearer</code> or <code>x-api-key</code>. Defaults to <code>bearer</code>.</td></tr>
+            <tr><td><code>supports_model_fetch</code></td><td>No</td><td>Boolean. When true, daemon model fetch uses the provider definition and configured base URL.</td></tr>
+            <tr><td><code>anthropic_base_url</code></td><td>No</td><td>Optional Anthropic-compatible base URL used by providers that expose a separate Anthropic endpoint.</td></tr>
+            <tr><td><code>supported_transports</code></td><td>No</td><td><code>responses</code>, <code>chat_completions</code>, <code>anthropic_messages</code>, <code>native_assistant</code>.</td></tr>
+            <tr><td><code>default_transport</code></td><td>No</td><td>Must be one of <code>supported_transports</code>.</td></tr>
+            <tr><td><code>native_transport_kind</code></td><td>No</td><td>Optional native transport identifier, currently <code>alibaba_assistant_api</code>.</td></tr>
+            <tr><td><code>native_base_url</code></td><td>No</td><td>Base URL for the native transport when <code>native_transport_kind</code> is set.</td></tr>
+            <tr><td><code>supports_response_continuity</code></td><td>No</td><td>Boolean. Enables previous-response continuation for compatible response transports.</td></tr>
+            <tr><td><code>supported_auth_sources</code></td><td>No</td><td><code>api_key</code>, <code>chatgpt_subscription</code>, or <code>github_copilot</code>. Defaults to <code>api_key</code>.</td></tr>
+            <tr><td><code>default_auth_source</code></td><td>No</td><td>Must be one of <code>supported_auth_sources</code>.</td></tr>
+            <tr><td><code>models</code></td><td>No</td><td>Static models shown before or instead of remote fetch.</td></tr>
+            <tr><td><code>models[].id</code></td><td>Yes, per model</td><td>Provider model id sent to the upstream API.</td></tr>
+            <tr><td><code>models[].name</code></td><td>No</td><td>Display name. Defaults to <code>models[].id</code>.</td></tr>
+            <tr><td><code>models[].context_window</code></td><td>Yes, per model</td><td>Positive integer token context window.</td></tr>
+            <tr><td><code>models[].modalities</code></td><td>No</td><td><code>text</code>, <code>image</code>, <code>video</code>, <code>audio</code>. Defaults to <code>text</code>.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Validation</h2>
+        <p>Invalid custom provider entries never stop the daemon. Valid entries still load, built-in providers stay available, and the provider catalog response includes diagnostics with the file path, provider id, field, and error message. Missing or empty <code>api_key_env</code> variables are reported this way and simply leave that provider unauthenticated. TUI logs these diagnostics and React reports them in the developer console while continuing to run.</p>
+      </section>
+    </article>
+  </main>
+  <script src="assets/site.js"></script>
+</body>
+</html>

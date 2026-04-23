@@ -69,10 +69,38 @@ impl AgentEngine {
             return Ok(());
         }
 
-        if goal_run.current_step_index >= goal_run.steps.len()
-            && !self.goal_run_has_active_tasks(goal_run_id).await
-        {
-            self.complete_goal_run(goal_run_id).await?;
+        if goal_run.current_step_index >= goal_run.steps.len() {
+            if let Some(task_id) = goal_run.active_task_id.clone() {
+                let task = {
+                    let tasks = self.tasks.lock().await;
+                    tasks.iter().find(|task| task.id == task_id).cloned()
+                };
+                if let Some(task) = task {
+                    match task.status {
+                        TaskStatus::Queued
+                        | TaskStatus::InProgress
+                        | TaskStatus::Blocked
+                        | TaskStatus::AwaitingApproval => {
+                            self.sync_goal_run_with_task(goal_run_id, &task).await;
+                        }
+                        TaskStatus::Completed | TaskStatus::BudgetExceeded => {
+                            self.handle_goal_run_final_review_completion(goal_run_id, &task)
+                                .await?;
+                        }
+                        TaskStatus::Failed
+                        | TaskStatus::Cancelled
+                        | TaskStatus::FailedAnalyzing => {
+                            self.handle_goal_run_final_review_failure(goal_run_id, &task)
+                                .await?;
+                        }
+                    }
+                    return Ok(());
+                }
+            }
+
+            if !self.goal_run_has_active_tasks(goal_run_id).await {
+                self.complete_goal_run(goal_run_id).await?;
+            }
             return Ok(());
         }
 
@@ -196,6 +224,7 @@ impl AgentEngine {
 
     async fn execute_dispatched_task(&self, task: AgentTask) -> Result<()> {
         let mut prompt = build_task_prompt(&task);
+        task_prompt::append_goal_run_context(self, &mut prompt, &task).await;
         task_prompt::append_effective_sub_agent_registry(self, &mut prompt).await;
         let weles_sender_scope = if task.sub_agent_def_id.as_deref()
             == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)

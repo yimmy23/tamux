@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
+const childProcess = require("child_process");
 
 const VERSION = require("./package.json").version;
 const BIN_DIR = path.join(__dirname, "bin");
@@ -45,6 +46,8 @@ const PLATFORM_MAP = {
 };
 
 const BASE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/v${VERSION}`;
+const PROCESS_STOP_TIMEOUT_MS = 5000;
+const PROCESS_POLL_INTERVAL_MS = 100;
 
 /**
  * Download a URL to a Buffer, following up to maxRedirects HTTP 301/302 redirects.
@@ -162,6 +165,35 @@ function getRuntimeSkillsDir(platform, env) {
   return pathModule.join(getRuntimeTamuxRoot(platform, env), "skills");
 }
 
+function getRuntimeCustomAuthPath(platform, env) {
+  var pathModule = platform === "win32" ? path.win32 : path.posix;
+  return pathModule.join(getRuntimeTamuxRoot(platform, env), "custom-auth.yaml");
+}
+
+function ensureCustomAuthTemplate(platform, env) {
+  var customAuthPath = getRuntimeCustomAuthPath(platform, env);
+  fs.mkdirSync(path.dirname(customAuthPath), { recursive: true });
+
+  if (fs.existsSync(customAuthPath)) {
+    return customAuthPath;
+  }
+
+  fs.writeFileSync(
+    customAuthPath,
+    "# Add named custom providers here. The daemon reloads this file before\n" +
+      "# provider/model setup in the TUI and desktop app.\n" +
+      "# Prefer api_key_env for secrets, for example:\n" +
+      "# providers:\n" +
+      "#   - id: local-openai\n" +
+      "#     name: Local OpenAI-Compatible\n" +
+      "#     default_base_url: http://127.0.0.1:11434/v1\n" +
+      "#     default_model: llama3.3\n" +
+      "#     api_key_env: LOCAL_OPENAI_API_KEY\n" +
+      "providers: []\n"
+  );
+  return customAuthPath;
+}
+
 function verifyBufferChecksum(buffer, expectedHash) {
   return crypto.createHash("sha256").update(buffer).digest("hex") === expectedHash;
 }
@@ -229,6 +261,151 @@ function prependDirectoryToPath(env, directory) {
   }
 
   return nextEnv;
+}
+
+function getManagedProcessName(target, platform) {
+  if (platform === "win32") {
+    return target + ".exe";
+  }
+
+  return target;
+}
+
+function getKillCommand(platform, target) {
+  var processName = getManagedProcessName(target, platform);
+  if (platform === "win32") {
+    return {
+      command: "taskkill",
+      args: ["/IM", processName, "/F"],
+    };
+  }
+
+  return {
+    command: "pkill",
+    args: ["-x", processName],
+  };
+}
+
+function getProbeCommand(platform, target) {
+  var processName = getManagedProcessName(target, platform);
+  if (platform === "win32") {
+    return {
+      command: "tasklist",
+      args: ["/FI", "IMAGENAME eq " + processName],
+      processName: processName,
+    };
+  }
+
+  return {
+    command: "pgrep",
+    args: ["-x", processName],
+    processName: processName,
+  };
+}
+
+function sleep(ms) {
+  return new Promise(function (resolve) {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isManagedProcessRunning(platform, target, execFileSyncImpl) {
+  var execFileSync = execFileSyncImpl || childProcess.execFileSync;
+  var probe = getProbeCommand(platform, target);
+
+  try {
+    var stdout = execFileSync(probe.command, probe.args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    if (platform === "win32") {
+      return stdout.toLowerCase().includes(probe.processName.toLowerCase());
+    }
+
+    return true;
+  } catch (error) {
+    if (platform === "win32") {
+      var output = String(error.stdout || "");
+      return output.toLowerCase().includes(probe.processName.toLowerCase());
+    }
+
+    if (error && error.status === 1) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+async function stopManagedTamuxProcesses(platform, deps) {
+  var options = deps || {};
+  var execFileSync = options.execFileSync || childProcess.execFileSync;
+  var sleepImpl = options.sleep || sleep;
+  var targets = ["tamux-gateway", "tamux-daemon"];
+
+  for (var i = 0; i < targets.length; i++) {
+    var target = targets[i];
+    var kill = getKillCommand(platform, target);
+
+    try {
+      execFileSync(kill.command, kill.args, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (_error) {
+      if (!isManagedProcessRunning(platform, target, execFileSync)) {
+        continue;
+      }
+    }
+
+    var deadline = Date.now() + PROCESS_STOP_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (!isManagedProcessRunning(platform, target, execFileSync)) {
+        break;
+      }
+
+      await sleepImpl(PROCESS_POLL_INTERVAL_MS);
+    }
+
+    if (isManagedProcessRunning(platform, target, execFileSync)) {
+      throw new Error("Timed out waiting for " + target + " to exit");
+    }
+  }
+}
+
+function startManagedDaemon(platform, binDir, spawnImpl) {
+  var spawn = spawnImpl || childProcess.spawn;
+  var daemonPath = path.join(binDir, getManagedProcessName("tamux-daemon", platform));
+  var child = spawn(daemonPath, [], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+
+  if (typeof child.unref === "function") {
+    child.unref();
+  }
+
+  return daemonPath;
+}
+
+async function maybeRefreshDaemonAfterInstall(options, installWork, deps) {
+  var settings = options || {};
+  var helpers = deps || {};
+  var stopProcesses = helpers.stopProcesses || stopManagedTamuxProcesses;
+  var startDaemon = helpers.startDaemon || startManagedDaemon;
+
+  if (!settings.isGlobalInstall) {
+    return installWork();
+  }
+
+  console.log("tamux: stopping existing daemon before replacing binaries...");
+  await stopProcesses(settings.platform);
+  var result = await installWork();
+  var daemonPath = startDaemon(settings.platform, settings.binDir);
+  console.log("tamux: restarted daemon from " + daemonPath);
+  return result;
 }
 
 function extractRequiredBinaries(archiveData, releaseInfo) {
@@ -370,29 +547,40 @@ async function main() {
       console.log("tamux: checksum OK");
     }
 
-    // 4. Extract required binaries, then verify against the published manifest
-    console.log("tamux: extracting binaries and skills...");
-    extractRequiredBinaries(archiveData, releaseInfo);
-    extractBundledSkills(archiveData, releaseInfo, runtimeSkillsDir);
+    await maybeRefreshDaemonAfterInstall(
+      {
+        isGlobalInstall: isGlobalInstall,
+        platform: os.platform(),
+        binDir: BIN_DIR,
+      },
+      async function () {
+        console.log("tamux: extracting binaries and skills...");
+        extractRequiredBinaries(archiveData, releaseInfo);
+        extractBundledSkills(archiveData, releaseInfo, runtimeSkillsDir);
+        console.log(
+          "tamux: custom provider template ready at " +
+            ensureCustomAuthTemplate(os.platform(), process.env)
+        );
 
-    if (!archiveChecksum) {
-      console.log("tamux: verifying SHA256 checksum...");
-      await verifyExtractedBinaries(checksumsData, releaseInfo);
-      console.log("tamux: checksum OK");
-    }
+        if (!archiveChecksum) {
+          console.log("tamux: verifying SHA256 checksum...");
+          await verifyExtractedBinaries(checksumsData, releaseInfo);
+          console.log("tamux: checksum OK");
+        }
+
+        if (os.platform() !== "win32") {
+          for (var i = 0; i < releaseInfo.requiredBinaries.length; i++) {
+            var binPath = path.join(BIN_DIR, releaseInfo.requiredBinaries[i]);
+            if (fs.existsSync(binPath)) {
+              fs.chmodSync(binPath, 0o755);
+            }
+          }
+        }
+      }
+    );
   } catch (err) {
     cleanupExtractedBinaries(releaseInfo);
     throw err;
-  }
-
-  // 5. Set executable permissions (Unix only)
-  if (os.platform() !== "win32") {
-    for (var i = 0; i < releaseInfo.requiredBinaries.length; i++) {
-      var binPath = path.join(BIN_DIR, releaseInfo.requiredBinaries[i]);
-      if (fs.existsSync(binPath)) {
-        fs.chmodSync(binPath, 0o755);
-      }
-    }
   }
 
   console.log("tamux: installation complete");
@@ -406,10 +594,19 @@ module.exports.getGlobalBinDir = getGlobalBinDir;
 module.exports.getArchiveChecksum = getArchiveChecksum;
 module.exports.getReleaseAssetInfo = getReleaseAssetInfo;
 module.exports.getInstallUsageHint = getInstallUsageHint;
+module.exports.getKillCommand = getKillCommand;
+module.exports.getManagedProcessName = getManagedProcessName;
+module.exports.getProbeCommand = getProbeCommand;
 module.exports.getRuntimeSkillsDir = getRuntimeSkillsDir;
+module.exports.getRuntimeCustomAuthPath = getRuntimeCustomAuthPath;
 module.exports.getRuntimeTamuxRoot = getRuntimeTamuxRoot;
+module.exports.ensureCustomAuthTemplate = ensureCustomAuthTemplate;
+module.exports.isManagedProcessRunning = isManagedProcessRunning;
+module.exports.maybeRefreshDaemonAfterInstall = maybeRefreshDaemonAfterInstall;
 module.exports.parseChecksumFile = parseChecksumFile;
 module.exports.prependDirectoryToPath = prependDirectoryToPath;
+module.exports.startManagedDaemon = startManagedDaemon;
+module.exports.stopManagedTamuxProcesses = stopManagedTamuxProcesses;
 
 // Auto-run only when executed directly (postinstall) or via tryFallbackDownload,
 // not when required just for the exported constants.

@@ -79,12 +79,30 @@ fn is_known_default_url_returns_true() {
 fn known_models_openai_non_empty() {
     let models = known_models_for_provider(PROVIDER_ID_OPENAI);
     assert!(!models.is_empty());
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_OPENAI, "api_key"),
+        "gpt-5.5"
+    );
+    assert_eq!(
+        models.first().map(|model| model.id.as_str()),
+        Some("gpt-5.5")
+    );
+    assert!(models.iter().any(|m| m.id == "gpt-5.5"));
     assert!(models.iter().any(|m| m.id == "gpt-5.4"));
 }
 
 #[test]
 fn known_models_openai_chatgpt_subscription_is_restricted() {
     let models = known_models_for_provider_auth(PROVIDER_ID_OPENAI, "chatgpt_subscription");
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_OPENAI, "chatgpt_subscription"),
+        "gpt-5.5"
+    );
+    assert_eq!(
+        models.first().map(|model| model.id.as_str()),
+        Some("gpt-5.5")
+    );
+    assert!(models.iter().any(|m| m.id == "gpt-5.5"));
     assert!(models.iter().any(|m| m.id == "gpt-5.4"));
     assert!(!models.iter().any(|m| m.id == "gpt-4o"));
     assert!(!models.iter().any(|m| m.id == "o3"));

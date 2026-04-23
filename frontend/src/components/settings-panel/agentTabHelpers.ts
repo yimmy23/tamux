@@ -1,5 +1,6 @@
-import type { AgentProviderId, ModelDefinition } from "../../lib/agentStore";
+import type { AgentProviderId, ModelDefinition, ProviderAuthState } from "../../lib/agentStore";
 import {
+  AGENT_PROVIDER_IDS,
   getDefaultModelForProvider,
   providerSupportsAudioTool,
 } from "../../lib/agentStore";
@@ -55,6 +56,44 @@ export type ProviderOption = {
   id: AgentProviderId;
   label: string;
 };
+
+function isBuiltInProviderId(providerId: string): boolean {
+  return AGENT_PROVIDER_IDS.some((id) => id === providerId);
+}
+
+export function providerAuthStateIsSelectable(state: ProviderAuthState): boolean {
+  return state.authenticated
+    || state.provider_id === "custom"
+    || state.provider_id === "azure-openai"
+    || !isBuiltInProviderId(state.provider_id);
+}
+
+export function selectableProviderAuthStates(
+  providerAuthStates: ProviderAuthState[],
+): ProviderAuthState[] {
+  return providerAuthStates.filter(providerAuthStateIsSelectable);
+}
+
+export function buildProviderOptions(
+  builtInProviderOptions: readonly ProviderOption[],
+  providerAuthStates: ProviderAuthState[],
+): { allProviderOptions: ProviderOption[]; providerOptions: ProviderOption[] } {
+  const allProviderOptions: ProviderOption[] = [
+    ...builtInProviderOptions,
+    ...providerAuthStates
+      .filter((state) => !builtInProviderOptions.some((provider) => provider.id === state.provider_id))
+      .map((state) => ({ id: state.provider_id as AgentProviderId, label: state.provider_name || state.provider_id })),
+  ];
+  const providerOptions = allProviderOptions.filter((provider) => {
+    const authState = providerAuthStates.find((state) => state.provider_id === provider.id);
+    if (authState) {
+      return providerAuthStateIsSelectable(authState);
+    }
+    return provider.id === "custom" || provider.id === "azure-openai" || !isBuiltInProviderId(provider.id);
+  });
+
+  return { allProviderOptions, providerOptions };
+}
 
 export function audioModelOptions(
   providerId: AgentProviderId,

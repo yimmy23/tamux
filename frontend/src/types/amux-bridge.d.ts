@@ -386,6 +386,7 @@ declare global {
         openAICodexAuthLogout?: () => Promise<{ ok: boolean }>;
         agentFetchModels?: (providerId: string, base_url: string, api_key: string) => Promise<{ models?: Array<{ id: string; name?: string; context_window?: number; pricing?: { prompt?: string; completion?: string; image?: string; request?: string; web_search?: string; internal_reasoning?: string; input_cache_read?: string; input_cache_write?: string; audio?: string }; metadata?: Record<string, unknown> }>; error?: string } | unknown>;
         agentGetProviderAuthStates?: () => Promise<unknown[]>;
+        agentGetProviderCatalog?: () => Promise<unknown>;
         agentLoginProvider?: (providerId: string, api_key: string, base_url?: string) => Promise<unknown[] | { error?: string }>;
         agentLogoutProvider?: (providerId: string) => Promise<unknown[] | { error?: string }>;
         agentValidateProvider?: (providerId: string, base_url: string, api_key: string, auth_source: string) => Promise<{ valid: boolean; error?: string; models?: unknown[] }>;

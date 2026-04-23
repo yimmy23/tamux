@@ -261,7 +261,7 @@ export const smallBtnStyle: CSSProperties = {
     padding: "4px 8px",
 };
 
-export function ModelSelector({ providerId, value, customName, onChange, disabled, base_url, api_key, auth_source, modelOptions, remoteModelFilter }: {
+export function ModelSelector({ providerId, value, customName, onChange, disabled, base_url, api_key, auth_source, allowProviderAuthFetch, modelOptions, remoteModelFilter }: {
     providerId: AgentProviderId;
     value: string;
     customName?: string;
@@ -270,6 +270,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     base_url?: string;
     api_key?: string;
     auth_source?: AuthSource;
+    allowProviderAuthFetch?: boolean;
     modelOptions?: ModelDefinition[];
     remoteModelFilter?: (model: FetchedRemoteModel) => boolean;
 }) {
@@ -295,6 +296,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     const predefinedModels = modelOptions ?? getProviderModels(providerId, auth_source);
     const supportsFetch = (definition?.supportsModelFetch ?? false)
         && !(providerId === "openai" && auth_source === "chatgpt_subscription");
+    const canFetch = supportsFetch && (Boolean(api_key) || Boolean(allowProviderAuthFetch));
     
     const allModels = useMemo(() => {
         const merged: ModelSelectorOption[] = predefinedModels.map((model: ModelDefinition) => ({
@@ -476,11 +478,11 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
                     disabled={disabled}
                     style={{ ...inputStyle, flex: 1 }}
                 />
-                {supportsFetch && api_key && (
+                {canFetch && (
                     <button
                         type="button"
                         onClick={handleFetchModels}
-                        disabled={isFetching || !api_key}
+                        disabled={isFetching}
                         style={smallBtnStyle}
                         title="Fetch models from provider"
                     >

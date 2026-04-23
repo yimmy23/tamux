@@ -155,6 +155,7 @@ pub(super) enum AgentBridgeCommand {
         auth_source: String,
     },
     GetProviderAuthStates,
+    GetProviderCatalog,
     #[serde(rename = "openai-codex-auth-status")]
     GetOpenAICodexAuthStatus,
     #[serde(rename = "openai-codex-auth-login")]

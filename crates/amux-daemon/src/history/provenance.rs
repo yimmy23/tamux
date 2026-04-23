@@ -447,6 +447,7 @@ impl HistoryStore {
             );
             let hash_valid = entry.entry_hash == expected_hash;
             let chain_valid = entry.prev_hash == previous_hash;
+            let signature_present = entry.signature.is_some();
             let signature_valid = match (&entry.signature, entry.signature_scheme.as_deref()) {
                 (Some(signature), Some(scheme))
                     if scheme == provenance_signature_scheme_ed25519() =>
@@ -466,7 +467,7 @@ impl HistoryStore {
                     signed_entries += 1;
                     false
                 }
-                (None, _) => true,
+                (None, _) => false,
             };
             if hash_valid {
                 valid_hash_entries += 1;
@@ -485,6 +486,7 @@ impl HistoryStore {
                 timestamp: entry.timestamp,
                 event_type: entry.event_type.clone(),
                 summary: entry.summary.clone(),
+                signature_present,
                 signature_scheme: entry.signature_scheme.clone(),
                 agent_id: entry.agent_id.clone(),
                 goal_run_id: entry.goal_run_id.clone(),

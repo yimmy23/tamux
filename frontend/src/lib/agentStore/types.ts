@@ -51,7 +51,7 @@ export interface AgentThread {
 
 export type AgentRole = "user" | "assistant" | "system" | "tool";
 
-export type AgentProviderId =
+export type BuiltinAgentProviderId =
   | "featherless"
   | "anthropic"
   | "openai"
@@ -81,7 +81,9 @@ export type AgentProviderId =
   | "opencode-zen"
   | "custom";
 
-export const AGENT_PROVIDER_IDS: AgentProviderId[] = [
+export type AgentProviderId = BuiltinAgentProviderId | (string & {});
+
+export const AGENT_PROVIDER_IDS: BuiltinAgentProviderId[] = [
   "featherless",
   "anthropic",
   "openai",
@@ -180,7 +182,7 @@ export interface ModelDefinition {
 }
 
 export interface ProviderDefinition {
-  id: AgentProviderId;
+  id: string;
   name: string;
   defaultBaseUrl: string;
   defaultModel: string;

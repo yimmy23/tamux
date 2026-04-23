@@ -75,7 +75,13 @@ export function buildApiMessagesForRequest(
   messages: AgentMessage[],
   settings: ContextCompactionSettings,
 ): ApiChatMessage[] {
-  return messagesToApiFormat(compactMessagesForRequest(messages, settings));
+  const compacted = compactMessagesForRequest(messages, settings);
+  const requestMessages = compacted.some((message) =>
+    message.content.startsWith("[Compacted earlier context]"),
+  )
+    ? appendPinnedMessagesAfterCompactionArtifact(compacted, messages, settings)
+    : compacted;
+  return messagesToApiFormat(requestMessages);
 }
 
 export function prepareOpenAIRequest(

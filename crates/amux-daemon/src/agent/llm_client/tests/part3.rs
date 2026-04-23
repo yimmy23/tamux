@@ -372,6 +372,77 @@
     }
 
     #[tokio::test]
+    async fn custom_provider_model_fetch_uses_hydrated_custom_auth_definition() {
+        let _lock = crate::test_support::env_test_lock();
+        let _env_guard = crate::test_support::EnvGuard::new(&["TAMUX_CUSTOM_AUTH_PATH"]);
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let custom_auth_path = temp_dir.path().join("custom-auth.yaml");
+        std::fs::write(
+            &custom_auth_path,
+            r#"
+providers:
+  - id: local-openai-fetch
+    name: Local OpenAI Fetch
+    default_base_url: http://127.0.0.1:1/v1
+    default_model: local-default
+    api_type: openai
+    auth_method: bearer
+    supports_model_fetch: true
+    models:
+      - id: local-default
+        name: Local Default
+        context_window: 64000
+"#,
+        )
+        .expect("write custom auth");
+        std::env::set_var("TAMUX_CUSTOM_AUTH_PATH", &custom_auth_path);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind custom model fetch listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept request");
+            let mut buffer = [0_u8; 2048];
+            let read = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                tokio::io::AsyncReadExt::read(&mut stream, &mut buffer),
+            )
+            .await
+            .expect("read request timed out")
+            .expect("read request");
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.contains("GET /v1/models "));
+            assert!(request
+                .lines()
+                .any(|line| line.eq_ignore_ascii_case("authorization: Bearer test-key")));
+            let body = r#"{"data":[{"id":"custom-live","name":"Custom Live","context_window":77777}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write response");
+        });
+
+        let models = fetch_models(
+            "local-openai-fetch",
+            &format!("http://{addr}/v1"),
+            "test-key",
+            None,
+        )
+        .await
+        .expect("custom provider fetch should succeed");
+
+        server.await.expect("server task");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "custom-live");
+        assert_eq!(models[0].context_window, Some(77_777));
+    }
+
+    #[tokio::test]
     async fn fetch_models_preserves_remote_metadata_and_pricing() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await

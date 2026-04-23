@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { CONCIERGE_AGENT_NAME, PRIMARY_AGENT_NAME } from "@/lib/agentNames";
 import { useAgentStore } from "../../lib/agentStore";
 import type { AgentProviderId } from "../../lib/agentStore";
+import { selectableProviderAuthStates } from "./agentTabHelpers";
 import { Section, SettingRow, ModelSelector, inputStyle, smallBtnStyle } from "./shared";
 
 const DETAIL_LEVELS = [
@@ -17,7 +18,7 @@ export function ConciergeSection() {
     const update = useAgentStore((s) => s.updateConciergeConfig);
     const providerAuthStates = useAgentStore((s) => s.providerAuthStates);
     const refreshProviderAuthStates = useAgentStore((s) => s.refreshProviderAuthStates);
-    const selectableProviders = providerAuthStates.filter((provider) => provider.authenticated);
+    const selectableProviders = selectableProviderAuthStates(providerAuthStates);
 
     useEffect(() => {
         refresh();
@@ -70,6 +71,7 @@ export function ConciergeSection() {
                         providerId={config.provider as AgentProviderId}
                         value={config.model || ""}
                         onChange={(model) => update({ ...config, model: model || undefined })}
+                        allowProviderAuthFetch={Boolean(providerAuthStates.find((p) => p.provider_id === config.provider)?.authenticated)}
                     />
                 </SettingRow>
             )}

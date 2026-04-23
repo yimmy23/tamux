@@ -263,7 +263,28 @@ describe("frontend Azure OpenAI provider catalog", () => {
 });
 
 describe("frontend curated media provider catalog", () => {
+  it("keeps the OpenAI fallback catalog aligned with the daemon default", () => {
+    expect(getDefaultModelForProvider("openai")).toBe("gpt-5.5");
+    expect(getProviderModels("openai").map((model) => model.id).slice(0, 2)).toEqual([
+      "gpt-5.5",
+      "gpt-5.4",
+    ]);
+    expect(getDefaultModelForProvider("openai", "chatgpt_subscription")).toBe("gpt-5.5");
+    expect(
+      getProviderModels("openai", "chatgpt_subscription").map((model) => model.id).slice(0, 2),
+    ).toEqual([
+      "gpt-5.5",
+      "gpt-5.4",
+    ]);
+  });
+
   it("keeps representative modalities aligned with the curated matrix", () => {
+    expect(getModelModalities(getModelDefinition("openai", "gpt-5.5"))).toEqual([
+      "text",
+      "image",
+      "video",
+      "audio",
+    ]);
     expect(getModelModalities(getModelDefinition("openai", "gpt-5.4"))).toEqual([
       "text",
       "image",

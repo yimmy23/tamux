@@ -867,6 +867,7 @@ pub struct ProvenanceReportEntry {
     pub timestamp: u64,
     pub event_type: String,
     pub summary: String,
+    pub signature_present: bool,
     pub signature_scheme: Option<String>,
     pub agent_id: String,
     pub goal_run_id: Option<String>,

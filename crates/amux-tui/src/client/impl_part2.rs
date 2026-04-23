@@ -319,6 +319,19 @@ impl DaemonClient {
                     .send(ClientEvent::ProviderAuthStates(entries))
                     .await;
             }
+            DaemonMessage::AgentProviderCatalog { catalog_json } => {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&catalog_json) {
+                    if let Some(diagnostics) = value
+                        .get("custom_provider_report")
+                        .and_then(|report| report.get("diagnostics"))
+                        .and_then(|diagnostics| diagnostics.as_array())
+                    {
+                        for diagnostic in diagnostics {
+                            warn!("Custom provider configuration issue: {}", diagnostic);
+                        }
+                    }
+                }
+            }
             DaemonMessage::AgentOpenAICodexAuthStatus { status_json } => {
                 match serde_json::from_str::<OpenAICodexAuthStatusVm>(&status_json) {
                     Ok(status) => {

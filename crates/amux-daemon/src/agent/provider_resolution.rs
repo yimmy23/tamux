@@ -134,6 +134,28 @@ pub(super) fn resolve_provider_config_for(
         return Ok(finalize_resolved_provider(provider_id, resolved, config));
     }
 
+    reload_custom_provider_catalog_from_default_path();
+    if let Some(mut resolved) = custom_provider_config(provider_id) {
+        if let Some(model_override) = explicit_model_override {
+            apply_provider_model_override(provider_id, &mut resolved, model_override);
+        } else if active_provider {
+            if !config.model.trim().is_empty() {
+                apply_provider_model_override(provider_id, &mut resolved, &config.model);
+            }
+            if !config.base_url.trim().is_empty() {
+                resolved.base_url = config.base_url.clone();
+            }
+            if !config.api_key.trim().is_empty() {
+                resolved.api_key = config.api_key.clone();
+            }
+            resolved.assistant_id = config.assistant_id.clone();
+            resolved.auth_source = config.auth_source;
+            resolved.reasoning_effort = config.reasoning_effort.clone();
+            resolved.context_window_tokens = config.context_window_tokens;
+        }
+        return Ok(finalize_resolved_provider(provider_id, resolved, config));
+    }
+
     if provider_id != config.provider {
         anyhow::bail!(
             "No credentials configured for provider '{}'. Log in via Auth settings.",
@@ -301,6 +323,42 @@ mod tests {
         PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_GITHUB_COPILOT,
         PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI,
     };
+
+    #[test]
+    fn resolves_custom_provider_from_custom_auth_api_key_when_not_saved_in_config() {
+        let _lock = crate::test_support::env_test_lock();
+        let _guard = crate::test_support::EnvGuard::new(&["TAMUX_CUSTOM_AUTH_PATH"]);
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let custom_auth_path = temp_dir.path().join("custom-auth.yaml");
+        std::fs::write(
+            &custom_auth_path,
+            r#"
+providers:
+  - id: local-openai
+    name: Local OpenAI-Compatible
+    default_base_url: http://127.0.0.1:11434/v1
+    default_model: llama3.3
+    api_key: local-secret
+    supported_transports: [chat_completions]
+    default_transport: chat_completions
+    models:
+      - id: llama3.3
+        context_window: 128000
+"#,
+        )
+        .expect("write custom auth");
+        std::env::set_var("TAMUX_CUSTOM_AUTH_PATH", &custom_auth_path);
+        reload_custom_provider_catalog_from_default_path();
+
+        let config = AgentConfig::default();
+        let resolved = resolve_provider_config_for(&config, "local-openai", None)
+            .expect("custom auth provider should resolve");
+
+        assert_eq!(resolved.base_url, "http://127.0.0.1:11434/v1");
+        assert_eq!(resolved.model, "llama3.3");
+        assert_eq!(resolved.api_key, "local-secret");
+        assert_eq!(resolved.api_transport, ApiTransport::ChatCompletions);
+    }
 
     #[test]
     fn named_provider_inherits_defaults_and_transport_rules() {

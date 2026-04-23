@@ -226,6 +226,10 @@ impl DaemonClient {
         self.send(ClientMessage::AgentGetProviderAuthStates)
     }
 
+    pub fn get_provider_catalog(&self) -> Result<()> {
+        self.send(ClientMessage::AgentGetProviderCatalog)
+    }
+
     pub fn get_openai_codex_auth_status(&self) -> Result<()> {
         self.send(ClientMessage::AgentGetOpenAICodexAuthStatus)
     }

@@ -274,13 +274,18 @@ impl AgentEngine {
 
     /// Build provider auth states by merging persisted config with PROVIDER_DEFINITIONS.
     pub async fn get_provider_auth_states(&self) -> Vec<ProviderAuthState> {
-        use crate::agent::types::{ProviderAuthState, PROVIDER_DEFINITIONS};
+        use crate::agent::types::{
+            all_provider_definitions, custom_provider_config,
+            reload_custom_provider_catalog_from_default_path, ProviderAuthState,
+        };
+
+        let _ = reload_custom_provider_catalog_from_default_path();
 
         let config = self.config.read().await;
         let mut states = Vec::new();
         let use_legacy_top_level_fallback = config.providers.is_empty();
 
-        for def in PROVIDER_DEFINITIONS {
+        for def in all_provider_definitions() {
             let (authenticated, auth_source, model, base_url) =
                 if let Some(pc) = config.providers.get(def.id) {
                     if def.id == PROVIDER_ID_GITHUB_COPILOT {
@@ -356,6 +361,13 @@ impl AgentEngine {
                             .unwrap_or(AuthSource::GithubCopilot),
                         def.default_model.to_string(),
                         def.default_base_url.to_string(),
+                    )
+                } else if let Some(custom_config) = custom_provider_config(def.id) {
+                    (
+                        !custom_config.api_key.trim().is_empty(),
+                        custom_config.auth_source,
+                        custom_config.model,
+                        custom_config.base_url,
                     )
                 } else {
                     (

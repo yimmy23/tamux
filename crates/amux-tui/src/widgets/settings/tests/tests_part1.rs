@@ -6,7 +6,7 @@ fn settings_handles_empty_state() {
     let config = ConfigState::new();
     let _theme = ThemeTokens::default();
     assert_eq!(settings.active_tab(), SettingsTab::Auth);
-    assert_eq!(config.model(), "gpt-5.4");
+    assert_eq!(config.model(), "gpt-5.5");
 }
 
 #[test]

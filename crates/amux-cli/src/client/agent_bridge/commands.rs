@@ -345,6 +345,9 @@ where
                 .send(ClientMessage::AgentGetProviderAuthStates)
                 .await?;
         }
+        AgentBridgeCommand::GetProviderCatalog => {
+            framed.send(ClientMessage::AgentGetProviderCatalog).await?;
+        }
         AgentBridgeCommand::GetOpenAICodexAuthStatus => {
             framed
                 .send(ClientMessage::AgentGetOpenAICodexAuthStatus)

@@ -5,6 +5,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiType {
+    #[serde(rename = "openai", alias = "open_ai")]
     OpenAI,
     Anthropic,
 }
@@ -48,6 +49,7 @@ pub enum NativeTransportKind {
 #[serde(rename_all = "snake_case")]
 pub enum AuthMethod {
     Bearer,
+    #[serde(rename = "x-api-key", alias = "x_api_key")]
     XApiKey,
 }
 

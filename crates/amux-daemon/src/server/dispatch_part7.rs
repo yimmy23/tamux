@@ -21,6 +21,7 @@ if matches!(
                     api_key,
                     auth_source,
                 } => {
+                    let _ = crate::agent::types::reload_custom_provider_catalog_from_default_path();
                     // Resolve credentials: if the client didn't provide them,
                     // look up stored credentials from the agent config.
                     let (resolved_url, resolved_key) = {
@@ -53,7 +54,8 @@ if matches!(
                                     if config.provider == provider_id {
                                         Some(config.api_key.clone())
                                     } else {
-                                        None
+                                        crate::agent::types::custom_provider_config(&provider_id)
+                                            .map(|pc| pc.api_key)
                                     }
                                 })
                                 .unwrap_or_default()

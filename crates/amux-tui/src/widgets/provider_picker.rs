@@ -11,7 +11,7 @@ use crate::theme::ThemeTokens;
 use amux_shared::providers::{provider_supports_audio_tool, AudioToolKind, PROVIDER_ID_CUSTOM};
 
 pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
-    PROVIDERS
+    let mut providers = PROVIDERS
         .iter()
         .filter(|provider| {
             provider.id == PROVIDER_ID_CUSTOM
@@ -20,7 +20,31 @@ pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
                     .iter()
                     .any(|entry| entry.authenticated && entry.provider_id == provider.id)
         })
-        .collect()
+        .collect::<Vec<_>>();
+    providers.extend(auth.entries.iter().filter_map(|entry| {
+        let is_builtin = PROVIDERS
+            .iter()
+            .any(|provider| provider.id == entry.provider_id);
+        if is_builtin || entry.provider_id.trim().is_empty() {
+            return None;
+        }
+        Some(Box::leak(Box::new(ProviderDef {
+            id: Box::leak(entry.provider_id.clone().into_boxed_str()),
+            name: Box::leak(entry.provider_name.clone().into_boxed_str()),
+            default_base_url: "",
+            default_model: Box::leak(entry.model.clone().into_boxed_str()),
+            supported_transports: crate::providers::CHAT_ONLY_TRANSPORTS,
+            default_transport: "chat_completions",
+            supported_auth_sources: crate::providers::API_KEY_ONLY_AUTH_SOURCES,
+            default_auth_source: "api_key",
+            native_base_url: None,
+        })) as &'static ProviderDef)
+    }));
+    providers
+}
+
+pub fn available_provider_entries(auth: &AuthState) -> Vec<&'static ProviderDef> {
+    available_provider_defs(auth)
 }
 
 pub fn available_audio_provider_defs(
@@ -177,6 +201,36 @@ mod tests {
             .iter()
             .any(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI));
         assert!(!defs.iter().any(|provider| provider.id == PROVIDER_ID_GROQ));
+    }
+
+    #[test]
+    fn available_provider_entries_include_unauthenticated_custom_catalog_providers() {
+        let mut auth = AuthState::new();
+        auth.entries = vec![
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_GROQ.to_string(),
+                provider_name: "Groq".to_string(),
+                authenticated: false,
+                auth_source: "api_key".to_string(),
+                model: "llama".to_string(),
+            },
+            ProviderAuthEntry {
+                provider_id: "local-openai".to_string(),
+                provider_name: "Local OpenAI-Compatible".to_string(),
+                authenticated: false,
+                auth_source: "api_key".to_string(),
+                model: "llama3.3".to_string(),
+            },
+        ];
+
+        let entries = available_provider_entries(&auth);
+        assert!(entries
+            .iter()
+            .any(|provider| provider.id == "local-openai"
+                && provider.name == "Local OpenAI-Compatible"));
+        assert!(!entries
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_GROQ));
     }
 
     #[test]

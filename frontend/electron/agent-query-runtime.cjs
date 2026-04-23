@@ -18,6 +18,7 @@ const AGENT_QUERY_RESPONSE_TYPES = [
   'gateway-config',
   'heartbeat-items',
   'provider-auth-states',
+  'provider-catalog',
   'provider-validation',
   'provider-models',
   'sub-agent-list',

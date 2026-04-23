@@ -1038,9 +1038,12 @@ async fn provenance_report_validates_hash_and_signature() -> Result<()> {
 
     let report = store.provenance_report(10)?;
     assert_eq!(report.total_entries, 2);
+    assert_eq!(report.signed_entries, 2);
     assert_eq!(report.valid_hash_entries, 2);
     assert_eq!(report.valid_chain_entries, 2);
     assert_eq!(report.valid_signature_entries, 2);
+    assert!(report.entries.iter().all(|entry| entry.signature_present));
+    assert!(report.entries.iter().all(|entry| entry.signature_valid));
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -1097,6 +1100,51 @@ async fn provenance_report_keeps_legacy_signature_validation() -> Result<()> {
     assert_eq!(report.total_entries, 1);
     assert_eq!(report.signed_entries, 1);
     assert_eq!(report.valid_signature_entries, 1);
+    assert_eq!(report.entries.len(), 1);
+    assert!(report.entries[0].signature_present);
+    assert!(report.entries[0].signature_valid);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn provenance_report_does_not_mark_unsigned_entries_as_signature_valid() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+
+    let details = serde_json::json!({"unsigned": true});
+    store
+        .record_provenance_event(&ProvenanceEventRecord {
+            event_type: "step_completed",
+            summary: "unsigned step completed",
+            details: &details,
+            agent_id: "test-agent",
+            goal_run_id: Some("goal-unsigned"),
+            task_id: Some("task-unsigned"),
+            thread_id: Some("thread-unsigned"),
+            approval_id: None,
+            causal_trace_id: None,
+            compliance_mode: "standard",
+            sign: false,
+            created_at: 3_000,
+        })
+        .await?;
+
+    let entries = read_provenance_entries(&root.join("semantic-logs").join("provenance.jsonl"))?;
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].signature.is_none());
+    assert!(entries[0].signature_scheme.is_none());
+
+    let report = store.provenance_report(10)?;
+    assert_eq!(report.total_entries, 1);
+    assert_eq!(report.signed_entries, 0);
+    assert_eq!(report.valid_hash_entries, 1);
+    assert_eq!(report.valid_chain_entries, 1);
+    assert_eq!(report.valid_signature_entries, 0);
+    assert_eq!(report.entries.len(), 1);
+    assert!(!report.entries[0].signature_present);
+    assert!(!report.entries[0].signature_valid);
 
     fs::remove_dir_all(root)?;
     Ok(())

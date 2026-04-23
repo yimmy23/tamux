@@ -775,6 +775,17 @@ impl TuiModel {
             }
         }
 
+        if let Some(entry) = self
+            .auth
+            .entries
+            .iter()
+            .find(|entry| entry.provider_id == provider_id)
+        {
+            if !entry.auth_source.trim().is_empty() {
+                auth_source = entry.auth_source.clone();
+            }
+        }
+
         (base_url, api_key, auth_source)
     }
 
@@ -877,7 +888,31 @@ impl TuiModel {
 
     fn apply_provider_selection_internal(&mut self, provider_id: &str, sync: bool) {
         let Some(def) = providers::find_by_id(provider_id) else {
-            self.status_line = format!("Unknown provider: {provider_id}");
+            let Some(entry) = self
+                .auth
+                .entries
+                .iter()
+                .find(|entry| entry.provider_id == provider_id)
+                .cloned()
+            else {
+                self.status_line = format!("Unknown provider: {provider_id}");
+                return;
+            };
+
+            self.config.provider = entry.provider_id.clone();
+            self.config.base_url.clear();
+            self.config.model = entry.model;
+            self.config.custom_model_name.clear();
+            self.config.api_key.clear();
+            self.config.auth_source = entry.auth_source;
+            self.config.api_transport = "chat_completions".to_string();
+            self.config.assistant_id.clear();
+            self.config.custom_context_window_tokens = None;
+            self.config.context_window_tokens = 128_000;
+            self.status_line = format!("Provider: {}", entry.provider_name);
+            if sync {
+                self.sync_config_to_daemon();
+            }
             return;
         };
 

@@ -10,8 +10,9 @@ use tokio::sync::mpsc;
 
 use super::task_prompt::now_millis;
 use super::types::{
-    get_provider_api_type, get_provider_definition, ApiTransport, ApiType, AuthMethod, AuthSource,
-    CompletionChunk, ProviderConfig, ToolCall, ToolDefinition, ToolFunction,
+    get_provider_api_type, get_provider_definition, reload_custom_provider_catalog_from_default_path,
+    ApiTransport, ApiType, AuthMethod, AuthSource, CompletionChunk, ProviderConfig, ToolCall,
+    ToolDefinition, ToolFunction,
 };
 
 pub(crate) const UPSTREAM_DIAGNOSTICS_MARKER: &str = "\n\n[amux-upstream-diagnostics]";

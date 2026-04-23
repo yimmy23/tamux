@@ -101,17 +101,17 @@ fn sample_goal_run(goal_run_id: &str) -> GoalRun {
 }
 
 #[tokio::test]
-async fn start_goal_run_seeds_launch_assignment_snapshot_and_thread_routing_defaults() {
+async fn start_goal_run_creates_dedicated_goal_thread_and_thread_routing_defaults() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
-    let thread_id = "thread-goal-launch-routing".to_string();
+    let source_thread_id = "thread-goal-launch-routing".to_string();
 
     let goal_run = engine
         .start_goal_run(
             "validate mission control launch metadata".to_string(),
             Some("mission control launch".to_string()),
-            Some(thread_id.clone()),
+            Some(source_thread_id.clone()),
             None,
             None,
             None,
@@ -131,25 +131,80 @@ async fn start_goal_run_seeds_launch_assignment_snapshot_and_thread_routing_defa
         reasoning_effort: Some(expected_provider.reasoning_effort.clone()),
         inherit_from_main: false,
     };
+    let expected_reviewer = GoalAgentAssignment {
+        role_id: "reviewer".to_string(),
+        enabled: true,
+        provider: config.provider.clone(),
+        model: expected_provider.model.clone(),
+        reasoning_effort: Some(expected_provider.reasoning_effort.clone()),
+        inherit_from_main: true,
+    };
+    let goal_thread_id = goal_run
+        .thread_id
+        .clone()
+        .expect("goal run should always allocate a dedicated goal thread");
 
-    assert_eq!(goal_run.root_thread_id.as_deref(), Some(thread_id.as_str()));
+    assert_ne!(
+        goal_thread_id, source_thread_id,
+        "goal runs should no longer pin themselves to the spawning thread"
+    );
+    assert_eq!(
+        goal_run.root_thread_id.as_deref(),
+        Some(goal_thread_id.as_str())
+    );
     assert_eq!(
         goal_run.active_thread_id.as_deref(),
-        Some(thread_id.as_str())
+        Some(goal_thread_id.as_str())
     );
-    assert_eq!(goal_run.execution_thread_ids, vec![thread_id.clone()]);
+    assert_eq!(goal_run.execution_thread_ids, vec![goal_thread_id.clone()]);
     assert_eq!(
         goal_run.launch_assignment_snapshot,
-        vec![expected_assignment.clone()]
+        vec![expected_assignment.clone(), expected_reviewer.clone()]
     );
-    assert_eq!(goal_run.runtime_assignment_list, vec![expected_assignment]);
+    assert_eq!(
+        goal_run.runtime_assignment_list,
+        vec![expected_assignment, expected_reviewer]
+    );
+
+    let goal_thread = engine
+        .get_thread(&goal_thread_id)
+        .await
+        .expect("goal run should persist the dedicated goal thread");
+    assert_eq!(
+        goal_thread.upstream_thread_id.as_deref(),
+        Some(source_thread_id.as_str()),
+        "goal thread should retain lineage back to the spawning thread"
+    );
+    assert!(
+        goal_thread.messages.iter().any(|message| {
+            message.role == MessageRole::System
+                && message
+                    .content
+                    .contains("validate mission control launch metadata")
+                && message.content.contains(source_thread_id.as_str())
+        }),
+        "goal thread should be seeded with a system context message that carries the big picture"
+    );
 
     let serialized = goal_run_json(&goal_run);
-    assert_eq!(serialized["root_thread_id"], serde_json::json!(thread_id));
-    assert_eq!(serialized["active_thread_id"], serde_json::json!(thread_id));
+    assert_eq!(
+        serialized["thread_id"],
+        serde_json::json!(goal_thread_id.clone())
+    );
+    assert_eq!(
+        serialized["root_thread_id"],
+        serde_json::json!(goal_thread_id.clone())
+    );
+    assert_eq!(
+        serialized["active_thread_id"],
+        serde_json::json!(goal_thread_id)
+    );
     assert_eq!(
         serialized["execution_thread_ids"],
-        serde_json::json!([thread_id])
+        serde_json::json!([goal_run
+            .thread_id
+            .clone()
+            .expect("goal thread id should exist")])
     );
     assert_eq!(
         serialized["launch_assignment_snapshot"][0]["provider"],
@@ -250,10 +305,62 @@ async fn start_goal_run_uses_provided_launch_assignment_snapshot_when_present() 
         )
         .await;
 
-    assert_eq!(goal_run.launch_assignment_snapshot, launch_assignments);
+    let mut expected_assignments = launch_assignments;
+    expected_assignments.push(GoalAgentAssignment {
+        role_id: "reviewer".to_string(),
+        enabled: true,
+        provider: "openai".to_string(),
+        model: "gpt-5.4".to_string(),
+        reasoning_effort: Some("medium".to_string()),
+        inherit_from_main: true,
+    });
+    assert_eq!(goal_run.launch_assignment_snapshot, expected_assignments);
     assert_eq!(
         goal_run.runtime_assignment_list,
         goal_run.launch_assignment_snapshot
+    );
+}
+
+#[tokio::test]
+async fn start_goal_run_injects_reviewer_assignment_when_missing() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let launch_assignments = vec![GoalAgentAssignment {
+        role_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        enabled: true,
+        provider: "openai".to_string(),
+        model: "gpt-5.4".to_string(),
+        reasoning_effort: Some("medium".to_string()),
+        inherit_from_main: false,
+    }];
+
+    let goal_run = engine
+        .start_goal_run_with_surface(
+            "validate reviewer injection".to_string(),
+            Some("reviewer injection".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(launch_assignments),
+        )
+        .await;
+
+    let reviewer = goal_run
+        .runtime_assignment_list
+        .iter()
+        .find(|assignment| assignment.role_id == "reviewer")
+        .expect("goal launch should always include a reviewer assignment");
+    assert!(reviewer.enabled);
+    assert_eq!(reviewer.provider, "openai");
+    assert_eq!(reviewer.model, "gpt-5.4");
+    assert_eq!(reviewer.reasoning_effort.as_deref(), Some("medium"));
+    assert!(
+        reviewer.inherit_from_main,
+        "auto-injected reviewer should be marked as inherited from the main agent"
     );
 }
 
@@ -1471,10 +1578,7 @@ async fn implementation_completion_queues_verifier_before_advancing_goal_step() 
         .cloned()
         .expect("verification task should be enqueued");
     assert_eq!(verifier_task.source, "goal_verification");
-    assert_eq!(
-        verifier_task.sub_agent_def_id.as_deref(),
-        Some("android-verifier")
-    );
+    assert!(verifier_task.sub_agent_def_id.is_none());
     assert_eq!(verifier_task.goal_step_id.as_deref(), Some("step-1"));
 
     let dossier = updated
@@ -1750,7 +1854,7 @@ async fn verifier_completion_advances_goal_step_and_resolves_proof_checks() {
 
     let mut completed_verifier = verifier_task.clone();
     completed_verifier.status = TaskStatus::Completed;
-    completed_verifier.result = Some("all proof checks satisfied".to_string());
+    completed_verifier.result = Some("VERDICT: PASS\nall proof checks satisfied".to_string());
     write_step_completion_marker(&engine, goal_run_id, 0).await;
 
     engine
@@ -1783,6 +1887,151 @@ async fn verifier_completion_advances_goal_step_and_resolves_proof_checks() {
             .expect("verification completion should advance the goal")
             .action,
         GoalResumeAction::Advance
+    );
+}
+
+#[tokio::test]
+async fn verifier_fail_verdict_requeues_current_step() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-verification-fail";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Build the Android artifact",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-impl".to_string());
+    goal_run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "ship result".to_string(),
+        kind: GoalRunStepKind::Command,
+        success_criteria: "result shipped".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    goal_run.dossier = Some(GoalRunDossier {
+        units: vec![GoalDeliveryUnit {
+            id: "step-1".to_string(),
+            title: "step-1".to_string(),
+            status: GoalProjectionState::InProgress,
+            execution_binding: GoalRoleBinding::Builtin("swarog".to_string()),
+            verification_binding: GoalRoleBinding::Builtin("main".to_string()),
+            summary: None,
+            proof_checks: vec![GoalProofCheck {
+                id: "proof-build-debug".to_string(),
+                title: "Debug build succeeds".to_string(),
+                state: GoalProjectionState::Pending,
+                summary: None,
+                evidence_ids: Vec::new(),
+                resolved_at: None,
+            }],
+            evidence: Vec::new(),
+            report: None,
+        }],
+        ..Default::default()
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let implementation_task = AgentTask {
+        id: "task-impl".to_string(),
+        title: "implement step".to_string(),
+        description: "implement step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("build completed successfully".to_string()),
+        thread_id: None,
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &implementation_task)
+        .await
+        .expect("implementation completion should queue verification");
+
+    let verifier_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.source == "goal_verification")
+        .cloned()
+        .expect("verification task should exist");
+    let mut failed_verifier = verifier_task.clone();
+    failed_verifier.status = TaskStatus::Completed;
+    failed_verifier.result = Some("VERDICT: FAIL\nbuild output is incomplete".to_string());
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &failed_verifier)
+        .await
+        .expect("fail verdict should requeue the step instead of advancing");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.current_step_index, 0);
+    assert_eq!(updated.steps[0].status, GoalRunStepStatus::Pending);
+    assert!(updated.steps[0].task_id.is_none());
+    assert!(
+        updated.steps[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("VERDICT: FAIL")),
+        "step should retain the failing reviewer feedback"
     );
 }
 
@@ -1876,7 +2125,24 @@ async fn handle_goal_run_step_completion_records_dossier_report_and_advance_deci
     engine
         .handle_goal_run_step_completion(goal_run_id, &completed_task)
         .await
-        .expect("step completion should succeed");
+        .expect("implementation completion should queue mandatory review");
+
+    let review_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.source == "goal_verification")
+        .cloned()
+        .expect("review task should exist");
+    let mut completed_review = review_task.clone();
+    completed_review.status = TaskStatus::Completed;
+    completed_review.result = Some("VERDICT: PASS\nstep completed".to_string());
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_review)
+        .await
+        .expect("pass verdict should allow the step to advance");
 
     let updated = engine
         .get_goal_run(goal_run_id)
@@ -1915,6 +2181,246 @@ async fn handle_goal_run_step_completion_records_dossier_report_and_advance_deci
         Some("step completed"),
         "live dossier unit state should match the emitted report before persistence refresh"
     );
+}
+
+#[tokio::test]
+async fn handle_goal_run_step_completion_does_not_advance_with_incomplete_current_step_todos() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-incomplete-todos";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Implement the guarded step",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-step-incomplete-todos".to_string());
+    goal_run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "next".to_string(),
+        kind: GoalRunStepKind::Research,
+        success_criteria: "next done".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let completed_task = AgentTask {
+        id: "task-step-incomplete-todos".to_string(),
+        title: "complete step".to_string(),
+        description: "complete step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: Some("thread-goal-custom".to_string()),
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+    engine
+        .replace_thread_todos(
+            "thread-goal-custom",
+            vec![
+                TodoItem {
+                    id: "todo-1".to_string(),
+                    content: "finished".to_string(),
+                    status: TodoStatus::Completed,
+                    position: 0,
+                    step_index: Some(0),
+                    created_at: 0,
+                    updated_at: 0,
+                },
+                TodoItem {
+                    id: "todo-2".to_string(),
+                    content: "still pending".to_string(),
+                    status: TodoStatus::Pending,
+                    position: 1,
+                    step_index: Some(0),
+                    created_at: 0,
+                    updated_at: 0,
+                },
+            ],
+            Some(completed_task.id.as_str()),
+        )
+        .await;
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_task)
+        .await
+        .expect("incomplete step todos should block advancement without hard-failing");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.current_step_index, 0);
+    assert_eq!(updated.steps[0].status, GoalRunStepStatus::Pending);
+    assert!(updated.steps[0].task_id.is_none());
+}
+
+#[tokio::test]
+async fn handle_goal_run_step_completion_requires_review_even_without_proof_checks() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-review-required";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Implement the feature before review",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-step-review-required".to_string());
+    goal_run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "next".to_string(),
+        kind: GoalRunStepKind::Research,
+        success_criteria: "next done".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let completed_task = AgentTask {
+        id: "task-step-review-required".to_string(),
+        title: "complete step".to_string(),
+        description: "complete step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: Some("thread-goal-custom".to_string()),
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_task)
+        .await
+        .expect("step completion should queue review before advancement");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.current_step_index, 0);
+    assert_eq!(updated.steps[0].status, GoalRunStepStatus::InProgress);
+    let verification_task_id = updated.steps[0]
+        .task_id
+        .clone()
+        .expect("review task should become the active step task");
+    let verification_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == verification_task_id)
+        .cloned()
+        .expect("review task should be enqueued");
+    assert_eq!(verification_task.source, "goal_verification");
 }
 
 #[tokio::test]
@@ -2024,6 +2530,23 @@ async fn handle_goal_run_step_completion_blocks_when_completion_marker_is_missin
         .await
         .expect("completion hook should not hard-fail when marker is missing");
 
+    let review_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.source == "goal_verification")
+        .cloned()
+        .expect("review task should exist");
+    let mut completed_review = review_task.clone();
+    completed_review.status = TaskStatus::Completed;
+    completed_review.result = Some("VERDICT: PASS\nreview passed".to_string());
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_review)
+        .await
+        .expect("review completion should not hard-fail when marker is missing");
+
     let marker_path = crate::agent::goal_dossier::goal_step_completion_marker_path(
         &engine.data_dir,
         goal_run_id,
@@ -2041,7 +2564,7 @@ async fn handle_goal_run_step_completion_blocks_when_completion_marker_is_missin
         .lock()
         .await
         .iter()
-        .find(|task| task.id == completed_task.id)
+        .find(|task| task.id == review_task.id)
         .cloned()
         .expect("task should still exist");
     assert_eq!(stored_task.status, TaskStatus::Queued);
@@ -2140,22 +2663,37 @@ async fn exhausted_completion_marker_retries_require_human_approval() {
         )
         .await;
 
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &template_task)
+        .await
+        .expect("implementation completion should queue review");
+
+    let review_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.source == "goal_verification")
+        .cloned()
+        .expect("review task should exist");
+
     for _ in 0..4 {
-        let mut completed_task = engine
+        let mut completed_review = engine
             .tasks
             .lock()
             .await
             .iter()
-            .find(|task| task.id == template_task.id)
+            .find(|task| task.id == review_task.id)
             .cloned()
-            .expect("task should still exist");
-        completed_task.status = TaskStatus::Completed;
-        completed_task.completed_at = Some(now_millis());
+            .expect("review task should still exist");
+        completed_review.status = TaskStatus::Completed;
+        completed_review.completed_at = Some(now_millis());
+        completed_review.result = Some("VERDICT: PASS\nreview passed".to_string());
 
         engine
-            .handle_goal_run_step_completion(goal_run_id, &completed_task)
+            .handle_goal_run_step_completion(goal_run_id, &completed_review)
             .await
-            .expect("completion hook should not hard-fail during reminder escalation");
+            .expect("review completion should not hard-fail during reminder escalation");
     }
 
     let updated = engine
@@ -2173,7 +2711,7 @@ async fn exhausted_completion_marker_retries_require_human_approval() {
         .lock()
         .await
         .iter()
-        .find(|task| task.id == template_task.id)
+        .find(|task| task.id == review_task.id)
         .cloned()
         .expect("task should still exist");
     assert_eq!(stored_task.status, TaskStatus::AwaitingApproval);
@@ -2348,26 +2886,7 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
         current_step_owner
             .get("agent_label")
             .and_then(serde_json::Value::as_str),
-        Some("Android Verifier")
-    );
-    assert_eq!(
-        current_step_owner
-            .get("provider")
-            .and_then(serde_json::Value::as_str),
-        Some("openai")
-    );
-    assert_eq!(
-        current_step_owner
-            .get("model")
-            .and_then(serde_json::Value::as_str),
-        Some("gpt-4o-mini")
-    );
-    assert!(
-        current_step_owner.get("reasoning_effort").is_none()
-            || current_step_owner
-                .get("reasoning_effort")
-                .is_some_and(|value| value.is_null()),
-        "subagent metadata should omit unset reasoning effort"
+        Some(crate::agent::agent_identity::MAIN_AGENT_NAME)
     );
     assert_eq!(updated.current_step_index, 0);
     assert_eq!(updated.status, GoalRunStatus::Running);
@@ -2394,18 +2913,7 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
         .expect("verification task should exist");
 
     assert_eq!(verification_task.source, "goal_verification");
-    assert_eq!(
-        verification_task.sub_agent_def_id.as_deref(),
-        Some("android-verifier")
-    );
-    assert_eq!(
-        verification_task.override_provider.as_deref(),
-        Some("openai")
-    );
-    assert_eq!(
-        verification_task.override_model.as_deref(),
-        Some("gpt-4o-mini")
-    );
+    assert!(verification_task.sub_agent_def_id.is_none());
     assert_eq!(
         updated
             .dossier
@@ -2422,7 +2930,7 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
     let mut verification_complete = verification_task.clone();
     verification_complete.status = TaskStatus::Completed;
     verification_complete.completed_at = Some(now_millis());
-    verification_complete.result = Some("verification passed".to_string());
+    verification_complete.result = Some("VERDICT: PASS\nverification passed".to_string());
     write_step_completion_marker(&engine, goal_run_id, 0).await;
 
     engine
@@ -2594,18 +3102,7 @@ async fn handle_goal_run_step_completion_resolves_builtin_verification_binding_t
         .expect("verification task should exist");
 
     assert_eq!(verification_task.source, "goal_verification");
-    assert_eq!(
-        verification_task.sub_agent_def_id.as_deref(),
-        Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
-    );
-    assert_eq!(
-        verification_task.override_provider.as_deref(),
-        Some("openai")
-    );
-    assert_eq!(
-        verification_task.override_model.as_deref(),
-        Some("gpt-4o-mini")
-    );
+    assert!(verification_task.sub_agent_def_id.is_none());
 }
 
 #[tokio::test]
@@ -2870,6 +3367,17 @@ async fn complete_goal_run_activates_reflected_skill_in_thread_state_and_invento
     goal_run.steps[0].summary = Some("Recovered with a reusable debugging sequence".to_string());
     goal_run.current_step_index = 0;
     engine.goal_runs.lock().await.push_back(goal_run);
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+    let final_review_marker =
+        crate::agent::goal_dossier::goal_final_review_marker_path(&engine.data_dir, goal_run_id);
+    if let Some(parent) = final_review_marker.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .expect("create final review dir");
+    }
+    tokio::fs::write(&final_review_marker, "VERDICT: PASS\nfinal review passed\n")
+        .await
+        .expect("write final review marker");
 
     engine
         .complete_goal_run(goal_run_id)
@@ -2910,6 +3418,183 @@ async fn complete_goal_run_activates_reflected_skill_in_thread_state_and_invento
         .expect("reflection activation note should exist");
     assert!(note.contains("Activated skill: systematic-debugging"));
     assert!(note.contains("Recovered a reusable debugging path."));
+}
+
+#[tokio::test]
+async fn complete_goal_run_queues_final_review_before_marking_completed() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-final-review-queue";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Finish the only step",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::Completed;
+    goal_run.steps[0].summary = Some("done".to_string());
+    goal_run.current_step_index = goal_run.steps.len();
+    goal_run.current_step_title = None;
+    goal_run.current_step_kind = None;
+    engine.goal_runs.lock().await.push_back(goal_run);
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
+    engine
+        .complete_goal_run(goal_run_id)
+        .await
+        .expect("goal completion should queue a final review instead of completing immediately");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_ne!(updated.status, GoalRunStatus::Completed);
+    assert!(
+        updated.active_task_id.is_some(),
+        "final review should create an active review task"
+    );
+
+    let review_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == updated.active_task_id.clone().unwrap_or_default())
+        .cloned()
+        .expect("queued final review task should exist");
+    assert_eq!(review_task.source, "goal_final_review");
+}
+
+#[tokio::test]
+async fn complete_goal_run_writes_final_summary_markdown_after_review_marker_exists() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = crate::agent::tests::spawn_goal_recording_server(
+        recorded_bodies,
+        serde_json::json!({
+            "summary": "Goal finished cleanly.",
+            "stable_memory_update": null,
+            "generate_skill": false,
+            "skill_title": null,
+            "activate_skill": null
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let goal_run_id = "goal-final-summary";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Finish the only step",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::Completed;
+    goal_run.steps[0].summary = Some("implemented and reviewed".to_string());
+    goal_run.current_step_index = goal_run.steps.len();
+    goal_run.current_step_title = None;
+    goal_run.current_step_kind = None;
+    engine.goal_runs.lock().await.push_back(goal_run);
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
+    let final_review_marker =
+        crate::agent::goal_dossier::goal_final_review_marker_path(&engine.data_dir, goal_run_id);
+    if let Some(parent) = final_review_marker.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .expect("create final review dir");
+    }
+    tokio::fs::write(&final_review_marker, "VERDICT: PASS\nfinal review passed\n")
+        .await
+        .expect("write final review marker");
+
+    engine
+        .complete_goal_run(goal_run_id)
+        .await
+        .expect("goal completion should succeed once final review has passed");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.status, GoalRunStatus::Completed);
+
+    let final_summary_path =
+        crate::agent::goal_dossier::goal_final_summary_path(&engine.data_dir, goal_run_id);
+    let final_summary = tokio::fs::read_to_string(&final_summary_path)
+        .await
+        .expect("final summary markdown should exist");
+    assert!(final_summary.contains("# Final Goal Summary"));
+    assert!(final_summary.contains("Goal finished cleanly."));
+    assert!(final_summary.contains("implemented and reviewed"));
+}
+
+#[tokio::test]
+async fn final_review_fail_verdict_marks_goal_failed() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-final-review-fail";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Finish the only step",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::Completed;
+    goal_run.steps[0].summary = Some("done".to_string());
+    goal_run.current_step_index = goal_run.steps.len();
+    goal_run.current_step_title = None;
+    goal_run.current_step_kind = None;
+    engine.goal_runs.lock().await.push_back(goal_run);
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
+    engine
+        .complete_goal_run(goal_run_id)
+        .await
+        .expect("goal completion should queue a final review");
+
+    let review_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.source == "goal_final_review")
+        .cloned()
+        .expect("final review task should exist");
+    let mut failed_review = review_task.clone();
+    failed_review.status = TaskStatus::Completed;
+    failed_review.result =
+        Some("VERDICT: FAIL\nfinal summary does not match the actual work".to_string());
+
+    engine
+        .handle_goal_run_final_review_completion(goal_run_id, &failed_review)
+        .await
+        .expect("final review failure should be handled cleanly");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.status, GoalRunStatus::Failed);
+    assert!(
+        updated
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("VERDICT: FAIL")),
+        "goal should preserve the failing final-review verdict"
+    );
 }
 
 #[tokio::test]

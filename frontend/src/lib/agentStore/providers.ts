@@ -8,7 +8,6 @@ import type {
   Modality,
   ProviderDefinition,
 } from "./types.ts";
-import { AGENT_PROVIDER_IDS } from "./types.ts";
 
 export type AudioToolEndpoint = "stt" | "tts";
 
@@ -25,6 +24,7 @@ const M_TI: Modality[] = ["text", "image"];
 const M_TA: Modality[] = ["text", "audio"];
 
 const OPENAI_API_MODELS: ModelDefinition[] = [
+  { id: "gpt-5.5", name: "GPT-5.5", contextWindow: 1_000_000, modalities: M_MULTI },
   { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000, modalities: M_MULTI },
   { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.4-nano", name: "GPT-5.4 Nano", contextWindow: 400_000, modalities: M_TI },
@@ -44,6 +44,7 @@ const OPENAI_API_MODELS: ModelDefinition[] = [
 ];
 
 const OPENAI_CHATGPT_SUBSCRIPTION_MODELS: ModelDefinition[] = [
+  { id: "gpt-5.5", name: "GPT-5.5", contextWindow: 1_000_000, modalities: M_TI },
   { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000, modalities: M_TI },
   { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000, modalities: M_TI },
@@ -237,8 +238,8 @@ export function normalizeAgentProviderId(value: unknown): AgentProviderId {
   if (typeof value !== "string") {
     return "openai";
   }
-  const normalized = value.trim() as AgentProviderId;
-  return AGENT_PROVIDER_IDS.includes(normalized) ? normalized : "openai";
+  const normalized = value.trim();
+  return normalized ? (normalized as AgentProviderId) : "openai";
 }
 
 export function providerSupportsAudioTool(
@@ -343,7 +344,7 @@ export function modelSupports(model: ModelDefinition | undefined, modality: Moda
 export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
   { id: "featherless", name: "Featherless", defaultBaseUrl: "https://api.featherless.ai/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "anthropic", name: "Anthropic", defaultBaseUrl: "https://api.anthropic.com", defaultModel: "claude-opus-4-7", apiType: "anthropic", authMethod: "x-api-key", models: ANTHROPIC_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
-  { id: "openai", name: "OpenAI / ChatGPT", defaultBaseUrl: "https://api.openai.com/v1", defaultModel: "gpt-5.4", apiType: "openai", authMethod: "bearer", models: OPENAI_API_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: OPENAI_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
+  { id: "openai", name: "OpenAI / ChatGPT", defaultBaseUrl: "https://api.openai.com/v1", defaultModel: "gpt-5.5", apiType: "openai", authMethod: "bearer", models: OPENAI_API_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: OPENAI_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
   { id: "xai", name: "xAI", defaultBaseUrl: "https://api.x.ai/v1", defaultModel: "grok-4", apiType: "openai", authMethod: "bearer", models: XAI_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
   { id: "azure-openai", name: "Azure OpenAI", defaultBaseUrl: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1", defaultModel: "", apiType: "openai", authMethod: "bearer", models: EMPTY_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
   { id: "github-copilot", name: "GitHub Copilot", defaultBaseUrl: "https://api.githubcopilot.com", defaultModel: "gpt-4.1", apiType: "openai", authMethod: "bearer", models: GITHUB_COPILOT_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: GITHUB_COPILOT_AUTH_SOURCES, defaultAuthSource: "github_copilot", supportsResponseContinuity: true },
@@ -371,8 +372,87 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
   { id: "custom", name: "Custom", defaultBaseUrl: "", defaultModel: "", apiType: "openai", authMethod: "bearer", models: EMPTY_MODELS, supportsModelFetch: false, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
 ];
 
+let hydratedProviderDefinitions: ProviderDefinition[] = PROVIDER_DEFINITIONS;
+
+export interface ProviderCatalogDiagnostic {
+  path: string;
+  provider_id?: string | null;
+  field?: string | null;
+  message: string;
+}
+
+export interface ProviderCatalogHydrationResult {
+  diagnostics: ProviderCatalogDiagnostic[];
+}
+
+function normalizeProviderCatalogModel(raw: any): ModelDefinition | null {
+  if (!raw || typeof raw.id !== "string") {
+    return null;
+  }
+  return {
+    id: raw.id,
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name : raw.id,
+    contextWindow:
+      typeof raw.context_window === "number" && Number.isFinite(raw.context_window)
+        ? Math.max(0, Math.trunc(raw.context_window))
+        : 0,
+    modalities: Array.isArray(raw.modalities) ? raw.modalities.filter((item: unknown): item is Modality => item === "text" || item === "image" || item === "video" || item === "audio") : ["text"],
+  };
+}
+
+function normalizeProviderCatalogEntry(raw: any): ProviderDefinition | null {
+  if (!raw || typeof raw.id !== "string" || typeof raw.name !== "string") {
+    return null;
+  }
+  const supportedTransports = Array.isArray(raw.supported_transports)
+    ? raw.supported_transports.filter((item: unknown): item is ApiTransportMode => item === "native_assistant" || item === "responses" || item === "anthropic_messages" || item === "chat_completions")
+    : CHAT_ONLY_TRANSPORTS;
+  const defaultTransport = supportedTransports.includes(raw.default_transport)
+    ? raw.default_transport
+    : supportedTransports[0] ?? "chat_completions";
+  const supportedAuthSources = Array.isArray(raw.supported_auth_sources)
+    ? raw.supported_auth_sources.filter((item: unknown): item is AuthSource => item === "api_key" || item === "chatgpt_subscription" || item === "github_copilot")
+    : API_KEY_ONLY_AUTH_SOURCES;
+  const defaultAuthSource = supportedAuthSources.includes(raw.default_auth_source)
+    ? raw.default_auth_source
+    : supportedAuthSources[0] ?? "api_key";
+
+  return {
+    id: raw.id,
+    name: raw.name,
+    defaultBaseUrl: typeof raw.default_base_url === "string" ? raw.default_base_url : "",
+    defaultModel: typeof raw.default_model === "string" ? raw.default_model : "",
+    apiType: raw.api_type === "anthropic" ? "anthropic" : "openai",
+    authMethod: raw.auth_method === "x-api-key" ? "x-api-key" : "bearer",
+    models: Array.isArray(raw.models) ? raw.models.map(normalizeProviderCatalogModel).filter(Boolean) as ModelDefinition[] : [],
+    supportsModelFetch: Boolean(raw.supports_model_fetch),
+    anthropicBaseUrl: typeof raw.anthropic_base_url === "string" ? raw.anthropic_base_url : undefined,
+    supportedTransports,
+    defaultTransport,
+    supportedAuthSources,
+    defaultAuthSource,
+    nativeTransportKind: raw.native_transport_kind === "alibaba_assistant_api" ? "alibaba_assistant_api" : undefined,
+    nativeBaseUrl: typeof raw.native_base_url === "string" ? raw.native_base_url : undefined,
+    supportsResponseContinuity: Boolean(raw.supports_response_continuity),
+  };
+}
+
+export function hydrateProviderDefinitionsFromCatalog(raw: unknown): ProviderCatalogHydrationResult {
+  const catalog = raw && typeof raw === "object" ? raw as any : {};
+  const providers = Array.isArray(catalog.providers)
+    ? catalog.providers.map(normalizeProviderCatalogEntry).filter(Boolean) as ProviderDefinition[]
+    : [];
+  if (providers.length > 0) {
+    hydratedProviderDefinitions = providers;
+  }
+  const diagnostics = Array.isArray(catalog.custom_provider_report?.diagnostics)
+    ? catalog.custom_provider_report.diagnostics as ProviderCatalogDiagnostic[]
+    : [];
+  return { diagnostics };
+}
+
 export function getProviderDefinition(id: AgentProviderId): ProviderDefinition | undefined {
-  return PROVIDER_DEFINITIONS.find((provider) => provider.id === id);
+  return hydratedProviderDefinitions.find((provider) => provider.id === id);
 }
 
 export function getSupportedApiTransports(providerId: AgentProviderId): ApiTransportMode[] {

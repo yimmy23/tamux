@@ -161,36 +161,42 @@ fn parse_fetched_models_response(json: &serde_json::Value) -> Vec<FetchedModel> 
         .unwrap_or_default()
 }
 
+fn built_in_models_for_provider(provider_id: &str) -> Result<Vec<FetchedModel>> {
+    get_provider_definition(provider_id)
+        .map(|definition| {
+            definition
+                .models
+                .iter()
+                .map(|model| FetchedModel {
+                    id: model.id.to_string(),
+                    name: Some(model.name.to_string()),
+                    context_window: Some(model.context_window),
+                    pricing: None,
+                    metadata: None,
+                })
+                .collect()
+        })
+        .ok_or_else(|| anyhow::anyhow!("Unknown provider '{}'", provider_id))
+}
+
 pub async fn fetch_models(
     provider_id: &str,
     base_url: &str,
     api_key: &str,
     output_modalities: Option<&str>,
 ) -> Result<Vec<FetchedModel>> {
+    let _ = super::types::reload_custom_provider_catalog_from_default_path();
+
     if provider_id == amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT {
-        return get_provider_definition(provider_id)
-            .map(|definition| {
-                definition
-                    .models
-                    .iter()
-                    .map(|model| FetchedModel {
-                        id: model.id.to_string(),
-                        name: Some(model.name.to_string()),
-                        context_window: Some(model.context_window),
-                        pricing: None,
-                        metadata: None,
-                    })
-                    .collect()
-            })
-            .ok_or_else(|| anyhow::anyhow!("Unknown provider '{}'", provider_id));
+        return built_in_models_for_provider(provider_id);
     }
 
     let def = super::types::get_provider_definition(provider_id)
         .ok_or_else(|| anyhow::anyhow!("Unknown provider '{}'", provider_id))?;
 
     if !def.supports_model_fetch {
-        tracing::warn!(provider_id, "provider does not support remote model fetching");
-        return Ok(Vec::new());
+        tracing::info!(provider_id, "provider does not support remote model fetching; returning built-in catalog");
+        return built_in_models_for_provider(provider_id);
     }
 
     let client = reqwest::Client::new();
@@ -251,6 +257,8 @@ pub async fn validate_provider_connection(
     api_key: &str,
     auth_source: AuthSource,
 ) -> Result<Option<Vec<FetchedModel>>> {
+    let _ = reload_custom_provider_catalog_from_default_path();
+
     let def = get_provider_definition(provider_id)
         .with_context(|| format!("Unknown provider '{}'", provider_id))?;
     let resolved_base_url = if base_url.trim().is_empty() {

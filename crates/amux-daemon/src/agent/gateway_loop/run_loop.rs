@@ -14,6 +14,10 @@ impl AgentEngine {
             "agent background runtime started"
         );
 
+        if let Err(error) = self.ensure_default_event_triggers().await {
+            tracing::warn!(error = %error, "failed to seed default event triggers");
+        }
+
         let workers = vec![
             tokio::spawn({
                 let engine = self.clone();

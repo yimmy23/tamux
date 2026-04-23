@@ -21,6 +21,7 @@ if matches!(
         ClientMessage::AgentActivateGeneratedTool{ .. } |
         ClientMessage::AgentRetireGeneratedTool{ .. } |
         ClientMessage::AgentGetProviderAuthStates |
+        ClientMessage::AgentGetProviderCatalog |
         ClientMessage::AgentLoginProvider{ .. } |
         ClientMessage::AgentStoreGithubCopilotAuthToken{ .. } |
         ClientMessage::AgentLogoutProvider{ .. } |
@@ -753,6 +754,14 @@ if matches!(
                     let json = serde_json::to_string(&states).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentProviderAuthStates { states_json: json })
+                        .await?;
+                }
+
+                ClientMessage::AgentGetProviderCatalog => {
+                    let catalog = crate::agent::types::provider_catalog_response();
+                    let catalog_json = serde_json::to_string(&catalog).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentProviderCatalog { catalog_json })
                         .await?;
                 }
 

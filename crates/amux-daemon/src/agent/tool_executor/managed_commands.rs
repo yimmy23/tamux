@@ -421,6 +421,9 @@ async fn execute_managed_command(
                         .map(|value| format!(" in {}ms", value))
                         .unwrap_or_default();
                     if exit_code == Some(0) {
+                        agent
+                            .resolve_system_outcome_prediction_feedback(thread_id, "healthy")
+                            .await;
                         let output_section = if output_tail.trim().is_empty() {
                             String::new()
                         } else {
@@ -434,6 +437,12 @@ async fn execute_managed_command(
                             None,
                         ))
                     } else {
+                        agent
+                            .resolve_system_outcome_prediction_feedback(
+                                thread_id,
+                                "build/test failure",
+                            )
+                            .await;
                         let output_section = if output_tail.trim().is_empty() {
                             String::new()
                         } else {

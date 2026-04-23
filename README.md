@@ -194,6 +194,8 @@ Tamux supports voice workflows in both TUI and desktop app.
 - [Best Practices](docs/best-practices.md)
 - [Reference](docs/reference.md)
 - [Getting Started](docs/getting-started.md)
+- [Providers](docs/pages/providers.html)
+- [Custom Providers](docs/pages/custom-providers.html)
 - [How tamux Works](docs/how-tamux-works.md)
 - [Thread Participants](docs/operating/thread-participants.md)
 - [Speech to Text / Text to Speech](docs/speech-to-text-and-text-to-speech.md)

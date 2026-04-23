@@ -333,13 +333,41 @@ fn build_upgrade_plan(source: InstallSource) -> Result<UpgradePlan> {
     }
 }
 
-fn spawn_direct_upgrade(command_name: &str, args: &[String], install_dir: &Path) -> Result<()> {
+fn direct_upgrade_env(
+    install_dir: &Path,
+    wait_pid: u32,
+    start_daemon_after_install: bool,
+) -> Vec<(String, String)> {
+    let mut envs = vec![
+        (
+            "TAMUX_INSTALL_DIR".to_string(),
+            install_dir.display().to_string(),
+        ),
+        ("TAMUX_UPGRADE_WAIT_PID".to_string(), wait_pid.to_string()),
+    ];
+
+    if start_daemon_after_install {
+        envs.push((
+            "TAMUX_START_DAEMON_AFTER_INSTALL".to_string(),
+            "1".to_string(),
+        ));
+    }
+
+    envs
+}
+
+fn spawn_direct_upgrade(
+    command_name: &str,
+    args: &[String],
+    install_dir: &Path,
+    start_daemon_after_install: bool,
+) -> Result<()> {
     let mut command = Command::new(command_name);
-    command
-        .args(args)
-        .env("TAMUX_INSTALL_DIR", install_dir)
-        .env("TAMUX_UPGRADE_WAIT_PID", process::id().to_string())
-        .stdin(Stdio::null());
+    command.args(args).stdin(Stdio::null());
+
+    for (key, value) in direct_upgrade_env(install_dir, process::id(), start_daemon_after_install) {
+        command.env(key, value);
+    }
 
     #[cfg(windows)]
     {
@@ -352,6 +380,58 @@ fn spawn_direct_upgrade(command_name: &str, args: &[String], install_dir: &Path)
             "failed to launch the direct installer via {command_name}; rerun the platform install script manually"
         )
     })?;
+
+    Ok(())
+}
+
+fn run_npm_upgrade() -> Result<()> {
+    let status = Command::new(npm_command())
+        .args(["install", "-g", "tamux@latest"])
+        .status()
+        .context("failed to launch npm; ensure Node.js and npm are installed and on PATH")?;
+
+    if !status.success() {
+        bail!("npm install -g tamux@latest failed");
+    }
+
+    Ok(())
+}
+
+fn execute_upgrade_plan<Stop, Start, Npm, Direct>(
+    plan: UpgradePlan,
+    stop_processes: Stop,
+    start_daemon: Start,
+    run_npm_upgrade: Npm,
+    spawn_direct_upgrade: Direct,
+) -> Result<()>
+where
+    Stop: FnOnce() -> Result<()>,
+    Start: FnOnce() -> Result<()>,
+    Npm: FnOnce() -> Result<()>,
+    Direct: FnOnce(&str, &[String], &Path) -> Result<()>,
+{
+    stop_processes()?;
+
+    match plan {
+        UpgradePlan::Npm => {
+            println!("Upgrading tamux via npm...");
+            run_npm_upgrade()?;
+            start_daemon().context("upgrade succeeded but failed to restart tamux-daemon")?;
+            println!("Upgrade complete. Restarted tamux daemon.");
+        }
+        UpgradePlan::DirectInstaller {
+            install_dir,
+            command,
+            args,
+        } => {
+            println!("Upgrading tamux via direct installer...");
+            spawn_direct_upgrade(&command, &args, &install_dir)?;
+            println!(
+                "Upgrade started. tamux will refresh binaries in {} after this process exits and then restart the daemon.",
+                install_dir.display()
+            );
+        }
+    }
 
     Ok(())
 }
@@ -411,42 +491,19 @@ pub(crate) fn run_upgrade() -> Result<()> {
         &current_exe,
     ))?;
 
-    match plan {
-        UpgradePlan::Npm => {
-            println!("Upgrading tamux via npm...");
-            let status = Command::new(npm_command())
-                .args(["install", "-g", "tamux@latest"])
-                .status()
-                .context(
-                    "failed to launch npm; ensure Node.js and npm are installed and on PATH",
-                )?;
-
-            if !status.success() {
-                bail!("npm install -g tamux@latest failed");
-            }
-
-            println!("Upgrade complete.");
-        }
-        UpgradePlan::DirectInstaller {
-            install_dir,
-            command,
-            args,
-        } => {
-            println!("Upgrading tamux via direct installer...");
-            spawn_direct_upgrade(&command, &args, &install_dir)?;
-            println!(
-                "Upgrade started. tamux will refresh binaries in {} after this process exits.",
-                install_dir.display()
-            );
-        }
-    }
-
-    Ok(())
+    execute_upgrade_plan(
+        plan,
+        stop_all_tamux_processes,
+        start_daemon_process,
+        run_npm_upgrade,
+        |command, args, install_dir| spawn_direct_upgrade(command, args, install_dir, true),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::path::Path;
     use tempfile::tempdir;
 
@@ -550,6 +607,86 @@ mod tests {
         assert_eq!(
             gateway_probe.args,
             vec!["/FI", "IMAGENAME eq tamux-gateway.exe"]
+        );
+    }
+
+    #[test]
+    fn npm_upgrade_stops_processes_before_install_and_restarts_daemon_after_success() {
+        let events = RefCell::new(Vec::new());
+
+        execute_upgrade_plan(
+            UpgradePlan::Npm,
+            || {
+                events.borrow_mut().push("stop");
+                Ok(())
+            },
+            || {
+                events.borrow_mut().push("start");
+                Ok(())
+            },
+            || {
+                events.borrow_mut().push("npm");
+                Ok(())
+            },
+            |_, _, _| {
+                events.borrow_mut().push("direct");
+                Ok(())
+            },
+        )
+        .expect("upgrade should succeed");
+
+        assert_eq!(*events.borrow(), vec!["stop", "npm", "start"]);
+    }
+
+    #[test]
+    fn direct_upgrade_stops_processes_before_spawning_installer() {
+        let events = RefCell::new(Vec::new());
+
+        execute_upgrade_plan(
+            UpgradePlan::DirectInstaller {
+                install_dir: Path::new("/tmp/tamux").to_path_buf(),
+                command: "sh".to_string(),
+                args: vec!["-c".to_string(), "echo upgrade".to_string()],
+            },
+            || {
+                events.borrow_mut().push("stop");
+                Ok(())
+            },
+            || {
+                events.borrow_mut().push("start");
+                Ok(())
+            },
+            || {
+                events.borrow_mut().push("npm");
+                Ok(())
+            },
+            |command, args, install_dir| {
+                events.borrow_mut().push("direct");
+                assert_eq!(command, "sh");
+                assert_eq!(args, vec!["-c".to_string(), "echo upgrade".to_string()]);
+                assert_eq!(install_dir, Path::new("/tmp/tamux"));
+                Ok(())
+            },
+        )
+        .expect("upgrade should succeed");
+
+        assert_eq!(*events.borrow(), vec!["stop", "direct"]);
+    }
+
+    #[test]
+    fn direct_upgrade_env_requests_daemon_restart_after_install() {
+        let envs = direct_upgrade_env(Path::new("/opt/tamux"), 4242, true);
+
+        assert_eq!(
+            envs,
+            vec![
+                ("TAMUX_INSTALL_DIR".to_string(), "/opt/tamux".to_string()),
+                ("TAMUX_UPGRADE_WAIT_PID".to_string(), "4242".to_string()),
+                (
+                    "TAMUX_START_DAEMON_AFTER_INSTALL".to_string(),
+                    "1".to_string()
+                ),
+            ]
         );
     }
 }

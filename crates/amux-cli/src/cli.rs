@@ -227,6 +227,7 @@ pub(crate) enum Commands {
     Restart,
 
     /// Upgrade tamux to the npm registry's current @latest release.
+    #[command(alias = "update")]
     Upgrade,
 
     /// Start the daemon (if not already running).

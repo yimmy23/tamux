@@ -1829,9 +1829,33 @@ async fn start_goal_run_tool_creates_goal_and_list_goal_runs_returns_it() {
         .get("id")
         .and_then(|value| value.as_str())
         .expect("started goal run should expose id");
+    let goal_thread_id = started_goal
+        .get("thread_id")
+        .and_then(|value| value.as_str())
+        .expect("started goal run should expose its dedicated goal thread");
+    assert_ne!(
+        goal_thread_id, thread_id,
+        "goals started from a tool call should isolate themselves onto a fresh thread"
+    );
+
+    let goal_thread = engine
+        .get_thread(goal_thread_id)
+        .await
+        .expect("goal thread should exist");
     assert_eq!(
-        started_goal.get("thread_id").and_then(|value| value.as_str()),
-        Some(thread_id)
+        goal_thread.upstream_thread_id.as_deref(),
+        Some(thread_id),
+        "goal thread should keep lineage to the spawning thread"
+    );
+    assert!(
+        goal_thread.messages.iter().any(|message| {
+            message.role == crate::agent::types::MessageRole::System
+                && message
+                    .content
+                    .contains("Ship the release with full verification")
+                && message.content.contains(thread_id)
+        }),
+        "goal thread should be seeded with source-thread and goal-context guidance"
     );
 
     let list_call = ToolCall::with_default_weles_review(
@@ -2662,6 +2686,57 @@ async fn list_models_returns_remote_models_for_authenticated_provider() {
     assert_eq!(models.len(), 2);
     assert_eq!(models[0].id, "gpt-4.1");
     assert_eq!(models[1].id, "gpt-5.4");
+}
+
+#[tokio::test]
+async fn list_models_returns_built_in_catalog_when_remote_fetch_is_unsupported() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN.to_string();
+    config.api_key = "test-key".to_string();
+    config.base_url = "https://coding-intl.dashscope.aliyuncs.com/v1".to_string();
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-list-models-built-in".to_string(),
+        ToolFunction {
+            name: "list_models".to_string(),
+            arguments: serde_json::json!({
+                "provider": amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-list-models-built-in",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "list_models built-in fallback should succeed: {}",
+        result.content
+    );
+    let models: Vec<crate::agent::llm_client::FetchedModel> =
+        serde_json::from_str(&result.content).expect("parse fetched models");
+    assert!(
+        !models.is_empty(),
+        "built-in fallback should not return an empty list"
+    );
+    assert!(models.iter().any(|model| model.id == "glm-5"));
+    assert!(models.iter().any(|model| model.id == "qwen3.6-plus"));
 }
 
 #[tokio::test]

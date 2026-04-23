@@ -1902,6 +1902,38 @@ async fn event_trigger_defaults_can_be_seeded_and_listed() {
 }
 
 #[tokio::test]
+async fn run_loop_seeds_default_event_triggers_on_startup() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let runner = tokio::spawn(engine.clone().run_loop(shutdown_rx));
+
+    timeout(Duration::from_secs(1), async {
+        loop {
+            let payload = engine
+                .list_event_triggers_json()
+                .await
+                .expect("list_event_triggers should succeed");
+            let rows = payload.as_array().expect("payload should be an array");
+            if rows.iter().any(|row| row["event_kind"] == "weles_health")
+                && rows
+                    .iter()
+                    .any(|row| row["event_kind"] == "subagent_health")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("run_loop should seed default event triggers");
+
+    shutdown_tx.send(true).expect("shutdown signal should send");
+    runner.await.expect("run_loop should exit");
+}
+
+#[tokio::test]
 async fn event_trigger_fire_respects_cooldown_and_emits_notice() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
