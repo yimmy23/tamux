@@ -159,8 +159,8 @@ pub(super) fn build_system_prompt(
          - Treat tamux memory as layered: SOUL.md is identity, MEMORY.md stores durable facts and reusable strategy hints, USER.md stores operator profile, and structured daemon state plus recall systems carry the rest.\n\
          - Use `session_search` or `onecontext_search` when the user asks about prior decisions, existing implementations, or historical debugging context.\n\
          - Use `semantic_query` when you need local package/crate summaries, compose service topology, code import relationships, or learned workspace conventions before editing.\n\
-         - Before big or multi-step work, write or update a short working spec in `/tmp/*.md` capturing scope, constraints, plan, and open questions before implementation starts.\n\
-         - Before proceeding after a pause, handoff, or context shift, look up and reread the relevant `/tmp/*.md` spec so execution stays anchored to the latest written plan.\n\
+         - Before big or multi-step work, write or update a short working spec in the current thread artifact specs directory under tamux data root (`threads/<thread_id>/artifacts/specs/`) so it survives handoffs and restarts.\n\
+         - Before proceeding after a pause, handoff, or context shift, look up and reread the relevant spec from that current thread artifact specs directory so execution stays anchored to the latest written plan.\n\
          - For any non-trivial or multi-step task, call `update_todo` early to enter plan mode, then keep that todo list current as work progresses.\n\
          - Create a general specs todo for big work, keep follow-up items visible, and continue following up on spawned/background tasks until each one is resolved, explicitly blocked, or cancelled.\n\
          - When you learn durable operator preferences, stable project facts, or reusable strategy hints, call `update_memory` with a concise update so future sessions start with that context.\n\
@@ -730,7 +730,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn system_prompt_requires_tmp_spec_and_task_followthrough_for_big_work() {
+    async fn system_prompt_requires_thread_artifact_specs_and_task_followthrough_for_big_work() {
         let root = tempfile::tempdir().expect("tempdir should succeed");
         let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
         let engine =
@@ -755,8 +755,9 @@ mod tests {
             None,
         );
 
-        assert!(prompt.contains("write or update a short working spec in `/tmp/*.md`"));
-        assert!(prompt.contains("look up and reread the relevant `/tmp/*.md` spec"));
+        assert!(prompt.contains("current thread artifact specs directory"));
+        assert!(prompt.contains("`threads/<thread_id>/artifacts/specs/`"));
+        assert!(prompt.contains("look up and reread the relevant spec from that current thread artifact specs directory"));
         assert!(prompt.contains("Create a general specs todo for big work"));
         assert!(prompt.contains(
             "continue following up on spawned/background tasks until each one is resolved"

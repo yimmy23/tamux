@@ -211,16 +211,17 @@ async fn get_skill_variant_returns_some_for_existing() -> Result<()> {
 }
 
 #[tokio::test]
-async fn tool_output_preview_path_uses_thread_cache_layout() -> Result<()> {
+async fn tool_output_preview_path_uses_thread_artifact_preview_layout() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
     let path = store.tool_output_preview_path("thread-123", None, "bash_command", 1_713_000_000);
 
     assert_eq!(
         path,
-        root.join(".cache")
-            .join("tools")
-            .join("thread-thread-123")
+        root.join("threads")
+            .join("thread-123")
+            .join("artifacts")
+            .join("previews")
             .join("bash_command-1713000000.txt")
     );
 
@@ -229,7 +230,7 @@ async fn tool_output_preview_path_uses_thread_cache_layout() -> Result<()> {
 }
 
 #[tokio::test]
-async fn tool_output_preview_path_uses_goal_cache_layout() -> Result<()> {
+async fn tool_output_preview_path_uses_goal_named_thread_preview_layout() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
     let path =
@@ -237,10 +238,11 @@ async fn tool_output_preview_path_uses_goal_cache_layout() -> Result<()> {
 
     assert_eq!(
         path,
-        root.join(".cache")
-            .join("tools")
-            .join("goal-goal-456")
-            .join("web_search-thread-123-1713000001.txt")
+        root.join("threads")
+            .join("thread-123")
+            .join("artifacts")
+            .join("previews")
+            .join("web_search-goal-456-1713000001.txt")
     );
 
     fs::remove_dir_all(root)?;

@@ -415,6 +415,28 @@ fn xiaomi_mimo_omni_is_multimodal() {
 }
 
 #[test]
+fn xiaomi_mimo_v25_series_modalities_match_capabilities() {
+    assert_eq!(
+        model_modalities(PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "mimo-v2.5"),
+        MULTIMODAL
+    );
+    assert!(model_supports(
+        PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+        "mimo-v2.5",
+        Modality::Audio
+    ));
+    assert_eq!(
+        model_modalities(PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "mimo-v2.5-tts"),
+        TEXT_AUDIO
+    );
+    assert!(!model_supports(
+        PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+        "mimo-v2.5-tts",
+        Modality::Video
+    ));
+}
+
+#[test]
 fn arcee_catalog_stays_conservative_text_only() {
     assert_eq!(
         model_modalities(

@@ -5,10 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>tamux · Daemon-first AI Environment</title>
   <meta name="description" content="tamux is a daemon-first terminal multiplexer with durable agent runtime, goal runners, and governed execution." />
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="tamux · Daemon-first AI Environment">
+  <meta property="og:description" content="A terminal multiplexer where the daemon owns all state. Sessions, goals, and memory persist beyond any client connection.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://docs.tamux.app">
+  <meta property="og:image" content="https://docs.tamux.app/assets/og_image.jpg">
+  
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="tamux · Daemon-first AI Environment">
+  <meta name="twitter:description" content="A terminal multiplexer where the daemon owns all state. Sessions, goals, and memory persist beyond any client connection.">
+  <meta name="twitter:image" content="https://docs.tamux.app/assets/og_image.jpg">
+  
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="pages/assets/style.css" />
+  <link rel="icon" href="assets/icon.ico" />
 </head>
 <body data-page="index.html">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -29,28 +44,63 @@
   <main id="main" class="container page-shell">
     <aside class="page-sidebar">
       <div class="sidebar-card">
-        <p class="eyebrow">Navigate</p>
-        <ul class="side-links">
-          <li><a href="index.html" data-nav="index.html">Overview</a></li>
-          <li><a href="pages/guides.html" data-nav="guides.html">Guides</a></li>
-          <li><a href="pages/why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li>
-          <li><a href="pages/architecture.html" data-nav="architecture.html">Architecture</a></li>
-          <li><a href="pages/mission-control.html" data-nav="mission-control.html">Mission Control</a></li>
-          <li><a href="pages/goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li>
-          <li><a href="pages/task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
-          <li><a href="pages/multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
-          <li><a href="pages/threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
-          <li><a href="pages/continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
-          <li><a href="pages/liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
-          <li><a href="pages/governance.html" data-nav="governance.html">Governance</a></li>
-          <li><a href="pages/memory-security.html" data-nav="memory-security.html">Memory & Security</a></li>
-          <li><a href="pages/tui.html" data-nav="tui.html">TUI</a></li>
-          <li><a href="pages/gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li>
-          <li><a href="pages/semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li>
-          <li><a href="pages/moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li>
-          <li><a href="pages/plugins.html" data-nav="plugins.html">Plugins</a></li>
-          <li><a href="pages/reference.html" data-nav="reference.html">Reference</a></li>
-        </ul>
+        <p class="eyebrow">Docs map</p>
+        <div class="nav-group">
+          <p class="nav-group-title">Orientation</p>
+          <ul class="side-links">
+            <li><a href="index.html" data-nav="index.html">Overview</a></li>
+            <li><a href="pages/why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li>
+            <li><a href="pages/guides.html" data-nav="guides.html">Guides</a></li>
+            <li><a href="pages/best-practices.html" data-nav="best-practices.html">Best Practices</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Runtime</p>
+          <ul class="side-links">
+            <li><a href="pages/architecture.html" data-nav="architecture.html">Architecture</a></li>
+            <li><a href="pages/mission-control.html" data-nav="mission-control.html">Mission Control</a></li>
+            <li><a href="pages/goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li>
+            <li><a href="pages/task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
+            <li><a href="pages/multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
+            <li><a href="pages/threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reliability</p>
+          <ul class="side-links">
+            <li><a href="pages/continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
+            <li><a href="pages/liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Trust & Control</p>
+          <ul class="side-links">
+            <li><a href="pages/memory.html" data-nav="memory.html">Memory</a></li>
+            <li><a href="pages/security.html" data-nav="security.html">Security</a></li>
+            <li><a href="pages/governance.html" data-nav="governance.html">Governance</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Interfaces</p>
+          <ul class="side-links">
+            <li><a href="pages/tui.html" data-nav="tui.html">TUI</a></li>
+            <li><a href="pages/gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Extension & Learning</p>
+          <ul class="side-links">
+            <li><a href="pages/semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li>
+            <li><a href="pages/moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li>
+            <li><a href="pages/plugins.html" data-nav="plugins.html">Plugins</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reference</p>
+          <ul class="side-links">
+            <li><a href="pages/reference.html" data-nav="reference.html">Reference</a></li>
+          </ul>
+        </div>
       </div>
       <div class="sidebar-card compact">
         <p class="eyebrow">Community</p>
@@ -155,17 +205,25 @@
             <h3>Operator guides</h3>
             <p>Installation, first-run flow, daily habits, and scenario-based workflows.</p>
           </a>
+          <a class="doc-card" href="pages/best-practices.html">
+            <h3>Best practices</h3>
+            <p>How to use tamux well: threads, goals, compaction, approvals, and model roles.</p>
+          </a>
           <a class="doc-card" href="pages/architecture.html">
             <h3>Technical deep dive</h3>
             <p>Daemon ownership, task queue, self-orchestration layers, and component breakdowns.</p>
           </a>
           <a class="doc-card" href="pages/goal-runners.html">
             <h3>Goal runners</h3>
-            <p>How durable autonomy works, when to use it, and how it fits Mission Control.</p>
+            <p>How durable autonomy works, when to use it, and how it fits the goal surfaces.</p>
           </a>
-          <a class="doc-card" href="pages/memory-security.html">
-            <h3>Memory and security</h3>
-            <p>Layered memory, provenance, critique, approvals, and governance semantics.</p>
+          <a class="doc-card" href="pages/memory.html">
+            <h3>Memory architecture</h3>
+            <p>How layered memory, provenance, recall, skills, and durable writes actually work.</p>
+          </a>
+          <a class="doc-card" href="pages/security.html">
+            <h3>Security</h3>
+            <p>How approvals, critique, containment, provenance, and governance protect autonomous work.</p>
           </a>
           <a class="doc-card" href="pages/plugins.html">
             <h3>Plugins</h3>

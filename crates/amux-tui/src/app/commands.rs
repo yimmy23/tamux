@@ -2419,7 +2419,8 @@ impl TuiModel {
             }
         }
 
-        if self.selected_goal_step_context().is_some() || self.selected_goal_prompt_context().is_some()
+        if self.selected_goal_step_context().is_some()
+            || self.selected_goal_prompt_context().is_some()
         {
             items.push(GoalActionPickerItem::RetryStep);
             items.push(GoalActionPickerItem::RerunFromStep);
@@ -3098,10 +3099,8 @@ impl TuiModel {
             match directive.kind {
                 input_refs::LeadingAgentDirectiveKind::InternalDelegate => {
                     if let Some(thread_id) = self.chat.active_thread_id().map(String::from) {
-                        if self.restore_prompt_and_show_budget_exceeded_notice(
-                            &thread_id,
-                            &prompt,
-                        ) {
+                        if self.restore_prompt_and_show_budget_exceeded_notice(&thread_id, &prompt)
+                        {
                             return;
                         }
                     }

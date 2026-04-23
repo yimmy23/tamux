@@ -1107,7 +1107,9 @@ fn goal_composer_command_palette_typing_keeps_goal_draft_intact() {
     model.main_pane_view = MainPaneView::GoalComposer;
     model.focus = FocusArea::Input;
     model.input.set_text("Ship release");
-    model.goal_mission_control.set_prompt_text("Ship release".to_string());
+    model
+        .goal_mission_control
+        .set_prompt_text("Ship release".to_string());
 
     let quit = model.handle_key(KeyCode::Char('p'), KeyModifiers::CONTROL);
     assert!(!quit);
@@ -1127,7 +1129,9 @@ fn goal_composer_command_palette_reopens_fresh_after_close() {
     model.main_pane_view = MainPaneView::GoalComposer;
     model.focus = FocusArea::Input;
     model.input.set_text("Ship release");
-    model.goal_mission_control.set_prompt_text("Ship release".to_string());
+    model
+        .goal_mission_control
+        .set_prompt_text("Ship release".to_string());
 
     let quit = model.handle_key(KeyCode::Char('p'), KeyModifiers::CONTROL);
     assert!(!quit);

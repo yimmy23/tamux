@@ -1103,6 +1103,117 @@ fn default_agent_config_exposes_heuristic_compaction_strategy_defaults() {
 }
 
 #[test]
+fn reused_user_message_is_injected_for_chat_completions_when_continuation_has_no_user_turn() {
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_ALIBABA_CODING_PLAN.to_string();
+
+    let mut provider = sample_provider_config();
+    provider.model = "kimi-k2.5".to_string();
+    provider.api_transport = ApiTransport::ChatCompletions;
+
+    let thread = sample_thread(vec![
+        AgentMessage {
+            id: "assistant-1".to_string(),
+            role: MessageRole::Assistant,
+            content: String::new(),
+            content_blocks: Vec::new(),
+            tool_calls: Some(vec![ToolCall {
+                id: "call-1".to_string(),
+                function: ToolFunction {
+                    name: "list_files".to_string(),
+                    arguments: "{}".to_string(),
+                },
+                weles_review: None,
+            }]),
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: Some(PROVIDER_ID_ALIBABA_CODING_PLAN.to_string()),
+            model: Some("kimi-k2.5".to_string()),
+            api_transport: Some(ApiTransport::ChatCompletions),
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            tool_output_preview_path: None,
+            structural_refs: Vec::new(),
+            pinned_for_compaction: false,
+            timestamp: 1,
+        },
+        AgentMessage {
+            id: "tool-1".to_string(),
+            role: MessageRole::Tool,
+            content: "[]".to_string(),
+            content_blocks: Vec::new(),
+            tool_calls: None,
+            tool_call_id: Some("call-1".to_string()),
+            tool_name: Some("list_files".to_string()),
+            tool_arguments: Some("{}".to_string()),
+            tool_status: Some("done".to_string()),
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            tool_output_preview_path: None,
+            structural_refs: Vec::new(),
+            pinned_for_compaction: false,
+            timestamp: 2,
+        },
+    ]);
+
+    let prepared = prepare_llm_request_with_reused_user_message(
+        &thread,
+        &config,
+        &provider,
+        Some("continue with the file review"),
+    );
+
+    assert_eq!(prepared.transport, ApiTransport::ChatCompletions);
+    assert!(
+        prepared
+            .messages
+            .iter()
+            .any(|message| message.role == "user"),
+        "expected reused user message to be injected into chat completions requests"
+    );
+    assert_eq!(
+        prepared
+            .messages
+            .iter()
+            .find(|message| message.role == "user")
+            .and_then(|message| match &message.content {
+                ApiContent::Text(content) => Some(content.as_str()),
+                ApiContent::Blocks(_) => None,
+            }),
+        Some("continue with the file review")
+    );
+}
+
+#[test]
 fn heuristic_effective_context_target_uses_only_primary_model_threshold() {
     let mut config = AgentConfig::default();
     config.compaction.strategy = CompactionStrategy::Heuristic;

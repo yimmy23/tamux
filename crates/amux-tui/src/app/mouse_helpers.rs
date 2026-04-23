@@ -36,6 +36,7 @@ impl TuiModel {
         self.task_view_drag_current = None;
         self.task_view_drag_anchor_point = None;
         self.task_view_drag_current_point = None;
+        self.file_preview_scrollbar_drag_grab_offset = None;
     }
 
     pub(in crate::app) fn current_detail_view_max_scroll(&self) -> usize {

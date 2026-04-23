@@ -202,6 +202,19 @@ pub(super) fn known_models_for_provider_auth(
         PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN => &[
             ("mimo-v2-pro", "MiMo V2 Pro", 1_000_000),
             ("mimo-v2-omni", "MiMo V2 Omni", 256_000),
+            ("mimo-v2.5-pro", "MiMo V2.5 Pro", 1_000_000),
+            ("mimo-v2.5", "MiMo V2.5", 1_000_000),
+            ("mimo-v2.5-tts", "MiMo V2.5 TTS", 128_000),
+            (
+                "mimo-v2.5-tts-voiceclone",
+                "MiMo V2.5 TTS VoiceClone",
+                128_000,
+            ),
+            (
+                "mimo-v2.5-tts-voicedesign",
+                "MiMo V2.5 TTS VoiceDesign",
+                128_000,
+            ),
         ],
         PROVIDER_ID_NOUS_PORTAL => &[
             ("nousresearch/hermes-4-70b", "Nous: Hermes 4 70B", 131_072),

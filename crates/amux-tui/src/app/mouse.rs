@@ -507,6 +507,55 @@ impl TuiModel {
                         });
                         self.chat_drag_anchor_point = point;
                         self.chat_drag_current_point = point;
+                    } else if let MainPaneView::FilePreview(target) = self.main_pane_view.clone() {
+                        let pos = Position::new(mouse.column, mouse.row);
+                        if pos.x == chat_area.x.saturating_add(chat_area.width).saturating_sub(1) {
+                            if let Some(layout) = widgets::file_preview::scrollbar_layout(
+                                chat_area,
+                                &self.tasks,
+                                &target,
+                                &self.theme,
+                                self.task_view_scroll,
+                            ) {
+                                let in_scrollbar = pos.y >= layout.scrollbar.y
+                                    && pos.y
+                                        < layout
+                                            .scrollbar
+                                            .y
+                                            .saturating_add(layout.scrollbar.height);
+                                if in_scrollbar {
+                                    self.clear_task_view_drag_selection();
+                                    let default_grab_offset = layout.thumb.height / 2;
+                                    let grab_offset = if pos.y >= layout.thumb.y
+                                        && pos.y
+                                            < layout.thumb.y.saturating_add(layout.thumb.height)
+                                    {
+                                        pos.y.saturating_sub(layout.thumb.y)
+                                    } else {
+                                        default_grab_offset
+                                            .min(layout.thumb.height.saturating_sub(1))
+                                    };
+                                    if let Some(target_scroll) =
+                                        widgets::file_preview::scrollbar_scroll_offset_for_pointer(
+                                            chat_area,
+                                            &self.tasks,
+                                            &target,
+                                            &self.theme,
+                                            self.task_view_scroll,
+                                            pos.y,
+                                            grab_offset,
+                                        )
+                                    {
+                                        self.task_view_scroll =
+                                            target_scroll.min(self.current_detail_view_max_scroll());
+                                    }
+                                    self.file_preview_scrollbar_drag_grab_offset =
+                                        Some(grab_offset);
+                                    self.input.set_mode(input::InputMode::Insert);
+                                    return;
+                                }
+                            }
+                        }
                     } else if matches!(self.main_pane_view, MainPaneView::WorkContext) {
                         if let Some(
                             widgets::work_context_view::WorkContextHitTarget::ClosePreview,
@@ -694,6 +743,23 @@ impl TuiModel {
                             self.set_chat_scroll_offset(target);
                         }
                     }
+                } else if let Some(grab_offset) = self.file_preview_scrollbar_drag_grab_offset {
+                    if let MainPaneView::FilePreview(target) = &self.main_pane_view {
+                        if let Some(target_scroll) =
+                            widgets::file_preview::scrollbar_scroll_offset_for_pointer(
+                                chat_area,
+                                &self.tasks,
+                                target,
+                                &self.theme,
+                                self.task_view_scroll,
+                                mouse.row,
+                                grab_offset,
+                            )
+                        {
+                            self.task_view_scroll =
+                                target_scroll.min(self.current_detail_view_max_scroll());
+                        }
+                    }
                 } else if self.chat_drag_anchor.is_some()
                     && matches!(self.main_pane_view, MainPaneView::Conversation)
                 {
@@ -796,6 +862,13 @@ impl TuiModel {
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 if self.chat_scrollbar_drag_grab_offset.take().is_some() {
+                    return;
+                }
+                if self
+                    .file_preview_scrollbar_drag_grab_offset
+                    .take()
+                    .is_some()
+                {
                     return;
                 }
                 if let Some(anchor) = self.chat_drag_anchor.take() {

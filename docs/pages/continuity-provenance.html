@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="../assets/icon.ico" />
 </head>
 <body data-page="continuity-provenance.html">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -30,28 +31,63 @@
   <main id="main" class="container page-shell">
     <aside class="page-sidebar">
       <div class="sidebar-card">
-        <p class="eyebrow">Navigate</p>
-        <ul class="side-links">
-          <li><a href="../index.html" data-nav="index.html">Overview</a></li>
-          <li><a href="guides.html" data-nav="guides.html">Guides</a></li>
-          <li><a href="why-tamux.html" data-nav="why-tamux.html">Why</a></li>
-          <li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li>
-          <li><a href="mission-control.html" data-nav="mission-control.html">Mission</a></li>
-          <li><a href="goal-runners.html" data-nav="goal-runners.html">Goals</a></li>
-          <li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks</a></li>
-          <li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
-          <li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads</a></li>
-          <li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
-          <li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
-          <li><a href="governance.html" data-nav="governance.html">Governance</a></li>
-          <li><a href="memory-security.html" data-nav="memory-security.html">Memory</a></li>
-          <li><a href="tui.html" data-nav="tui.html">TUI</a></li>
-          <li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway</a></li>
-          <li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic</a></li>
-          <li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats</a></li>
-          <li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li>
-          <li><a href="reference.html" data-nav="reference.html">Reference</a></li>
-        </ul>
+        <p class="eyebrow">Docs map</p>
+        <div class="nav-group">
+          <p class="nav-group-title">Orientation</p>
+          <ul class="side-links">
+            <li><a href="../index.html" data-nav="index.html">Overview</a></li>
+            <li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li>
+            <li><a href="guides.html" data-nav="guides.html">Guides</a></li>
+            <li><a href="best-practices.html" data-nav="best-practices.html">Best Practices</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Runtime</p>
+          <ul class="side-links">
+            <li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li>
+            <li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li>
+            <li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li>
+            <li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
+            <li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
+            <li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reliability</p>
+          <ul class="side-links">
+            <li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
+            <li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Trust & Control</p>
+          <ul class="side-links">
+            <li><a href="memory.html" data-nav="memory.html">Memory</a></li>
+            <li><a href="security.html" data-nav="security.html">Security</a></li>
+            <li><a href="governance.html" data-nav="governance.html">Governance</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Interfaces</p>
+          <ul class="side-links">
+            <li><a href="tui.html" data-nav="tui.html">TUI</a></li>
+            <li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Extension & Learning</p>
+          <ul class="side-links">
+            <li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li>
+            <li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li>
+            <li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reference</p>
+          <ul class="side-links">
+            <li><a href="reference.html" data-nav="reference.html">Reference</a></li>
+          </ul>
+        </div>
       </div>
       <div class="sidebar-card compact">
         <p class="eyebrow">Community</p>
@@ -111,7 +147,7 @@
     <strong>Why that matters:</strong> memory becomes inspectable and correctable rather than an opaque pile of auto-summaries.
   </div>
   <div class="callout info">
-    <strong>Surface note:</strong> the provenance model itself is shipped in the daemon, APIs, and CLI flows today. Richer inspection and confirm/retract experiences exist unevenly across clients, so UI parity should be treated as evolving rather than complete.
+    <strong>Surface note:</strong> the provenance model itself is shipped in the daemon, APIs, and CLI flows today. Richer inspection and confirm/retract experiences exist unevenly across clients, so UI parity should be treated as evolving rather than complete. For the full layered model, see <a href="memory.html">Memory Architecture</a>.
   </div>
 </section>
 

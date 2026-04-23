@@ -4127,8 +4127,9 @@ fn on_tick_refreshes_spawned_sidebar_tasks_on_cooldown() {
     model
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-parent".to_string()));
-    model.tasks.reduce(task::TaskAction::TaskListReceived(vec![
-        task::AgentTask {
+    model
+        .tasks
+        .reduce(task::TaskAction::TaskListReceived(vec![task::AgentTask {
             id: "task-child".to_string(),
             title: "Spawned child".to_string(),
             description: "Spawned child task".to_string(),
@@ -4144,8 +4145,7 @@ fn on_tick_refreshes_spawned_sidebar_tasks_on_cooldown() {
             command: None,
             awaiting_approval_id: None,
             blocked_reason: None,
-        },
-    ]));
+        }]));
     model.activate_sidebar_tab(SidebarTab::Spawned);
 
     model.on_tick();
@@ -4183,8 +4183,9 @@ fn on_tick_does_not_refresh_spawned_sidebar_tasks_while_thread_is_loading() {
     model
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-parent".to_string()));
-    model.tasks.reduce(task::TaskAction::TaskListReceived(vec![
-        task::AgentTask {
+    model
+        .tasks
+        .reduce(task::TaskAction::TaskListReceived(vec![task::AgentTask {
             id: "task-child".to_string(),
             title: "Spawned child".to_string(),
             description: "Spawned child task".to_string(),
@@ -4200,8 +4201,7 @@ fn on_tick_does_not_refresh_spawned_sidebar_tasks_while_thread_is_loading() {
             command: None,
             awaiting_approval_id: None,
             blocked_reason: None,
-        },
-    ]));
+        }]));
     model.activate_sidebar_tab(SidebarTab::Spawned);
     model.thread_loading_id = Some("thread-parent".to_string());
 
@@ -5553,7 +5553,10 @@ fn optimistic_new_thread_keeps_thinking_during_stale_thread_list_refresh() {
 
     model.handle_client_event(ClientEvent::ThreadList(vec![]));
 
-    assert_eq!(model.chat.active_thread_id(), Some(optimistic_thread_id.as_str()));
+    assert_eq!(
+        model.chat.active_thread_id(),
+        Some(optimistic_thread_id.as_str())
+    );
     assert_eq!(
         model.footer_activity_text().as_deref(),
         Some("thinking"),
@@ -5591,6 +5594,52 @@ fn reopened_thread_keeps_thinking_during_stale_thread_list_refresh() {
         model.footer_activity_text().as_deref(),
         Some("thinking"),
         "stale thread list refresh should not clear pending thinking on a reopened thread"
+    );
+}
+
+#[test]
+fn follow_up_prompt_keeps_thinking_during_stale_thread_list_refresh() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        messages: vec![
+            crate::wire::AgentMessage {
+                id: Some("msg-user-1".to_string()),
+                role: crate::wire::MessageRole::User,
+                content: "First question".to_string(),
+                timestamp: 1,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+            crate::wire::AgentMessage {
+                id: Some("msg-assistant-1".to_string()),
+                role: crate::wire::MessageRole::Assistant,
+                content: "First answer".to_string(),
+                timestamp: 2,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+        ],
+        created_at: 1,
+        updated_at: 2,
+        ..Default::default()
+    })));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.submit_prompt("follow-up question".to_string());
+    assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
+
+    model.handle_client_event(ClientEvent::ThreadList(vec![]));
+
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+    assert_eq!(
+        model.footer_activity_text().as_deref(),
+        Some("thinking"),
+        "stale thread list refresh should not clear pending thinking on a follow-up prompt"
     );
 }
 

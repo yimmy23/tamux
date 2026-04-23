@@ -191,16 +191,30 @@ pub fn fixed_api_transport_for_model(provider_id: &str, model_id: &str) -> Optio
     }
 }
 
-pub fn provider_supports_audio_tool(provider_id: &str, _kind: AudioToolKind) -> bool {
-    matches!(
-        provider_id,
-        PROVIDER_ID_CUSTOM
-            | PROVIDER_ID_OPENAI
-            | PROVIDER_ID_AZURE_OPENAI
-            | PROVIDER_ID_GROQ
-            | PROVIDER_ID_OPENROUTER
-            | PROVIDER_ID_XAI
-    )
+pub fn provider_supports_audio_tool(provider_id: &str, kind: AudioToolKind) -> bool {
+    match kind {
+        AudioToolKind::SpeechToText => matches!(
+            provider_id,
+            PROVIDER_ID_CUSTOM
+                | PROVIDER_ID_OPENAI
+                | PROVIDER_ID_AZURE_OPENAI
+                | PROVIDER_ID_GROQ
+                | PROVIDER_ID_OPENROUTER
+                | PROVIDER_ID_XAI
+        ),
+        AudioToolKind::TextToSpeech => matches!(
+            provider_id,
+            PROVIDER_ID_CUSTOM
+                | PROVIDER_ID_OPENAI
+                | PROVIDER_ID_AZURE_OPENAI
+                | PROVIDER_ID_GROQ
+                | PROVIDER_ID_MINIMAX
+                | PROVIDER_ID_MINIMAX_CODING_PLAN
+                | PROVIDER_ID_OPENROUTER
+                | PROVIDER_ID_XAI
+                | PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -241,6 +255,32 @@ mod tests {
             PROVIDER_ID_XAI,
             AudioToolKind::TextToSpeech,
         ));
+    }
+
+    #[test]
+    fn xiaomi_is_marked_as_tts_only_audio_provider() {
+        assert!(!provider_supports_audio_tool(
+            PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+            AudioToolKind::SpeechToText,
+        ));
+        assert!(provider_supports_audio_tool(
+            PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+            AudioToolKind::TextToSpeech,
+        ));
+    }
+
+    #[test]
+    fn minimax_providers_are_marked_as_tts_only_audio_providers() {
+        for provider_id in [PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN] {
+            assert!(!provider_supports_audio_tool(
+                provider_id,
+                AudioToolKind::SpeechToText,
+            ));
+            assert!(provider_supports_audio_tool(
+                provider_id,
+                AudioToolKind::TextToSpeech,
+            ));
+        }
     }
 
     #[test]
@@ -289,10 +329,7 @@ mod tests {
     #[test]
     fn github_copilot_gemini_31_is_forced_to_chat_completions() {
         assert_eq!(
-            fixed_api_transport_for_model(
-                PROVIDER_ID_GITHUB_COPILOT,
-                "gemini-3.1-pro-preview",
-            ),
+            fixed_api_transport_for_model(PROVIDER_ID_GITHUB_COPILOT, "gemini-3.1-pro-preview",),
             Some("chat_completions")
         );
         assert_eq!(

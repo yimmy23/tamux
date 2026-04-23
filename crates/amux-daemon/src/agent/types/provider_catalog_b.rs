@@ -137,6 +137,36 @@ pub const XIAOMI_MIMO_TOKEN_PLAN_MODELS: &[ModelDefinition] = &[
         context_window: 256_000,
         modalities: MULTIMODAL,
     },
+    ModelDefinition {
+        id: "mimo-v2.5-pro",
+        name: "MiMo V2.5 Pro",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "mimo-v2.5",
+        name: "MiMo V2.5",
+        context_window: 1_000_000,
+        modalities: MULTIMODAL,
+    },
+    ModelDefinition {
+        id: "mimo-v2.5-tts",
+        name: "MiMo V2.5 TTS",
+        context_window: 128_000,
+        modalities: TEXT_AUDIO,
+    },
+    ModelDefinition {
+        id: "mimo-v2.5-tts-voiceclone",
+        name: "MiMo V2.5 TTS VoiceClone",
+        context_window: 128_000,
+        modalities: TEXT_AUDIO,
+    },
+    ModelDefinition {
+        id: "mimo-v2.5-tts-voicedesign",
+        name: "MiMo V2.5 TTS VoiceDesign",
+        context_window: 128_000,
+        modalities: TEXT_AUDIO,
+    },
 ];
 
 pub const NOUS_PORTAL_MODELS: &[ModelDefinition] = &[

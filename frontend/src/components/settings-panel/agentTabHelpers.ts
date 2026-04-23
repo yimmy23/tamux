@@ -20,6 +20,23 @@ const XAI_AUDIO_MODELS: ModelDefinition[] = [
   { id: "grok-4", name: "Grok 4", contextWindow: 262144, modalities: ["audio"] },
 ];
 
+const XIAOMI_TTS_MODELS: ModelDefinition[] = [
+  { id: "mimo-v2.5-tts", name: "MiMo V2.5 TTS", contextWindow: 128000, modalities: ["audio"] },
+  { id: "mimo-v2.5-tts-voiceclone", name: "MiMo V2.5 TTS VoiceClone", contextWindow: 128000, modalities: ["audio"] },
+  { id: "mimo-v2.5-tts-voicedesign", name: "MiMo V2.5 TTS VoiceDesign", contextWindow: 128000, modalities: ["audio"] },
+];
+
+const MINIMAX_TTS_MODELS: ModelDefinition[] = [
+  { id: "speech-2.8-hd", name: "MiniMax Speech 2.8 HD", contextWindow: 0, modalities: ["audio"] },
+  { id: "speech-2.8-turbo", name: "MiniMax Speech 2.8 Turbo", contextWindow: 0, modalities: ["audio"] },
+  { id: "speech-2.6-hd", name: "MiniMax Speech 2.6 HD", contextWindow: 0, modalities: ["audio"] },
+  { id: "speech-2.6-turbo", name: "MiniMax Speech 2.6 Turbo", contextWindow: 0, modalities: ["audio"] },
+  { id: "speech-02-hd", name: "MiniMax Speech 02 HD", contextWindow: 0, modalities: ["audio"] },
+  { id: "speech-02-turbo", name: "MiniMax Speech 02 Turbo", contextWindow: 0, modalities: ["audio"] },
+  { id: "speech-01-hd", name: "MiniMax Speech 01 HD", contextWindow: 0, modalities: ["audio"] },
+  { id: "speech-01-turbo", name: "MiniMax Speech 01 Turbo", contextWindow: 0, modalities: ["audio"] },
+];
+
 const OPENAI_IMAGE_MODELS: ModelDefinition[] = [
   { id: "gpt-image-1", name: "GPT Image 1", contextWindow: 0, modalities: ["image"] },
   { id: "gpt-image-2", name: "GPT Image 2", contextWindow: 0, modalities: ["image"] },
@@ -28,6 +45,10 @@ const OPENAI_IMAGE_MODELS: ModelDefinition[] = [
 const OPENROUTER_IMAGE_MODELS: ModelDefinition[] = [
   { id: "openai/gpt-image-1", name: "OpenAI GPT Image 1", contextWindow: 0, modalities: ["image"] },
   { id: "openai/gpt-image-2", name: "OpenAI GPT Image 2", contextWindow: 0, modalities: ["image"] },
+];
+
+const MINIMAX_IMAGE_MODELS: ModelDefinition[] = [
+  { id: "image-01", name: "MiniMax Image 01", contextWindow: 0, modalities: ["image"] },
 ];
 
 export type ProviderOption = {
@@ -44,6 +65,12 @@ export function audioModelOptions(
   }
   if (providerId === "xai") {
     return XAI_AUDIO_MODELS;
+  }
+  if ((providerId === "minimax" || providerId === "minimax-coding-plan") && kind === "tts") {
+    return MINIMAX_TTS_MODELS;
+  }
+  if (providerId === "xiaomi-mimo-token-plan" && kind === "tts") {
+    return XIAOMI_TTS_MODELS;
   }
   return undefined;
 }
@@ -69,8 +96,11 @@ export function normalizeAudioModelForProviderChange(
   return "";
 }
 
-export function filterAudioProviderOptions(providerOptions: ProviderOption[]): ProviderOption[] {
-  return providerOptions.filter((provider) => providerSupportsAudioTool(provider.id, "stt"));
+export function filterAudioProviderOptions(
+  providerOptions: ProviderOption[],
+  kind: "stt" | "tts",
+): ProviderOption[] {
+  return providerOptions.filter((provider) => providerSupportsAudioTool(provider.id, kind));
 }
 
 export function imageGenerationModelOptions(providerId: AgentProviderId): ModelDefinition[] {
@@ -79,6 +109,9 @@ export function imageGenerationModelOptions(providerId: AgentProviderId): ModelD
   }
   if (providerId === "openrouter") {
     return OPENROUTER_IMAGE_MODELS;
+  }
+  if (providerId === "minimax" || providerId === "minimax-coding-plan") {
+    return MINIMAX_IMAGE_MODELS;
   }
   return [];
 }

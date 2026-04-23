@@ -339,8 +339,10 @@ pub(super) fn prepare_llm_request_with_reused_user_message(
             };
         }
 
+        let mut messages = messages_to_api_format(&request_messages);
+        inject_reused_user_message_if_missing(&mut messages, reused_user_message);
         return PreparedLlmRequest {
-            messages: messages_to_api_format(&request_messages),
+            messages,
             transport: ApiTransport::Responses,
             previous_response_id: None,
             upstream_thread_id: uses_chatgpt_subscription_responses.then(|| {
@@ -353,8 +355,10 @@ pub(super) fn prepare_llm_request_with_reused_user_message(
         };
     }
 
+    let mut messages = messages_to_api_format(&request_messages);
+    inject_reused_user_message_if_missing(&mut messages, reused_user_message);
     PreparedLlmRequest {
-        messages: messages_to_api_format(&request_messages),
+        messages,
         transport: ApiTransport::ChatCompletions,
         previous_response_id: None,
         upstream_thread_id: None,
@@ -1638,7 +1642,8 @@ fn select_compaction_transport(
         default_api_transport_for_provider(provider_id)
     };
 
-    if let Some(fixed_transport) = fixed_api_transport_for_model(provider_id, &provider_config.model)
+    if let Some(fixed_transport) =
+        fixed_api_transport_for_model(provider_id, &provider_config.model)
     {
         return fixed_transport;
     }

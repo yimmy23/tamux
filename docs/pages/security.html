@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Security · tamux</title>
+  <meta name="description" content="How tamux secures autonomous work through governance, structured verdicts, approvals, provenance, critique, and containment." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="../assets/icon.ico" />
+</head>
+<body data-page="security.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="../index.html">
+        <img src="../assets/icon.png" alt="tamux" class="brand-logo-img" />
+        <span class="brand-text">
+          <strong>tamux</strong>
+          <small>daemon-first runtime</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false">Menu</button>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+<aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <div class="nav-group">
+          <p class="nav-group-title">Orientation</p>
+          <ul class="side-links">
+            <li><a href="../index.html" data-nav="index.html">Overview</a></li>
+            <li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li>
+            <li><a href="guides.html" data-nav="guides.html">Guides</a></li>
+            <li><a href="best-practices.html" data-nav="best-practices.html">Best Practices</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Runtime</p>
+          <ul class="side-links">
+            <li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li>
+            <li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li>
+            <li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li>
+            <li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
+            <li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
+            <li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reliability</p>
+          <ul class="side-links">
+            <li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
+            <li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Trust & Control</p>
+          <ul class="side-links">
+            <li><a href="memory.html" data-nav="memory.html">Memory</a></li>
+            <li><a href="security.html" data-nav="security.html">Security</a></li>
+            <li><a href="governance.html" data-nav="governance.html">Governance</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Interfaces</p>
+          <ul class="side-links">
+            <li><a href="tui.html" data-nav="tui.html">TUI</a></li>
+            <li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Extension & Learning</p>
+          <ul class="side-links">
+            <li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li>
+            <li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li>
+            <li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reference</p>
+          <ul class="side-links">
+            <li><a href="reference.html" data-nav="reference.html">Reference</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Community</p>
+        <p><a href="https://discord.gg/2T2jqPfK">Join Discord</a></p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+        <p class="eyebrow">Trust boundary</p>
+        <h1>Security</h1>
+        <p class="lead">How tamux secures autonomous work through governance, structured verdicts, approvals, provenance, critique, and containment.</p>
+      </header>
+
+      <section>
+        <h2>What security means</h2>
+        <p>tamux security is not a thin approval prompt in front of shell execution. It is a governance and trust architecture around transitions, side effects, provenance, isolation, critique, operator authority, and auditability.</p>
+        <div class="callout info">
+          <strong>Short version:</strong> security governs transitions, risk is structural, approvals are bound to scope, provenance is a safety dependency, and risky actions can be critiqued before they run.
+        </div>
+      </section>
+
+      <section>
+        <h2>Security is a control plane</h2>
+        <div class="card-grid two-up">
+          <article class="card"><h3>Execution substrate</h3><p>Reports what happened or what is about to happen.</p></article>
+          <article class="card"><h3>Orchestration plane</h3><p>Manages runs, stages, lanes, retries, and advancement.</p></article>
+          <article class="card"><h3>Governance plane</h3><p>Decides whether advancement is allowed, constrained, deferred, denied, or isolated.</p></article>
+          <article class="card"><h3>Audit layer</h3><p>Preserves provenance and operator-visible history for later inspection and trust.</p></article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Security starts before execution</h2>
+        <p>tamux evaluates risk before side effects occur. Policy inputs, sandbox availability, critique preflight, approval requirements, and provenance readiness checks all happen before the system treats a risky action as admissible.</p>
+      </section>
+
+      <section>
+        <h2>Governance acts on transitions</h2>
+        <p>One of the most important design ideas in tamux security is that governance applies to transitions, not only to raw commands.</p>
+        <ul class="check-list">
+          <li>run admission</li>
+          <li>lane admission</li>
+          <li>stage advancement</li>
+          <li>retry</li>
+          <li>blocked-to-resumed</li>
+          <li>compensation entry</li>
+          <li>final disposition</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Risk and blast radius</h2>
+        <p>Risk is structural rather than cosmetic. tamux considers destructiveness, scope, reversibility, privilege, externality, and concurrency. Blast radius is compositional: lane-local, stage-wide, and run-wide.</p>
+      </section>
+
+      <section>
+        <h2>Structured verdicts</h2>
+        <table>
+          <thead><tr><th>Verdict</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>allow</code></td><td>Proceed normally.</td></tr>
+            <tr><td><code>allow_with_constraints</code></td><td>Proceed only under declared limits.</td></tr>
+            <tr><td><code>require_approval</code></td><td>Operator approval is required.</td></tr>
+            <tr><td><code>defer</code></td><td>Execution cannot proceed yet.</td></tr>
+            <tr><td><code>deny</code></td><td>Execution must not proceed.</td></tr>
+            <tr><td><code>halt_and_isolate</code></td><td>Stop and isolate the work.</td></tr>
+            <tr><td><code>allow_only_with_compensation_plan</code></td><td>Proceed only with explicit mitigation obligations.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Approvals are bound, not generic</h2>
+        <p>Approvals are expected to bind to real execution conditions: target scope, risk rationale, attached constraints, freshness/expiry, and policy fingerprint. If the target set, privilege posture, command family, or environment facts materially change, prior approval should be considered stale.</p>
+      </section>
+
+      <section>
+        <h2>Sandboxing, containment, and compensation</h2>
+        <p>Sandboxing is part of governance, not an afterthought. The policy layer can require sandbox use, network restriction, narrowed filesystem scope, serial-only execution, restricted retries, or manual resume. When constraints cannot be honored, tamux should escalate rather than silently proceed.</p>
+        <p>The runtime is also designed to express more realistic outcomes than simple success/failure: blocked, contained, compensated, partially compensated, or break-glass execution under elevated scrutiny.</p>
+      </section>
+
+      <section>
+        <h2>Critique and provenance</h2>
+        <p>tamux already ships an adversarial self-critique layer with advocate, critic, and arbiter roles. It can challenge risky plans before execution, propose safer rewrites, or require explicit confirmation when risk remains high.</p>
+        <p>Provenance is also part of admissibility. The system should be able to show who initiated the action, what policy inputs were evaluated, what verdict was returned, what approval authorized it, and what actually ran.</p>
+      </section>
+
+      <section>
+        <h2>Operator best practices</h2>
+        <ul class="check-list">
+          <li>Treat approval as scoped and potentially stale, not as blanket permission.</li>
+          <li>Inspect destructive mutations, surprising network access, and widened target sets carefully.</li>
+          <li>Use goal runners when you want visible approvals, checkpoints, and durable state around risky work.</li>
+          <li>Read blocked or escalated states as useful signal, not as noise.</li>
+        </ul>
+        <p>For the deeper approval semantics layer, see <a href="governance.html">Governance</a>.</p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux</h3>
+        <p>Daemon-first agentic terminal multiplexer.</p>
+      </div>
+      <div>
+        <h3>Core</h3>
+        <ul>
+          <li>Daemon as source of truth</li>
+          <li>Durable goals</li>
+          <li>Memory &amp; governance</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Navigate</h3>
+        <ul>
+          <li><a href="guides.html">Guides</a></li>
+          <li><a href="best-practices.html">Best Practices</a></li>
+          <li><a href="reference.html">Reference</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

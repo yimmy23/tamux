@@ -2,6 +2,7 @@ use super::*;
 use crate::agent::llm_client::CopilotInitiator;
 use crate::agent::provider_resolution::apply_provider_model_override;
 use amux_protocol::SecurityLevel;
+use std::path::Path;
 
 const COMMUNITY_SCOUT_RESULT_LIMIT: usize = 5;
 const PARTICIPANT_AGENT_FANOUT_TOOLS: &[&str] = &[
@@ -21,6 +22,24 @@ struct DirectThreadResponderConfig {
     persona_prompt: String,
     tool_filter: Option<crate::agent::subagent::tool_filter::ToolFilter>,
 }
+
+fn thread_artifact_prompt_block(data_root: &Path, thread_id: &str) -> String {
+    let specs_dir = amux_protocol::thread_specs_dir(data_root, thread_id);
+    let media_dir = amux_protocol::thread_media_dir(data_root, thread_id);
+    let previews_dir = amux_protocol::thread_previews_dir(data_root, thread_id);
+    format!(
+        "## Thread Artifact Directories\n\
+         - specs dir: {}/\n\
+         - media dir: {}/\n\
+         - previews dir: {}/\n\
+         - Place durable thread-scoped working specs and notes in the specs dir.\n\
+         - Re-read relevant specs from that specs dir after handoff, pause, or restart.",
+        specs_dir.display(),
+        media_dir.display(),
+        previews_dir.display(),
+    )
+}
+
 fn build_direct_thread_responder_config(
     config: &AgentConfig,
     agent_scope_id: &str,
@@ -319,6 +338,12 @@ impl<'a> SendMessageRunner<'a> {
             .await
             .get(&tid)
             .cloned();
+        let task_execution_profile_reasoning = thread_execution_profile
+            .as_ref()
+            .and_then(|profile| profile.reasoning_effort.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
         let direct_thread_responder = task_id
             .is_none()
             .then(|| {
@@ -346,6 +371,9 @@ impl<'a> SendMessageRunner<'a> {
                 let mut pc = engine.resolve_sub_agent_provider_config(&config, sub_provider)?;
                 if let Some(model) = sub_model {
                     apply_provider_model_override(sub_provider, &mut pc, model);
+                }
+                if let Some(reasoning_effort) = task_execution_profile_reasoning.as_ref() {
+                    pc.reasoning_effort = reasoning_effort.clone();
                 }
                 Ok(pc)
             } else if let Some(responder) = direct_thread_responder.as_ref() {
@@ -671,6 +699,11 @@ impl<'a> SendMessageRunner<'a> {
             &runtime_agent_name,
             &active_provider_id,
             &provider_config.model,
+        ));
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&thread_artifact_prompt_block(
+            engine.history.data_root(),
+            &tid,
         ));
         if let Some(goal_run_id) = current_task_snapshot
             .as_ref()
@@ -1220,6 +1253,124 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn task_scoped_subagent_override_uses_thread_execution_profile_reasoning_effort() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let thread_id = "thread_task_scoped_subagent_reasoning_override";
+        let task_id = "task_subagent_reasoning_override";
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.base_url = "http://127.0.0.1:1/v1".to_string();
+        config.api_key = "test-key".to_string();
+        config.reasoning_effort = "medium".to_string();
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some("Subagent".to_string()),
+                title: "Task scoped subagent override".to_string(),
+                messages: vec![AgentMessage::user("continue", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+        engine
+            .set_thread_execution_profile(
+                thread_id,
+                Some(ThreadExecutionProfile {
+                    provider: Some("openai".to_string()),
+                    model: Some("gpt-5.4-mini".to_string()),
+                    reasoning_effort: Some("high".to_string()),
+                    context_window_tokens: Some(1_048_576),
+                }),
+            )
+            .await;
+        engine.tasks.lock().await.push_back(AgentTask {
+            id: task_id.to_string(),
+            title: "Run scoped subagent".to_string(),
+            description: "Continue the delegated subagent task.".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some(thread_id.to_string()),
+            source: "subagent".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: Some("openai".to_string()),
+            override_model: Some("gpt-5.4-mini".to_string()),
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            Some(thread_id),
+            "continue",
+            &[],
+            "continue",
+            Some(task_id),
+            None,
+            None,
+            None,
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        assert_eq!(runner.provider_config.reasoning_effort, "high");
+    }
+
+    #[tokio::test]
     async fn non_participant_responder_keeps_agent_fanout_tools() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
@@ -1505,6 +1656,74 @@ mod tests {
                 .system_prompt
                 .contains("This step cannot be marked complete until that file exists"),
             "expected hard completion marker requirement in the goal task prompt"
+        );
+    }
+
+    #[tokio::test]
+    async fn runner_prompt_includes_thread_artifact_directories() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-artifacts-1";
+        let specs_dir = amux_protocol::thread_specs_dir(engine.history.data_root(), thread_id);
+        let media_dir = amux_protocol::thread_media_dir(engine.history.data_root(), thread_id);
+        let previews_dir =
+            amux_protocol::thread_previews_dir(engine.history.data_root(), thread_id);
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                title: "Thread artifacts".to_string(),
+                messages: vec![AgentMessage::user("check thread artifacts", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            Some(thread_id),
+            "check thread artifacts",
+            &[],
+            "check thread artifacts",
+            None,
+            None,
+            None,
+            None,
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        assert!(
+            runner
+                .system_prompt
+                .contains(&format!("{}/", specs_dir.display())),
+            "expected specs dir in thread prompt"
+        );
+        assert!(
+            runner
+                .system_prompt
+                .contains(&format!("{}/", media_dir.display())),
+            "expected media dir in thread prompt"
+        );
+        assert!(
+            runner
+                .system_prompt
+                .contains(&format!("{}/", previews_dir.display())),
+            "expected previews dir in thread prompt"
         );
     }
 

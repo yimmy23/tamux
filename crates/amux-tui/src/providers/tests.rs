@@ -302,11 +302,32 @@ fn xiaomi_mimo_provider_uses_expected_defaults() {
         known_context_window_for("xiaomi-mimo-token-plan", "mimo-v2-omni"),
         Some(256_000)
     );
+    assert_eq!(
+        known_context_window_for("xiaomi-mimo-token-plan", "mimo-v2.5-pro"),
+        Some(1_000_000)
+    );
+    assert_eq!(
+        known_context_window_for("xiaomi-mimo-token-plan", "mimo-v2.5"),
+        Some(1_000_000)
+    );
+    assert_eq!(
+        known_context_window_for("xiaomi-mimo-token-plan", "mimo-v2.5-tts"),
+        Some(128_000)
+    );
     assert!(!supports_model_fetch_for("xiaomi-mimo-token-plan"));
     let models = known_models_for_provider("xiaomi-mimo-token-plan");
-    assert_eq!(models.len(), 2);
+    assert_eq!(models.len(), 7);
     assert!(models.iter().any(|model| model.id == "mimo-v2-pro"));
     assert!(models.iter().any(|model| model.id == "mimo-v2-omni"));
+    assert!(models.iter().any(|model| model.id == "mimo-v2.5-pro"));
+    assert!(models.iter().any(|model| model.id == "mimo-v2.5"));
+    assert!(models.iter().any(|model| model.id == "mimo-v2.5-tts"));
+    assert!(models
+        .iter()
+        .any(|model| model.id == "mimo-v2.5-tts-voiceclone"));
+    assert!(models
+        .iter()
+        .any(|model| model.id == "mimo-v2.5-tts-voicedesign"));
 }
 
 #[test]

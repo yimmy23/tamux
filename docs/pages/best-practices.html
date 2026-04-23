@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Best Practices · tamux</title>
+  <meta name="description" content="Practical guidance for using tamux well: model roles, compaction, durable threads, goals, approvals, and client choice." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="../assets/icon.ico" />
+</head>
+<body data-page="best-practices.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="../index.html">
+        <img src="../assets/icon.png" alt="tamux" class="brand-logo-img" />
+        <span class="brand-text">
+          <strong>tamux</strong>
+          <small>daemon-first runtime</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false">Menu</button>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+    <aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <div class="nav-group">
+          <p class="nav-group-title">Orientation</p>
+          <ul class="side-links">
+            <li><a href="../index.html" data-nav="index.html">Overview</a></li>
+            <li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li>
+            <li><a href="guides.html" data-nav="guides.html">Guides</a></li>
+            <li><a href="best-practices.html" data-nav="best-practices.html">Best Practices</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Runtime</p>
+          <ul class="side-links">
+            <li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li>
+            <li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li>
+            <li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li>
+            <li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
+            <li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
+            <li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reliability</p>
+          <ul class="side-links">
+            <li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
+            <li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Trust & Control</p>
+          <ul class="side-links">
+            <li><a href="memory.html" data-nav="memory.html">Memory</a></li>
+            <li><a href="security.html" data-nav="security.html">Security</a></li>
+            <li><a href="governance.html" data-nav="governance.html">Governance</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Interfaces</p>
+          <ul class="side-links">
+            <li><a href="tui.html" data-nav="tui.html">TUI</a></li>
+            <li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Extension & Learning</p>
+          <ul class="side-links">
+            <li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li>
+            <li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li>
+            <li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reference</p>
+          <ul class="side-links">
+            <li><a href="reference.html" data-nav="reference.html">Reference</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Community</p>
+        <p><a href="https://discord.gg/2T2jqPfK">Join Discord</a></p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+        <p class="eyebrow">Operator playbook</p>
+        <h1>Best Practices</h1>
+        <p class="lead">Practical guidance for using tamux well every day: model roles, compaction, durable threads, goals, approvals, and client choice.</p>
+      </header>
+
+      <section>
+        <h2>Start with the right mental model</h2>
+        <p>tamux works best when you treat it as a daemon-backed operating environment, not as a single chat box.</p>
+        <ul class="check-list">
+          <li>Keep the daemon running and reconnect from whichever client is convenient.</li>
+          <li>Use the desktop UI when you want broad visibility and settings control.</li>
+          <li>Use the TUI when you want keyboard-first control and SSH-friendly work.</li>
+          <li>Use the CLI and MCP server for automation and external-agent integration.</li>
+        </ul>
+        <div class="callout warning">
+          <strong>Common failure mode:</strong> Treating tamux like a disposable prompt window. The whole point is durable state, threads, tasks, and goals.
+        </div>
+      </section>
+
+      <section>
+        <h2>Choose strong model roles</h2>
+        <p>The built-in fires are more useful when each one is configured for its actual job instead of pointing everything at the same model.</p>
+        
+        <h3>Svarog — The Smith</h3>
+        <p>Use your strongest available model. Svarog handles:</p>
+        <ul class="check-list">
+          <li>Primary execution and long reasoning chains</li>
+          <li>Tool orchestration and multi-step coding</li>
+          <li>Synthesis across large threads</li>
+          <li>Goal runs with planning and recovery</li>
+        </ul>
+        <p><strong>Example configuration:</strong> Claude Opus, GPT-4, or strongest available.</p>
+
+        <h3>Weles — The Guardian</h3>
+        <p>Use a strong review/governance model. Weles handles:</p>
+        <ul class="check-list">
+          <li>Risk review and policy pressure</li>
+          <li>Checking risky plans before execution</li>
+          <li>LLM-based compaction for important threads</li>
+          <li>Validating assumptions when the main thread moves fast</li>
+        </ul>
+        <p><strong>Recommended:</strong> GLM-5.*, MiniMax M2.7, Qwen 3.6 Plus, or similar tier.</p>
+        <p><strong>Do not starve Weles.</strong> If governance is too weak, tamux becomes noisier and less trustworthy exactly where it should be more disciplined.</p>
+
+        <h3>Rarog — The Concierge</h3>
+        <p>Use a light, cheap, fast, tool-reliable model. Rarog handles:</p>
+        <ul class="check-list">
+          <li>Onboarding and setup help</li>
+          <li>Operator-facing summaries</li>
+          <li>Lightweight steering and quick checks</li>
+          <li>Conversational glue around heavier fires</li>
+        </ul>
+        <p><strong>Characteristics:</strong> Low cost, fast latency, reliable tool invocation. Reasoning off by default is fine.</p>
+
+        <div class="callout info">
+          <strong>Bad setup:</strong> Strong model everywhere, high reasoning everywhere, expensive compaction, no distinction between worker, reviewer, and concierge.
+          <br><br>
+          <strong>Better default:</strong> Svarog (strongest), Weles (strong review), Rarog (cheap/quick), match other fires to their actual jobs.
+        </div>
+      </section>
+
+      <section>
+        <h2>Use compaction strategically</h2>
+        <p>Heuristic compaction is the default — fine as a conservative baseline and cheaper. For long-lived threads, serious coding, or governance-heavy runs, prefer LLM-based compaction.</p>
+        
+        <table>
+          <thead>
+            <tr><th>Strategy</th><th>When to use</th><th>Trade-off</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>Heuristic</code></td><td>Short threads, disposable context, cost-sensitive work</td><td>Cheap, may lose nuanced intent</td></tr>
+            <tr><td><code>WELES</code></td><td>Important threads, evolving requirements, tradeoff-heavy work</td><td>More expensive, preserves intent better</td></tr>
+          </tbody>
+        </table>
+        
+        <p><strong>Where to change:</strong> Desktop app: Settings → Agent → Context Compaction. TUI: <code>/settings</code> → Advanced.</p>
+        
+        <div class="callout success">
+          <strong>Recommendation:</strong> Use <code>WELES</code> compaction when requirements evolve over many turns, the thread includes important tradeoffs, or you expect the thread to survive over time.
+        </div>
+      </section>
+
+      <section>
+        <h2>Prefer durable threads</h2>
+        <p>tamux gets stronger when a thread represents a real line of work.</p>
+        
+        <div class="card-grid two-up">
+          <article class="card">
+            <h3>Do this</h3>
+            <ul class="check-list">
+              <li>Keep one thread per real objective</li>
+              <li>Continue the thread when the mission is the same</li>
+              <li>Start new when the objective changes materially</li>
+              <li>Let context accumulate where continuity is useful</li>
+              <li>Restate key constraints when they change</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Avoid this</h3>
+            <ul class="check-list">
+              <li>Mixing unrelated objectives in one thread</li>
+              <li>Resetting after one bad model turn</li>
+              <li>Starting fresh "just because"</li>
+              <li>Throwing away history unnecessarily</li>
+              <li>Vague directives expecting perfect execution</li>
+            </ul>
+          </article>
+        </div>
+        <p>Resetting too often destroys one of tamux's biggest advantages: continuity.</p>
+      </section>
+
+      <section>
+        <h2>Be explicit with objectives</h2>
+        <p>The agent does better when you state the goal, constraints, success condition, and verification path.</p>
+        
+        <div class="card-grid two-up">
+          <article class="card">
+            <h3>Weak prompt</h3>
+            <pre><code>check this repo</code></pre>
+            <p>Vague, no success criteria, no constraints.</p>
+          </article>
+          <article class="card">
+            <h3>Better prompt</h3>
+            <pre><code>Find why the release build is failing on Linux, 
+identify the first concrete root cause, make the 
+smallest safe fix, and tell me what you verified 
+locally.</code></pre>
+            <p>Specific goal, constraints, success condition, verification.</p>
+          </article>
+        </div>
+        <p>tamux rewards operationally specific instructions.</p>
+      </section>
+
+      <section>
+        <h2>Run goal work as goal work</h2>
+        <p>If a task is long-running, multi-step, or likely to survive client restarts, use goal runners instead of manually babysitting a chat thread.</p>
+        
+        <p><strong>Good goal-run candidates:</strong></p>
+        <ul class="check-list">
+          <li>Release preparation with checklist execution</li>
+          <li>Large bug investigations spanning multiple files</li>
+          <li>Repository-wide audits or refactors</li>
+          <li>Documentation sweeps across many pages</li>
+          <li>Repeated operational workflows you want to capture as skills</li>
+        </ul>
+        
+        <p>Goals are the right layer when you want planning, task queues, approvals, persistence, and reflection — not a one-shot answer.</p>
+        
+        <div class="callout info">
+          <strong>Example:</strong> Instead of "help me refactor this codebase" in chat, launch a goal: "Refactor the auth module to use the new service pattern, update all call sites, and verify tests pass."
+        </div>
+      </section>
+
+      <section>
+        <h2>Use the right interaction mode</h2>
+        <p>tamux gives you different ways to involve other fires. Use them intentionally.</p>
+        
+        <table>
+          <thead>
+            <tr><th>Mode</th><th>Use when</th><th>Example</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>@agent ...</code></td>
+              <td>Visible participant, specialist input without changing owner, agent jumps in when useful</td>
+              <td><code>@weles verify claims before answering</code></td>
+            </tr>
+            <tr>
+              <td><code>!agent ...</code></td>
+              <td>Hidden internal delegation, second opinion without cluttering thread, behind-the-scenes check</td>
+              <td><code>!weles assess the risk of this migration</code></td>
+            </tr>
+            <tr>
+              <td>Handoff</td>
+              <td>Another agent should own future replies, work nature changed, specialist should lead</td>
+              <td><code>Handoff to Weles for governance review</code></td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <p><strong>Handoff behavior:</strong> Changes active responder, future operator messages route to that agent, recorded as visible system event.</p>
+      </section>
+
+      <section>
+        <h2>Use approvals to protect the edges</h2>
+        <p>tamux is strongest when autonomy and operator control are both real.</p>
+        
+        <div class="card-grid two-up">
+          <article class="card">
+            <h3>Allow to move</h3>
+            <ul class="check-list">
+              <li>Routine read-only operations</li>
+              <li>Low-risk file reads and searches</li>
+              <li>Expected tool calls within scope</li>
+              <li>Previously-approved patterns</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Stop and inspect</h3>
+            <ul class="check-list">
+              <li>Destructive mutations (rm, overwrite)</li>
+              <li>Surprising network access</li>
+              <li>Environment changes</li>
+              <li>Widened scope from original request</li>
+            </ul>
+          </article>
+        </div>
+        <p>The point is not to slow the agent down. The point is to make expensive mistakes rarer.</p>
+      </section>
+
+      <section>
+        <h2>Match client to situation</h2>
+        <p>Use the client that gives the right control surface for the task.</p>
+        
+        <table>
+          <thead>
+            <tr><th>Client</th><th>Best for</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Desktop app</td><td>Settings, visibility, chat, broad operational control</td></tr>
+            <tr><td>TUI</td><td>Keyboard-first work, remote/SSH, daemon inspection in terminal</td></tr>
+            <tr><td>CLI</td><td>Automation, scripted inspection</td></tr>
+            <tr><td>MCP</td><td>Another agent/toolchain driving tamux as a system component</td></tr>
+          </tbody>
+        </table>
+        <p>There is no single correct frontend. The daemon is the product; clients are views into it.</p>
+      </section>
+
+      <section>
+        <h2>Keep governance and cost in balance</h2>
+        <p>You do not need maximum quality everywhere. You do need quality where errors are expensive.</p>
+        
+        <p><strong>Budget strategy:</strong></p>
+        <ul class="check-list">
+          <li>Spend most on Svarog (primary execution)</li>
+          <li>Spend enough on Weles to keep reviews meaningful</li>
+          <li>Save money with Rarog and lighter support roles</li>
+          <li>Use heuristic compaction for throwaway threads</li>
+          <li>Use WELES compaction for serious or durable threads</li>
+        </ul>
+        
+        <p><strong>If cost is exploding, check:</strong></p>
+        <ul class="check-list">
+          <li>Are too many fires configured with premium models?</li>
+          <li>Is compaction overpowered for the thread type?</li>
+          <li>Are you creating too many fresh threads and losing continuity?</li>
+          <li>Are tool loops or retries set too aggressively?</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Suggested baseline configuration</h2>
+        <p>A good starting point:</p>
+        
+        <div class="card-grid two-up">
+          <article class="card">
+            <h3>Model assignments</h3>
+            <ul class="check-list">
+              <li><strong>Svarog:</strong> Strongest model you can access</li>
+              <li><strong>Weles:</strong> GLM-5.*, MiniMax M2.7, Qwen 3.6 Plus, or stronger</li>
+              <li><strong>Rarog:</strong> Cheap fast tool-capable model, reasoning off</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Operational settings</h3>
+            <ul class="check-list">
+              <li><strong>Compaction:</strong> WELES for important threads, Heuristic for cheap work</li>
+              <li><strong>Goal runners:</strong> For anything you plan to "come back to later"</li>
+              <li><strong>Participants:</strong> @weles for correctness, @rarog for guidance</li>
+            </ul>
+          </article>
+        </div>
+        
+        <p>That baseline is usually enough to get tamux feeling substantially better than a generic single-model terminal chat workflow.</p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux</h3>
+        <p>Daemon-first agentic terminal multiplexer.</p>
+      </div>
+      <div>
+        <h3>Core</h3>
+        <ul>
+          <li>Daemon as source of truth</li>
+          <li>Durable goals</li>
+          <li>Memory &amp; governance</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Navigate</h3>
+        <ul>
+          <li><a href="guides.html">Guides</a></li>
+          <li><a href="best-practices.html">Best Practices</a></li>
+          <li><a href="reference.html">Reference</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

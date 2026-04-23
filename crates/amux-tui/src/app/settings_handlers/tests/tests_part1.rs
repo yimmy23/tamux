@@ -1,6 +1,7 @@
 use amux_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CHUTES, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
+    PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
+    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
 };
 
 #[test]
@@ -549,6 +550,41 @@ fn image_generation_catalog_includes_gpt_image_2_for_openai_and_openrouter() {
             .any(|model| model.id == "openai/gpt-image-1"),
         "expected OpenRouter image catalog to retain openai/gpt-image-1"
     );
+
+    let minimax_models = TuiModel::image_generation_catalog_models(PROVIDER_ID_MINIMAX);
+    assert!(
+        minimax_models.iter().any(|model| model.id == "image-01"),
+        "expected MiniMax image catalog to include image-01"
+    );
+
+    let minimax_coding_models =
+        TuiModel::image_generation_catalog_models(PROVIDER_ID_MINIMAX_CODING_PLAN);
+    assert!(
+        minimax_coding_models.iter().any(|model| model.id == "image-01"),
+        "expected MiniMax Coding Plan image catalog to include image-01"
+    );
+}
+
+#[test]
+fn minimax_audio_catalog_is_tts_only_and_uses_speech_28_defaults() {
+    let minimax_tts = TuiModel::audio_catalog_models("tts", PROVIDER_ID_MINIMAX);
+    assert!(
+        minimax_tts.iter().any(|model| model.id == "speech-2.8-hd"),
+        "expected MiniMax TTS catalog to include speech-2.8-hd"
+    );
+    assert!(
+        TuiModel::audio_catalog_models("stt", PROVIDER_ID_MINIMAX).is_empty(),
+        "expected MiniMax STT catalog to stay empty"
+    );
+
+    let minimax_coding_tts =
+        TuiModel::audio_catalog_models("tts", PROVIDER_ID_MINIMAX_CODING_PLAN);
+    assert!(
+        minimax_coding_tts
+            .iter()
+            .any(|model| model.id == "speech-2.8-turbo"),
+        "expected MiniMax Coding Plan TTS catalog to include speech-2.8-turbo"
+    );
 }
 
 #[test]
@@ -730,6 +766,41 @@ fn xai_audio_catalog_uses_provider_native_defaults_for_both_endpoints() {
     assert_eq!(
         TuiModel::default_audio_model_for("tts", PROVIDER_ID_XAI),
         "grok-4"
+    );
+}
+
+#[test]
+fn xiaomi_audio_catalog_is_tts_only_and_uses_v25_defaults() {
+    let stt_model_ids = TuiModel::audio_catalog_models(
+        "stt",
+        amux_shared::providers::PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+    )
+    .into_iter()
+    .map(|model| model.id)
+    .collect::<Vec<_>>();
+    let tts_model_ids = TuiModel::audio_catalog_models(
+        "tts",
+        amux_shared::providers::PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+    )
+    .into_iter()
+    .map(|model| model.id)
+    .collect::<Vec<_>>();
+
+    assert!(stt_model_ids.is_empty());
+    assert_eq!(
+        tts_model_ids,
+        vec![
+            "mimo-v2.5-tts",
+            "mimo-v2.5-tts-voiceclone",
+            "mimo-v2.5-tts-voicedesign",
+        ]
+    );
+    assert_eq!(
+        TuiModel::default_audio_model_for(
+            "tts",
+            amux_shared::providers::PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+        ),
+        "mimo-v2.5-tts"
     );
 }
 

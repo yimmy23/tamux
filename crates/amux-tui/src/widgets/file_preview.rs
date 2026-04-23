@@ -14,17 +14,25 @@ const FILE_PREVIEW_HEADER_LINES: u16 = 5;
 const TERMINAL_IMAGE_HEADER_LINES: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FilePreviewScrollbarLayout {
-    content: Rect,
-    scrollbar: Rect,
-    thumb: Rect,
-    scroll: usize,
-    max_scroll: usize,
+pub(crate) struct FilePreviewScrollbarLayout {
+    pub(crate) content: Rect,
+    pub(crate) scrollbar: Rect,
+    pub(crate) thumb: Rect,
+    pub(crate) scroll: usize,
+    pub(crate) max_scroll: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilePreviewHitTarget {
     ClosePreview,
+}
+
+fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scroll: usize) -> usize {
+    if max_scroll == 0 || track_span == 0 {
+        return 0;
+    }
+
+    (((thumb_offset as usize) * max_scroll) + (track_span as usize / 2)) / track_span as usize
 }
 
 fn scrollbar_layout_from_metrics(
@@ -286,6 +294,37 @@ pub fn hit_test(
     }
 }
 
+pub(crate) fn scrollbar_scroll_offset_for_pointer(
+    area: Rect,
+    tasks: &TaskState,
+    target: &ChatFilePreviewTarget,
+    theme: &ThemeTokens,
+    scroll: usize,
+    pointer_row: u16,
+    grab_offset: u16,
+) -> Option<usize> {
+    let layout = scrollbar_layout(area, tasks, target, theme, scroll)?;
+    let track_span = layout.scrollbar.height.saturating_sub(layout.thumb.height);
+    let clamped_row = pointer_row.clamp(
+        layout.scrollbar.y,
+        layout
+            .scrollbar
+            .y
+            .saturating_add(layout.scrollbar.height)
+            .saturating_sub(1),
+    );
+    let desired_top = clamped_row
+        .saturating_sub(layout.scrollbar.y)
+        .saturating_sub(grab_offset)
+        .min(track_span);
+
+    Some(scroll_offset_from_thumb_offset(
+        desired_top,
+        track_span,
+        layout.max_scroll,
+    ))
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -348,7 +387,7 @@ pub fn max_scroll(
         })
 }
 
-fn scrollbar_layout(
+pub(crate) fn scrollbar_layout(
     area: Rect,
     tasks: &TaskState,
     target: &ChatFilePreviewTarget,

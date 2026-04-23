@@ -580,8 +580,10 @@ impl AgentEngine {
                     .clone()
                     .or_else(|| child_task.parent_thread_id.clone());
                 if let Some(parent_thread_id) = parent_thread_id {
-                    let child_thread_id =
-                        child_task.thread_id.as_deref().unwrap_or("<unknown-child-thread>");
+                    let child_thread_id = child_task
+                        .thread_id
+                        .as_deref()
+                        .unwrap_or("<unknown-child-thread>");
                     let parent_message = format!(
                         "Spawned thread `{child_thread_id}` exhausted its execution budget.\n\nReview what was completed in that child thread. If the result is sufficient, keep it. Otherwise respawn from the last completed point with a larger budget."
                     );
@@ -592,9 +594,7 @@ impl AgentEngine {
                         self.emit_workflow_notice(
                             &parent_thread_id,
                             "child-thread-budget-exceeded",
-                            format!(
-                                "Spawned thread {child_thread_id} exhausted its budget."
-                            ),
+                            format!("Spawned thread {child_thread_id} exhausted its budget."),
                             Some(
                                 serde_json::json!({
                                     "child_task_id": child_task.id,
@@ -855,8 +855,12 @@ mod tests {
             .expect("child thread should exist");
         assert!(child_thread.messages.iter().any(|message| {
             message.role == MessageRole::System
-                && message.content.contains("Task budget exceeded for this thread")
-                && message.content.contains("locked for further operator messages")
+                && message
+                    .content
+                    .contains("Task budget exceeded for this thread")
+                && message
+                    .content
+                    .contains("locked for further operator messages")
         }));
 
         let parent_thread = threads
@@ -865,7 +869,9 @@ mod tests {
         assert!(parent_thread.messages.iter().any(|message| {
             message.role == MessageRole::System
                 && message.content.contains(child_thread_id)
-                && message.content.contains("respawn from the last completed point")
+                && message
+                    .content
+                    .contains("respawn from the last completed point")
         }));
     }
 }

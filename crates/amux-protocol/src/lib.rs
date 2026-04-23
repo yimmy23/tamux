@@ -23,5 +23,8 @@ pub use config::{
 };
 pub use logging::{dated_log_file_name, dated_log_file_path, DailyLogWriter};
 pub use messages::*;
-pub use runtime_paths::{legacy_agent_skills_dir, tamux_root_dir, tamux_skills_dir};
+pub use runtime_paths::{
+    legacy_agent_skills_dir, tamux_root_dir, tamux_skills_dir, thread_artifacts_dir,
+    thread_media_dir, thread_previews_dir, thread_root_dir, thread_specs_dir,
+};
 pub use update::*;

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Memory Architecture · tamux</title>
+  <meta name="description" content="How tamux memory actually works: layers, provenance-backed writes, recall, skills, runtime state, and compaction-aware preservation." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="../assets/icon.ico" />
+</head>
+<body data-page="memory.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="../index.html">
+        <img src="../assets/icon.png" alt="tamux" class="brand-logo-img" />
+        <span class="brand-text">
+          <strong>tamux</strong>
+          <small>daemon-first runtime</small>
+        </span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false">Menu</button>
+    </div>
+  </header>
+
+  <main id="main" class="container page-shell">
+<aside class="page-sidebar">
+      <div class="sidebar-card">
+        <p class="eyebrow">Docs map</p>
+        <div class="nav-group">
+          <p class="nav-group-title">Orientation</p>
+          <ul class="side-links">
+            <li><a href="../index.html" data-nav="index.html">Overview</a></li>
+            <li><a href="why-tamux.html" data-nav="why-tamux.html">Why tamux</a></li>
+            <li><a href="guides.html" data-nav="guides.html">Guides</a></li>
+            <li><a href="best-practices.html" data-nav="best-practices.html">Best Practices</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Runtime</p>
+          <ul class="side-links">
+            <li><a href="architecture.html" data-nav="architecture.html">Architecture</a></li>
+            <li><a href="mission-control.html" data-nav="mission-control.html">Mission Control</a></li>
+            <li><a href="goal-runners.html" data-nav="goal-runners.html">Goal Runners</a></li>
+            <li><a href="task-queue-subagents.html" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
+            <li><a href="multi-agent.html" data-nav="multi-agent.html">Multi-Agent</a></li>
+            <li><a href="threads-handoffs.html" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reliability</p>
+          <ul class="side-links">
+            <li><a href="continuity-provenance.html" data-nav="continuity-provenance.html">Continuity</a></li>
+            <li><a href="liveness-recovery.html" data-nav="liveness-recovery.html">Liveness</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Trust & Control</p>
+          <ul class="side-links">
+            <li><a href="memory.html" data-nav="memory.html">Memory</a></li>
+            <li><a href="security.html" data-nav="security.html">Security</a></li>
+            <li><a href="governance.html" data-nav="governance.html">Governance</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Interfaces</p>
+          <ul class="side-links">
+            <li><a href="tui.html" data-nav="tui.html">TUI</a></li>
+            <li><a href="gateway-mcp.html" data-nav="gateway-mcp.html">Gateway & MCP</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Extension & Learning</p>
+          <ul class="side-links">
+            <li><a href="semantic-learning.html" data-nav="semantic-learning.html">Semantic & Learning</a></li>
+            <li><a href="moats-intelligence.html" data-nav="moats-intelligence.html">Moats & Intelligence</a></li>
+            <li><a href="plugins.html" data-nav="plugins.html">Plugins</a></li>
+          </ul>
+        </div>
+        <div class="nav-group">
+          <p class="nav-group-title">Reference</p>
+          <ul class="side-links">
+            <li><a href="reference.html" data-nav="reference.html">Reference</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="sidebar-card compact">
+        <p class="eyebrow">Community</p>
+        <p><a href="https://discord.gg/2T2jqPfK">Join Discord</a></p>
+      </div>
+    </aside>
+
+    <article class="page-content">
+      <header class="page-header">
+        <p class="eyebrow">Deep storage</p>
+        <h1>Memory Architecture</h1>
+        <p class="lead">How tamux memory actually works: layered files, daemon-owned runtime state, provenance-backed durable writes, recall, skills, and compaction-aware preservation.</p>
+      </header>
+
+      <section>
+        <h2>What memory means</h2>
+        <p>tamux memory is not a single file, a vector store, or a convenience summary pasted into the next prompt. It is a layered daemon-owned memory system that combines identity, durable facts, operator profile, task and thread state, procedural memory, recall systems, provenance, and higher-order learning loops.</p>
+        <div class="callout info">
+          <strong>Short version:</strong> the daemon owns memory, memory is layered, durable writes are curated, and provenance makes those writes auditable instead of magical.
+        </div>
+      </section>
+
+      <section>
+        <h2>Memory is daemon-owned</h2>
+        <p>The daemon is the authority for memory. Electron, the TUI, the CLI, MCP clients, and chat gateways are all clients of the same memory substrate.</p>
+        <ul class="check-list">
+          <li>Memory survives UI restarts</li>
+          <li>Multiple clients reconnect to the same state</li>
+          <li>Handoffs and subagents share durable context</li>
+          <li>Learning loops operate over persisted history, not only the current prompt</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>The memory stack</h2>
+        <div class="card-grid">
+          <article class="card"><h3>Identity memory</h3><p><code>SOUL.md</code> captures fire identity, principles, role boundaries, and stable specialization hints.</p></article>
+          <article class="card"><h3>Durable fact memory</h3><p><code>MEMORY.md</code> stores curated project facts, conventions, strategy hints, and stable corrections.</p></article>
+          <article class="card"><h3>Operator memory</h3><p><code>USER.md</code> reflects structured operator profile state, preferences, workflow signals, and onboarding/check-in knowledge.</p></article>
+          <article class="card"><h3>Runtime memory</h3><p>Threads, tasks, goals, reflections, checkpoints, collaboration sessions, and causal traces live in structured daemon-owned persistence.</p></article>
+          <article class="card"><h3>Recall memory</h3><p>History search, session search, OneContext recall, summaries, and injected context let different questions use different retrieval surfaces.</p></article>
+          <article class="card"><h3>Procedural memory</h3><p>Skills are memory too: installed skills, generated workflows, variants, usage tracking, promotion, deprecation, and merge behavior.</p></article>
+          <article class="card"><h3>Semantic memory</h3><p>Workspace structure, conventions, imports, packages, and temporal history form a graph-like memory surface beyond flat transcript recall.</p></article>
+          <article class="card"><h3>Provenance-backed facts</h3><p>Durable memory writes carry source, timestamps, fact keys, confirmation/retraction state, and relationships such as <code>retracts</code>.</p></article>
+        </div>
+      </section>
+
+      <section>
+        <h2>How memory writes work</h2>
+        <ol class="numbered-list">
+          <li>A durable candidate emerges from a thread, task, goal reflection, operator profile update, or learning pass.</li>
+          <li>The runtime decides which layer it belongs to.</li>
+          <li>The write is bounded and normalized rather than dumping raw history.</li>
+          <li>Contradiction or replacement rules are applied where relevant.</li>
+          <li>The target memory artifact is updated.</li>
+          <li>Provenance metadata is persisted alongside the write.</li>
+          <li>Operator surfaces can later inspect, confirm, retract, or review the result.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Provenance, confirmation, and retraction</h2>
+        <p>Durable memory in tamux is not just append-only prose. The provenance-backed layer tracks target file, write mode, source kind, source scope, extracted fact keys, timestamps, confirmation state, retraction state, and explicit relationships between entries.</p>
+        <div class="callout success">
+          <strong>Why this matters:</strong> tamux can answer where a fact came from, whether it is still trusted, and what later operation invalidated it.
+        </div>
+      </section>
+
+      <section>
+        <h2>Compaction and recall</h2>
+        <p>Memory and compaction are tied together. Before older context falls out of the active window, tamux can preserve durable signal in a longer-lived layer. That means compaction should reduce noise, not cause amnesia.</p>
+        <ul class="check-list">
+          <li>Important constraints should migrate into durable layers before they disappear from the active prompt.</li>
+          <li>LLM-backed compaction and memory curation are complementary.</li>
+          <li>Long-lived threads benefit from stronger compaction because preservation quality affects later recall quality.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>What belongs in memory</h2>
+        <div class="card-grid two-up">
+          <article class="card"><h3>Good memory material</h3><p>Stable project facts, operator preferences, conventions, recurring corrections, durable strategy hints, and reusable workflow knowledge.</p></article>
+          <article class="card"><h3>Bad memory material</h3><p>Transient task progress, noisy run output, raw transcripts, approval state, and short-lived operational residue that can be rediscovered cheaply.</p></article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Why the memory model matters</h2>
+        <p>If tamux memory were only three markdown files, the system would collapse into manual note-keeping. The real model is stronger: curated files, daemon-owned runtime state, procedural memory through skills, semantic workspace memory, and provenance-backed durable facts working together.</p>
+        <p>For the trust and governance side of that model, see <a href="security.html">Security</a> and <a href="governance.html">Governance</a>.</p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <h3>tamux</h3>
+        <p>Daemon-first agentic terminal multiplexer.</p>
+      </div>
+      <div>
+        <h3>Core</h3>
+        <ul>
+          <li>Daemon as source of truth</li>
+          <li>Durable goals</li>
+          <li>Memory &amp; governance</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Navigate</h3>
+        <ul>
+          <li><a href="guides.html">Guides</a></li>
+          <li><a href="best-practices.html">Best Practices</a></li>
+          <li><a href="reference.html">Reference</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>
