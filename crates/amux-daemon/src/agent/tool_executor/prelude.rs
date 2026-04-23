@@ -33,8 +33,9 @@ use super::tool_synthesis::{
 };
 
 use super::types::{
-    AgentConfig, AgentEvent, NotificationSeverity, TodoItem, TodoStatus, ToolCall, ToolDefinition,
-    ToolFunctionDef, ToolPendingApproval, ToolResult,
+    AgentConfig, AgentEvent, GoalStepReviewRecord, GoalStepReviewVerdict, NotificationSeverity,
+    TodoItem, TodoStatus, ToolCall, ToolDefinition, ToolFunctionDef, ToolPendingApproval,
+    ToolResult,
 };
 use super::AgentEngine;
 

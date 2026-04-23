@@ -169,6 +169,45 @@ pub const ZAI_MODELS: &[ModelDefinition] = &[
     },
 ];
 
+pub const ZAI_CODING_MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: "glm-5",
+        name: "GLM-5",
+        context_window: 128000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "glm-5.1",
+        name: "GLM-5.1",
+        context_window: 204800,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "glm-4-plus",
+        name: "GLM-4 Plus",
+        context_window: 128000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "glm-4",
+        name: "GLM-4",
+        context_window: 128000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "glm-4-air",
+        name: "GLM-4 Air",
+        context_window: 128000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "glm-4-flash",
+        name: "GLM-4 Flash",
+        context_window: 128000,
+        modalities: TEXT_ONLY,
+    },
+];
+
 pub const KIMI_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "moonshot-v1-8k",
@@ -252,4 +291,3 @@ pub const NVIDIA_MODELS: &[ModelDefinition] = &[
         modalities: TEXT_ONLY,
     },
 ];
-

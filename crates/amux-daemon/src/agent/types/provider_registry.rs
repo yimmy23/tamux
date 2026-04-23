@@ -211,7 +211,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         default_model: "glm-5",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
-        models: ZAI_MODELS,
+        models: ZAI_CODING_MODELS,
         supports_model_fetch: false,
         anthropic_base_url: None,
         supported_transports: CHAT_ONLY_TRANSPORTS,

@@ -8,9 +8,20 @@ mod finalization_impl;
 mod progress_impl;
 
 pub(super) const GOAL_FINAL_REVIEW_SOURCE: &str = "goal_final_review";
+pub(in crate::agent) const GOAL_VERIFICATION_SOURCE: &str = "goal_verification";
 const GOAL_REVIEWER_ROLE_ID: &str = "reviewer";
 const GOAL_REVIEW_VERDICT_PASS: &str = "VERDICT: PASS";
 const GOAL_REVIEW_VERDICT_FAIL: &str = "VERDICT: FAIL";
+const GOAL_STEP_VERDICT_STATE_PREFIX: &str = "goal_step_verdict:";
+const GOAL_STEP_VERDICT_REQUIRED_STATE_PREFIX: &str = "goal_step_verdict_required:";
+
+pub(in crate::agent) fn goal_step_verdict_state_key(task_id: &str) -> String {
+    format!("{GOAL_STEP_VERDICT_STATE_PREFIX}{task_id}")
+}
+
+pub(in crate::agent) fn goal_step_verdict_required_state_key(task_id: &str) -> String {
+    format!("{GOAL_STEP_VERDICT_REQUIRED_STATE_PREFIX}{task_id}")
+}
 
 fn parse_goal_role_binding(raw: Option<&str>, fallback: GoalRoleBinding) -> GoalRoleBinding {
     let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
@@ -114,13 +125,27 @@ pub(super) fn parse_goal_review_verdict(raw: &str) -> Option<GoalReviewVerdict> 
         .next()
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
-    if first_line.eq_ignore_ascii_case(GOAL_REVIEW_VERDICT_PASS) {
+    if first_line_matches_goal_verdict(first_line, GOAL_REVIEW_VERDICT_PASS) {
         return Some(GoalReviewVerdict::Pass);
     }
-    if first_line.eq_ignore_ascii_case(GOAL_REVIEW_VERDICT_FAIL) {
+    if first_line_matches_goal_verdict(first_line, GOAL_REVIEW_VERDICT_FAIL) {
         return Some(GoalReviewVerdict::Fail);
     }
     None
+}
+
+fn first_line_matches_goal_verdict(first_line: &str, verdict: &str) -> bool {
+    let upper_line = first_line.to_ascii_uppercase();
+    if upper_line == verdict {
+        return true;
+    }
+    let Some(rest) = upper_line.strip_prefix(verdict) else {
+        return false;
+    };
+    rest.trim_start()
+        .chars()
+        .next()
+        .is_some_and(|separator| matches!(separator, '-' | ':' | '.' | ',' | ';' | '(' | '[' | '{'))
 }
 
 impl AgentEngine {

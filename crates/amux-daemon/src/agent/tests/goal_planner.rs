@@ -31,6 +31,61 @@ fn sample_goal_assignment(role_id: &str, provider: &str, model: &str) -> GoalAge
     }
 }
 
+async fn write_goal_step_review_record(
+    engine: &AgentEngine,
+    task: &AgentTask,
+    verdict: GoalStepReviewVerdict,
+    explanation: &str,
+) {
+    let record = GoalStepReviewRecord {
+        task_id: task.id.clone(),
+        goal_run_id: task
+            .goal_run_id
+            .clone()
+            .expect("task should have goal_run_id"),
+        goal_step_id: task
+            .goal_step_id
+            .clone()
+            .expect("task should have goal_step_id"),
+        verdict,
+        explanation: explanation.to_string(),
+        submitted_at: now_millis(),
+    };
+    engine
+        .history
+        .set_consolidation_state(
+            &goal_step_verdict_state_key(&task.id),
+            &serde_json::to_string(&record).expect("serialize verdict"),
+            record.submitted_at,
+        )
+        .await
+        .expect("persist structured verdict");
+}
+
+#[test]
+fn parse_goal_review_verdict_accepts_first_line_pass_with_summary_suffix() {
+    assert!(matches!(
+        parse_goal_review_verdict(
+            "VERDICT: PASS - Fresh matrix exists at /tmp/status.md\nall checks passed"
+        ),
+        Some(GoalReviewVerdict::Pass)
+    ));
+}
+
+#[test]
+fn parse_goal_review_verdict_accepts_first_line_fail_with_summary_suffix() {
+    assert!(matches!(
+        parse_goal_review_verdict("VERDICT: FAIL: missing completion marker\nfix required"),
+        Some(GoalReviewVerdict::Fail)
+    ));
+}
+
+#[test]
+fn parse_goal_review_verdict_rejects_unseparated_prefix_words() {
+    assert!(parse_goal_review_verdict("VERDICT: PASSING smoke only").is_none());
+    assert!(parse_goal_review_verdict("VERDICT: FAILURE details").is_none());
+}
+
 fn sample_goal_run(goal_run_id: &str) -> GoalRun {
     GoalRun {
         id: goal_run_id.to_string(),
@@ -1268,6 +1323,62 @@ fn sample_goal_run_with_kind(
     }
 }
 
+fn sample_completed_goal_task(goal_run_id: &str, task_id: &str, source: &str) -> AgentTask {
+    AgentTask {
+        id: task_id.to_string(),
+        title: "complete step".to_string(),
+        description: "complete step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("step completed".to_string()),
+        thread_id: Some("thread-goal-custom".to_string()),
+        source: source.to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    }
+}
+
 async fn write_step_completion_marker(engine: &AgentEngine, goal_run_id: &str, step_index: usize) {
     let path = crate::agent::goal_dossier::goal_step_completion_marker_path(
         &engine.data_dir,
@@ -1854,7 +1965,14 @@ async fn verifier_completion_advances_goal_step_and_resolves_proof_checks() {
 
     let mut completed_verifier = verifier_task.clone();
     completed_verifier.status = TaskStatus::Completed;
-    completed_verifier.result = Some("VERDICT: PASS\nall proof checks satisfied".to_string());
+    completed_verifier.result = Some("all proof checks satisfied".to_string());
+    write_goal_step_review_record(
+        &engine,
+        &completed_verifier,
+        GoalStepReviewVerdict::Pass,
+        "all proof checks satisfied",
+    )
+    .await;
     write_step_completion_marker(&engine, goal_run_id, 0).await;
 
     engine
@@ -2011,7 +2129,14 @@ async fn verifier_fail_verdict_requeues_current_step() {
         .expect("verification task should exist");
     let mut failed_verifier = verifier_task.clone();
     failed_verifier.status = TaskStatus::Completed;
-    failed_verifier.result = Some("VERDICT: FAIL\nbuild output is incomplete".to_string());
+    failed_verifier.result = Some("build output is incomplete".to_string());
+    write_goal_step_review_record(
+        &engine,
+        &failed_verifier,
+        GoalStepReviewVerdict::Fail,
+        "build output is incomplete",
+    )
+    .await;
     write_step_completion_marker(&engine, goal_run_id, 0).await;
 
     engine
@@ -2030,9 +2155,96 @@ async fn verifier_fail_verdict_requeues_current_step() {
         updated.steps[0]
             .error
             .as_deref()
-            .is_some_and(|error| error.contains("VERDICT: FAIL")),
+            .is_some_and(|error| error.contains("build output is incomplete")),
         "step should retain the failing reviewer feedback"
     );
+}
+
+#[tokio::test]
+async fn verifier_without_structured_verdict_requeues_even_if_text_says_pass() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-verification-missing-structured-verdict";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Build the Android artifact",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-impl".to_string());
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let implementation_task = sample_completed_goal_task(goal_run_id, "task-impl", "goal_run");
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &implementation_task)
+        .await
+        .expect("implementation completion should queue verification");
+
+    let verifier_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.source == "goal_verification")
+        .cloned()
+        .expect("verification task should exist");
+    let mut completed_verifier = verifier_task.clone();
+    completed_verifier.status = TaskStatus::Completed;
+    completed_verifier.result = Some("VERDICT: PASS\nlegacy text says pass".to_string());
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_verifier)
+        .await
+        .expect("missing structured verdict should requeue the step");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.current_step_index, 0);
+    assert_eq!(updated.steps[0].status, GoalRunStepStatus::Pending);
+    assert!(updated.steps[0].task_id.is_none());
+    assert!(
+        updated.steps[0]
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("submit_goal_step_verdict")),
+        "failure reason should require the structured verdict tool"
+    );
+}
+
+#[tokio::test]
+async fn legacy_verifier_text_pass_still_advances_when_structured_verdict_was_not_required() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-verification-legacy-text-pass";
+
+    let mut goal_run =
+        sample_goal_run_with_kind(goal_run_id, GoalRunStepKind::Command, "Build the artifact");
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-legacy-review".to_string());
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let mut completed_review =
+        sample_completed_goal_task(goal_run_id, "task-legacy-review", "goal_verification");
+    completed_review.result = Some("VERDICT: PASS\nlegacy in-flight review passed".to_string());
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_review)
+        .await
+        .expect("legacy text verdict should remain compatible");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.current_step_index, 1);
+    assert_eq!(updated.steps[0].status, GoalRunStepStatus::Completed);
 }
 
 #[tokio::test]
@@ -2137,7 +2349,14 @@ async fn handle_goal_run_step_completion_records_dossier_report_and_advance_deci
         .expect("review task should exist");
     let mut completed_review = review_task.clone();
     completed_review.status = TaskStatus::Completed;
-    completed_review.result = Some("VERDICT: PASS\nstep completed".to_string());
+    completed_review.result = Some("step completed".to_string());
+    write_goal_step_review_record(
+        &engine,
+        &completed_review,
+        GoalStepReviewVerdict::Pass,
+        "step completed",
+    )
+    .await;
 
     engine
         .handle_goal_run_step_completion(goal_run_id, &completed_review)
@@ -2540,7 +2759,14 @@ async fn handle_goal_run_step_completion_blocks_when_completion_marker_is_missin
         .expect("review task should exist");
     let mut completed_review = review_task.clone();
     completed_review.status = TaskStatus::Completed;
-    completed_review.result = Some("VERDICT: PASS\nreview passed".to_string());
+    completed_review.result = Some("review passed".to_string());
+    write_goal_step_review_record(
+        &engine,
+        &completed_review,
+        GoalStepReviewVerdict::Pass,
+        "review passed",
+    )
+    .await;
 
     engine
         .handle_goal_run_step_completion(goal_run_id, &completed_review)
@@ -2688,7 +2914,14 @@ async fn exhausted_completion_marker_retries_require_human_approval() {
             .expect("review task should still exist");
         completed_review.status = TaskStatus::Completed;
         completed_review.completed_at = Some(now_millis());
-        completed_review.result = Some("VERDICT: PASS\nreview passed".to_string());
+        completed_review.result = Some("review passed".to_string());
+        write_goal_step_review_record(
+            &engine,
+            &completed_review,
+            GoalStepReviewVerdict::Pass,
+            "review passed",
+        )
+        .await;
 
         engine
             .handle_goal_run_step_completion(goal_run_id, &completed_review)
@@ -2930,7 +3163,14 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
     let mut verification_complete = verification_task.clone();
     verification_complete.status = TaskStatus::Completed;
     verification_complete.completed_at = Some(now_millis());
-    verification_complete.result = Some("VERDICT: PASS\nverification passed".to_string());
+    verification_complete.result = Some("verification passed".to_string());
+    write_goal_step_review_record(
+        &engine,
+        &verification_complete,
+        GoalStepReviewVerdict::Pass,
+        "verification passed",
+    )
+    .await;
     write_step_completion_marker(&engine, goal_run_id, 0).await;
 
     engine

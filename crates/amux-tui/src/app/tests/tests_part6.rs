@@ -203,8 +203,8 @@ fn goal_sidebar_model() -> TuiModel {
         });
     model.tasks.reduce(task::TaskAction::ThreadTodosReceived {
         thread_id: "thread-1".to_string(),
-        goal_run_id: None,
-        step_index: None,
+        goal_run_id: Some("goal-1".to_string()),
+        step_index: Some(0),
         items: vec![
             task::TodoItem {
                 id: "todo-1".to_string(),
@@ -220,14 +220,6 @@ fn goal_sidebar_model() -> TuiModel {
                 status: Some(task::TodoStatus::Pending),
                 step_index: Some(0),
                 position: 1,
-                ..Default::default()
-            },
-            task::TodoItem {
-                id: "todo-3".to_string(),
-                content: "Run checks".to_string(),
-                status: Some(task::TodoStatus::Pending),
-                step_index: Some(2),
-                position: 0,
                 ..Default::default()
             },
         ],

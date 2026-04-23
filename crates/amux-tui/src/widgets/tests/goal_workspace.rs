@@ -254,6 +254,46 @@ fn goal_workspace_threads_mode_renders_thread_inventory() {
 }
 
 #[test]
+fn goal_workspace_thread_views_include_goal_scoped_live_todo_thread() {
+    let mut tasks = TaskState::new();
+    tasks.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        goal: "Track the live worker thread.".into(),
+        status: Some(crate::state::task::GoalRunStatus::Running),
+        steps: vec![GoalRunStep {
+            id: "step-1".into(),
+            title: "Plan".into(),
+            order: 0,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+    tasks.reduce(TaskAction::ThreadTodosReceived {
+        thread_id: "thread-live".into(),
+        goal_run_id: Some("goal-1".into()),
+        step_index: Some(0),
+        items: vec![TodoItem {
+            id: "todo-live".into(),
+            content: "live worker todo".into(),
+            status: Some(TodoStatus::InProgress),
+            step_index: Some(0),
+            ..Default::default()
+        }],
+    });
+
+    let mut state = GoalWorkspaceState::new();
+    state.set_mode(GoalWorkspaceMode::Threads);
+    let plain = render_plain_text_for_tasks(&tasks, &state, 0);
+    assert!(plain.contains("Live goal thread"), "{plain}");
+    assert!(plain.contains("thread-live"), "{plain}");
+
+    state.set_mode(GoalWorkspaceMode::ActiveAgent);
+    let plain = render_plain_text_for_tasks(&tasks, &state, 0);
+    assert!(plain.contains("thread-live"), "{plain}");
+}
+
+#[test]
 fn goal_workspace_plan_falls_back_to_goal_task_thread_when_run_thread_ids_are_missing() {
     let mut tasks = TaskState::new();
     tasks.reduce(TaskAction::TaskListReceived(vec![
@@ -295,8 +335,8 @@ fn goal_workspace_hit_test_distinguishes_step_and_todo_rows() {
 
     let prompt_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(2, 5));
     let thread_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(2, 6));
-    let step_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(2, 7));
-    let todo_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(4, 8));
+    let step_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(2, 8));
+    let todo_hit = hit_test(area, &tasks, "goal-1", &state, Position::new(4, 9));
 
     assert_eq!(prompt_hit, Some(GoalWorkspaceHitTarget::PlanPromptToggle));
     assert_eq!(

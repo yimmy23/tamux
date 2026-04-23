@@ -339,6 +339,7 @@ pub struct TaskState {
     goal_run_checkpoints: std::collections::HashMap<String, Vec<GoalRunCheckpointSummary>>,
     thread_todos: std::collections::HashMap<String, Vec<TodoItem>>,
     goal_step_live_todos: std::collections::HashMap<String, Vec<TodoItem>>,
+    goal_thread_ids: std::collections::HashMap<String, Vec<String>>,
     work_contexts: std::collections::HashMap<String, ThreadWorkContext>,
     selected_work_paths: std::collections::HashMap<String, String>,
     git_diffs: std::collections::HashMap<String, String>,
@@ -356,6 +357,7 @@ impl TaskState {
             goal_run_checkpoints: std::collections::HashMap::new(),
             thread_todos: std::collections::HashMap::new(),
             goal_step_live_todos: std::collections::HashMap::new(),
+            goal_thread_ids: std::collections::HashMap::new(),
             work_contexts: std::collections::HashMap::new(),
             selected_work_paths: std::collections::HashMap::new(),
             git_diffs: std::collections::HashMap::new(),
@@ -434,6 +436,13 @@ impl TaskState {
         })
     }
 
+    pub fn goal_thread_ids(&self, goal_run_id: &str) -> Vec<String> {
+        let Some(run) = self.goal_run_by_id(goal_run_id) else {
+            return Vec::new();
+        };
+        goal_step_todo_thread_ids(self, run)
+    }
+
     pub fn checkpoints_for_goal_run(&self, goal_run_id: &str) -> &[GoalRunCheckpointSummary] {
         self.goal_run_checkpoints
             .get(goal_run_id)
@@ -465,23 +474,20 @@ impl TaskState {
             return todos;
         }
 
-        let mut todos_by_id = std::collections::BTreeMap::new();
-
         for event in run.events.iter().rev() {
-            for todo in event
+            let mut todos = event
                 .todo_snapshot
                 .iter()
                 .filter(|todo| todo.step_index.or(event.step_index) == Some(step_index))
-            {
-                todos_by_id
-                    .entry(goal_step_todo_key(todo))
-                    .or_insert_with(|| todo.clone());
+                .cloned()
+                .collect::<Vec<_>>();
+            if !todos.is_empty() {
+                todos.sort_by_key(|todo| todo.position);
+                return todos;
             }
         }
 
-        let mut todos = todos_by_id.into_values().collect::<Vec<_>>();
-        todos.sort_by_key(|todo| todo.position);
-        todos
+        Vec::new()
     }
 
     pub fn goal_step_checkpoints(
@@ -589,6 +595,9 @@ impl TaskState {
 
             TaskAction::GoalRunListReceived(runs) => {
                 self.goal_runs = runs.into_iter().map(normalize_goal_run_ranges).collect();
+                self.goal_thread_ids.retain(|goal_run_id, _| {
+                    self.goal_runs.iter().any(|run| run.id == *goal_run_id)
+                });
             }
 
             TaskAction::GoalRunDetailReceived(run) => {
@@ -623,6 +632,7 @@ impl TaskState {
                 self.goal_run_checkpoints.remove(&goal_run_id);
                 self.goal_step_live_todos
                     .retain(|key, _| !key.starts_with(&format!("{goal_run_id}::")));
+                self.goal_thread_ids.remove(&goal_run_id);
                 let previous_task_len = self.tasks.len();
                 self.tasks
                     .retain(|task| task.goal_run_id.as_deref() != Some(goal_run_id.as_str()));
@@ -637,7 +647,12 @@ impl TaskState {
                 step_index,
                 items,
             } => {
-                if let (Some(goal_run_id), Some(step_index)) = (goal_run_id, step_index) {
+                if let Some(goal_run_id) = goal_run_id {
+                    remember_goal_thread(&mut self.goal_thread_ids, &goal_run_id, &thread_id);
+                    let Some(step_index) = step_index else {
+                        self.thread_todos.insert(thread_id, items);
+                        return;
+                    };
                     self.goal_step_live_todos.insert(
                         goal_step_live_todo_key(&goal_run_id, step_index),
                         items.clone(),
@@ -649,6 +664,14 @@ impl TaskState {
             TaskAction::WorkContextReceived(context) => {
                 let thread_id = context.thread_id.clone();
                 let default_selection = context.entries.first().map(|entry| entry.path.clone());
+                for goal_run_id in context.entries.iter().filter_map(|entry| {
+                    entry
+                        .goal_run_id
+                        .as_deref()
+                        .filter(|goal_run_id| !goal_run_id.is_empty())
+                }) {
+                    remember_goal_thread(&mut self.goal_thread_ids, goal_run_id, &thread_id);
+                }
                 self.work_contexts.insert(thread_id.clone(), context);
                 if let Some(selection) = default_selection {
                     self.selected_work_paths
@@ -691,15 +714,6 @@ impl TaskState {
     }
 }
 
-fn goal_step_todo_key(todo: &TodoItem) -> String {
-    let content = todo.content.trim();
-    if content.is_empty() {
-        todo.id.clone()
-    } else {
-        content.to_string()
-    }
-}
-
 fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
     let mut thread_ids = Vec::new();
     let mut push_thread_id = |thread_id: &str| {
@@ -728,8 +742,27 @@ fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
             push_thread_id(thread_id);
         }
     }
+    if let Some(goal_threads) = state.goal_thread_ids.get(&run.id) {
+        for thread_id in goal_threads {
+            push_thread_id(thread_id);
+        }
+    }
 
     thread_ids
+}
+
+fn remember_goal_thread(
+    goal_thread_ids: &mut std::collections::HashMap<String, Vec<String>>,
+    goal_run_id: &str,
+    thread_id: &str,
+) {
+    if goal_run_id.is_empty() || thread_id.is_empty() {
+        return;
+    }
+    let threads = goal_thread_ids.entry(goal_run_id.to_string()).or_default();
+    if !threads.iter().any(|existing| existing == thread_id) {
+        threads.push(thread_id.to_string());
+    }
 }
 
 fn goal_step_live_todo_key(goal_run_id: &str, step_index: usize) -> String {

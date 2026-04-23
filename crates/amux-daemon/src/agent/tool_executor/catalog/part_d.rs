@@ -128,6 +128,16 @@ fn add_available_tools_part_d(
         "type": "object",
         "properties": {}
     })));
+    tools.push(tool_def("submit_goal_step_verdict", "Submit the structured pass/fail verdict for the current goal-step verification task. This is the authoritative gate used to advance or requeue the current goal step.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "verdict": { "type": "string", "enum": ["pass", "fail"], "description": "Use pass only when the current step satisfies all instructions, success criteria, todos, artifacts, and proof checks." },
+            "explanation": { "type": "string", "description": "Concrete verdict explanation. For fail, describe the fixes required before the step can advance." },
+            "goal_run_id": { "type": "string", "description": "Optional guard; if provided it must match the current verification task's goal_run_id." },
+            "goal_step_id": { "type": "string", "description": "Optional guard; if provided it must match the current verification task's goal_step_id." }
+        },
+        "required": ["verdict", "explanation"]
+    })));
     tools.push(tool_def("list_triggers", "List configured event triggers with status, cooldown, and last-fired metadata.", serde_json::json!({
         "type": "object",
         "properties": {}

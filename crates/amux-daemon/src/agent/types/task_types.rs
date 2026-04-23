@@ -164,6 +164,23 @@ pub struct AgentTaskLogEntry {
     pub attempt: u32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GoalStepReviewVerdict {
+    Pass,
+    Fail,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GoalStepReviewRecord {
+    pub task_id: String,
+    pub goal_run_id: String,
+    pub goal_step_id: String,
+    pub verdict: GoalStepReviewVerdict,
+    pub explanation: String,
+    pub submitted_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentTask {
     pub id: String,

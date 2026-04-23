@@ -332,12 +332,18 @@ pub(crate) fn is_weles_thread(thread: &AgentThread) -> bool {
             }))
 }
 
-fn is_svarog_thread(thread: &AgentThread) -> bool {
-    thread
-        .agent_name
-        .as_deref()
-        .and_then(normalize_agent_tab_id)
-        .is_none()
+fn is_svarog_thread(thread: &AgentThread, subagents: &SubAgentsState) -> bool {
+    let Some(agent_name) = thread.agent_name.as_deref() else {
+        return true;
+    };
+    let Some(agent_id) = normalize_agent_tab_id(agent_name) else {
+        return true;
+    };
+
+    !subagents.entries.iter().any(|entry| {
+        normalize_agent_tab_id(&entry.id).is_some_and(|entry_id| entry_id == agent_id)
+            || entry.name.eq_ignore_ascii_case(agent_name)
+    })
 }
 
 pub(crate) fn thread_display_title(thread: &AgentThread) -> String {
@@ -364,7 +370,7 @@ pub(crate) fn filtered_threads<'a>(
                     && !is_gateway_thread(thread)
                     && !is_weles_thread(thread)
                     && !is_playground_thread(thread)
-                    && is_svarog_thread(thread)
+                    && is_svarog_thread(thread, subagents)
             }
             ThreadPickerTab::Rarog => is_rarog_thread(thread),
             ThreadPickerTab::Weles => !is_playground_thread(thread) && is_weles_thread(thread),

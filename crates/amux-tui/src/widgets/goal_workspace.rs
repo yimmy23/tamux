@@ -1489,7 +1489,7 @@ fn detail_lines(
                     ]),
                 );
                 if let Some(run) = run {
-                    for thread_id in goal_thread_targets(run) {
+                    for thread_id in goal_thread_targets(tasks, run) {
                         push_detail_line(
                             &mut rows,
                             &mut visual_row,
@@ -1940,7 +1940,7 @@ fn active_agent_items(tasks: &TaskState, goal_run_id: &str) -> Vec<ActiveAgentIt
     for index in 0..runtime_assignments(run).len() {
         items.push(ActiveAgentItem::Assignment(index));
     }
-    for thread_id in goal_thread_targets(run) {
+    for thread_id in goal_thread_targets(tasks, run) {
         items.push(ActiveAgentItem::Thread(thread_id));
     }
     items
@@ -2034,25 +2034,8 @@ fn related_tasks_for_step<'a>(
         .collect()
 }
 
-fn goal_thread_targets(run: &crate::state::task::GoalRun) -> Vec<String> {
-    let mut threads = Vec::new();
-    for thread_id in run
-        .active_thread_id
-        .iter()
-        .chain(run.root_thread_id.iter())
-        .chain(run.thread_id.iter())
-        .cloned()
-    {
-        if !threads.contains(&thread_id) {
-            threads.push(thread_id);
-        }
-    }
-    for thread_id in &run.execution_thread_ids {
-        if !threads.contains(thread_id) {
-            threads.push(thread_id.clone());
-        }
-    }
-    threads
+fn goal_thread_targets(tasks: &TaskState, run: &crate::state::task::GoalRun) -> Vec<String> {
+    tasks.goal_thread_ids(&run.id)
 }
 
 #[derive(Clone)]
@@ -2132,6 +2115,13 @@ fn goal_thread_entries(
                 "Task-linked thread related to this goal.".to_string(),
             );
         }
+    }
+    for thread_id in tasks.goal_thread_ids(&run.id) {
+        push_entry(
+            "Live goal thread".to_string(),
+            thread_id,
+            "Goal-scoped live thread reported by the daemon.".to_string(),
+        );
     }
     entries
 }

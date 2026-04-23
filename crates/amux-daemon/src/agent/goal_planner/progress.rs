@@ -1,6 +1,5 @@
 use super::*;
 
-const GOAL_VERIFICATION_SOURCE: &str = "goal_verification";
 const GOAL_COMPLETION_MARKER_REMINDER_LIMIT: u32 = 3;
 
 #[derive(Clone)]
@@ -98,7 +97,84 @@ fn current_step_review_result(task: &AgentTask, thread_summary: Option<&str>) ->
         })
 }
 
+fn structured_review_failure_reason(record: &GoalStepReviewRecord) -> String {
+    let explanation = record.explanation.trim();
+    if explanation.is_empty() {
+        "structured reviewer verdict was FAIL without an explanation".to_string()
+    } else {
+        explanation.to_string()
+    }
+}
+
+fn legacy_review_failure_reason(review_result: String) -> String {
+    if matches!(
+        parse_goal_review_verdict(&review_result),
+        Some(GoalReviewVerdict::Fail)
+    ) {
+        review_result
+    } else {
+        format!(
+            "review did not return a pass verdict; reviewer output was: {}",
+            review_result
+        )
+    }
+}
+
 impl AgentEngine {
+    async fn load_goal_step_review_record(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<GoalStepReviewRecord>> {
+        let Some(raw) = self
+            .history
+            .get_consolidation_state(&goal_step_verdict_state_key(task_id))
+            .await?
+        else {
+            return Ok(None);
+        };
+        let record = serde_json::from_str::<GoalStepReviewRecord>(&raw)
+            .with_context(|| format!("invalid structured goal-step verdict for task {task_id}"))?;
+        Ok(Some(record))
+    }
+
+    async fn goal_step_review_requires_structured_verdict(&self, task_id: &str) -> Result<bool> {
+        Ok(self
+            .history
+            .get_consolidation_state(&goal_step_verdict_required_state_key(task_id))
+            .await?
+            .as_deref()
+            == Some("true"))
+    }
+
+    fn validate_goal_step_review_record(
+        task: &AgentTask,
+        goal_run_id: &str,
+        record: &GoalStepReviewRecord,
+    ) -> Result<()> {
+        if record.task_id != task.id {
+            anyhow::bail!(
+                "structured reviewer verdict belongs to task {} but completed task is {}",
+                record.task_id,
+                task.id
+            );
+        }
+        if record.goal_run_id != goal_run_id {
+            anyhow::bail!(
+                "structured reviewer verdict belongs to goal {} but completed task is in goal {}",
+                record.goal_run_id,
+                goal_run_id
+            );
+        }
+        if task.goal_step_id.as_deref() != Some(record.goal_step_id.as_str()) {
+            anyhow::bail!(
+                "structured reviewer verdict belongs to step {} but completed task is bound to {:?}",
+                record.goal_step_id,
+                task.goal_step_id
+            );
+        }
+        Ok(())
+    }
+
     async fn current_step_incomplete_todos(
         &self,
         snapshot: &GoalRun,
@@ -374,8 +450,9 @@ impl AgentEngine {
         };
         let verification_description = format!(
             "Review completed goal step `{}`.\n\n\
-             Return the first line exactly as either `VERDICT: PASS` or `VERDICT: FAIL`.\n\
-             If the verdict is FAIL, list the concrete fixes required before the step can advance.\n\n\
+             You must call `submit_goal_step_verdict` exactly once before finishing.\n\
+             Use verdict `pass` only when the current step satisfies its instructions, success criteria, todos, completion artifacts, and required proof checks.\n\
+             Use verdict `fail` with a concrete explanation when the step needs more work; that explanation is sent back to the responsible step agent.\n\n\
              Original instructions:\n{}\n\n\
              Success criteria:\n{}\n\n\
              Implementation summary:\n{}\n\n\
@@ -433,6 +510,13 @@ impl AgentEngine {
             ));
             task.clone()
         };
+        self.history
+            .set_consolidation_state(
+                &goal_step_verdict_required_state_key(&verification_task.id),
+                "true",
+                now_millis(),
+            )
+            .await?;
         let updated_task = self
             .apply_goal_resolved_target_to_task(
                 verification_task.id.as_str(),
@@ -723,26 +807,37 @@ impl AgentEngine {
             None => None,
         };
         if task.source == GOAL_VERIFICATION_SOURCE {
-            let review_result = current_step_review_result(task, thread_summary.as_deref())
-                .unwrap_or_else(|| "review completed without a structured verdict".to_string());
-            if !matches!(
-                parse_goal_review_verdict(&review_result),
-                Some(GoalReviewVerdict::Pass)
-            ) {
-                let failure_reason = if matches!(
-                    parse_goal_review_verdict(&review_result),
-                    Some(GoalReviewVerdict::Fail)
-                ) {
-                    review_result
-                } else {
-                    format!(
-                        "review did not return a pass verdict; reviewer output was: {}",
-                        review_result
-                    )
-                };
-                self.requeue_goal_step_to_pending(goal_run_id, &failure_reason, Some(task))
-                    .await?;
+            if let Some(record) = self.load_goal_step_review_record(&task.id).await? {
+                Self::validate_goal_step_review_record(task, goal_run_id, &record)?;
+                if matches!(record.verdict, GoalStepReviewVerdict::Fail) {
+                    let failure_reason = structured_review_failure_reason(&record);
+                    self.requeue_goal_step_to_pending(goal_run_id, &failure_reason, Some(task))
+                        .await?;
+                    return Ok(());
+                }
+            } else if self
+                .goal_step_review_requires_structured_verdict(&task.id)
+                .await?
+            {
+                self.requeue_goal_step_to_pending(
+                    goal_run_id,
+                    "review did not submit a structured verdict via submit_goal_step_verdict",
+                    Some(task),
+                )
+                .await?;
                 return Ok(());
+            } else {
+                let review_result = current_step_review_result(task, thread_summary.as_deref())
+                    .unwrap_or_else(|| "review completed without a verdict".to_string());
+                if !matches!(
+                    parse_goal_review_verdict(&review_result),
+                    Some(GoalReviewVerdict::Pass)
+                ) {
+                    let failure_reason = legacy_review_failure_reason(review_result);
+                    self.requeue_goal_step_to_pending(goal_run_id, &failure_reason, Some(task))
+                        .await?;
+                    return Ok(());
+                }
             }
         }
         let updated = {

@@ -170,6 +170,9 @@ impl ModalState {
         self.picker_cursor
     }
     pub fn set_picker_item_count(&mut self, count: usize) {
+        if self.top() == Some(ModalKind::CommandPalette) {
+            return;
+        }
         self.picker_item_count = Some(count);
         self.picker_cursor = if count == 0 {
             0
@@ -281,8 +284,18 @@ impl ModalState {
             .retain(|item| !item.command.contains('.'));
         // Append new plugin commands
         self.command_items.extend(commands);
-        // Rebuild filter
-        self.filtered_indices = (0..self.command_items.len()).collect();
+        self.refilter();
+        let len = if self.top() == Some(ModalKind::CommandPalette) {
+            self.filtered_indices.len()
+        } else {
+            self.picker_item_count
+                .unwrap_or(self.filtered_indices.len())
+        };
+        self.picker_cursor = if len == 0 {
+            0
+        } else {
+            self.picker_cursor.min(len - 1)
+        };
     }
 
     pub fn reduce(&mut self, action: ModalAction) {
@@ -303,14 +316,19 @@ impl ModalState {
                 self.command_query.clear();
                 self.command_palette_explicit_selection = false;
                 self.picker_cursor = 0;
+                self.picker_item_count = None;
                 self.refilter();
             }
             ModalAction::RemoveAll(kind) => {
+                let top_before = self.top();
                 self.stack.retain(|entry| *entry != kind);
-                self.command_query.clear();
-                self.command_palette_explicit_selection = false;
-                self.picker_cursor = 0;
-                self.refilter();
+                if self.top() != top_before {
+                    self.command_query.clear();
+                    self.command_palette_explicit_selection = false;
+                    self.picker_cursor = 0;
+                    self.picker_item_count = None;
+                    self.refilter();
+                }
             }
             ModalAction::SetQuery(query) => {
                 self.command_query = if self.top() == Some(ModalKind::CommandPalette) {
@@ -321,11 +339,17 @@ impl ModalState {
                 self.command_palette_explicit_selection = false;
                 self.refilter();
                 self.picker_cursor = 0;
+                if self.top() == Some(ModalKind::CommandPalette) {
+                    self.picker_item_count = None;
+                }
             }
             ModalAction::Navigate(delta) => {
-                let len = self
-                    .picker_item_count
-                    .unwrap_or(self.filtered_indices.len());
+                let len = if self.top() == Some(ModalKind::CommandPalette) {
+                    self.filtered_indices.len()
+                } else {
+                    self.picker_item_count
+                        .unwrap_or(self.filtered_indices.len())
+                };
                 if len == 0 {
                     return;
                 }

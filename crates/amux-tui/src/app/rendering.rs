@@ -841,6 +841,10 @@ impl TuiModel {
             .goal_run_owner_header_profile(run)
             .or_else(|| self.goal_run_launch_header_profile(run))
             .unwrap_or_else(|| self.svarog_profile());
+        let provider = thread.runtime_provider.clone().unwrap_or(fallback.provider);
+        let model = thread.runtime_model.clone().unwrap_or(fallback.model);
+        let context_window_tokens = providers::known_context_window_for(&provider, &model)
+            .or(fallback.context_window_tokens);
         Some(ConversationAgentProfile {
             agent_label: thread
                 .agent_name
@@ -848,13 +852,13 @@ impl TuiModel {
                 .filter(|name| !name.trim().is_empty())
                 .map(str::to_string)
                 .unwrap_or(fallback.agent_label),
-            provider: thread.runtime_provider.clone().unwrap_or(fallback.provider),
-            model: thread.runtime_model.clone().unwrap_or(fallback.model),
+            provider,
+            model,
             reasoning_effort: thread
                 .runtime_reasoning_effort
                 .clone()
                 .or(fallback.reasoning_effort),
-            context_window_tokens: fallback.context_window_tokens,
+            context_window_tokens,
         })
     }
 
@@ -899,12 +903,16 @@ impl TuiModel {
             }
         }
         if let Some(runtime) = self.chat.active_thread_runtime_metadata() {
+            let provider = runtime.provider.unwrap_or(fallback.provider);
+            let model = runtime.model.unwrap_or(fallback.model);
+            let context_window_tokens = providers::known_context_window_for(&provider, &model)
+                .or(fallback.context_window_tokens);
             return ConversationAgentProfile {
                 agent_label: fallback.agent_label,
-                provider: runtime.provider.unwrap_or(fallback.provider),
-                model: runtime.model.unwrap_or(fallback.model),
+                provider,
+                model,
                 reasoning_effort: runtime.reasoning_effort.or(fallback.reasoning_effort),
-                context_window_tokens: fallback.context_window_tokens,
+                context_window_tokens,
             };
         }
 

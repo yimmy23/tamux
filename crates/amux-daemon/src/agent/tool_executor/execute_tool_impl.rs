@@ -1657,6 +1657,9 @@ async fn dispatch_tool_execution(
         "list_tasks" => execute_list_tasks(args, agent).await,
         "start_goal_run" => execute_start_goal_run(args, agent, thread_id, session_id).await,
         "list_goal_runs" => execute_list_goal_runs(agent).await,
+        "submit_goal_step_verdict" => {
+            execute_submit_goal_step_verdict(args, agent, task_id).await
+        }
         "list_triggers" => execute_list_triggers(args, agent).await,
         "add_trigger" => execute_add_trigger(args, agent).await,
         "show_dreams" => execute_show_dreams(args, agent).await,

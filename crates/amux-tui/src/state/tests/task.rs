@@ -393,6 +393,70 @@ fn goal_step_todos_use_latest_status_when_same_content_has_new_id() {
 }
 
 #[test]
+fn goal_step_todos_use_latest_event_snapshot_without_resurrecting_removed_items() {
+    let mut state = TaskState::new();
+    state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        thread_id: Some("thread-1".into()),
+        steps: vec![GoalRunStep {
+            id: "step-1".into(),
+            title: "Plan".into(),
+            order: 0,
+            ..Default::default()
+        }],
+        events: vec![
+            GoalRunEvent {
+                id: "event-old".into(),
+                timestamp: 10,
+                step_index: Some(0),
+                todo_snapshot: vec![
+                    TodoItem {
+                        id: "todo-removed".into(),
+                        content: "removed stale item".into(),
+                        status: Some(TodoStatus::Pending),
+                        step_index: Some(0),
+                        position: 0,
+                        ..Default::default()
+                    },
+                    TodoItem {
+                        id: "todo-current".into(),
+                        content: "current item".into(),
+                        status: Some(TodoStatus::Pending),
+                        step_index: Some(0),
+                        position: 1,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+            GoalRunEvent {
+                id: "event-new".into(),
+                timestamp: 20,
+                step_index: Some(0),
+                todo_snapshot: vec![TodoItem {
+                    id: "todo-current".into(),
+                    content: "current item".into(),
+                    status: Some(TodoStatus::InProgress),
+                    step_index: Some(0),
+                    position: 0,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+
+    let todos = state.goal_step_todos("goal-1", 0);
+
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].id, "todo-current");
+    assert_eq!(todos[0].content, "current item");
+    assert_eq!(todos[0].status, Some(TodoStatus::InProgress));
+}
+
+#[test]
 fn goal_step_todos_use_goal_scoped_live_todos_when_event_snapshot_is_missing() {
     let mut state = TaskState::new();
     state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
@@ -425,6 +489,36 @@ fn goal_step_todos_use_goal_scoped_live_todos_when_event_snapshot_is_missing() {
     assert_eq!(todos.len(), 1);
     assert_eq!(todos[0].id, "todo-1");
     assert_eq!(todos[0].content, "step todo");
+}
+
+#[test]
+fn goal_scoped_live_todo_thread_is_linked_to_goal_run() {
+    let mut state = TaskState::new();
+    state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        steps: vec![GoalRunStep {
+            id: "step-1".into(),
+            title: "Plan".into(),
+            order: 0,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+    state.reduce(TaskAction::ThreadTodosReceived {
+        thread_id: "thread-live".into(),
+        goal_run_id: Some("goal-1".into()),
+        step_index: Some(0),
+        items: vec![TodoItem {
+            id: "todo-live".into(),
+            content: "live worker todo".into(),
+            status: Some(TodoStatus::InProgress),
+            step_index: Some(0),
+            ..Default::default()
+        }],
+    });
+
+    assert!(state.thread_belongs_to_goal_run("goal-1", "thread-live"));
 }
 
 #[test]

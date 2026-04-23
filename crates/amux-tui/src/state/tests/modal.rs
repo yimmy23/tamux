@@ -36,6 +36,24 @@ fn remove_all_modal_kind_removes_nested_instances() {
 }
 
 #[test]
+fn remove_all_unrelated_modal_preserves_active_picker_state() {
+    let mut state = ModalState::new();
+    state.reduce(ModalAction::Push(ModalKind::CommandPalette));
+    state.reduce(ModalAction::SetQuery("goa".into()));
+    state.reduce(ModalAction::Navigate(1));
+
+    state.reduce(ModalAction::RemoveAll(ModalKind::ApprovalOverlay));
+
+    assert_eq!(state.top(), Some(ModalKind::CommandPalette));
+    assert_eq!(state.command_display_query(), "goa");
+    assert_eq!(state.picker_cursor(), 1);
+    assert_eq!(
+        state.selected_command().map(|item| item.command.as_str()),
+        Some("goal")
+    );
+}
+
+#[test]
 fn fuzzy_filter_narrows_items() {
     let mut state = ModalState::new();
     state.reduce(ModalAction::SetQuery("pro".into()));
@@ -85,6 +103,32 @@ fn install_queries_match_predefined_helper_commands() {
         .collect();
     assert!(filtered_commands.contains(&"plugins install"));
     assert!(filtered_commands.contains(&"skills install"));
+}
+
+#[test]
+fn plugin_command_refresh_preserves_active_command_filter() {
+    let mut state = ModalState::new();
+    state.reduce(ModalAction::Push(ModalKind::CommandPalette));
+    state.reduce(ModalAction::SetQuery("goa".into()));
+
+    state.set_plugin_commands(vec![CommandItem {
+        command: "calendar.create".into(),
+        description: "Create calendar event".into(),
+    }]);
+
+    let filtered_commands: Vec<&str> = state
+        .filtered_items()
+        .iter()
+        .map(|&idx| state.command_items()[idx].command.as_str())
+        .collect();
+    assert!(filtered_commands.contains(&"new-goal"));
+    assert!(filtered_commands.contains(&"goal"));
+    assert!(!filtered_commands.contains(&"provider"));
+    assert!(!filtered_commands.contains(&"calendar.create"));
+    assert_eq!(
+        state.selected_command().map(|item| item.command.as_str()),
+        Some("new-goal")
+    );
 }
 
 #[test]
@@ -193,6 +237,38 @@ fn command_palette_navigation_marks_explicit_selection() {
     state.reduce(ModalAction::Navigate(1));
 
     assert!(state.command_palette_has_explicit_selection());
+}
+
+#[test]
+fn command_palette_navigation_ignores_stale_picker_item_count_override() {
+    let mut state = ModalState::new();
+
+    state.reduce(ModalAction::Push(ModalKind::CommandPalette));
+    state.reduce(ModalAction::SetQuery("goa".into()));
+    state.reduce(ModalAction::Navigate(1));
+
+    assert_eq!(
+        state.selected_command().map(|item| item.command.as_str()),
+        Some("goal")
+    );
+
+    state.set_picker_item_count(1);
+
+    assert_eq!(
+        state.selected_command().map(|item| item.command.as_str()),
+        Some("goal")
+    );
+    state.reduce(ModalAction::Navigate(-1));
+    assert_eq!(
+        state.selected_command().map(|item| item.command.as_str()),
+        Some("new-goal")
+    );
+    state.reduce(ModalAction::Navigate(1));
+    assert_eq!(
+        state.selected_command().map(|item| item.command.as_str()),
+        Some("goal")
+    );
+    assert_eq!(state.command_display_query(), "goa");
 }
 
 #[test]

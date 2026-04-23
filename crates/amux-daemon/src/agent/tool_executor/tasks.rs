@@ -626,6 +626,158 @@ async fn execute_list_goal_runs(agent: &AgentEngine) -> Result<String> {
     Ok(serde_json::to_string_pretty(&goal_runs).unwrap_or_else(|_| "[]".to_string()))
 }
 
+async fn execute_submit_goal_step_verdict(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    current_task_id: Option<&str>,
+) -> Result<String> {
+    let task_id = current_task_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("submit_goal_step_verdict requires a current verification task")
+        })?;
+    let verdict = match args
+        .get("verdict")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("pass") => GoalStepReviewVerdict::Pass,
+        Some("fail") => GoalStepReviewVerdict::Fail,
+        Some(other) => anyhow::bail!("unsupported verdict '{other}'; expected 'pass' or 'fail'"),
+        None => anyhow::bail!("missing 'verdict' argument"),
+    };
+    let explanation = args
+        .get("explanation")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing non-empty 'explanation' argument"))?
+        .to_string();
+
+    let task = {
+        let tasks = agent.tasks.lock().await;
+        tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?
+    };
+    if task.source != super::GOAL_VERIFICATION_SOURCE {
+        anyhow::bail!(
+            "submit_goal_step_verdict can only be used by goal verification tasks; current task source is '{}'",
+            task.source
+        );
+    }
+
+    let goal_run_id = task.goal_run_id.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("current verification task is missing goal_run_id context")
+    })?;
+    let goal_step_id = task.goal_step_id.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("current verification task is missing goal_step_id context")
+    })?;
+    if let Some(provided_goal_run_id) = args
+        .get("goal_run_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if provided_goal_run_id != goal_run_id {
+            anyhow::bail!(
+                "goal_run_id mismatch: current task is bound to '{}' but tool received '{}'",
+                goal_run_id,
+                provided_goal_run_id
+            );
+        }
+    }
+    if let Some(provided_goal_step_id) = args
+        .get("goal_step_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if provided_goal_step_id != goal_step_id {
+            anyhow::bail!(
+                "goal_step_id mismatch: current task is bound to '{}' but tool received '{}'",
+                goal_step_id,
+                provided_goal_step_id
+            );
+        }
+    }
+
+    let goal_run = agent
+        .get_goal_run(goal_run_id)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("goal run {goal_run_id} not found"))?;
+    let active_step_id = goal_run
+        .steps
+        .get(goal_run.current_step_index)
+        .map(|step| step.id.as_str())
+        .ok_or_else(|| anyhow::anyhow!("goal run {goal_run_id} has no active step"))?;
+    if active_step_id != goal_step_id {
+        anyhow::bail!(
+            "current goal step is '{}' but verification task is bound to '{}'",
+            active_step_id,
+            goal_step_id
+        );
+    }
+
+    let record = GoalStepReviewRecord {
+        task_id: task.id.clone(),
+        goal_run_id: goal_run_id.to_string(),
+        goal_step_id: goal_step_id.to_string(),
+        verdict,
+        explanation,
+        submitted_at: crate::agent::now_millis(),
+    };
+    let record_json = serde_json::to_string(&record)?;
+    agent
+        .history
+        .set_consolidation_state(
+            &super::goal_step_verdict_state_key(task_id),
+            &record_json,
+            record.submitted_at,
+        )
+        .await?;
+
+    let updated = {
+        let mut tasks = agent.tasks.lock().await;
+        let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) else {
+            anyhow::bail!("task {task_id} disappeared while recording verdict");
+        };
+        task.result = Some(format!(
+            "Structured verdict: {:?}\n{}",
+            record.verdict, record.explanation
+        ));
+        task.logs.push(make_task_log_entry(
+            task.retry_count,
+            TaskLogLevel::Info,
+            "verification",
+            "structured goal-step verdict submitted",
+            Some(record_json.clone()),
+        ));
+        task.clone()
+    };
+    agent.persist_tasks().await;
+    agent.emit_task_update(&updated, Some("Goal-step verdict submitted".into()));
+    agent
+        .record_provenance_event(
+            "goal_step_verdict_submitted",
+            "structured goal-step verification verdict submitted",
+            serde_json::to_value(&record).unwrap_or_else(|_| serde_json::json!({})),
+            Some(goal_run_id),
+            Some(task_id),
+            task.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
+
+    Ok(serde_json::to_string_pretty(&record).unwrap_or_else(|_| "{}".to_string()))
+}
+
 async fn execute_list_triggers(_args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
     let payload = agent.list_event_triggers_json().await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))

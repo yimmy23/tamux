@@ -1125,6 +1125,61 @@ fn slash_opened_command_palette_keeps_raw_filter_text() {
 }
 
 #[test]
+fn command_palette_goa_filter_survives_navigation() {
+    let (mut model, _daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+
+    let quit = model.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+    assert!(!quit);
+    for ch in "goa".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+
+    assert_eq!(model.input.buffer(), "");
+    assert_eq!(model.modal.command_display_query(), "goa");
+    assert_eq!(
+        model
+            .modal
+            .selected_command()
+            .map(|item| item.command.as_str()),
+        Some("new-goal")
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+        modal::ModalKind::CommandPalette,
+    );
+    assert!(!quit);
+    assert_eq!(model.input.buffer(), "");
+    assert_eq!(model.modal.command_display_query(), "goa");
+    assert_eq!(
+        model
+            .modal
+            .selected_command()
+            .map(|item| item.command.as_str()),
+        Some("goal")
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Up,
+        KeyModifiers::NONE,
+        modal::ModalKind::CommandPalette,
+    );
+    assert!(!quit);
+    assert_eq!(model.input.buffer(), "");
+    assert_eq!(model.modal.command_display_query(), "goa");
+    assert_eq!(
+        model
+            .modal
+            .selected_command()
+            .map(|item| item.command.as_str()),
+        Some("new-goal")
+    );
+}
+
+#[test]
 fn goal_composer_command_palette_typing_keeps_goal_draft_intact() {
     let (mut model, _daemon_rx) = make_model();
     model.main_pane_view = MainPaneView::GoalComposer;
@@ -5944,6 +5999,7 @@ fn clicking_participant_summary_opens_thread_participants_modal() {
     model.width = 120;
     model.height = 40;
     model.connected = true;
+    model.agent_config_loaded = true;
     model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
         id: "thread-1".to_string(),
         title: "Participant Thread".to_string(),
@@ -6540,6 +6596,7 @@ fn goal_view_action_menu_runtime_assignment_reassign_requires_confirmation() {
     assert!(!handled);
     assert!(matches!(model.main_pane_view, MainPaneView::GoalComposer));
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    let _ = collect_daemon_commands(&mut daemon_rx);
 
     navigate_model_picker_to(&mut model, "gpt-5.4-mini");
 
@@ -6701,6 +6758,7 @@ fn goal_view_action_menu_runtime_assignment_cancel_clears_pending_confirmation_s
     );
     assert!(!handled);
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    let _ = collect_daemon_commands(&mut daemon_rx_cmd);
 
     navigate_model_picker_to(&mut model, "gpt-5.4-mini");
 
