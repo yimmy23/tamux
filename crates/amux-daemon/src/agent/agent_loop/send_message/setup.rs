@@ -25,7 +25,14 @@ fn build_direct_thread_responder_config(
     config: &AgentConfig,
     agent_scope_id: &str,
     sub_agents: &[SubAgentDefinition],
+    execution_profile: Option<&ThreadExecutionProfile>,
 ) -> Result<Option<DirectThreadResponderConfig>> {
+    let nonempty = |value: Option<&str>| {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    };
     let resolved_target =
         crate::agent::agent_identity::resolve_agent_target(agent_scope_id, sub_agents);
     let resolved_scope = resolved_target.scope_id.as_str();
@@ -56,8 +63,16 @@ fn build_direct_thread_responder_config(
     }
     let matched_def = resolved_target.matched_sub_agent.clone();
     let builtin_persona_overrides = builtin_persona_overrides(config, resolved_scope);
+    let profile_provider =
+        nonempty(execution_profile.and_then(|profile| profile.provider.as_deref()));
+    let profile_model = nonempty(execution_profile.and_then(|profile| profile.model.as_deref()));
+    let profile_reasoning_effort =
+        nonempty(execution_profile.and_then(|profile| profile.reasoning_effort.as_deref()));
     if is_explicit_builtin_persona_scope(resolved_scope)
         && builtin_persona_requires_setup(config, resolved_scope)
+        && matched_def.is_none()
+        && profile_provider.is_none()
+        && profile_model.is_none()
     {
         return Err(builtin_persona_setup_error(resolved_scope));
     }
@@ -74,32 +89,28 @@ fn build_direct_thread_responder_config(
         agent_name: resolved_target.agent_name,
         provider_id: matched_def
             .as_ref()
-            .map(|def| def.provider.clone())
-            .filter(|value| !value.trim().is_empty())
+            .and_then(|def| nonempty(Some(def.provider.as_str())))
             .or_else(|| {
                 builtin_persona_overrides
-                    .and_then(|overrides| overrides.provider.clone())
-                    .filter(|value| !value.trim().is_empty())
+                    .and_then(|overrides| nonempty(overrides.provider.as_deref()))
             })
+            .or_else(|| profile_provider.clone())
             .unwrap_or_else(|| config.provider.clone()),
         model: matched_def
             .as_ref()
-            .map(|def| def.model.clone())
-            .filter(|value| !value.trim().is_empty())
+            .and_then(|def| nonempty(Some(def.model.as_str())))
             .or_else(|| {
-                builtin_persona_overrides
-                    .and_then(|overrides| overrides.model.clone())
-                    .filter(|value| !value.trim().is_empty())
-            }),
+                builtin_persona_overrides.and_then(|overrides| nonempty(overrides.model.as_deref()))
+            })
+            .or_else(|| profile_model.clone()),
         reasoning_effort: matched_def
             .as_ref()
-            .and_then(|def| def.reasoning_effort.clone())
-            .filter(|value| !value.trim().is_empty())
+            .and_then(|def| nonempty(def.reasoning_effort.as_deref()))
             .or_else(|| {
                 builtin_persona_overrides
-                    .and_then(|overrides| overrides.reasoning_effort.clone())
-                    .filter(|value| !value.trim().is_empty())
-            }),
+                    .and_then(|overrides| nonempty(overrides.reasoning_effort.as_deref()))
+            })
+            .or_else(|| profile_reasoning_effort.clone()),
         system_prompt: matched_def
             .as_ref()
             .and_then(|def| def.system_prompt.clone())
@@ -302,9 +313,22 @@ impl<'a> SendMessageRunner<'a> {
         };
         let agent_scope_id = current_agent_scope_id();
         let sub_agents = engine.list_sub_agents().await;
+        let thread_execution_profile = engine
+            .thread_execution_profiles
+            .read()
+            .await
+            .get(&tid)
+            .cloned();
         let direct_thread_responder = task_id
             .is_none()
-            .then(|| build_direct_thread_responder_config(&config, &agent_scope_id, &sub_agents))
+            .then(|| {
+                build_direct_thread_responder_config(
+                    &config,
+                    &agent_scope_id,
+                    &sub_agents,
+                    thread_execution_profile.as_ref(),
+                )
+            })
             .transpose()?
             .flatten();
         let active_provider_id = task_provider_override
@@ -1006,7 +1030,7 @@ mod tests {
             created_at: 1,
         }];
 
-        let responder = build_direct_thread_responder_config(&config, "dola", &sub_agents)
+        let responder = build_direct_thread_responder_config(&config, "dola", &sub_agents, None)
             .expect("config build should succeed")
             .expect("custom subagent should produce a direct responder config");
 
@@ -1019,6 +1043,116 @@ mod tests {
             responder.persona_prompt.contains("Dola"),
             "persona prompt should identify the targeted subagent"
         );
+    }
+
+    #[tokio::test]
+    async fn restored_spawned_persona_thread_uses_persisted_execution_profile() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.base_url = "http://127.0.0.1:1/v1".to_string();
+        config.api_key = "test-key".to_string();
+        config.system_prompt = "Main system prompt".to_string();
+        let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+        let thread_id = "thread_restored_spawned_dazhbog";
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some("Dazhbog".to_string()),
+                title: "Restored spawned Dazhbog".to_string(),
+                messages: vec![AgentMessage::user("continue", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+        engine
+            .set_thread_handoff_state(
+                thread_id,
+                ThreadHandoffState {
+                    origin_agent_id: MAIN_AGENT_ID.to_string(),
+                    active_agent_id: "dazhbog".to_string(),
+                    responder_stack: vec![
+                        ThreadResponderFrame {
+                            agent_id: MAIN_AGENT_ID.to_string(),
+                            agent_name: MAIN_AGENT_NAME.to_string(),
+                            entered_at: 1,
+                            entered_via_handoff_event_id: None,
+                            linked_thread_id: None,
+                        },
+                        ThreadResponderFrame {
+                            agent_id: "dazhbog".to_string(),
+                            agent_name: "Dazhbog".to_string(),
+                            entered_at: 2,
+                            entered_via_handoff_event_id: Some("handoff-1".to_string()),
+                            linked_thread_id: None,
+                        },
+                    ],
+                    events: Vec::new(),
+                    pending_approval_id: None,
+                },
+            )
+            .await;
+        engine
+            .set_thread_execution_profile(
+                thread_id,
+                Some(ThreadExecutionProfile {
+                    provider: Some("openai".to_string()),
+                    model: Some("gpt-5.4-mini".to_string()),
+                    reasoning_effort: Some("high".to_string()),
+                    context_window_tokens: Some(1_048_576),
+                }),
+            )
+            .await;
+        engine.persist_thread_by_id(thread_id).await;
+
+        let rehydrated = AgentEngine::new_test(
+            SessionManager::new_test(root.path()).await,
+            config,
+            root.path(),
+        )
+        .await;
+        rehydrated.hydrate().await.expect("rehydrate engine");
+
+        let agent_scope_id = rehydrated
+            .agent_scope_id_for_turn(Some(thread_id), None)
+            .await;
+        assert_eq!(agent_scope_id, "dazhbog");
+
+        let runner = crate::agent::agent_identity::run_with_agent_scope(agent_scope_id, async {
+            SendMessageRunner::initialize(
+                &rehydrated,
+                Some(thread_id),
+                "continue",
+                &[],
+                "continue",
+                None,
+                None,
+                None,
+                None,
+                true,
+                true,
+                0,
+            )
+            .await
+        })
+        .await
+        .expect("runner should initialize from persisted execution profile");
+
+        assert_eq!(runner.provider_config.model, "gpt-5.4-mini");
+        assert_eq!(runner.provider_config.reasoning_effort, "high");
+        assert_eq!(runner.runtime_agent_name, "Dazhbog");
     }
 
     #[tokio::test]
