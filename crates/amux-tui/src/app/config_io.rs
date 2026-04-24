@@ -423,9 +423,9 @@ impl TuiModel {
         self.config.tui_chat_history_page_size = get_u32(
             "tui_chat_history_page_size",
             "tui_chat_history_page_size",
-            100,
+            20,
         )
-        .clamp(25, 500);
+        .clamp(20, 500);
         self.config.max_tool_loops = get_u32("max_tool_loops", "max_tool_loops", 25);
         self.config.max_retries = get_u32("max_retries", "max_retries", 3);
         self.config.retry_delay_ms = get_u32("retry_delay_ms", "retry_delay_ms", 5_000);

@@ -148,6 +148,28 @@ pub fn render(
     theme: &ThemeTokens,
     tick_counter: u64,
 ) {
+    render_with_selection(
+        frame,
+        area,
+        tasks,
+        goal_run_id,
+        state,
+        theme,
+        tick_counter,
+        None,
+    );
+}
+
+pub fn render_with_selection(
+    frame: &mut Frame,
+    area: Rect,
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+    theme: &ThemeTokens,
+    tick_counter: u64,
+    mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
+) {
     let Some(layout) = workspace_layout(area) else {
         return;
     };
@@ -161,6 +183,7 @@ pub fn render(
         state,
         theme,
         tick_counter,
+        mouse_selection,
     );
     render_center_pane(
         frame,
@@ -381,6 +404,20 @@ pub fn selection_point_from_mouse(
     })
 }
 
+pub fn selection_points_from_mouse(
+    area: Rect,
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+    start: Position,
+    end: Position,
+) -> Option<(SelectionPoint, SelectionPoint)> {
+    Some((
+        selection_point_from_mouse(area, tasks, goal_run_id, state, start)?,
+        selection_point_from_mouse(area, tasks, goal_run_id, state, end)?,
+    ))
+}
+
 pub fn selected_text(
     _area: Rect,
     tasks: &TaskState,
@@ -490,6 +527,7 @@ fn render_plan(
     state: &GoalWorkspaceState,
     theme: &ThemeTokens,
     tick_counter: u64,
+    mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
 ) {
     let block = Block::default()
         .title(" Plan ")
@@ -506,7 +544,33 @@ fn render_plan(
     let selected_visual_row =
         plan_visual_row_for_selection(tasks, goal_run_id, state, inner.width as usize);
     let mut visual_row = 0usize;
-    let lines = plan::build_rows(tasks, goal_run_id, state, theme)
+    let mut plan_rows = plan::build_rows(tasks, goal_run_id, state, theme);
+    if let Some((start, end)) = mouse_selection {
+        let (start_point, end_point) =
+            if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+                (start, end)
+            } else {
+                (end, start)
+            };
+        let highlight = Style::default().bg(Color::Indexed(31));
+        for row in start_point.row..=end_point.row {
+            if let Some(plan_row) = plan_rows.get_mut(row) {
+                let line_width = line_display_width(&plan_row.line);
+                let from = if row == start_point.row {
+                    start_point.col.min(line_width)
+                } else {
+                    0
+                };
+                let to = if row == end_point.row {
+                    end_point.col.min(line_width).max(from)
+                } else {
+                    line_width
+                };
+                highlight_line_range(&mut plan_row.line, from, to, highlight);
+            }
+        }
+    }
+    let lines = plan_rows
         .into_iter()
         .map(|row| {
             let line = styled_plan_row(row, theme, tick_counter);
@@ -2767,6 +2831,59 @@ fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
         }
     }
     result
+}
+
+fn highlight_line_range(
+    line: &mut Line<'static>,
+    start_col: usize,
+    end_col: usize,
+    highlight: Style,
+) {
+    if start_col >= end_col {
+        return;
+    }
+
+    let original_spans = std::mem::take(&mut line.spans);
+    let mut spans = Vec::new();
+    let mut col = 0usize;
+
+    for span in original_spans {
+        let mut before = String::new();
+        let mut selected = String::new();
+        let mut after = String::new();
+
+        for ch in span.content.chars() {
+            let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+            let next = col + width;
+            let overlaps = if width == 0 {
+                col >= start_col && col < end_col
+            } else {
+                next > start_col && col < end_col
+            };
+
+            if overlaps {
+                selected.push(ch);
+            } else if col < start_col {
+                before.push(ch);
+            } else {
+                after.push(ch);
+            }
+
+            col = next;
+        }
+
+        if !before.is_empty() {
+            spans.push(Span::styled(before, span.style));
+        }
+        if !selected.is_empty() {
+            spans.push(Span::styled(selected, span.style.patch(highlight)));
+        }
+        if !after.is_empty() {
+            spans.push(Span::styled(after, span.style));
+        }
+    }
+
+    line.spans = spans;
 }
 
 fn wrap_display_text(text: &str, width: usize) -> Vec<String> {

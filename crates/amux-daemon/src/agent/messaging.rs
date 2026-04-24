@@ -378,6 +378,38 @@ impl AgentEngine {
         );
     }
 
+    pub(super) async fn reserve_unique_thread_id(&self) -> String {
+        loop {
+            let candidate = format!("thread_{}", Uuid::new_v4());
+            let task_conflict = {
+                let tasks = self.tasks.lock().await;
+                tasks
+                    .iter()
+                    .any(|task| task.thread_id.as_deref() == Some(candidate.as_str()))
+            };
+            if task_conflict {
+                continue;
+            }
+
+            if self.threads.read().await.contains_key(&candidate) {
+                continue;
+            }
+
+            if self
+                .history
+                .get_thread(&candidate)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                continue;
+            }
+
+            return candidate;
+        }
+    }
+
     /// Get or create a thread, returning the thread ID and whether it was newly created.
     pub(super) async fn get_or_create_thread(
         &self,
@@ -395,7 +427,10 @@ impl AgentEngine {
         target_agent_id: Option<&str>,
     ) -> (String, bool) {
         let given_id = thread_id.map(|s| s.to_string());
-        let id = given_id.unwrap_or_else(|| format!("thread_{}", Uuid::new_v4()));
+        let id = match given_id {
+            Some(id) => id,
+            None => self.reserve_unique_thread_id().await,
+        };
         let title = content.chars().take(50).collect::<String>();
         let mut created = false;
         let resolved_target = if let Some(target_agent_id) = target_agent_id {
@@ -481,6 +516,20 @@ impl AgentEngine {
                 .write()
                 .await
                 .insert(thread_id.to_string(), client_surface);
+        }
+        match thread_metadata.identity {
+            Some(identity) => {
+                self.thread_identity_metadata
+                    .write()
+                    .await
+                    .insert(thread_id.to_string(), identity);
+            }
+            None => {
+                self.thread_identity_metadata
+                    .write()
+                    .await
+                    .remove(thread_id);
+            }
         }
         match thread_metadata.execution_profile {
             Some(execution_profile) => {

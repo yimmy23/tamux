@@ -27,3 +27,36 @@ fn operator_model_reset_field_requests_model_reset() {
     ));
     assert!(daemon_rx.try_recv().is_err());
 }
+
+#[test]
+fn chat_settings_history_page_size_allows_twenty_messages() {
+    let (mut model, _daemon_rx) = make_model();
+    focus_settings_field(
+        &mut model,
+        SettingsTab::Chat,
+        "tui_chat_history_page_size",
+    );
+    model.config.tui_chat_history_page_size = 100;
+
+    model.activate_settings_field();
+    assert_eq!(
+        model.settings.editing_field(),
+        Some("tui_chat_history_page_size")
+    );
+
+    for _ in 0..3 {
+        model.settings.reduce(SettingsAction::Backspace);
+    }
+    model.settings.reduce(SettingsAction::InsertChar('2'));
+    model.settings.reduce(SettingsAction::InsertChar('0'));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.config.tui_chat_history_page_size, 20);
+    assert_eq!(model.settings.editing_field(), None);
+}

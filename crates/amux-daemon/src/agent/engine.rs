@@ -126,6 +126,7 @@ pub struct AgentEngine {
     pub(super) active_thread_participant_suggestion_drains: Mutex<HashSet<String>>,
     pub thread_client_surfaces: RwLock<HashMap<String, amux_protocol::ClientSurface>>,
     pub thread_execution_profiles: RwLock<HashMap<String, ThreadExecutionProfile>>,
+    pub(super) thread_identity_metadata: RwLock<HashMap<String, ThreadIdentityMetadata>>,
     pub thread_skill_discovery_states: RwLock<HashMap<String, LatestSkillDiscoveryState>>,
     pub thread_memory_injection_states: RwLock<HashMap<String, PromptMemoryInjectionState>>,
     pub thread_structural_memories:
@@ -344,6 +345,7 @@ impl AgentEngine {
             active_thread_participant_suggestion_drains: Mutex::new(HashSet::new()),
             thread_client_surfaces: RwLock::new(HashMap::new()),
             thread_execution_profiles: RwLock::new(HashMap::new()),
+            thread_identity_metadata: RwLock::new(HashMap::new()),
             thread_skill_discovery_states: RwLock::new(HashMap::new()),
             thread_memory_injection_states: RwLock::new(HashMap::new()),
             thread_structural_memories: RwLock::new(HashMap::new()),

@@ -187,12 +187,22 @@ impl AgentEngine {
         goal_run_id: &str,
         task: &AgentTask,
     ) -> Result<()> {
+        let snapshot = self
+            .get_goal_run(goal_run_id)
+            .await
+            .context("goal run missing during final review completion")?;
+        let review_thread_output = match task.thread_id.as_deref().or(snapshot.thread_id.as_deref())
+        {
+            Some(thread_id) => self.goal_thread_latest_assistant_content(thread_id).await,
+            None => None,
+        };
         let review_output = task
             .result
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
+            .or_else(|| review_thread_output.clone())
             .or_else(|| {
                 task.last_error
                     .as_deref()
@@ -210,10 +220,6 @@ impl AgentEngine {
             return Ok(());
         }
 
-        let snapshot = self
-            .get_goal_run(goal_run_id)
-            .await
-            .context("goal run missing during final review completion")?;
         let marker_path =
             crate::agent::goal_dossier::goal_final_review_marker_path(&self.data_dir, goal_run_id);
         if let Some(parent) = marker_path.parent() {

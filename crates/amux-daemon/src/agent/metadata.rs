@@ -25,6 +25,7 @@ pub(super) struct ParsedMessageMetadata {
 }
 
 pub(super) struct ParsedThreadMetadata {
+    pub identity: Option<ThreadIdentityMetadata>,
     pub client_surface: Option<amux_protocol::ClientSurface>,
     pub execution_profile: Option<ThreadExecutionProfile>,
     pub upstream_thread_id: Option<String>,
@@ -37,6 +38,63 @@ pub(super) struct ParsedThreadMetadata {
     pub thread_participant_suggestions: Vec<ThreadParticipantSuggestion>,
     pub latest_skill_discovery_state: Option<LatestSkillDiscoveryState>,
     pub prompt_memory_injection_state: Option<PromptMemoryInjectionState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(super) struct ThreadIdentityMetadata {
+    pub thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reserved_at: Option<u64>,
+}
+
+impl ThreadIdentityMetadata {
+    pub(super) fn for_goal_thread(thread_id: &str, goal_run_id: &str) -> Self {
+        Self {
+            thread_id: thread_id.to_string(),
+            goal_run_id: Some(goal_run_id.to_string()),
+            goal_id: Some(goal_run_id.to_string()),
+            task_id: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            source: Some("goal_run".to_string()),
+            reserved_at: Some(now_millis()),
+        }
+    }
+
+    pub(super) fn from_task(thread_id: &str, task: &AgentTask) -> Self {
+        Self {
+            thread_id: thread_id.to_string(),
+            goal_run_id: task.goal_run_id.clone(),
+            goal_id: task.goal_run_id.clone(),
+            task_id: Some(task.id.clone()),
+            parent_task_id: task.parent_task_id.clone(),
+            parent_thread_id: task.parent_thread_id.clone(),
+            source: Some(task.source.clone()),
+            reserved_at: Some(now_millis()),
+        }
+    }
+
+    fn normalized(mut self) -> Self {
+        if self.goal_run_id.is_none() {
+            self.goal_run_id = self.goal_id.clone();
+        }
+        if self.goal_id.is_none() {
+            self.goal_id = self.goal_run_id.clone();
+        }
+        self
+    }
 }
 
 pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessageMetadata {
@@ -172,8 +230,30 @@ pub(super) fn parse_thread_metadata(metadata_json: Option<&str>) -> ParsedThread
                 .and_then(|value| value.get("thread_profile"))
         })
         .and_then(|value| serde_json::from_value::<ThreadExecutionProfile>(value.clone()).ok());
+    let identity = metadata
+        .as_ref()
+        .and_then(|value| value.get("identity"))
+        .and_then(|value| serde_json::from_value::<ThreadIdentityMetadata>(value.clone()).ok())
+        .or_else(|| {
+            let thread_id = get_str("thread_id")?;
+            Some(ThreadIdentityMetadata {
+                thread_id,
+                goal_run_id: get_str("goal_run_id").or_else(|| get_str("goal_id")),
+                goal_id: get_str("goal_id").or_else(|| get_str("goal_run_id")),
+                task_id: get_str("task_id"),
+                parent_task_id: get_str("parent_task_id"),
+                parent_thread_id: get_str("parent_thread_id"),
+                source: get_str("source"),
+                reserved_at: metadata
+                    .as_ref()
+                    .and_then(|value| value.get("reserved_at"))
+                    .and_then(|value| value.as_u64()),
+            })
+        })
+        .map(ThreadIdentityMetadata::normalized);
 
     ParsedThreadMetadata {
+        identity,
         client_surface,
         execution_profile,
         upstream_thread_id: get_str("upstream_thread_id"),
@@ -274,6 +354,7 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
 
 pub(super) fn build_thread_metadata_json(
     thread: &AgentThread,
+    identity: Option<&ThreadIdentityMetadata>,
     client_surface: Option<amux_protocol::ClientSurface>,
     execution_profile: Option<&ThreadExecutionProfile>,
     handoff_state: Option<&ThreadHandoffState>,
@@ -283,6 +364,22 @@ pub(super) fn build_thread_metadata_json(
     prompt_memory_injection_state: Option<&PromptMemoryInjectionState>,
 ) -> Option<String> {
     serde_json::to_string(&serde_json::json!({
+        "identity": identity,
+        "thread_id": identity.map(|identity| identity.thread_id.clone()),
+        "threadId": identity.map(|identity| identity.thread_id.clone()),
+        "goal_run_id": identity.and_then(|identity| identity.goal_run_id.clone()),
+        "goalRunId": identity.and_then(|identity| identity.goal_run_id.clone()),
+        "goal_id": identity.and_then(|identity| identity.goal_id.clone()),
+        "goalId": identity.and_then(|identity| identity.goal_id.clone()),
+        "task_id": identity.and_then(|identity| identity.task_id.clone()),
+        "taskId": identity.and_then(|identity| identity.task_id.clone()),
+        "parent_task_id": identity.and_then(|identity| identity.parent_task_id.clone()),
+        "parentTaskId": identity.and_then(|identity| identity.parent_task_id.clone()),
+        "parent_thread_id": identity.and_then(|identity| identity.parent_thread_id.clone()),
+        "parentThreadId": identity.and_then(|identity| identity.parent_thread_id.clone()),
+        "source": identity.and_then(|identity| identity.source.clone()),
+        "reserved_at": identity.and_then(|identity| identity.reserved_at),
+        "reservedAt": identity.and_then(|identity| identity.reserved_at),
         "client_surface": client_surface,
         "clientSurface": client_surface,
         "execution_profile": execution_profile,
@@ -311,6 +408,31 @@ pub(super) fn build_thread_metadata_json(
 }
 
 impl AgentEngine {
+    pub(super) async fn set_thread_identity_metadata(
+        &self,
+        thread_id: &str,
+        identity: ThreadIdentityMetadata,
+    ) {
+        let mut identities = self.thread_identity_metadata.write().await;
+        let reserved_at = identities
+            .get(thread_id)
+            .and_then(|existing| existing.reserved_at)
+            .or(identity.reserved_at)
+            .or_else(|| Some(now_millis()));
+        let mut identity = identity.normalized();
+        identity.thread_id = thread_id.to_string();
+        identity.reserved_at = reserved_at;
+        identities.insert(thread_id.to_string(), identity);
+    }
+
+    pub(super) async fn set_thread_identity_from_task(&self, thread_id: &str, task: &AgentTask) {
+        self.set_thread_identity_metadata(
+            thread_id,
+            ThreadIdentityMetadata::from_task(thread_id, task),
+        )
+        .await;
+    }
+
     pub(super) async fn set_thread_execution_profile(
         &self,
         thread_id: &str,

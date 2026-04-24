@@ -635,6 +635,32 @@ fn goal_run_thread_context_message(goal_run: &GoalRun, source_thread_id: Option<
 }
 
 impl AgentEngine {
+    async fn reserve_unique_goal_run_id(&self) -> String {
+        loop {
+            let candidate = format!("goal_{}", Uuid::new_v4());
+            let memory_conflict = {
+                let goal_runs = self.goal_runs.lock().await;
+                goal_runs.iter().any(|goal_run| goal_run.id == candidate)
+            };
+            if memory_conflict {
+                continue;
+            }
+
+            if self
+                .history
+                .get_goal_run(&candidate)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                continue;
+            }
+
+            return candidate;
+        }
+    }
+
     async fn initialize_goal_run_thread(&self, goal_run: &GoalRun, source_thread_id: Option<&str>) {
         let Some(goal_thread_id) = goal_run.thread_id.as_deref() else {
             return;
@@ -904,7 +930,7 @@ impl AgentEngine {
                 None => None,
             },
         };
-        let goal_run_id = format!("goal_{}", Uuid::new_v4());
+        let goal_run_id = self.reserve_unique_goal_run_id().await;
         let dedicated_thread_id = format!("goal:{goal_run_id}");
         let (created_thread_id, _) = self
             .get_or_create_thread(Some(&dedicated_thread_id), &normalized_title)
@@ -987,6 +1013,13 @@ impl AgentEngine {
         let goal_thread_id = goal_run.thread_id.clone();
         super::goal_run_apply_thread_routing(&mut goal_run, goal_thread_id);
         crate::agent::goal_dossier::refresh_goal_run_dossier(&mut goal_run);
+        if let Some(goal_thread_id) = goal_run.thread_id.as_deref() {
+            self.set_thread_identity_metadata(
+                goal_thread_id,
+                ThreadIdentityMetadata::for_goal_thread(goal_thread_id, &goal_run.id),
+            )
+            .await;
+        }
         self.initialize_goal_run_thread(&goal_run, source_thread_id.as_deref())
             .await;
 

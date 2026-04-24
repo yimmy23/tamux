@@ -125,7 +125,10 @@ impl TuiModel {
                                     pos,
                                 );
                         } else if self.task_view_drag_anchor.is_some()
-                            && matches!(self.main_pane_view, MainPaneView::Task(_))
+                            && matches!(
+                                self.main_pane_view,
+                                MainPaneView::Task(_) | MainPaneView::FilePreview(_)
+                            )
                         {
                             let pos = Position::new(mouse.column, mouse.row);
                             self.task_view_drag_current = Some(pos);
@@ -150,6 +153,16 @@ impl TuiModel {
                                         self.task_show_live_todos,
                                         self.task_show_timeline,
                                         self.task_show_files,
+                                        pos,
+                                    )
+                                }
+                                MainPaneView::FilePreview(target) => {
+                                    widgets::file_preview::selection_point_from_mouse(
+                                        chat_area,
+                                        &self.tasks,
+                                        target,
+                                        &self.theme,
+                                        self.task_view_scroll,
                                         pos,
                                     )
                                 }
@@ -232,7 +245,10 @@ impl TuiModel {
                                     pos,
                                 );
                         } else if self.task_view_drag_anchor.is_some()
-                            && matches!(self.main_pane_view, MainPaneView::Task(_))
+                            && matches!(
+                                self.main_pane_view,
+                                MainPaneView::Task(_) | MainPaneView::FilePreview(_)
+                            )
                         {
                             let pos = Position::new(mouse.column, mouse.row);
                             self.task_view_drag_current = Some(pos);
@@ -257,6 +273,16 @@ impl TuiModel {
                                         self.task_show_live_todos,
                                         self.task_show_timeline,
                                         self.task_show_files,
+                                        pos,
+                                    )
+                                }
+                                MainPaneView::FilePreview(target) => {
+                                    widgets::file_preview::selection_point_from_mouse(
+                                        chat_area,
+                                        &self.tasks,
+                                        target,
+                                        &self.theme,
+                                        self.task_view_scroll,
                                         pos,
                                     )
                                 }
@@ -575,6 +601,18 @@ impl TuiModel {
                             self.status_line = "Closed preview".to_string();
                             return;
                         }
+                        self.task_view_drag_anchor = Some(pos);
+                        self.task_view_drag_current = Some(pos);
+                        let point = widgets::file_preview::selection_point_from_mouse(
+                            chat_area,
+                            &self.tasks,
+                            &target,
+                            &self.theme,
+                            self.task_view_scroll,
+                            pos,
+                        );
+                        self.task_view_drag_anchor_point = point;
+                        self.task_view_drag_current_point = point;
                     } else if matches!(self.main_pane_view, MainPaneView::WorkContext) {
                         if let Some(
                             widgets::work_context_view::WorkContextHitTarget::ClosePreview,
@@ -825,7 +863,10 @@ impl TuiModel {
                             pos,
                         );
                 } else if self.task_view_drag_anchor.is_some()
-                    && matches!(self.main_pane_view, MainPaneView::Task(_))
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(_) | MainPaneView::FilePreview(_)
+                    )
                 {
                     if mouse.row <= chat_area.y.saturating_add(1) {
                         self.step_detail_view_scroll(-1);
@@ -860,6 +901,16 @@ impl TuiModel {
                                 self.task_show_live_todos,
                                 self.task_show_timeline,
                                 self.task_show_files,
+                                pos,
+                            )
+                        }
+                        MainPaneView::FilePreview(target) => {
+                            widgets::file_preview::selection_point_from_mouse(
+                                chat_area,
+                                &self.tasks,
+                                target,
+                                &self.theme,
+                                self.task_view_scroll,
                                 pos,
                             )
                         }
@@ -946,6 +997,16 @@ impl TuiModel {
                                     anchor,
                                 )
                             }
+                            MainPaneView::FilePreview(target) => {
+                                widgets::file_preview::selection_point_from_mouse(
+                                    chat_area,
+                                    &self.tasks,
+                                    target,
+                                    &self.theme,
+                                    self.task_view_scroll,
+                                    anchor,
+                                )
+                            }
                             _ => None,
                         }
                     });
@@ -974,6 +1035,16 @@ impl TuiModel {
                                     current,
                                 )
                             }
+                            MainPaneView::FilePreview(target) => {
+                                widgets::file_preview::selection_point_from_mouse(
+                                    chat_area,
+                                    &self.tasks,
+                                    target,
+                                    &self.theme,
+                                    self.task_view_scroll,
+                                    current,
+                                )
+                            }
                             _ => None,
                         }
                     });
@@ -986,35 +1057,52 @@ impl TuiModel {
                     };
 
                     if anchor_point != current_point {
-                        if let MainPaneView::Task(target) = &self.main_pane_view {
-                            let text = match target {
-                                sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } => {
-                                    widgets::goal_workspace::selected_text(
+                        match &self.main_pane_view {
+                            MainPaneView::Task(target) => {
+                                let text = match target {
+                                    sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } => {
+                                        widgets::goal_workspace::selected_text(
+                                            chat_area,
+                                            &self.tasks,
+                                            goal_run_id,
+                                            &self.goal_workspace,
+                                            anchor_point,
+                                            current_point,
+                                        )
+                                    }
+                                    _ => widgets::task_view::selected_text(
                                         chat_area,
                                         &self.tasks,
-                                        goal_run_id,
-                                        &self.goal_workspace,
+                                        target,
+                                        &self.theme,
+                                        self.task_view_scroll,
+                                        self.task_show_live_todos,
+                                        self.task_show_timeline,
+                                        self.task_show_files,
                                         anchor_point,
                                         current_point,
-                                    )
+                                    ),
+                                };
+                                if let Some(text) = text {
+                                    conversion::copy_to_clipboard(&text);
+                                    self.status_line = "Copied selection to clipboard".to_string();
                                 }
-                                _ => widgets::task_view::selected_text(
+                            }
+                            MainPaneView::FilePreview(target) => {
+                                if let Some(text) = widgets::file_preview::selected_text(
                                     chat_area,
                                     &self.tasks,
                                     target,
                                     &self.theme,
                                     self.task_view_scroll,
-                                    self.task_show_live_todos,
-                                    self.task_show_timeline,
-                                    self.task_show_files,
                                     anchor_point,
                                     current_point,
-                                ),
-                            };
-                            if let Some(text) = text {
-                                conversion::copy_to_clipboard(&text);
-                                self.status_line = "Copied selection to clipboard".to_string();
+                                ) {
+                                    conversion::copy_to_clipboard(&text);
+                                    self.status_line = "Copied selection to clipboard".to_string();
+                                }
                             }
+                            _ => {}
                         }
                     } else if cursor_in_chat {
                         self.handle_task_view_click(chat_area, anchor);

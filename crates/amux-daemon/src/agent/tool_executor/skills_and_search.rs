@@ -353,8 +353,14 @@ async fn execute_update_todo(
     thread_id: &str,
     task_id: Option<&str>,
 ) -> Result<String> {
-    if let Some(task_id) = task_id {
-        if let Some(context) = agent.goal_todo_context_for_task(task_id).await {
+    let goal_todo_context = if let Some(task_id) = task_id {
+        agent.goal_todo_context_for_task(task_id).await
+    } else {
+        None
+    };
+
+    if task_id.is_some() {
+        if let Some(context) = goal_todo_context.as_ref() {
             if context.authoritative {
                 let provided_goal_run_id = args
                     .get("goal_run_id")
@@ -446,6 +452,46 @@ async fn execute_update_todo(
             created_at: now,
             updated_at: now,
         });
+    }
+
+    if let Some(context) = goal_todo_context
+        .as_ref()
+        .filter(|context| context.authoritative)
+    {
+        let existing_items = agent.get_todos(thread_id).await;
+        let existing_step_items = existing_items
+            .iter()
+            .filter(|item| item.step_index == Some(context.current_step_index))
+            .collect::<Vec<_>>();
+
+        if !existing_step_items.is_empty() {
+            if existing_step_items.len() != items.len() {
+                return Err(anyhow::anyhow!(
+                    "goal-step todos are already set for this step; only update todo statuses without adding or removing items"
+                ));
+            }
+
+            for (index, (existing, requested)) in
+                existing_step_items.iter().zip(items.iter()).enumerate()
+            {
+                if existing.content != requested.content {
+                    return Err(anyhow::anyhow!(
+                        "goal-step todos are already set for this step; only update todo statuses without changing item {index} content or order"
+                    ));
+                }
+            }
+
+            items = existing_step_items
+                .into_iter()
+                .zip(items.into_iter())
+                .map(|(existing, requested)| {
+                    let mut item = existing.clone();
+                    item.status = requested.status;
+                    item.updated_at = now;
+                    item
+                })
+                .collect();
+        }
     }
 
     agent

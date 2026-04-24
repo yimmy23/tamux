@@ -72,6 +72,12 @@ impl AgentEngine {
             .await
             .get(&thread.id)
             .cloned();
+        let identity = self
+            .thread_identity_metadata
+            .read()
+            .await
+            .get(&thread.id)
+            .cloned();
         let handoff_state = self.thread_handoff_state(&thread.id).await;
         let thread_participants = self
             .thread_participants
@@ -111,6 +117,7 @@ impl AgentEngine {
                 .unwrap_or_default(),
             metadata_json: build_thread_metadata_json(
                 thread,
+                identity.as_ref(),
                 client_surface,
                 execution_profile.as_ref(),
                 handoff_state.as_ref(),

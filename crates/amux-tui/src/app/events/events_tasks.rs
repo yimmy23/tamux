@@ -544,10 +544,14 @@ impl TuiModel {
         if self.chat.active_thread_id() != Some(thread_id.as_str()) {
             return;
         }
-        // Reload is the authoritative replacement for any live stream state that was
-        // truncated or otherwise downgraded before reaching the TUI.
-        self.chat.reduce(chat::ChatAction::ResetStreaming);
-        if !self.should_preserve_pending_thinking_activity_on_reload(thread_id.as_str()) {
+        let has_live_text_stream = !self.chat.streaming_content().is_empty()
+            || !self.chat.streaming_reasoning().is_empty();
+        if !has_live_text_stream {
+            self.chat.reduce(chat::ChatAction::ResetStreaming);
+        }
+        if !has_live_text_stream
+            && !self.should_preserve_pending_thinking_activity_on_reload(thread_id.as_str())
+        {
             self.clear_agent_activity_for(Some(thread_id.as_str()));
         }
         self.clear_pending_stop();

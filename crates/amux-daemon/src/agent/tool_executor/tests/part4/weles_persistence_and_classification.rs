@@ -177,13 +177,11 @@ async fn persisted_weles_internal_task_keeps_runtime_path_without_serializing_hi
     )
     .await
     .expect("daemon-owned WELES governance spawn should succeed");
-    assert!(
-        seed_engine
-            .trusted_weles_tasks
-            .read()
-            .await
-            .contains(&task.id)
-    );
+    assert!(seed_engine
+        .trusted_weles_tasks
+        .read()
+        .await
+        .contains(&task.id));
     assert!(
         crate::agent::weles_governance::parse_weles_internal_override_payload(
             task.override_system_prompt.as_deref().unwrap_or("")
@@ -315,12 +313,10 @@ fn weles_classifier_guards_suspicious_shell_file_and_delegation_calls() {
         shell.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
     );
-    assert!(
-        shell
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("network") || reason.contains("remote script"))
-    );
+    assert!(shell
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("network") || reason.contains("remote script")));
 
     let file = crate::agent::weles_governance::classify_tool_call(
         "write_file",
@@ -333,11 +329,10 @@ fn weles_classifier_guards_suspicious_shell_file_and_delegation_calls() {
         file.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
     );
-    assert!(
-        file.reasons
-            .iter()
-            .any(|reason: &String| reason.contains("sensitive"))
-    );
+    assert!(file
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("sensitive")));
 
     let delegation = crate::agent::weles_governance::classify_tool_call(
         "route_to_specialist",
@@ -351,12 +346,10 @@ fn weles_classifier_guards_suspicious_shell_file_and_delegation_calls() {
         delegation.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
     );
-    assert!(
-        delegation
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("delegation"))
-    );
+    assert!(delegation
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("delegation")));
 }
 
 #[test]
@@ -382,12 +375,10 @@ fn weles_classifier_allows_default_discord_route_but_guards_explicit_message_tar
         explicit_discord.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
     );
-    assert!(
-        explicit_discord
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("explicit") || reason.contains("target"))
-    );
+    assert!(explicit_discord
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("explicit") || reason.contains("target")));
 }
 
 #[test]
@@ -396,28 +387,24 @@ fn weles_classifier_only_flags_standalone_broadcast_mentions() {
         "send_discord_message",
         &serde_json::json!({ "message": "Heads up @everyone please review" }),
     );
-    assert!(
-        broadcast
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("broadcast-style mention"))
-    );
+    assert!(broadcast
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("broadcast-style mention")));
 
     let email_like = crate::agent::weles_governance::classify_tool_call(
         "send_discord_message",
         &serde_json::json!({ "message": "Contact ops@here.example for help" }),
     );
-    assert!(
-        !email_like
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("broadcast-style mention"))
-    );
+    assert!(!email_like
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("broadcast-style mention")));
 }
 
 #[test]
-fn weles_classifier_covers_switch_model_plugin_api_synthesize_tool_setup_web_and_snapshot_restore_actions()
- {
+fn weles_classifier_covers_switch_model_plugin_api_synthesize_tool_setup_web_and_snapshot_restore_actions(
+) {
     let switch_model = crate::agent::weles_governance::classify_tool_call(
         "switch_model",
         &serde_json::json!({
@@ -430,12 +417,10 @@ fn weles_classifier_covers_switch_model_plugin_api_synthesize_tool_setup_web_and
         switch_model.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardAlways
     );
-    assert!(
-        switch_model
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("persisted agent execution policy"))
-    );
+    assert!(switch_model
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("persisted agent execution policy")));
 
     let plugin_api_call = crate::agent::weles_governance::classify_tool_call(
         "plugin_api_call",
@@ -448,12 +433,10 @@ fn weles_classifier_covers_switch_model_plugin_api_synthesize_tool_setup_web_and
         plugin_api_call.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardAlways
     );
-    assert!(
-        plugin_api_call
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("plugin execution policy"))
-    );
+    assert!(plugin_api_call
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("plugin execution policy")));
 
     let synthesize_tool = crate::agent::weles_governance::classify_tool_call(
         "synthesize_tool",
@@ -467,12 +450,10 @@ fn weles_classifier_covers_switch_model_plugin_api_synthesize_tool_setup_web_and
         synthesize_tool.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardAlways
     );
-    assert!(
-        synthesize_tool
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("runtime tool capability policy"))
-    );
+    assert!(synthesize_tool
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("runtime tool capability policy")));
 
     let install = crate::agent::weles_governance::classify_tool_call(
         "setup_web_browsing",
@@ -482,12 +463,10 @@ fn weles_classifier_covers_switch_model_plugin_api_synthesize_tool_setup_web_and
         install.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
     );
-    assert!(
-        install
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("install"))
-    );
+    assert!(install
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("install")));
 
     let configure = crate::agent::weles_governance::classify_tool_call(
         "setup_web_browsing",
@@ -497,12 +476,10 @@ fn weles_classifier_covers_switch_model_plugin_api_synthesize_tool_setup_web_and
         configure.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
     );
-    assert!(
-        configure
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("configure"))
-    );
+    assert!(configure
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("configure")));
 
     let restore = crate::agent::weles_governance::classify_tool_call(
         "restore_workspace_snapshot",
@@ -512,10 +489,8 @@ fn weles_classifier_covers_switch_model_plugin_api_synthesize_tool_setup_web_and
         restore.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardAlways
     );
-    assert!(
-        restore
-            .reasons
-            .iter()
-            .any(|reason: &String| reason.contains("snapshot") || reason.contains("restore"))
-    );
+    assert!(restore
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("snapshot") || reason.contains("restore")));
 }

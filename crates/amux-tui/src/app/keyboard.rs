@@ -510,8 +510,8 @@ impl TuiModel {
                         ..
                     }) = self.main_pane_view
                     {
-                        self.request_authoritative_goal_run_refresh(goal_run_id.clone());
-                        self.status_line = "Refreshing goal metadata".to_string();
+                        self.request_full_goal_view_refresh(goal_run_id.clone());
+                        self.status_line = "Refreshing goal, thread, and task metadata".to_string();
                     }
                 } else if self
                     .input_notice

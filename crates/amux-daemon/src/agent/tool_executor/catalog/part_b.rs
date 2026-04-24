@@ -92,7 +92,7 @@ fn add_available_tools_part_b(
 
     tools.push(tool_def(
         "update_todo",
-        "Replace the current todo list for this conversation. Use this to enter plan mode for non-trivial work and keep the list current as execution progresses.",
+        "Replace the current todo list for this conversation. For goal-owned main tasks, set the todo list once per goal step, then submit the same items with only status changes.",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -102,7 +102,7 @@ fn add_available_tools_part_b(
                 },
                 "goal_step_id": {
                     "type": "string",
-                    "description": "Required when the current task is the main task for a goal run. Must match the active goal step ID and binds the full todo list to that one goal step."
+                    "description": "Required when the current task is the main task for a goal run. Must match the active goal step ID and binds the full todo list to that one goal step; later calls in the same step may only update statuses."
                 },
                 "items": {
                     "type": "array",

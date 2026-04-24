@@ -179,16 +179,17 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 let target_agent_id = TuiModel::thread_picker_target_agent_id(thread_picker_tab);
                 model.start_new_thread_view_for_agent(target_agent_id.as_deref());
                 model.status_line = "New conversation".to_string();
-            } else if let Some((tid, title)) = widgets::thread_picker::filtered_threads(
+            } else if let Some((tid, title)) = widgets::thread_picker::filtered_threads_for_tasks(
                 &model.chat,
                 &model.modal,
                 &model.subagents,
+                &model.tasks,
             )
             .get(cursor - 1)
             .map(|thread| {
                 (
                     thread.id.clone(),
-                    widgets::thread_picker::thread_display_title(thread),
+                    widgets::thread_picker::thread_display_title_for_tasks(thread, &model.tasks),
                 )
             }) {
                 model.close_top_modal();
@@ -819,6 +820,11 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         .unwrap_or_default();
                     model.settings_picker_target = None;
                     model.close_top_modal();
+                    if model.modal.top() != Some(modal::ModalKind::Settings) {
+                        model
+                            .modal
+                            .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+                    }
                     model
                         .settings
                         .start_editing("mission_control_assignment_role", &current);

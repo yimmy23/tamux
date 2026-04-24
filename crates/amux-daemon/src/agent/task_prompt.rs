@@ -65,7 +65,7 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
         task.parent_task_id.as_deref(),
     ) {
         prompt.push_str(&format!(
-            "\nWhen calling update_todo for this main goal task, include \"goal_run_id\": \"{goal_run_id}\" and \"goal_step_id\": \"{goal_step_id}\" at the top level. These bind the full todo list to the current goal step; do not use item.step_index for goal-step routing."
+            "\nWhen calling update_todo for this main goal task, include \"goal_run_id\": \"{goal_run_id}\" and \"goal_step_id\": \"{goal_step_id}\" at the top level. These bind the full todo list to the current goal step; set the list once for this step, then only send the same items with status changes. Do not add, remove, rename, or reorder todos within the same step, and do not use item.step_index for goal-step routing."
         ));
     }
 
@@ -568,6 +568,11 @@ mod tests {
         assert!(
             prompt.contains("Weles"),
             "main goal tasks should be pointed at the review agent instead of the operator"
+        );
+        assert!(
+            prompt.contains("set the list once for this step")
+                && prompt.contains("only send the same items with status changes"),
+            "main goal tasks should be told that goal-step todos are immutable except status"
         );
     }
 

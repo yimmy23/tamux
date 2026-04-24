@@ -68,6 +68,18 @@ async fn execute_run_terminal_command(
 ) -> Result<(String, Option<ToolPendingApproval>)> {
     let client_surface = resolve_shell_tool_client_surface(agent, thread_id, task_id).await;
     if should_use_managed_execution_for_surface(client_surface, args) {
+        if session_manager.list().await.is_empty()
+            && can_run_headless_when_terminal_unavailable(args)
+        {
+            return execute_headless_shell_command(
+                args,
+                session_manager,
+                session_id,
+                "run_terminal_command",
+                cancel_token,
+            )
+            .await;
+        }
         let managed_args =
             managed_alias_args(args, "Run a shell command in a managed terminal session");
         execute_managed_command(
@@ -104,6 +116,18 @@ async fn execute_bash_command(
 ) -> Result<(String, Option<ToolPendingApproval>)> {
     let client_surface = resolve_shell_tool_client_surface(agent, thread_id, task_id).await;
     if should_use_managed_execution_for_surface(client_surface, args) {
+        if session_manager.list().await.is_empty()
+            && can_run_headless_when_terminal_unavailable(args)
+        {
+            return execute_headless_shell_command(
+                args,
+                session_manager,
+                session_id,
+                "bash_command",
+                cancel_token,
+            )
+            .await;
+        }
         let managed_args =
             managed_alias_args(args, "Run a shell command in a managed terminal session");
         execute_managed_command(
@@ -231,6 +255,37 @@ fn should_use_managed_execution_for_surface(
             command_requires_managed_state(command) || command_looks_interactive(command)
         })
         .unwrap_or(false)
+}
+
+fn can_run_headless_when_terminal_unavailable(args: &serde_json::Value) -> bool {
+    if args
+        .get("session")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+    {
+        return false;
+    }
+
+    let Some(command) = args
+        .get("command")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+
+    if command_requires_managed_state(command) || command_looks_interactive(command) {
+        return false;
+    }
+
+    let security_level = args.get("security_level").and_then(|value| value.as_str());
+    if matches!(security_level, Some("highest")) {
+        return false;
+    }
+
+    matches!(security_level, Some("yolo")) || !command_matches_policy_risk(command)
 }
 
 fn command_matches_policy_risk(command: &str) -> bool {

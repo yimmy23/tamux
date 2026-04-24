@@ -301,7 +301,7 @@ impl ConfigState {
             managed_security_level: "lowest".to_string(),
             auto_compact_context: true,
             max_context_messages: 100,
-            tui_chat_history_page_size: 100,
+            tui_chat_history_page_size: 20,
             max_tool_loops: 25,
             max_retries: 3,
             retry_delay_ms: 5_000,

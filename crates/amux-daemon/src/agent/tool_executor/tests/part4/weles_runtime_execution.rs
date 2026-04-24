@@ -284,12 +284,10 @@ async fn execute_tool_suspicious_shell_python_uses_weles_runtime_structured_bloc
         review.audit_id.as_deref(),
         Some("audit-weles-shell-python-block")
     );
-    assert!(
-        review
-            .reasons
-            .iter()
-            .any(|reason| reason.contains("runtime rejected suspicious shell python command"))
-    );
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("runtime rejected suspicious shell python command")));
 
     let dm_thread_id = crate::agent::agent_identity::internal_dm_thread_id(
         crate::agent::agent_identity::MAIN_AGENT_ID,

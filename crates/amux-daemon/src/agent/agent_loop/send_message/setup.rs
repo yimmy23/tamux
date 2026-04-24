@@ -276,6 +276,39 @@ impl<'a> SendMessageRunner<'a> {
         if let Some(client_surface) = client_surface {
             engine.set_thread_client_surface(&tid, client_surface).await;
         }
+        if let Some(task_id) = task_id {
+            let (current_task, thread_changed) = {
+                let mut tasks = engine.tasks.lock().await;
+                match tasks.iter_mut().find(|task| task.id == task_id) {
+                    Some(task) => {
+                        let thread_changed = task.thread_id.as_deref() != Some(tid.as_str());
+                        if thread_changed {
+                            task.thread_id = Some(tid.clone());
+                        }
+                        (Some(task.clone()), thread_changed)
+                    }
+                    None => (None, false),
+                }
+            };
+            if let Some(current_task) = current_task {
+                engine
+                    .set_thread_identity_from_task(&tid, &current_task)
+                    .await;
+                engine.persist_thread_by_id(&tid).await;
+                if thread_changed {
+                    engine.persist_tasks().await;
+                    engine.emit_task_update(
+                        &current_task,
+                        Some(format!("Task thread initialized: {tid}")),
+                    );
+                }
+                if let Some(goal_run_id) = current_task.goal_run_id.as_deref() {
+                    engine
+                        .sync_goal_run_with_task(goal_run_id, &current_task)
+                        .await;
+                }
+            }
+        }
         if !reuse_existing_user_message {
             {
                 let mut threads = engine.threads.write().await;
@@ -1799,6 +1832,56 @@ mod tests {
                 .contains("This step cannot be marked complete until that file exists"),
             "expected hard completion marker requirement in the goal task prompt"
         );
+
+        let task_thread_id = engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .find(|task| task.id == task_id)
+            .and_then(|task| task.thread_id.clone())
+            .expect("goal task should bind to the initialized execution thread immediately");
+        assert_eq!(task_thread_id, runner.tid);
+
+        let goal_run = engine
+            .goal_runs
+            .lock()
+            .await
+            .iter()
+            .find(|goal_run| goal_run.id == "goal-run-1")
+            .cloned()
+            .expect("goal run should still exist");
+        assert_eq!(
+            goal_run.active_thread_id.as_deref(),
+            Some(runner.tid.as_str())
+        );
+        assert!(
+            goal_run
+                .execution_thread_ids
+                .iter()
+                .any(|thread_id| thread_id == &runner.tid),
+            "initialized task thread should be visible in goal execution threads"
+        );
+
+        let persisted_thread = engine
+            .history
+            .get_thread(&runner.tid)
+            .await
+            .expect("read persisted task thread")
+            .expect("task execution thread should be persisted");
+        let metadata: serde_json::Value = serde_json::from_str(
+            persisted_thread
+                .metadata_json
+                .as_deref()
+                .expect("task execution thread should persist metadata"),
+        )
+        .expect("task execution thread metadata should be valid JSON");
+        assert_eq!(metadata["thread_id"], serde_json::json!(runner.tid));
+        assert_eq!(metadata["task_id"], serde_json::json!(task_id));
+        assert_eq!(metadata["goal_run_id"], serde_json::json!("goal-run-1"));
+        assert_eq!(metadata["identity"]["thread_id"], metadata["thread_id"]);
+        assert_eq!(metadata["identity"]["task_id"], metadata["task_id"]);
+        assert_eq!(metadata["identity"]["goal_run_id"], metadata["goal_run_id"]);
     }
 
     #[tokio::test]

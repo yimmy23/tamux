@@ -525,7 +525,7 @@ fn settings_modal_keyboard_navigation_scrolls_selected_field_into_view() {
         "expected overflowing settings content to be clipped before keyboard navigation"
     );
 
-    for _ in 0..22 {
+    for _ in 0..23 {
         let quit = model.handle_key_modal(
             KeyCode::Down,
             KeyModifiers::NONE,
@@ -534,7 +534,7 @@ fn settings_modal_keyboard_navigation_scrolls_selected_field_into_view() {
         assert!(!quit);
     }
 
-    assert_eq!(model.settings.field_cursor(), 22);
+    assert_eq!(model.settings.field_cursor(), 23);
     assert!(
         model.settings_modal_scroll > 0,
         "expected keyboard navigation to advance the settings scroll offset"
@@ -5060,6 +5060,11 @@ fn goal_view_ctrl_r_requests_authoritative_goal_refresh() {
         next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
         Some("goal-1")
     );
+    assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::RefreshServices)
+    ));
 }
 
 #[test]
@@ -5091,6 +5096,11 @@ fn goal_workspace_refresh_action_requests_authoritative_goal_refresh() {
         next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
         Some("goal-1")
     );
+    assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::RefreshServices)
+    ));
 }
 
 #[test]

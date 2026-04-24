@@ -249,6 +249,11 @@ fn render_chat_tab<'a>(
         "Tool Limit:     ",
         config.tool_synthesis_max_generated_tools.to_string(),
         "tool_synthesis_max_generated_tools",
+    ), (
+        19usize,
+        "Visible Msgs:   ",
+        config.tui_chat_history_page_size.to_string(),
+        "tui_chat_history_page_size",
     )] {
         render_gateway_text_field(
             settings, theme, &mut lines, idx, label, &value, field_name, false,
@@ -256,10 +261,10 @@ fn render_chat_tab<'a>(
     }
 
     for (idx, label) in [
-        (19usize, "Inspect Operator Model"),
-        (20usize, "Reset Operator Model"),
-        (21usize, "Inspect Collaboration"),
-        (22usize, "Inspect Generated Tools"),
+        (20usize, "Inspect Operator Model"),
+        (21usize, "Reset Operator Model"),
+        (22usize, "Inspect Collaboration"),
+        (23usize, "Inspect Generated Tools"),
     ] {
         let is_selected = settings.field_cursor() == idx;
         lines.push(Line::from(vec![

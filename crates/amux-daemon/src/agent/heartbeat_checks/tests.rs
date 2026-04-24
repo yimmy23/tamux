@@ -130,6 +130,7 @@ async fn make_test_engine(
         active_thread_participant_suggestion_drains: Mutex::new(HashSet::new()),
         thread_client_surfaces: RwLock::new(HashMap::new()),
         thread_execution_profiles: RwLock::new(HashMap::new()),
+        thread_identity_metadata: RwLock::new(HashMap::new()),
         thread_skill_discovery_states: RwLock::new(HashMap::new()),
         thread_memory_injection_states: RwLock::new(HashMap::new()),
         thread_structural_memories: RwLock::new(HashMap::new()),

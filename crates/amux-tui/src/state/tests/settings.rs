@@ -333,6 +333,8 @@ fn current_field_name_chat_tab() {
         "tool_synthesis_max_generated_tools"
     );
     state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "tui_chat_history_page_size");
+    state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "operator_model_inspect");
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "operator_model_reset");
@@ -342,7 +344,7 @@ fn current_field_name_chat_tab() {
     assert_eq!(state.current_field_name(), "generated_tools_inspect");
     state.reduce(SettingsAction::NavigateField(4));
     assert_eq!(state.current_field_name(), "generated_tools_inspect");
-    assert_eq!(state.field_cursor(), 22);
+    assert_eq!(state.field_cursor(), 23);
 }
 
 #[test]
@@ -358,8 +360,6 @@ fn current_field_name_advanced_tab() {
     assert_eq!(state.current_field_name(), "compaction_strategy");
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "max_context_messages");
-    state.reduce(SettingsAction::NavigateField(1));
-    assert_eq!(state.current_field_name(), "tui_chat_history_page_size");
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "max_tool_loops");
     state.reduce(SettingsAction::NavigateField(1));
@@ -394,7 +394,7 @@ fn current_field_name_advanced_tab() {
     assert_eq!(state.current_field_name(), "snapshot_stats");
     state.reduce(SettingsAction::NavigateField(5));
     assert_eq!(state.current_field_name(), "snapshot_stats");
-    assert_eq!(state.field_cursor(), 21);
+    assert_eq!(state.field_cursor(), 20);
 }
 
 #[test]
@@ -408,7 +408,7 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::WebSearch));
     assert_eq!(state.field_count(), 8);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
-    assert_eq!(state.field_count(), 23);
+    assert_eq!(state.field_count(), 24);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
     assert_eq!(state.field_count(), 14);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Auth));
@@ -422,7 +422,7 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Features));
     assert_eq!(state.field_count(), 25);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
-    assert_eq!(state.field_count(), 22);
+    assert_eq!(state.field_count(), 21);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Plugins));
     assert_eq!(state.field_count(), 1);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::About));

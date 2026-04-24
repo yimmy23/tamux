@@ -508,6 +508,7 @@ impl AgentEngine {
             self.clear_thread_skill_discovery_state(thread_id).await;
             self.clear_thread_memory_injection_state(thread_id).await;
             self.clear_thread_structural_memory(thread_id).await;
+            self.thread_identity_metadata.write().await.remove(thread_id);
             self.thread_handoff_states.write().await.remove(thread_id);
             self.thread_participants.write().await.remove(thread_id);
             self.thread_participant_suggestions

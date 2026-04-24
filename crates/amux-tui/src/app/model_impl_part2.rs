@@ -168,7 +168,7 @@ impl TuiModel {
     }
 
     fn chat_history_page_size(&self) -> usize {
-        self.config.tui_chat_history_page_size.max(25) as usize
+        self.config.tui_chat_history_page_size.max(20) as usize
     }
 
     fn request_thread_page(
@@ -233,6 +233,12 @@ impl TuiModel {
     fn request_authoritative_goal_run_refresh(&mut self, goal_run_id: String) {
         self.send_daemon_command(DaemonCommand::RequestGoalRunDetail(goal_run_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestGoalRunCheckpoints(goal_run_id));
+    }
+
+    fn request_full_goal_view_refresh(&mut self, goal_run_id: String) {
+        self.request_authoritative_goal_run_refresh(goal_run_id);
+        self.send_daemon_command(DaemonCommand::Refresh);
+        self.send_daemon_command(DaemonCommand::RefreshServices);
     }
 
     pub(in crate::app) fn schedule_goal_hydration_refresh(&mut self, goal_run_id: String) {

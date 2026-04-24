@@ -335,6 +335,7 @@ pub enum TaskAction {
 pub struct TaskState {
     tasks: Vec<AgentTask>,
     tasks_revision: u64,
+    preview_revision: u64,
     goal_runs: Vec<GoalRun>,
     goal_run_checkpoints: std::collections::HashMap<String, Vec<GoalRunCheckpointSummary>>,
     thread_todos: std::collections::HashMap<String, Vec<TodoItem>>,
@@ -353,6 +354,7 @@ impl TaskState {
         Self {
             tasks: Vec::new(),
             tasks_revision: 0,
+            preview_revision: 0,
             goal_runs: Vec::new(),
             goal_run_checkpoints: std::collections::HashMap::new(),
             thread_todos: std::collections::HashMap::new(),
@@ -373,6 +375,10 @@ impl TaskState {
 
     pub fn tasks_revision(&self) -> u64 {
         self.tasks_revision
+    }
+
+    pub fn preview_revision(&self) -> u64 {
+        self.preview_revision
     }
 
     pub fn goal_runs(&self) -> &[GoalRun] {
@@ -434,6 +440,89 @@ impl TaskState {
                 .iter()
                 .any(|candidate| candidate == thread_id)
         })
+    }
+
+    pub fn is_goal_thread_id(&self, thread_id: &str) -> bool {
+        if thread_id.is_empty() {
+            return false;
+        }
+        self.all_goal_thread_ids()
+            .iter()
+            .any(|candidate| candidate == thread_id)
+    }
+
+    pub fn all_goal_thread_ids(&self) -> Vec<String> {
+        let mut thread_ids = Vec::new();
+        let mut task_ids = Vec::new();
+
+        for run in &self.goal_runs {
+            for thread_id in run
+                .active_thread_id
+                .iter()
+                .chain(run.root_thread_id.iter())
+                .chain(run.thread_id.iter())
+            {
+                push_unique_id(&mut thread_ids, thread_id);
+            }
+            for thread_id in &run.execution_thread_ids {
+                push_unique_id(&mut thread_ids, thread_id);
+            }
+            if let Some(goal_threads) = self.goal_thread_ids.get(&run.id) {
+                for thread_id in goal_threads {
+                    push_unique_id(&mut thread_ids, thread_id);
+                }
+            }
+        }
+
+        for goal_threads in self.goal_thread_ids.values() {
+            for thread_id in goal_threads {
+                push_unique_id(&mut thread_ids, thread_id);
+            }
+        }
+
+        for task in self
+            .tasks()
+            .iter()
+            .filter(|task| task.goal_run_id.as_deref().is_some_and(|id| !id.is_empty()))
+        {
+            push_unique_id(&mut task_ids, &task.id);
+            if let Some(thread_id) = task.thread_id.as_deref() {
+                push_unique_id(&mut thread_ids, thread_id);
+            }
+        }
+
+        loop {
+            let mut changed = false;
+            for task in self.tasks() {
+                let belongs_to_goal = task.goal_run_id.as_deref().is_some_and(|id| !id.is_empty())
+                    || task
+                        .parent_task_id
+                        .as_deref()
+                        .is_some_and(|parent_task_id| {
+                            task_ids.iter().any(|id| id == parent_task_id)
+                        })
+                    || task
+                        .parent_thread_id
+                        .as_deref()
+                        .is_some_and(|parent_thread_id| {
+                            thread_ids.iter().any(|id| id == parent_thread_id)
+                        });
+                if !belongs_to_goal {
+                    continue;
+                }
+
+                changed |= push_unique_id(&mut task_ids, &task.id);
+
+                if let Some(thread_id) = task.thread_id.as_deref() {
+                    changed |= push_unique_id(&mut thread_ids, thread_id);
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        thread_ids
     }
 
     pub fn goal_thread_ids(&self, goal_run_id: &str) -> Vec<String> {
@@ -688,11 +777,13 @@ impl TaskState {
                 if let Some(file_path) = file_path {
                     self.git_diffs
                         .insert(format!("{repo_path}::{file_path}"), diff);
+                    self.preview_revision = self.preview_revision.wrapping_add(1);
                 }
             }
 
             TaskAction::FilePreviewReceived(preview) => {
                 self.file_previews.insert(preview.path.clone(), preview);
+                self.preview_revision = self.preview_revision.wrapping_add(1);
             }
 
             TaskAction::SelectWorkPath { thread_id, path } => {
@@ -715,14 +806,6 @@ impl TaskState {
 }
 
 fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
-    fn push_unique(ids: &mut Vec<String>, id: &str) -> bool {
-        if id.is_empty() || ids.iter().any(|existing| existing == id) {
-            return false;
-        }
-        ids.push(id.to_string());
-        true
-    }
-
     let mut thread_ids = Vec::new();
     let mut task_ids = Vec::new();
 
@@ -732,24 +815,24 @@ fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
         .chain(run.root_thread_id.iter())
         .chain(run.thread_id.iter())
     {
-        push_unique(&mut thread_ids, thread_id);
+        push_unique_id(&mut thread_ids, thread_id);
     }
     for thread_id in &run.execution_thread_ids {
-        push_unique(&mut thread_ids, thread_id);
+        push_unique_id(&mut thread_ids, thread_id);
     }
     for task in state
         .tasks()
         .iter()
         .filter(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
     {
-        push_unique(&mut task_ids, &task.id);
+        push_unique_id(&mut task_ids, &task.id);
         if let Some(thread_id) = task.thread_id.as_deref() {
-            push_unique(&mut thread_ids, thread_id);
+            push_unique_id(&mut thread_ids, thread_id);
         }
     }
     if let Some(goal_threads) = state.goal_thread_ids.get(&run.id) {
         for thread_id in goal_threads {
-            push_unique(&mut thread_ids, thread_id);
+            push_unique_id(&mut thread_ids, thread_id);
         }
     }
     loop {
@@ -770,10 +853,10 @@ fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
                 continue;
             }
 
-            changed |= push_unique(&mut task_ids, &task.id);
+            changed |= push_unique_id(&mut task_ids, &task.id);
 
             if let Some(thread_id) = task.thread_id.as_deref() {
-                changed |= push_unique(&mut thread_ids, thread_id);
+                changed |= push_unique_id(&mut thread_ids, thread_id);
             }
         }
         if !changed {
@@ -782,6 +865,14 @@ fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
     }
 
     thread_ids
+}
+
+fn push_unique_id(ids: &mut Vec<String>, id: &str) -> bool {
+    if id.is_empty() || ids.iter().any(|existing| existing == id) {
+        return false;
+    }
+    ids.push(id.to_string());
+    true
 }
 
 fn remember_goal_thread(

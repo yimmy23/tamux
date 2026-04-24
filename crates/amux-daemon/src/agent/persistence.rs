@@ -179,6 +179,7 @@ impl AgentEngine {
                 let mut thread_participant_suggestions = HashMap::new();
                 let mut thread_client_surfaces = HashMap::new();
                 let mut thread_execution_profiles = HashMap::new();
+                let mut thread_identity_metadata = HashMap::new();
                 let mut thread_skill_discovery_states = HashMap::new();
                 let mut thread_memory_injection_states = HashMap::new();
                 let mut thread_structural_memories = HashMap::new();
@@ -192,6 +193,9 @@ impl AgentEngine {
                     }
                     if let Some(execution_profile) = thread_metadata.execution_profile.clone() {
                         thread_execution_profiles.insert(thread_id.clone(), execution_profile);
+                    }
+                    if let Some(identity) = thread_metadata.identity.clone() {
+                        thread_identity_metadata.insert(thread_id.clone(), identity);
                     }
                     if let Some(latest_skill_discovery_state) =
                         thread_metadata.latest_skill_discovery_state.clone()
@@ -297,6 +301,7 @@ impl AgentEngine {
                 *self.thread_participant_suggestions.write().await = thread_participant_suggestions;
                 *self.thread_client_surfaces.write().await = thread_client_surfaces;
                 *self.thread_execution_profiles.write().await = thread_execution_profiles;
+                *self.thread_identity_metadata.write().await = thread_identity_metadata;
                 *self.thread_skill_discovery_states.write().await = thread_skill_discovery_states;
                 *self.thread_memory_injection_state_map().write().await =
                     thread_memory_injection_states;
@@ -317,6 +322,7 @@ impl AgentEngine {
             Ok(_) => {
                 *self.thread_message_hydration_pending.write().await = HashSet::new();
                 *self.thread_execution_profiles.write().await = HashMap::new();
+                *self.thread_identity_metadata.write().await = HashMap::new();
             }
             Err(e) => tracing::warn!("failed to load agent threads from sqlite: {e}"),
         }

@@ -815,7 +815,11 @@ fn image_generation_result_refreshes_thread_and_work_context() {
 
     assert_eq!(
         next_thread_request(&mut daemon_rx),
-        Some(("thread-1".to_string(), Some(100), Some(0)))
+        Some((
+            "thread-1".to_string(),
+            Some(model.config.tui_chat_history_page_size as usize),
+            Some(0),
+        ))
     );
     assert!(matches!(
         daemon_rx.try_recv(),
@@ -5761,6 +5765,57 @@ fn follow_up_prompt_keeps_thinking_across_reload_after_stale_thread_detail_repla
 }
 
 #[test]
+fn follow_up_prompt_keeps_reasoning_stream_across_reload_before_first_response() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        messages: vec![
+            crate::wire::AgentMessage {
+                id: Some("msg-user-1".to_string()),
+                role: crate::wire::MessageRole::User,
+                content: "First question".to_string(),
+                timestamp: 1,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+            crate::wire::AgentMessage {
+                id: Some("msg-assistant-1".to_string()),
+                role: crate::wire::MessageRole::Assistant,
+                content: "First answer".to_string(),
+                timestamp: 2,
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+        ],
+        created_at: 1,
+        updated_at: 2,
+        ..Default::default()
+    })));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.submit_prompt("follow-up question".to_string());
+    model.handle_client_event(ClientEvent::Reasoning {
+        thread_id: "thread-user".to_string(),
+        content: "thinking about the follow-up".to_string(),
+    });
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "thread-user".to_string(),
+    });
+
+    assert_eq!(
+        model.chat.streaming_reasoning(),
+        "thinking about the follow-up",
+        "reload should not clear live reasoning on follow-up prompts"
+    );
+    assert_eq!(model.footer_activity_text().as_deref(), Some("reasoning"));
+}
+
+#[test]
 fn participant_playground_activity_surfaces_only_for_active_parent_thread() {
     let mut model = make_model();
     model.handle_client_event(ClientEvent::ThreadCreated {
@@ -6721,6 +6776,52 @@ fn new_subagent_conversation_keeps_thinking_across_reload_before_first_response(
         Some("thinking"),
         "reload before first response should not clear pending thinking state"
     );
+}
+
+#[test]
+fn new_subagent_conversation_keeps_reasoning_stream_across_reload_before_first_response() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.subagents.entries.push(crate::state::SubAgentEntry {
+        id: "domowoj".to_string(),
+        name: "Domowoj".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("testing".to_string()),
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        raw_json: None,
+    });
+
+    model.start_new_thread_view_for_agent(Some("domowoj"));
+    model.submit_prompt("inspect this".to_string());
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-domowoj".to_string(),
+        title: "inspect this".to_string(),
+        agent_name: Some("Domowoj".to_string()),
+    });
+    model.handle_client_event(ClientEvent::Reasoning {
+        thread_id: "thread-domowoj".to_string(),
+        content: "checking the workspace".to_string(),
+    });
+    assert_eq!(model.chat.streaming_reasoning(), "checking the workspace");
+    assert_eq!(model.footer_activity_text().as_deref(), Some("reasoning"));
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "thread-domowoj".to_string(),
+    });
+
+    assert_eq!(
+        model.chat.streaming_reasoning(),
+        "checking the workspace",
+        "reload should not clear live reasoning before answer text starts"
+    );
+    assert_eq!(model.footer_activity_text().as_deref(), Some("reasoning"));
 }
 
 #[test]

@@ -8,6 +8,7 @@ use amux_protocol::{AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
 use crate::state::chat::{AgentThread, ChatState};
 use crate::state::modal::{ModalState, ThreadPickerTab};
 use crate::state::subagents::SubAgentsState;
+use crate::state::task::TaskState;
 use crate::theme::ThemeTokens;
 use crate::widgets::token_format::format_token_count;
 
@@ -38,6 +39,26 @@ struct ThreadPickerTabCell {
     tab: ThreadPickerTab,
     label: String,
     start: u16,
+}
+
+#[derive(Debug, Clone, Default)]
+struct GoalThreadIndex {
+    ids: std::collections::BTreeSet<String>,
+}
+
+impl GoalThreadIndex {
+    fn from_tasks(tasks: &TaskState) -> Self {
+        let ids = tasks.all_goal_thread_ids().into_iter().collect();
+        Self { ids }
+    }
+
+    fn contains_id(&self, thread_id: &str) -> bool {
+        self.ids.contains(thread_id)
+    }
+
+    fn contains_thread(&self, thread: &AgentThread) -> bool {
+        is_goal_thread(thread) || self.contains_id(&thread.id)
+    }
 }
 
 fn thread_picker_layout(inner: Rect) -> [Rect; 5] {
@@ -124,7 +145,11 @@ fn display_name_for_agent_id(
         })
 }
 
-pub(crate) fn tab_specs(chat: &ChatState, subagents: &SubAgentsState) -> Vec<ThreadPickerTabSpec> {
+fn tab_specs_inner(
+    chat: &ChatState,
+    subagents: &SubAgentsState,
+    goal_index: Option<&GoalThreadIndex>,
+) -> Vec<ThreadPickerTabSpec> {
     let mut specs = fixed_tab_specs();
     let mut dynamic_agents = std::collections::BTreeSet::new();
 
@@ -140,7 +165,7 @@ pub(crate) fn tab_specs(chat: &ChatState, subagents: &SubAgentsState) -> Vec<Thr
         if is_hidden_handoff_thread(thread)
             || is_internal_thread(thread)
             || is_gateway_thread(thread)
-            || is_goal_thread(thread)
+            || is_goal_thread_with_index(thread, goal_index)
             || is_playground_thread(thread)
             || is_rarog_thread(thread)
             || is_weles_thread(thread)
@@ -169,15 +194,29 @@ pub(crate) fn tab_specs(chat: &ChatState, subagents: &SubAgentsState) -> Vec<Thr
     specs
 }
 
+pub(crate) fn tab_specs(chat: &ChatState, subagents: &SubAgentsState) -> Vec<ThreadPickerTabSpec> {
+    tab_specs_inner(chat, subagents, None)
+}
+
+pub(crate) fn tab_specs_for_tasks(
+    chat: &ChatState,
+    subagents: &SubAgentsState,
+    tasks: &TaskState,
+) -> Vec<ThreadPickerTabSpec> {
+    let goal_index = GoalThreadIndex::from_tasks(tasks);
+    tab_specs_inner(chat, subagents, Some(&goal_index))
+}
+
 fn thread_matches_agent_tab(
     thread: &AgentThread,
     agent_id: &str,
     subagents: &SubAgentsState,
+    goal_index: Option<&GoalThreadIndex>,
 ) -> bool {
     if is_hidden_handoff_thread(thread)
         || is_internal_thread(thread)
         || is_gateway_thread(thread)
-        || is_goal_thread(thread)
+        || is_goal_thread_with_index(thread, goal_index)
         || is_playground_thread(thread)
         || is_rarog_thread(thread)
         || is_weles_thread(thread)
@@ -243,13 +282,25 @@ pub(crate) fn resolve_thread_picker_tab(
         .map(ThreadPickerTab::Agent)
 }
 
-pub(crate) fn adjacent_thread_picker_tab(
+pub(crate) fn adjacent_thread_picker_tab_for_tasks(
     current: &ThreadPickerTab,
     chat: &ChatState,
     subagents: &SubAgentsState,
+    tasks: &TaskState,
     direction: i32,
 ) -> ThreadPickerTab {
-    let specs = tab_specs(chat, subagents);
+    let goal_index = GoalThreadIndex::from_tasks(tasks);
+    adjacent_thread_picker_tab_inner(current, chat, subagents, Some(&goal_index), direction)
+}
+
+fn adjacent_thread_picker_tab_inner(
+    current: &ThreadPickerTab,
+    chat: &ChatState,
+    subagents: &SubAgentsState,
+    goal_index: Option<&GoalThreadIndex>,
+    direction: i32,
+) -> ThreadPickerTab {
+    let specs = tab_specs_inner(chat, subagents, goal_index);
     let current_index = specs
         .iter()
         .position(|spec| &spec.tab == current)
@@ -267,13 +318,19 @@ pub(crate) fn adjacent_thread_picker_tab(
         .unwrap_or_default()
 }
 
-fn thread_matches_query(thread: &AgentThread, query: &str) -> bool {
+fn thread_matches_query(
+    thread: &AgentThread,
+    query: &str,
+    goal_index: Option<&GoalThreadIndex>,
+) -> bool {
     if query.is_empty() {
         return true;
     }
     let lower = query.to_lowercase();
     thread.title.to_lowercase().contains(&lower)
-        || thread_display_title(thread).to_lowercase().contains(&lower)
+        || thread_display_title_inner(thread, goal_index)
+            .to_lowercase()
+            .contains(&lower)
         || thread
             .agent_name
             .as_deref()
@@ -310,6 +367,10 @@ pub(crate) fn is_playground_thread(thread: &AgentThread) -> bool {
 
 pub(crate) fn is_goal_thread(thread: &AgentThread) -> bool {
     thread.id.starts_with(GOAL_THREAD_PREFIX)
+}
+
+fn is_goal_thread_with_index(thread: &AgentThread, goal_index: Option<&GoalThreadIndex>) -> bool {
+    is_goal_thread(thread) || goal_index.is_some_and(|index| index.contains_thread(thread))
 }
 
 fn is_hidden_handoff_thread(thread: &AgentThread) -> bool {
@@ -359,9 +420,21 @@ fn is_svarog_thread(thread: &AgentThread, subagents: &SubAgentsState) -> bool {
 }
 
 pub(crate) fn thread_display_title(thread: &AgentThread) -> String {
+    thread_display_title_inner(thread, None)
+}
+
+pub(crate) fn thread_display_title_for_tasks(thread: &AgentThread, tasks: &TaskState) -> String {
+    let goal_index = GoalThreadIndex::from_tasks(tasks);
+    thread_display_title_inner(thread, Some(&goal_index))
+}
+
+fn thread_display_title_inner(
+    thread: &AgentThread,
+    goal_index: Option<&GoalThreadIndex>,
+) -> String {
     if thread.id == "concierge" || thread.title.eq_ignore_ascii_case("concierge") {
         AGENT_NAME_RAROG.to_string()
-    } else if is_goal_thread(thread) {
+    } else if is_goal_thread_with_index(thread, goal_index) {
         let role = thread
             .agent_name
             .as_deref()
@@ -379,6 +452,25 @@ pub(crate) fn filtered_threads<'a>(
     modal: &ModalState,
     subagents: &SubAgentsState,
 ) -> Vec<&'a AgentThread> {
+    filtered_threads_inner(chat, modal, subagents, None)
+}
+
+pub(crate) fn filtered_threads_for_tasks<'a>(
+    chat: &'a ChatState,
+    modal: &ModalState,
+    subagents: &SubAgentsState,
+    tasks: &TaskState,
+) -> Vec<&'a AgentThread> {
+    let goal_index = GoalThreadIndex::from_tasks(tasks);
+    filtered_threads_inner(chat, modal, subagents, Some(&goal_index))
+}
+
+fn filtered_threads_inner<'a>(
+    chat: &'a ChatState,
+    modal: &ModalState,
+    subagents: &SubAgentsState,
+    goal_index: Option<&GoalThreadIndex>,
+) -> Vec<&'a AgentThread> {
     let query = modal.command_query();
     chat.threads()
         .iter()
@@ -389,27 +481,35 @@ pub(crate) fn filtered_threads<'a>(
                     && !is_internal_thread(thread)
                     && !is_gateway_thread(thread)
                     && !is_weles_thread(thread)
-                    && !is_goal_thread(thread)
+                    && !is_goal_thread_with_index(thread, goal_index)
                     && !is_playground_thread(thread)
                     && is_svarog_thread(thread, subagents)
             }
             ThreadPickerTab::Rarog => is_rarog_thread(thread),
             ThreadPickerTab::Weles => !is_playground_thread(thread) && is_weles_thread(thread),
-            ThreadPickerTab::Goals => is_goal_thread(thread),
+            ThreadPickerTab::Goals => is_goal_thread_with_index(thread, goal_index),
             ThreadPickerTab::Playgrounds => is_playground_thread(thread),
             ThreadPickerTab::Internal => is_internal_thread(thread),
             ThreadPickerTab::Gateway => is_gateway_thread(thread),
             ThreadPickerTab::Agent(agent_id) => {
-                thread_matches_agent_tab(thread, &agent_id, subagents)
+                thread_matches_agent_tab(thread, &agent_id, subagents, goal_index)
             }
         })
-        .filter(|thread| thread_matches_query(thread, query))
+        .filter(|thread| thread_matches_query(thread, query, goal_index))
         .collect()
 }
 
 fn tab_cells(chat: &ChatState, subagents: &SubAgentsState) -> Vec<ThreadPickerTabCell> {
+    tab_cells_inner(chat, subagents, None)
+}
+
+fn tab_cells_inner(
+    chat: &ChatState,
+    subagents: &SubAgentsState,
+    goal_index: Option<&GoalThreadIndex>,
+) -> Vec<ThreadPickerTabCell> {
     let mut x = 0;
-    tab_specs(chat, subagents)
+    tab_specs_inner(chat, subagents, goal_index)
         .into_iter()
         .map(|spec| {
             let tab = spec.tab;
@@ -516,12 +616,13 @@ fn synthetic_row_label(tab: ThreadPickerTab) -> &'static str {
     }
 }
 
-pub fn render(
+pub fn render_for_tasks(
     frame: &mut Frame,
     area: Rect,
     chat: &ChatState,
     modal: &ModalState,
     subagents: &SubAgentsState,
+    tasks: &TaskState,
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
@@ -538,8 +639,9 @@ pub fn render(
     }
 
     let [tabs_row, search_row, separator_row, list_row, hints_row] = thread_picker_layout(inner);
+    let goal_index = GoalThreadIndex::from_tasks(tasks);
 
-    let tab_cells = tab_cells(chat, subagents);
+    let tab_cells = tab_cells_inner(chat, subagents, Some(&goal_index));
     let selected_tab = modal.thread_picker_tab();
     let tab_scroll = tab_scroll_offset(tabs_row.width, &tab_cells, &selected_tab);
     let tab_line = Line::from(
@@ -591,7 +693,7 @@ pub fn render(
 
     // Build thread list
     let active_id = chat.active_thread_id();
-    let filtered_threads = filtered_threads(chat, modal, subagents);
+    let filtered_threads = filtered_threads_inner(chat, modal, subagents, Some(&goal_index));
 
     let cursor = modal.picker_cursor();
     let list_h = list_row.height as usize;
@@ -632,7 +734,7 @@ pub fn render(
                         let tokens = thread.total_input_tokens + thread.total_output_tokens;
                         let token_str = format_tokens(tokens);
 
-                        let display_title = thread_display_title(thread);
+                        let display_title = thread_display_title_inner(thread, Some(&goal_index));
                         let max_title = inner_w.saturating_sub(25);
                         let title = if display_title.chars().count() > max_title && max_title > 3 {
                             format!(
@@ -713,6 +815,18 @@ pub fn hit_test(
     subagents: &SubAgentsState,
     mouse: Position,
 ) -> Option<ThreadPickerHitTarget> {
+    let tasks = TaskState::default();
+    hit_test_for_tasks(area, chat, modal, subagents, &tasks, mouse)
+}
+
+pub fn hit_test_for_tasks(
+    area: Rect,
+    chat: &ChatState,
+    modal: &ModalState,
+    subagents: &SubAgentsState,
+    tasks: &TaskState,
+    mouse: Position,
+) -> Option<ThreadPickerHitTarget> {
     if !area.contains(mouse) {
         return None;
     }
@@ -725,9 +839,10 @@ pub fn hit_test(
         return None;
     }
     let [tabs_row, _, _, list_row, _] = thread_picker_layout(inner);
+    let goal_index = GoalThreadIndex::from_tasks(tasks);
 
     if tabs_row.contains(mouse) {
-        let tab_cells = tab_cells(chat, subagents);
+        let tab_cells = tab_cells_inner(chat, subagents, Some(&goal_index));
         let selected_tab = modal.thread_picker_tab();
         let tab_scroll = tab_scroll_offset(tabs_row.width, &tab_cells, &selected_tab);
         for (tab, rect, _) in visible_tab_cells(tabs_row, &tab_cells, tab_scroll) {
@@ -738,7 +853,8 @@ pub fn hit_test(
     }
 
     if list_row.contains(mouse) {
-        let total_items = filtered_threads(chat, modal, subagents).len() + 1;
+        let total_items =
+            filtered_threads_inner(chat, modal, subagents, Some(&goal_index)).len() + 1;
         let row_idx = mouse.y.saturating_sub(list_row.y) as usize;
         let (visible_start, visible_len) =
             visible_window(modal.picker_cursor(), total_items, list_row.height as usize);
@@ -791,6 +907,7 @@ fn now_millis() -> u64 {
 mod tests {
     use super::*;
     use crate::state::chat::{AgentThread, ChatAction};
+    use crate::state::task::{GoalRun, TaskAction, TaskState};
     use crate::state::ModalAction;
     use crate::state::{SubAgentEntry, SubAgentsState};
 
@@ -831,6 +948,27 @@ mod tests {
         let mut state = SubAgentsState::new();
         state.entries = entries;
         state
+    }
+
+    fn make_tasks_with_goal_thread(thread_id: &str) -> TaskState {
+        let mut tasks = TaskState::new();
+        tasks.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+            id: "goal-1".into(),
+            title: "Goal one".into(),
+            thread_id: Some(thread_id.into()),
+            active_thread_id: Some(thread_id.into()),
+            ..Default::default()
+        }));
+        tasks
+    }
+
+    #[test]
+    fn goal_thread_index_collects_goal_run_thread_ids_once_for_picker_use() {
+        let tasks = make_tasks_with_goal_thread("thread-existing-goal");
+        let index = GoalThreadIndex::from_tasks(&tasks);
+
+        assert!(index.contains_id("thread-existing-goal"));
+        assert!(!index.contains_id("thread-normal"));
     }
 
     fn sample_subagent(id: &str, name: &str, builtin: bool) -> SubAgentEntry {
@@ -1194,6 +1332,48 @@ mod tests {
 
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "goal:goal_1");
+    }
+
+    #[test]
+    fn goal_run_thread_ids_route_plain_threads_to_goals_tab() {
+        let chat = make_chat(vec![AgentThread {
+            id: "thread-existing-goal".into(),
+            agent_name: Some("Domowoj".into()),
+            title: "Run concrete moat pass".into(),
+            ..Default::default()
+        }]);
+        let subagents = make_subagents(Vec::new());
+        let tasks = make_tasks_with_goal_thread("thread-existing-goal");
+        let mut modal = ModalState::new();
+
+        let labels = tab_specs_for_tasks(&chat, &subagents, &tasks)
+            .into_iter()
+            .map(|spec| spec.label)
+            .collect::<Vec<_>>();
+        assert!(
+            !labels.iter().any(|label| label == "[Domowoj]"),
+            "goal-linked threads should not create normal agent tabs"
+        );
+
+        assert!(
+            filtered_threads_for_tasks(&chat, &modal, &subagents, &tasks).is_empty(),
+            "goal-linked threads should be excluded from the default Swarog tab"
+        );
+
+        modal.set_thread_picker_tab(ThreadPickerTab::Agent("domowoj".into()));
+        assert!(
+            filtered_threads_for_tasks(&chat, &modal, &subagents, &tasks).is_empty(),
+            "goal-linked threads should be excluded from normal agent tabs"
+        );
+
+        modal.set_thread_picker_tab(ThreadPickerTab::Goals);
+        let threads = filtered_threads_for_tasks(&chat, &modal, &subagents, &tasks);
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "thread-existing-goal");
+        assert_eq!(
+            thread_display_title_for_tasks(threads[0], &tasks),
+            "goal: Domowoj · Run concrete moat pass"
+        );
     }
 
     #[test]

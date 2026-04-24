@@ -48,6 +48,7 @@ struct PreviewJob {
 struct PreviewStore {
     entries: HashMap<PreviewCacheKey, PreviewCacheEntry>,
     jobs: VecDeque<PreviewJob>,
+    revision: u64,
 }
 
 impl PreviewStore {
@@ -59,6 +60,7 @@ impl PreviewStore {
         self.entries
             .insert(job.key.clone(), PreviewCacheEntry::Pending);
         self.jobs.push_back(job);
+        self.revision = self.revision.wrapping_add(1);
         (PreviewCacheEntry::Pending, true)
     }
 
@@ -72,6 +74,11 @@ impl PreviewStore {
             Err(message) => PreviewCacheEntry::Failed(message),
         };
         self.entries.insert(key.clone(), entry);
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    fn revision(&self) -> u64 {
+        self.revision
     }
 
     #[cfg(test)]
@@ -368,6 +375,10 @@ pub(crate) fn render_image_preview_lines(
         max_height_lines,
         theme,
     )
+}
+
+pub(crate) fn preview_cache_revision() -> u64 {
+    lock_store(&preview_runtime().inner.store).revision()
 }
 
 #[cfg(test)]

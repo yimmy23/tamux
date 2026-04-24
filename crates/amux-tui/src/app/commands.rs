@@ -969,8 +969,8 @@ impl TuiModel {
                 else {
                     return false;
                 };
-                self.request_authoritative_goal_run_refresh(goal_run_id.clone());
-                self.status_line = "Refreshing goal metadata".to_string();
+                self.request_full_goal_view_refresh(goal_run_id.clone());
+                self.status_line = "Refreshing goal, thread, and task metadata".to_string();
                 true
             }
         }
@@ -1614,9 +1614,14 @@ impl TuiModel {
         if cursor == 0 {
             return None;
         }
-        widgets::thread_picker::filtered_threads(&self.chat, &self.modal, &self.subagents)
-            .get(cursor - 1)
-            .copied()
+        widgets::thread_picker::filtered_threads_for_tasks(
+            &self.chat,
+            &self.modal,
+            &self.subagents,
+            &self.tasks,
+        )
+        .get(cursor - 1)
+        .copied()
     }
 
     pub(super) fn selected_goal_picker_run(&self) -> Option<&task::GoalRun> {
@@ -1646,7 +1651,7 @@ impl TuiModel {
 
     pub(super) fn selected_thread_picker_confirm_action(&self) -> Option<PendingConfirmAction> {
         let thread = self.selected_thread_picker_thread()?;
-        let title = widgets::thread_picker::thread_display_title(thread);
+        let title = widgets::thread_picker::thread_display_title_for_tasks(thread, &self.tasks);
         if self.can_stop_selected_thread() {
             Some(PendingConfirmAction::StopThread {
                 thread_id: thread.id.clone(),
@@ -2300,11 +2305,14 @@ impl TuiModel {
     }
 
     pub(super) fn sync_thread_picker_item_count(&mut self) {
-        let count =
-            widgets::thread_picker::filtered_threads(&self.chat, &self.modal, &self.subagents)
-                .len()
-                + 1;
-        self.modal.set_picker_item_count(count);
+        let thread_count = widgets::thread_picker::filtered_threads_for_tasks(
+            &self.chat,
+            &self.modal,
+            &self.subagents,
+            &self.tasks,
+        )
+        .len();
+        self.modal.set_picker_item_count(thread_count + 1);
     }
 
     pub(super) fn sync_goal_picker_item_count(&mut self) {

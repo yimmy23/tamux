@@ -757,7 +757,7 @@ async fn execute_submit_goal_step_verdict(
     };
     if task.source != super::GOAL_VERIFICATION_SOURCE {
         anyhow::bail!(
-            "submit_goal_step_verdict can only be used by goal verification tasks; current task source is '{}'",
+            "submit_goal_step_verdict can only be used by goal verification tasks; current task source is '{}'.",
             task.source
         );
     }

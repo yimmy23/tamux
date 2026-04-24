@@ -1405,7 +1405,7 @@ impl TuiModel {
                 ),
                 MainPaneView::Task(target) => {
                     if let SidebarItemTarget::GoalRun { goal_run_id, .. } = target {
-                        widgets::goal_workspace::render(
+                        widgets::goal_workspace::render_with_selection(
                             frame,
                             layout.chat,
                             &self.tasks,
@@ -1413,6 +1413,22 @@ impl TuiModel {
                             &self.goal_workspace,
                             &self.theme,
                             self.tick_counter,
+                            self.task_view_drag_anchor_point
+                                .zip(self.task_view_drag_current_point)
+                                .or_else(|| {
+                                    self.task_view_drag_anchor.and_then(|anchor| {
+                                        self.task_view_drag_current.and_then(|current| {
+                                            widgets::goal_workspace::selection_points_from_mouse(
+                                                layout.chat,
+                                                &self.tasks,
+                                                goal_run_id,
+                                                &self.goal_workspace,
+                                                anchor,
+                                                current,
+                                            )
+                                        })
+                                    })
+                                }),
                         );
                     } else {
                         widgets::task_view::render(
@@ -1486,6 +1502,23 @@ impl TuiModel {
                     target,
                     &self.theme,
                     self.task_view_scroll,
+                    self.task_view_drag_anchor_point
+                        .zip(self.task_view_drag_current_point)
+                        .or_else(|| {
+                            self.task_view_drag_anchor.and_then(|anchor| {
+                                self.task_view_drag_current.and_then(|current| {
+                                    widgets::file_preview::selection_points_from_mouse(
+                                        layout.chat,
+                                        &self.tasks,
+                                        target,
+                                        &self.theme,
+                                        self.task_view_scroll,
+                                        anchor,
+                                        current,
+                                    )
+                                })
+                            })
+                        }),
                 ),
                 MainPaneView::GoalComposer => {
                     render_helpers::render_goal_mission_control_preflight(
@@ -1564,7 +1597,7 @@ impl TuiModel {
                 ),
                 MainPaneView::Task(target) => {
                     if let SidebarItemTarget::GoalRun { goal_run_id, .. } = target {
-                        widgets::goal_workspace::render(
+                        widgets::goal_workspace::render_with_selection(
                             frame,
                             layout.chat,
                             &self.tasks,
@@ -1572,6 +1605,22 @@ impl TuiModel {
                             &self.goal_workspace,
                             &self.theme,
                             self.tick_counter,
+                            self.task_view_drag_anchor_point
+                                .zip(self.task_view_drag_current_point)
+                                .or_else(|| {
+                                    self.task_view_drag_anchor.and_then(|anchor| {
+                                        self.task_view_drag_current.and_then(|current| {
+                                            widgets::goal_workspace::selection_points_from_mouse(
+                                                layout.chat,
+                                                &self.tasks,
+                                                goal_run_id,
+                                                &self.goal_workspace,
+                                                anchor,
+                                                current,
+                                            )
+                                        })
+                                    })
+                                }),
                         );
                     } else {
                         widgets::task_view::render(
@@ -1645,6 +1694,23 @@ impl TuiModel {
                     target,
                     &self.theme,
                     self.task_view_scroll,
+                    self.task_view_drag_anchor_point
+                        .zip(self.task_view_drag_current_point)
+                        .or_else(|| {
+                            self.task_view_drag_anchor.and_then(|anchor| {
+                                self.task_view_drag_current.and_then(|current| {
+                                    widgets::file_preview::selection_points_from_mouse(
+                                        layout.chat,
+                                        &self.tasks,
+                                        target,
+                                        &self.theme,
+                                        self.task_view_scroll,
+                                        anchor,
+                                        current,
+                                    )
+                                })
+                            })
+                        }),
                 ),
                 MainPaneView::GoalComposer => {
                     render_helpers::render_goal_mission_control_preflight(
@@ -1752,12 +1818,13 @@ impl TuiModel {
                     widgets::command_palette::render(frame, overlay_area, &self.modal, &self.theme);
                 }
                 modal::ModalKind::ThreadPicker => {
-                    widgets::thread_picker::render(
+                    widgets::thread_picker::render_for_tasks(
                         frame,
                         overlay_area,
                         &self.chat,
                         &self.modal,
                         &self.subagents,
+                        &self.tasks,
                         &self.theme,
                     );
                 }

@@ -280,11 +280,9 @@ async fn onecontext_search_rejects_negative_timeout_seconds() {
     .await
     .expect_err("negative timeout should be rejected");
 
-    assert!(
-        error
-            .to_string()
-            .contains("'timeout_seconds' must be a non-negative integer")
-    );
+    assert!(error
+        .to_string()
+        .contains("'timeout_seconds' must be a non-negative integer"));
 }
 
 #[tokio::test]

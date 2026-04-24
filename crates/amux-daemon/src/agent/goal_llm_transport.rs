@@ -299,4 +299,21 @@ impl AgentEngine {
                 .map(|message| summarize_text(&message.content, 320))
         })
     }
+
+    pub(in crate::agent) async fn goal_thread_latest_assistant_content(
+        &self,
+        thread_id: &str,
+    ) -> Option<String> {
+        let threads = self.threads.read().await;
+        threads.get(thread_id).and_then(|thread| {
+            thread
+                .messages
+                .iter()
+                .rev()
+                .find(|message| {
+                    message.role == MessageRole::Assistant && !message.content.trim().is_empty()
+                })
+                .map(|message| message.content.trim().to_string())
+        })
+    }
 }

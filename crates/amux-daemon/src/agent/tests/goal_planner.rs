@@ -262,6 +262,27 @@ async fn start_goal_run_creates_dedicated_goal_thread_and_thread_routing_default
         }),
         "goal thread should be seeded with a system context message that carries the big picture"
     );
+    let persisted_thread = engine
+        .history
+        .get_thread(&goal_thread_id)
+        .await
+        .expect("read persisted goal thread")
+        .expect("goal thread should be persisted");
+    let metadata: serde_json::Value = serde_json::from_str(
+        persisted_thread
+            .metadata_json
+            .as_deref()
+            .expect("goal thread should persist metadata"),
+    )
+    .expect("goal thread metadata should be valid JSON");
+    assert_eq!(metadata["thread_id"], serde_json::json!(goal_thread_id));
+    assert_eq!(metadata["goal_run_id"], serde_json::json!(goal_run.id));
+    assert_eq!(metadata["identity"]["thread_id"], metadata["thread_id"]);
+    assert_eq!(metadata["identity"]["goal_run_id"], metadata["goal_run_id"]);
+    assert_eq!(
+        metadata["identity"]["source"],
+        serde_json::json!("goal_run")
+    );
 
     let serialized = goal_run_json(&goal_run);
     assert_eq!(
@@ -3826,6 +3847,108 @@ async fn complete_goal_run_writes_final_summary_markdown_after_review_marker_exi
     assert!(final_summary.contains("# Final Goal Summary"));
     assert!(final_summary.contains("Goal finished cleanly."));
     assert!(final_summary.contains("implemented and reviewed"));
+}
+
+#[tokio::test]
+async fn final_review_completion_accepts_pass_verdict_from_thread_summary() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let recorded_bodies =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = crate::agent::tests::spawn_goal_recording_server(
+        recorded_bodies,
+        serde_json::json!({
+            "summary": "Goal finished after reviewer pass.",
+            "stable_memory_update": null,
+            "generate_skill": false,
+            "skill_title": null,
+            "activate_skill": null
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let goal_run_id = "goal-final-review-thread-summary";
+    let thread_id = "thread-final-review-summary";
+    engine.get_or_create_thread(Some(thread_id), "goal").await;
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Finish the only step",
+    );
+    goal_run.thread_id = Some(thread_id.to_string());
+    goal_run.steps[0].status = GoalRunStepStatus::Completed;
+    goal_run.steps[0].summary = Some("done".to_string());
+    goal_run.current_step_index = goal_run.steps.len();
+    goal_run.current_step_title = None;
+    goal_run.current_step_kind = None;
+    engine.goal_runs.lock().await.push_back(goal_run);
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
+    engine
+        .complete_goal_run(goal_run_id)
+        .await
+        .expect("goal completion should queue a final review");
+
+    let review_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.source == "goal_final_review")
+        .cloned()
+        .expect("final review task should exist");
+    let mut completed_review = review_task.clone();
+    completed_review.status = TaskStatus::Completed;
+    completed_review.thread_id = Some(thread_id.to_string());
+    completed_review.result = None;
+    {
+        let mut tasks = engine.tasks.lock().await;
+        let stored = tasks
+            .iter_mut()
+            .find(|task| task.id == completed_review.id)
+            .expect("stored final review task should exist");
+        *stored = completed_review.clone();
+    }
+
+    {
+        let mut threads = engine.threads.write().await;
+        let thread = threads
+            .get_mut(thread_id)
+            .expect("final review thread should exist");
+        let mut message = AgentMessage::user(
+            "VERDICT: PASS\nreviewer confirms goal closure",
+            now_millis(),
+        );
+        message.role = MessageRole::Assistant;
+        thread.messages.push(message);
+    }
+
+    engine
+        .handle_goal_run_final_review_completion(goal_run_id, &completed_review)
+        .await
+        .expect("thread summary pass verdict should complete the final review");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(updated.status, GoalRunStatus::Completed);
+    let final_review_marker =
+        crate::agent::goal_dossier::goal_final_review_marker_path(&engine.data_dir, goal_run_id);
+    let marker = tokio::fs::read_to_string(final_review_marker)
+        .await
+        .expect("final review marker should be written from thread summary verdict");
+    assert!(marker.starts_with("VERDICT: PASS"), "{marker}");
 }
 
 #[tokio::test]

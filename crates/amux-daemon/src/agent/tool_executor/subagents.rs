@@ -137,29 +137,7 @@ fn merge_tool_call_limit(existing: Option<String>, max_tool_calls: Option<u32>) 
 }
 
 async fn reserve_subagent_thread_id(agent: &AgentEngine) -> String {
-    loop {
-        let candidate = format!("thread_{}", uuid::Uuid::new_v4());
-        let task_conflict = {
-            let tasks = agent.tasks.lock().await;
-            tasks.iter()
-                .any(|task| task.thread_id.as_deref() == Some(candidate.as_str()))
-        };
-        if task_conflict {
-            continue;
-        }
-
-        let thread_conflict = agent.threads.read().await.contains_key(&candidate);
-        if thread_conflict {
-            continue;
-        }
-
-        let history_conflict = agent.history.get_thread(&candidate).await.ok().flatten().is_some();
-        if history_conflict {
-            continue;
-        }
-
-        return candidate;
-    }
+    agent.reserve_unique_thread_id().await
 }
 
 async fn resolve_effective_subagent_provider_config(
@@ -657,6 +635,9 @@ async fn execute_spawn_subagent(
         .map(|def| def.id.as_str())
         .map(str::to_string)
         .or_else(|| crate::agent::agent_identity::extract_persona_id(subagent.override_system_prompt.as_deref()));
+    agent
+        .set_thread_identity_from_task(&reserved_thread_id, &subagent)
+        .await;
     seed_reserved_subagent_thread(
         agent,
         &reserved_thread_id,
@@ -1263,17 +1244,25 @@ async fn execute_run_divergent(
         })
         .filter(|v| v.len() >= 2);
 
-    // Derive goal_run_id from context if available
-    let goal_run_id = task_id.and_then(|_tid| {
-        // Convention: goal-sourced tasks have source "goal_run"
-        // but we don't have direct access here; pass None
-        // and let start_divergent_session work without it
-        None::<&str>
-    });
+    let goal_run_id = match task_id {
+        Some(task_id) => {
+            let tasks = agent.tasks.lock().await;
+            tasks
+                .iter()
+                .find(|task| task.id == task_id)
+                .and_then(|task| task.goal_run_id.clone())
+        }
+        None => None,
+    };
 
     if mode == "debate" {
         return match agent
-            .start_debate_session(&problem_statement, custom_framings, thread_id, goal_run_id)
+            .start_debate_session(
+                &problem_statement,
+                custom_framings,
+                thread_id,
+                goal_run_id.as_deref(),
+            )
             .await
         {
             Ok(session_id) => {
@@ -1291,7 +1280,12 @@ async fn execute_run_divergent(
     }
 
     match agent
-        .start_divergent_session(&problem_statement, custom_framings, thread_id, goal_run_id)
+        .start_divergent_session(
+            &problem_statement,
+            custom_framings,
+            thread_id,
+            goal_run_id.as_deref(),
+        )
         .await
     {
         Ok(session_id) => {
@@ -1368,10 +1362,19 @@ async fn execute_run_debate(
         })
         .filter(|v| v.len() >= 2);
 
-    let goal_run_id = task_id.and_then(|_tid| None::<&str>);
+    let goal_run_id = match task_id {
+        Some(task_id) => {
+            let tasks = agent.tasks.lock().await;
+            tasks
+                .iter()
+                .find(|task| task.id == task_id)
+                .and_then(|task| task.goal_run_id.clone())
+        }
+        None => None,
+    };
 
     match agent
-        .start_debate_session(&topic, custom_framings, thread_id, goal_run_id)
+        .start_debate_session(&topic, custom_framings, thread_id, goal_run_id.as_deref())
         .await
     {
         Ok(session_id) => {

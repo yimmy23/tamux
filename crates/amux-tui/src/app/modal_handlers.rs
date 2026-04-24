@@ -399,7 +399,7 @@ impl TuiModel {
                             }
                             "tui_chat_history_page_size" => {
                                 if let Ok(n) = value.parse::<u32>() {
-                                    self.config.tui_chat_history_page_size = n.clamp(25, 500);
+                                    self.config.tui_chat_history_page_size = n.clamp(20, 500);
                                 }
                             }
                             "max_tool_loops" => {
@@ -1409,20 +1409,22 @@ impl TuiModel {
                 }
             }
             KeyCode::Left if kind == modal::ModalKind::ThreadPicker => {
-                let previous = widgets::thread_picker::adjacent_thread_picker_tab(
+                let previous = widgets::thread_picker::adjacent_thread_picker_tab_for_tasks(
                     &self.modal.thread_picker_tab(),
                     &self.chat,
                     &self.subagents,
+                    &self.tasks,
                     -1,
                 );
                 self.modal.set_thread_picker_tab(previous);
                 self.sync_thread_picker_item_count();
             }
             KeyCode::Right if kind == modal::ModalKind::ThreadPicker => {
-                let next = widgets::thread_picker::adjacent_thread_picker_tab(
+                let next = widgets::thread_picker::adjacent_thread_picker_tab_for_tasks(
                     &self.modal.thread_picker_tab(),
                     &self.chat,
                     &self.subagents,
+                    &self.tasks,
                     1,
                 );
                 self.modal.set_thread_picker_tab(next);
@@ -1432,7 +1434,10 @@ impl TuiModel {
                 if let Some(thread) = self.selected_thread_picker_thread() {
                     self.open_pending_action_confirm(PendingConfirmAction::DeleteThread {
                         thread_id: thread.id.clone(),
-                        title: widgets::thread_picker::thread_display_title(thread),
+                        title: widgets::thread_picker::thread_display_title_for_tasks(
+                            thread,
+                            &self.tasks,
+                        ),
                     });
                 }
             }

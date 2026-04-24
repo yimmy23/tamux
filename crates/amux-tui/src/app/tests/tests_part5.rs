@@ -261,6 +261,158 @@ fn goal_view_drag_selection_copies_beyond_visible_window() {
 }
 
 #[test]
+fn goal_view_drag_selection_copies_expanded_goal_prompt() {
+    let mut model = build_model();
+    model.show_sidebar_override = Some(false);
+    model.focus = FocusArea::Chat;
+    model.goal_workspace.set_prompt_expanded(true);
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Prompt Goal".to_string(),
+            goal: "Copy this exact expanded goal prompt from the mission plan.".to_string(),
+            ..Default::default()
+        }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    let chat_area = rendered_chat_area(&model);
+    let prompt_row = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+        .find(|row| {
+            let start = widgets::goal_workspace::selection_point_from_mouse(
+                chat_area,
+                &model.tasks,
+                "goal-1",
+                &model.goal_workspace,
+                Position::new(chat_area.x.saturating_add(5), *row),
+            );
+            let end = widgets::goal_workspace::selection_point_from_mouse(
+                chat_area,
+                &model.tasks,
+                "goal-1",
+                &model.goal_workspace,
+                Position::new(chat_area.x.saturating_add(25), *row),
+            );
+            start.zip(end).is_some_and(|(start, end)| {
+                start != end
+                    && widgets::goal_workspace::selected_text(
+                        chat_area,
+                        &model.tasks,
+                        "goal-1",
+                        &model.goal_workspace,
+                        start,
+                        end,
+                    )
+                    .is_some_and(|text| text.contains("Copy"))
+            })
+        })
+        .expect("expanded goal prompt should expose selectable text");
+    let start = widgets::goal_workspace::selection_point_from_mouse(
+        chat_area,
+        &model.tasks,
+        "goal-1",
+        &model.goal_workspace,
+        Position::new(chat_area.x.saturating_add(5), prompt_row),
+    )
+    .expect("expanded goal prompt should expose a selectable start point");
+    let end = widgets::goal_workspace::selection_point_from_mouse(
+        chat_area,
+        &model.tasks,
+        "goal-1",
+        &model.goal_workspace,
+        Position::new(chat_area.x.saturating_add(25), prompt_row),
+    )
+    .expect("expanded goal prompt should expose a selectable end point");
+    assert_ne!(start, end, "prompt selection points should differ");
+
+    super::conversion::reset_last_copied_text();
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: chat_area.x.saturating_add(5),
+        row: prompt_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: chat_area.x.saturating_add(25),
+        row: prompt_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: chat_area.x.saturating_add(25),
+        row: prompt_row,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    let copied = super::conversion::last_copied_text()
+        .expect("dragging across expanded goal prompt should copy text");
+    assert!(
+        copied.contains("Copy this exact"),
+        "expected selected text from goal prompt, got: {copied:?}"
+    );
+    assert_eq!(model.status_line, "Copied selection to clipboard");
+}
+
+#[test]
+fn file_preview_drag_selection_copies_preview_text() {
+    let mut model = build_model();
+    model.focus = FocusArea::Chat;
+    model.show_sidebar_override = Some(false);
+    model
+        .tasks
+        .reduce(task::TaskAction::FilePreviewReceived(task::FilePreview {
+            path: "/tmp/demo.txt".to_string(),
+            content: "alpha preview line\nbeta preview line\ngamma preview line".to_string(),
+            truncated: false,
+            is_text: true,
+        }));
+    model.main_pane_view = MainPaneView::FilePreview(ChatFilePreviewTarget {
+        path: "/tmp/demo.txt".to_string(),
+        repo_root: None,
+        repo_relative_path: None,
+    });
+
+    let chat_area = rendered_chat_area(&model);
+    let start_col = chat_area.x;
+    let end_col = chat_area.x.saturating_add(13);
+    let content_row = chat_area.y.saturating_add(5);
+
+    super::conversion::reset_last_copied_text();
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: start_col,
+        row: content_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: end_col,
+        row: content_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: end_col,
+        row: content_row,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    let copied = super::conversion::last_copied_text()
+        .expect("dragging across file preview should copy selected text");
+    assert!(
+        copied.contains("alpha preview"),
+        "expected selected preview text, got: {copied:?}"
+    );
+    assert_eq!(model.status_line, "Copied selection to clipboard");
+}
+
+#[test]
 fn esc_closes_work_context_even_from_input_focus() {
     let mut model = build_model();
     model.focus = FocusArea::Input;

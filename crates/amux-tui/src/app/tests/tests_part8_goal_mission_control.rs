@@ -161,6 +161,75 @@ fn goal_composer_role_picker_allows_custom_researcher_assignment() {
 }
 
 #[test]
+fn goal_composer_custom_role_edit_keeps_typing_in_inline_editor() {
+    let mut model = build_model();
+    model.goal_mission_control =
+        goal_mission_control::GoalMissionControlState::from_main_assignment(
+            task::GoalAgentAssignment {
+                role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+                enabled: true,
+                provider: "openai".to_string(),
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: Some("medium".to_string()),
+                inherit_from_main: false,
+            },
+            vec![
+                task::GoalAgentAssignment {
+                    role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+                    enabled: true,
+                    provider: "openai".to_string(),
+                    model: "gpt-5.4".to_string(),
+                    reasoning_effort: Some("medium".to_string()),
+                    inherit_from_main: false,
+                },
+                task::GoalAgentAssignment {
+                    role_id: "research".to_string(),
+                    enabled: true,
+                    provider: "openai".to_string(),
+                    model: "gpt-5.4-mini".to_string(),
+                    reasoning_effort: Some("high".to_string()),
+                    inherit_from_main: false,
+                },
+            ],
+            "Main agent inheritance",
+        );
+    model.goal_mission_control.set_selected_runtime_assignment_index(1);
+    model.main_pane_view = MainPaneView::GoalComposer;
+    model.focus = FocusArea::Input;
+
+    let opened = model.stage_mission_control_assignment_modal_edit(
+        goal_mission_control::RuntimeAssignmentEditField::Role,
+    );
+    assert!(opened);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::RolePicker));
+
+    let custom_row = crate::state::subagents::role_picker_custom_index();
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(custom_row as i32));
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::Settings));
+    assert_eq!(model.settings.editing_field(), Some("mission_control_assignment_role"));
+
+    let handled = model.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
+    assert!(!handled);
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert!(model.input.buffer().is_empty());
+    assert_eq!(model.settings.edit_buffer(), "researcher");
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(model.settings.editing_field(), None);
+    assert_eq!(
+        model.goal_mission_control.role_assignments[1].role_id,
+        "researcher"
+    );
+}
+
+#[test]
 fn goal_composer_role_picker_allows_builtin_persona_assignment() {
     let mut model = build_model();
     model.goal_mission_control =
