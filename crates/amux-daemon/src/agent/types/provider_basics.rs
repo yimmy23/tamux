@@ -100,6 +100,21 @@ pub const XAI_MODELS: &[ModelDefinition] = &[
     },
 ];
 
+pub const DEEPSEEK_MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        context_window: 1_048_576,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        context_window: 1_048_576,
+        modalities: TEXT_ONLY,
+    },
+];
+
 pub const GITHUB_COPILOT_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "claude-haiku-4.5",

@@ -113,6 +113,17 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
+        id: PROVIDER_ID_DEEPSEEK,
+        name: "DeepSeek",
+        default_base_url: "https://api.deepseek.com",
+        default_model: "deepseek-v4-pro",
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
         id: PROVIDER_ID_XAI,
         name: "xAI",
         default_base_url: "https://api.x.ai/v1",

@@ -360,10 +360,12 @@ fn apply_patch_is_classified_like_other_file_mutations() {
         classification.class,
         crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
     );
-    assert!(classification
-        .reasons
-        .iter()
-        .any(|reason| reason.contains("sensitive")));
+    assert!(
+        classification
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("sensitive"))
+    );
 }
 
 #[test]

@@ -230,9 +230,10 @@ if matches!(
                     launch_assignments,
                     autonomy_level,
                     client_surface,
+                    requires_approval,
                 } => {
                     let goal_run = agent
-                        .start_goal_run_with_surface(
+                        .start_goal_run_with_surface_and_approval_policy(
                             goal,
                             title,
                             thread_id,
@@ -241,6 +242,7 @@ if matches!(
                             client_request_id,
                             autonomy_level,
                             client_surface,
+                            requires_approval,
                             if launch_assignments.is_empty() {
                                 None
                             } else {

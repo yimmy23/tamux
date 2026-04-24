@@ -1,6 +1,10 @@
 use anyhow::Result;
 use serde::Deserialize;
 
+fn default_requires_approval() -> bool {
+    true
+}
+
 /// Gracefully deserialize context_messages. Malformed entries are dropped instead of failing the whole command.
 fn deserialize_context_messages<'de, D>(
     deserializer: D,
@@ -94,6 +98,8 @@ pub(super) enum AgentBridgeCommand {
         priority: Option<String>,
         client_request_id: Option<String>,
         autonomy_level: Option<String>,
+        #[serde(default = "default_requires_approval")]
+        requires_approval: bool,
     },
     ListGoalRuns,
     GetGoalRun {

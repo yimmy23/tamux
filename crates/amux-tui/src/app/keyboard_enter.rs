@@ -186,7 +186,10 @@ impl TuiModel {
                     .chat
                     .active_thread()
                     .and_then(|thread| thread.messages.get(sel))
-                    .map(|msg| msg.role == chat::MessageRole::Assistant && msg.reasoning.is_some())
+                    .map(|msg| {
+                        (msg.role == chat::MessageRole::Assistant && msg.reasoning.is_some())
+                            || widgets::message::is_meta_cognition_message(msg)
+                    })
                     .unwrap_or(false);
                 if has_reasoning {
                     self.chat.toggle_reasoning(sel);

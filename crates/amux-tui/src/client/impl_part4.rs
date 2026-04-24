@@ -576,6 +576,7 @@ impl DaemonClient {
                 .collect(),
             autonomy_level: None,
             client_surface: Some(amux_protocol::ClientSurface::Tui),
+            requires_approval: true,
         })
     }
 

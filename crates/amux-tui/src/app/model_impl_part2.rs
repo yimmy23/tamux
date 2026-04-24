@@ -354,7 +354,7 @@ impl TuiModel {
     }
 
     fn maybe_schedule_chat_history_collapse(&mut self) {
-        if self.chat.scroll_offset() != 0 {
+        if !self.chat.is_following_bottom() {
             return;
         }
         if self.chat.active_thread().is_some_and(|thread| {

@@ -50,6 +50,28 @@ describe("frontend Chutes provider catalog", () => {
   });
 });
 
+describe("frontend DeepSeek provider catalog", () => {
+  it("registers DeepSeek with fetchable OpenAI-compatible defaults", () => {
+    const deepseek = getProviderDefinition("deepseek" as any);
+
+    expect(deepseek).toBeDefined();
+    expect(deepseek?.defaultBaseUrl).toBe("https://api.deepseek.com");
+    expect(deepseek?.defaultModel).toBe("deepseek-v4-pro");
+    expect(deepseek?.supportsModelFetch).toBe(true);
+    expect(deepseek?.defaultTransport).toBe("chat_completions");
+    expect(deepseek?.models.map((model) => [model.id, model.contextWindow])).toEqual([
+      ["deepseek-v4-pro", 1_048_576],
+      ["deepseek-v4-flash", 1_048_576],
+    ]);
+    expect(DEFAULT_AGENT_SETTINGS.deepseek.model).toBe("deepseek-v4-pro");
+  });
+
+  it("recognizes DeepSeek as a valid provider id", () => {
+    expect(normalizeAgentProviderId("deepseek")).toBe("deepseek");
+    expect(getDefaultModelForProvider("deepseek" as any)).toBe("deepseek-v4-pro");
+  });
+});
+
 describe("frontend xAI provider catalog", () => {
   it("registers xAI with hosted defaults and responses transport", () => {
     const xai = getProviderDefinition("xai" as any);

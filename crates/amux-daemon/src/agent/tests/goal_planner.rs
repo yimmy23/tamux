@@ -156,6 +156,24 @@ fn sample_goal_run(goal_run_id: &str) -> GoalRun {
 }
 
 #[tokio::test]
+async fn agent_authored_goal_plan_auto_approves_low_confidence_steps() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let mut goal_run = sample_goal_run("goal-agent-low-confidence");
+    goal_run.authorship_tag = Some(crate::agent::AuthorshipTag::Agent);
+    goal_run.steps[0].title = "[LOW] Inspect unknown deployment state".to_string();
+
+    let action = engine.plan_confidence_gate(&goal_run).await;
+
+    assert_eq!(
+        action,
+        crate::agent::uncertainty::PlanConfidenceAction::Proceed,
+        "agent-authored goals should auto-approve LOW-confidence plan gates"
+    );
+}
+
+#[tokio::test]
 async fn start_goal_run_creates_dedicated_goal_thread_and_thread_routing_defaults() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -199,6 +217,10 @@ async fn start_goal_run_creates_dedicated_goal_thread_and_thread_routing_default
         .clone()
         .expect("goal run should always allocate a dedicated goal thread");
 
+    assert!(
+        goal_thread_id.starts_with("goal:"),
+        "dedicated goal threads should use a goal: prefix"
+    );
     assert_ne!(
         goal_thread_id, source_thread_id,
         "goal runs should no longer pin themselves to the spawning thread"
@@ -290,6 +312,10 @@ async fn start_goal_run_without_thread_still_creates_pinned_main_thread() {
         .thread_id
         .clone()
         .expect("goal run should create a main thread when none is provided");
+    assert!(
+        thread_id.starts_with("goal:"),
+        "threadless goal launches should still allocate goal-prefixed threads"
+    );
     assert_eq!(goal_run.root_thread_id.as_deref(), Some(thread_id.as_str()));
     assert_eq!(
         goal_run.active_thread_id.as_deref(),
@@ -1966,6 +1992,14 @@ async fn verifier_completion_advances_goal_step_and_resolves_proof_checks() {
     let mut completed_verifier = verifier_task.clone();
     completed_verifier.status = TaskStatus::Completed;
     completed_verifier.result = Some("all proof checks satisfied".to_string());
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        let goal_run = goal_runs
+            .iter_mut()
+            .find(|run| run.id == goal_run_id)
+            .expect("goal run should exist");
+        goal_run.steps[0].error = Some("current step still has incomplete todos".to_string());
+    }
     write_goal_step_review_record(
         &engine,
         &completed_verifier,
@@ -1986,6 +2020,10 @@ async fn verifier_completion_advances_goal_step_and_resolves_proof_checks() {
         .expect("goal should still exist");
     assert_eq!(updated.current_step_index, 1);
     assert_eq!(updated.steps[0].status, GoalRunStepStatus::Completed);
+    assert!(
+        updated.steps[0].error.is_none(),
+        "passed verification should clear stale step errors"
+    );
     assert_eq!(updated.current_step_title.as_deref(), Some("step-2"));
 
     let dossier = updated.dossier.expect("verification should update dossier");
@@ -2253,6 +2291,10 @@ async fn handle_goal_run_step_completion_records_dossier_report_and_advance_deci
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
     let goal_run_id = "goal-step-completion-dossier";
+    let goal_thread_id = "thread-goal-custom";
+    engine
+        .set_thread_client_surface(goal_thread_id, amux_protocol::ClientSurface::Tui)
+        .await;
 
     let mut goal_run = sample_goal_run_with_kind(
         goal_run_id,
@@ -2347,6 +2389,12 @@ async fn handle_goal_run_step_completion_records_dossier_report_and_advance_deci
         .find(|task| task.source == "goal_verification")
         .cloned()
         .expect("review task should exist");
+    assert_eq!(review_task.thread_id.as_deref(), Some(goal_thread_id));
+    assert_eq!(
+        engine.get_thread_client_surface(goal_thread_id).await,
+        Some(amux_protocol::ClientSurface::Tui),
+        "mandatory review task should use the goal thread with its client surface intact"
+    );
     let mut completed_review = review_task.clone();
     completed_review.status = TaskStatus::Completed;
     completed_review.result = Some("step completed".to_string());

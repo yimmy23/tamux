@@ -577,9 +577,14 @@ async fn execute_start_goal_run(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let requires_approval = args
+        .get("requires_approval")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let launch_assignments = parse_goal_launch_assignments(args)?;
 
     let goal_run = agent
-        .start_goal_run(
+        .start_goal_run_with_surface_and_approval_policy(
             goal,
             title,
             thread_id,
@@ -588,10 +593,75 @@ async fn execute_start_goal_run(
             None,
             autonomy_level,
             None,
+            requires_approval,
+            launch_assignments,
         )
         .await;
 
     Ok(serde_json::to_string_pretty(&goal_run).unwrap_or_else(|_| "{}".to_string()))
+}
+
+fn parse_goal_launch_assignments(
+    args: &serde_json::Value,
+) -> Result<Option<Vec<crate::agent::types::GoalAgentAssignment>>> {
+    let Some(raw) = args.get("launch_assignments") else {
+        return Ok(None);
+    };
+    let assignments = raw
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("'launch_assignments' must be an array"))?;
+    if assignments.is_empty() {
+        return Ok(None);
+    }
+
+    assignments
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let role_id = required_assignment_string(value, index, "role_id")?;
+            let provider = required_assignment_string(value, index, "provider")?;
+            let model = required_assignment_string(value, index, "model")?;
+            let reasoning_effort = value
+                .get("reasoning_effort")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+            let enabled = value
+                .get("enabled")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true);
+            let inherit_from_main = value
+                .get("inherit_from_main")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            Ok(crate::agent::types::GoalAgentAssignment {
+                role_id,
+                enabled,
+                provider,
+                model,
+                reasoning_effort,
+                inherit_from_main,
+            })
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(Some)
+}
+
+fn required_assignment_string(
+    value: &serde_json::Value,
+    index: usize,
+    field: &str,
+) -> Result<String> {
+    value
+        .get(field)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| {
+            anyhow::anyhow!("launch_assignments[{index}].{field} must be a non-empty string")
+        })
 }
 
 async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
@@ -631,12 +701,32 @@ async fn execute_submit_goal_step_verdict(
     agent: &AgentEngine,
     current_task_id: Option<&str>,
 ) -> Result<String> {
+    let explicit_task_id = args
+        .get("task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let task_id = current_task_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
+        .or(explicit_task_id)
         .ok_or_else(|| {
             anyhow::anyhow!("submit_goal_step_verdict requires a current verification task")
         })?;
+    if let (Some(current_task_id), Some(explicit_task_id)) = (
+        current_task_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        explicit_task_id,
+    ) {
+        if current_task_id != explicit_task_id {
+            anyhow::bail!(
+                "task_id mismatch: current task is '{}' but tool received '{}'",
+                current_task_id,
+                explicit_task_id
+            );
+        }
+    }
     let verdict = match args
         .get("verdict")
         .and_then(|value| value.as_str())

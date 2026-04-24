@@ -1,6 +1,6 @@
 use amux_shared::providers::{
-    PROVIDER_ID_ARCEE, PROVIDER_ID_CHUTES, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_NVIDIA,
-    PROVIDER_ID_XAI,
+    PROVIDER_ID_ARCEE, PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_NVIDIA, PROVIDER_ID_XAI,
 };
 
     #[test]
@@ -710,6 +710,30 @@ providers:
                 PROVIDER_ID_CHUTES,
                 "deepseek-ai/DeepSeek-R1",
                 "https://llm.chutes.ai/v1"
+            ),
+            ApiType::OpenAI
+        );
+    }
+
+    #[test]
+    fn deepseek_provider_exposes_fetchable_openai_defaults() {
+        let provider = get_provider_definition(PROVIDER_ID_DEEPSEEK).expect("deepseek provider");
+        assert_eq!(provider.default_base_url, "https://api.deepseek.com");
+        assert_eq!(provider.default_model, "deepseek-v4-pro");
+        assert_eq!(provider.api_type, ApiType::OpenAI);
+        assert_eq!(provider.auth_method, AuthMethod::Bearer);
+        assert!(provider.supports_model_fetch);
+        assert_eq!(provider.default_transport, ApiTransport::ChatCompletions);
+        assert_eq!(provider.models.len(), 2);
+        assert_eq!(provider.models[0].id, "deepseek-v4-pro");
+        assert_eq!(provider.models[0].context_window, 1_048_576);
+        assert_eq!(provider.models[1].id, "deepseek-v4-flash");
+        assert_eq!(provider.models[1].context_window, 1_048_576);
+        assert_eq!(
+            get_provider_api_type(
+                PROVIDER_ID_DEEPSEEK,
+                "deepseek-v4-pro",
+                "https://api.deepseek.com"
             ),
             ApiType::OpenAI
         );

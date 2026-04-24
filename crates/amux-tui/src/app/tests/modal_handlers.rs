@@ -3884,7 +3884,7 @@ fn subagent_role_picker_custom_option_starts_inline_edit() {
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::RolePicker));
     model.modal.reduce(modal::ModalAction::Navigate(
-        crate::state::subagents::SUBAGENT_ROLE_PRESETS.len() as i32,
+        crate::state::subagents::role_picker_custom_index() as i32,
     ));
 
     let quit = model.handle_key_modal(
@@ -4282,6 +4282,17 @@ fn thread_picker_left_right_cycles_all_sources() {
     assert_eq!(
         model.modal.thread_picker_tab(),
         modal::ThreadPickerTab::Weles
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Goals
     );
 
     let quit = model.handle_key_modal(
@@ -5335,6 +5346,28 @@ fn goal_picker_shift_r_requests_refresh() {
 
     assert!(!handled);
     assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+}
+
+#[test]
+fn goal_picker_shift_r_requests_goal_run_list_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+    model.sync_goal_picker_item_count();
+
+    let handled = model.handle_key_modal(
+        KeyCode::Char('R'),
+        KeyModifiers::SHIFT,
+        modal::ModalKind::GoalPicker,
+    );
+
+    assert!(!handled);
+    assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::RefreshServices)
+    ));
 }
 
 #[test]

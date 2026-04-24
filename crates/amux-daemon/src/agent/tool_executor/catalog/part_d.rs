@@ -120,7 +120,24 @@ fn add_available_tools_part_d(
             "thread_id": { "type": "string", "description": "Optional source thread id for lineage/context; the goal still gets a fresh dedicated execution thread" },
             "session_id": { "type": "string", "description": "Optional explicit session id override; defaults to the current session when available" },
             "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Goal priority" },
-            "autonomy_level": { "type": "string", "enum": ["supervised", "aware", "autonomous"], "description": "Optional autonomy level override for the goal run" }
+            "autonomy_level": { "type": "string", "enum": ["supervised", "aware", "autonomous"], "description": "Optional autonomy level override for the goal run" },
+            "requires_approval": { "type": "boolean", "default": false, "description": "Whether this agent-created goal should wait for normal operator approval gates. Defaults to false so the responsible agent can auto-approve its own goal." },
+            "launch_assignments": {
+                "type": "array",
+                "description": "Optional visible goal-local assignment snapshot. Include every role/persona the goal runner should be able to choose, such as swarog, reviewer, researcher, mokosh, or a configured subagent role.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "role_id": { "type": "string", "description": "Visible role or persona id, for example swarog, reviewer, researcher, mokosh, or a subagent role id" },
+                        "enabled": { "type": "boolean", "description": "Whether this assignment is available to the goal runner" },
+                        "provider": { "type": "string", "description": "Provider id for this role" },
+                        "model": { "type": "string", "description": "Model id for this role" },
+                        "reasoning_effort": { "type": "string", "description": "Optional reasoning effort for this role" },
+                        "inherit_from_main": { "type": "boolean", "description": "Whether the row semantically inherits from the main assignment" }
+                    },
+                    "required": ["role_id", "provider", "model"]
+                }
+            }
         },
         "required": ["goal"]
     })));
@@ -133,6 +150,7 @@ fn add_available_tools_part_d(
         "properties": {
             "verdict": { "type": "string", "enum": ["pass", "fail"], "description": "Use pass only when the current step satisfies all instructions, success criteria, todos, artifacts, and proof checks." },
             "explanation": { "type": "string", "description": "Concrete verdict explanation. For fail, describe the fixes required before the step can advance." },
+            "task_id": { "type": "string", "description": "Optional current verification task ID. Use this when the prompt provides a Current task ID and hidden task context is unavailable." },
             "goal_run_id": { "type": "string", "description": "Optional guard; if provided it must match the current verification task's goal_run_id." },
             "goal_step_id": { "type": "string", "description": "Optional guard; if provided it must match the current verification task's goal_step_id." }
         },

@@ -52,6 +52,19 @@ pub struct SubAgentRolePreset {
     pub system_prompt: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RolePickerChoiceKind {
+    Preset,
+    Persona,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RolePickerChoice {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub kind: RolePickerChoiceKind,
+}
+
 pub const SUBAGENT_ROLE_PRESETS: &[SubAgentRolePreset] = &[
     SubAgentRolePreset {
         id: "code_review",
@@ -84,6 +97,98 @@ pub const SUBAGENT_ROLE_PRESETS: &[SubAgentRolePreset] = &[
         system_prompt: "You are a refactoring specialist. Improve structure and maintainability without changing behavior, preserve intent, and keep edits scoped and defensible.",
     },
 ];
+
+pub const BUILTIN_PERSONA_ROLE_CHOICES: &[RolePickerChoice] = &[
+    RolePickerChoice {
+        id: amux_protocol::AGENT_ID_SWAROG,
+        label: "Svarog",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: amux_protocol::AGENT_ID_RAROG,
+        label: "Rarog",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: "weles",
+        label: "Weles",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: "swarozyc",
+        label: "Swarozyc",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: "radogost",
+        label: "Radogost",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: "domowoj",
+        label: "Domowoj",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: "swietowit",
+        label: "Swietowit",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: "perun",
+        label: "Perun",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: "mokosh",
+        label: "Mokosh",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: "dazhbog",
+        label: "Dazhbog",
+        kind: RolePickerChoiceKind::Persona,
+    },
+    RolePickerChoice {
+        id: "rod",
+        label: "Rod",
+        kind: RolePickerChoiceKind::Persona,
+    },
+];
+
+pub fn role_picker_custom_index() -> usize {
+    SUBAGENT_ROLE_PRESETS.len() + BUILTIN_PERSONA_ROLE_CHOICES.len()
+}
+
+pub fn role_picker_item_count() -> usize {
+    role_picker_custom_index() + 1
+}
+
+pub fn role_picker_choice(index: usize) -> Option<RolePickerChoice> {
+    if let Some(preset) = SUBAGENT_ROLE_PRESETS.get(index) {
+        return Some(RolePickerChoice {
+            id: preset.id,
+            label: preset.label,
+            kind: RolePickerChoiceKind::Preset,
+        });
+    }
+    BUILTIN_PERSONA_ROLE_CHOICES
+        .get(index.saturating_sub(SUBAGENT_ROLE_PRESETS.len()))
+        .copied()
+}
+
+pub fn role_picker_index_for_id(id: &str) -> Option<usize> {
+    let normalized = id.trim();
+    SUBAGENT_ROLE_PRESETS
+        .iter()
+        .position(|preset| preset.id.eq_ignore_ascii_case(normalized))
+        .or_else(|| {
+            BUILTIN_PERSONA_ROLE_CHOICES
+                .iter()
+                .position(|choice| choice.id.eq_ignore_ascii_case(normalized))
+                .map(|index| SUBAGENT_ROLE_PRESETS.len() + index)
+        })
+}
 
 #[derive(Debug, Clone)]
 pub struct SubAgentEditorState {

@@ -1078,6 +1078,53 @@ fn goal_workspace_threads_mode_enter_opens_selected_thread() {
 }
 
 #[test]
+fn goal_workspace_threads_mode_pins_and_opens_spawned_goal_descendant() {
+    let mut model = goal_sidebar_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-spawned".to_string(),
+        title: "Spawned worker".to_string(),
+    });
+    model.tasks.reduce(task::TaskAction::TaskUpdate(task::AgentTask {
+        id: "task-spawned".to_string(),
+        title: "Spawned worker".to_string(),
+        thread_id: Some("thread-spawned".to_string()),
+        parent_thread_id: Some("thread-exec".to_string()),
+        goal_run_id: None,
+        created_at: 30,
+        ..Default::default()
+    }));
+    model.focus = FocusArea::Chat;
+    model.goal_workspace
+        .set_mode(goal_workspace::GoalWorkspaceMode::Threads);
+    model.goal_workspace
+        .set_focused_pane(goal_workspace::GoalWorkspacePane::Timeline);
+
+    let targets = crate::widgets::goal_workspace::timeline_targets(
+        &model.tasks,
+        "goal-1",
+        &model.goal_workspace,
+    );
+    let spawned_index = targets
+        .iter()
+        .find_map(|(index, target)| match target {
+            crate::widgets::goal_workspace::GoalWorkspaceHitTarget::ThreadRow(thread_id)
+                if thread_id == "thread-spawned" =>
+            {
+                Some(*index)
+            }
+            _ => None,
+        })
+        .expect("spawned descendant should be pinned into goal threads");
+    model.goal_workspace.set_selected_timeline_row(spawned_index);
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-spawned"));
+}
+
+#[test]
 fn goal_workspace_needs_attention_mode_restores_non_empty_attention_surface() {
     let mut model = goal_sidebar_model();
     model.goal_workspace

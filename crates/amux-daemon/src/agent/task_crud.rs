@@ -820,6 +820,34 @@ impl AgentEngine {
         client_surface: Option<amux_protocol::ClientSurface>,
         launch_assignments: Option<Vec<GoalAgentAssignment>>,
     ) -> GoalRun {
+        self.start_goal_run_with_surface_and_approval_policy(
+            goal,
+            title,
+            thread_id,
+            session_id,
+            priority,
+            client_request_id,
+            autonomy_level,
+            client_surface,
+            true,
+            launch_assignments,
+        )
+        .await
+    }
+
+    pub async fn start_goal_run_with_surface_and_approval_policy(
+        &self,
+        goal: String,
+        title: Option<String>,
+        thread_id: Option<String>,
+        session_id: Option<String>,
+        priority: Option<&str>,
+        client_request_id: Option<String>,
+        autonomy_level: Option<String>,
+        client_surface: Option<amux_protocol::ClientSurface>,
+        requires_approval: bool,
+        launch_assignments: Option<Vec<GoalAgentAssignment>>,
+    ) -> GoalRun {
         let normalized_goal_key = normalize_goal_key(&goal);
         let normalized_request_id = client_request_id
             .as_deref()
@@ -869,10 +897,22 @@ impl AgentEngine {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
-        let (created_thread_id, _) = self.get_or_create_thread(None, &normalized_title).await;
+        let effective_client_surface = match client_surface {
+            Some(client_surface) => Some(client_surface),
+            None => match source_thread_id.as_deref() {
+                Some(source_thread_id) => self.get_thread_client_surface(source_thread_id).await,
+                None => None,
+            },
+        };
+        let goal_run_id = format!("goal_{}", Uuid::new_v4());
+        let dedicated_thread_id = format!("goal:{goal_run_id}");
+        let (created_thread_id, _) = self
+            .get_or_create_thread(Some(&dedicated_thread_id), &normalized_title)
+            .await;
         let goal_thread_id = Some(created_thread_id);
         let now = now_millis();
-        if let (Some(thread_id), Some(client_surface)) = (goal_thread_id.as_deref(), client_surface)
+        if let (Some(thread_id), Some(client_surface)) =
+            (goal_thread_id.as_deref(), effective_client_surface)
         {
             self.set_thread_client_surface(thread_id, client_surface)
                 .await;
@@ -889,7 +929,7 @@ impl AgentEngine {
             _ => self.goal_launch_assignment_snapshot().await,
         };
         let goal_run = GoalRun {
-            id: format!("goal_{}", Uuid::new_v4()),
+            id: goal_run_id,
             title: normalized_title,
             goal,
             client_request_id: normalized_request_id,
@@ -941,7 +981,7 @@ impl AgentEngine {
                 .as_deref()
                 .map(super::autonomy::AutonomyLevel::from_str_or_default)
                 .unwrap_or_default(),
-            authorship_tag: None,
+            authorship_tag: (!requires_approval).then_some(super::AuthorshipTag::Agent),
         };
         let mut goal_run = goal_run;
         let goal_thread_id = goal_run.thread_id.clone();
@@ -951,7 +991,7 @@ impl AgentEngine {
             .await;
 
         self.goal_runs.lock().await.push_back(goal_run.clone());
-        if let Some(client_surface) = client_surface {
+        if let Some(client_surface) = effective_client_surface {
             self.set_goal_run_client_surface(&goal_run.id, client_surface)
                 .await;
         }

@@ -15,6 +15,7 @@ const TAB_GAP: u16 = 1;
 const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
 const INTERNAL_DM_TITLE_PREFIX: &str = "Internal DM";
 const HIDDEN_HANDOFF_THREAD_PREFIX: &str = "handoff:";
+const GOAL_THREAD_PREFIX: &str = "goal:";
 const PLAYGROUND_THREAD_PREFIX: &str = "playground:";
 const PLAYGROUND_THREAD_TITLE_PREFIX: &str = "Participant Playground";
 const WELES_THREAD_TITLE: &str = "WELES";
@@ -66,6 +67,10 @@ fn fixed_tab_specs() -> Vec<ThreadPickerTabSpec> {
         ThreadPickerTabSpec {
             tab: ThreadPickerTab::Weles,
             label: "[Weles]".to_string(),
+        },
+        ThreadPickerTabSpec {
+            tab: ThreadPickerTab::Goals,
+            label: "[Goals]".to_string(),
         },
         ThreadPickerTabSpec {
             tab: ThreadPickerTab::Playgrounds,
@@ -135,6 +140,7 @@ pub(crate) fn tab_specs(chat: &ChatState, subagents: &SubAgentsState) -> Vec<Thr
         if is_hidden_handoff_thread(thread)
             || is_internal_thread(thread)
             || is_gateway_thread(thread)
+            || is_goal_thread(thread)
             || is_playground_thread(thread)
             || is_rarog_thread(thread)
             || is_weles_thread(thread)
@@ -171,6 +177,7 @@ fn thread_matches_agent_tab(
     if is_hidden_handoff_thread(thread)
         || is_internal_thread(thread)
         || is_gateway_thread(thread)
+        || is_goal_thread(thread)
         || is_playground_thread(thread)
         || is_rarog_thread(thread)
         || is_weles_thread(thread)
@@ -203,6 +210,7 @@ pub(crate) fn resolve_thread_picker_tab(
         "svarog" | "swarog" | "main" => Some(ThreadPickerTab::Swarog),
         "rarog" | "concierge" => Some(ThreadPickerTab::Rarog),
         "weles" => Some(ThreadPickerTab::Weles),
+        "goals" | "goal" => Some(ThreadPickerTab::Goals),
         "playgrounds" | "playground" => Some(ThreadPickerTab::Playgrounds),
         "internal" => Some(ThreadPickerTab::Internal),
         "gateway" => Some(ThreadPickerTab::Gateway),
@@ -300,6 +308,10 @@ pub(crate) fn is_playground_thread(thread: &AgentThread) -> bool {
         || thread.title.starts_with(PLAYGROUND_THREAD_TITLE_PREFIX)
 }
 
+pub(crate) fn is_goal_thread(thread: &AgentThread) -> bool {
+    thread.id.starts_with(GOAL_THREAD_PREFIX)
+}
+
 fn is_hidden_handoff_thread(thread: &AgentThread) -> bool {
     thread.id.starts_with(HIDDEN_HANDOFF_THREAD_PREFIX)
         || thread
@@ -349,6 +361,14 @@ fn is_svarog_thread(thread: &AgentThread, subagents: &SubAgentsState) -> bool {
 pub(crate) fn thread_display_title(thread: &AgentThread) -> String {
     if thread.id == "concierge" || thread.title.eq_ignore_ascii_case("concierge") {
         AGENT_NAME_RAROG.to_string()
+    } else if is_goal_thread(thread) {
+        let role = thread
+            .agent_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Goal");
+        format!("goal: {role} · {}", thread.title)
     } else {
         thread.title.clone()
     }
@@ -369,11 +389,13 @@ pub(crate) fn filtered_threads<'a>(
                     && !is_internal_thread(thread)
                     && !is_gateway_thread(thread)
                     && !is_weles_thread(thread)
+                    && !is_goal_thread(thread)
                     && !is_playground_thread(thread)
                     && is_svarog_thread(thread, subagents)
             }
             ThreadPickerTab::Rarog => is_rarog_thread(thread),
             ThreadPickerTab::Weles => !is_playground_thread(thread) && is_weles_thread(thread),
+            ThreadPickerTab::Goals => is_goal_thread(thread),
             ThreadPickerTab::Playgrounds => is_playground_thread(thread),
             ThreadPickerTab::Internal => is_internal_thread(thread),
             ThreadPickerTab::Gateway => is_gateway_thread(thread),
@@ -486,6 +508,7 @@ pub(crate) fn visible_window(
 
 fn synthetic_row_label(tab: ThreadPickerTab) -> &'static str {
     match tab {
+        ThreadPickerTab::Goals => "Goal threads are created automatically",
         ThreadPickerTab::Playgrounds => "Playgrounds are created automatically",
         ThreadPickerTab::Gateway => "Gateway threads are created automatically",
         ThreadPickerTab::Agent(_) => "+ New conversation",
@@ -871,7 +894,8 @@ mod tests {
         let subagents = make_subagents(Vec::new());
         let tabs = tab_specs(&chat, &subagents);
 
-        assert_eq!(tabs.len(), 6);
+        assert_eq!(tabs.len(), 7);
+        assert_eq!(tabs[3].label, "[Goals]");
         assert!(
             tabs.iter()
                 .any(|spec| spec.label.as_str() == "[Playgrounds]"),
@@ -950,6 +974,7 @@ mod tests {
                 "[Svarog]".to_string(),
                 "[Rarog]".to_string(),
                 "[Weles]".to_string(),
+                "[Goals]".to_string(),
                 "[Playgrounds]".to_string(),
                 "[Internal]".to_string(),
                 "[Gateway]".to_string(),
@@ -1029,6 +1054,12 @@ mod tests {
                 title: "Participant Playground · Domowoj @ thread-user".into(),
                 ..Default::default()
             },
+            AgentThread {
+                id: "goal:goal_1".into(),
+                agent_name: Some("Domowoj".into()),
+                title: "Run concrete moat pass".into(),
+                ..Default::default()
+            },
         ]);
         let modal = ModalState::new();
 
@@ -1036,6 +1067,32 @@ mod tests {
 
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "regular-thread");
+    }
+
+    #[test]
+    fn filtered_threads_dynamic_agent_tab_excludes_goal_threads() {
+        let chat = make_chat(vec![
+            AgentThread {
+                id: "thread-domowoj".into(),
+                agent_name: Some("Domowoj".into()),
+                title: "Normal agent conversation".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "goal:goal_1".into(),
+                agent_name: Some("Domowoj".into()),
+                title: "Run concrete moat pass".into(),
+                ..Default::default()
+            },
+        ]);
+        let subagents = make_subagents(vec![sample_subagent("domowoj", "Domowoj", false)]);
+        let mut modal = ModalState::new();
+        modal.set_thread_picker_tab(ThreadPickerTab::Agent("domowoj".to_string()));
+
+        let threads = filtered_threads(&chat, &modal, &subagents);
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "thread-domowoj");
     }
 
     #[test]
@@ -1113,6 +1170,45 @@ mod tests {
 
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "playground:domowoj:thread-user");
+    }
+
+    #[test]
+    fn goals_tab_filters_goal_threads() {
+        let chat = make_chat(vec![
+            AgentThread {
+                id: "regular-thread".into(),
+                title: "Regular work".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "goal:goal_1".into(),
+                agent_name: Some("Domowoj".into()),
+                title: "Run concrete moat pass".into(),
+                ..Default::default()
+            },
+        ]);
+        let mut modal = ModalState::new();
+        modal.set_thread_picker_tab(ThreadPickerTab::Goals);
+
+        let threads = filtered_threads(&chat, &modal, &make_subagents(Vec::new()));
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "goal:goal_1");
+    }
+
+    #[test]
+    fn goal_thread_display_title_shows_prefix_role_and_title() {
+        let thread = AgentThread {
+            id: "goal:goal_1".into(),
+            agent_name: Some("Domowoj".into()),
+            title: "Run concrete moat pass".into(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            thread_display_title(&thread),
+            "goal: Domowoj · Run concrete moat pass"
+        );
     }
 
     #[test]

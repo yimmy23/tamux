@@ -851,6 +851,7 @@ impl AgentEngine {
             if let Some(step) = goal_run.steps.get_mut(goal_run.current_step_index) {
                 step.status = GoalRunStepStatus::Completed;
                 step.completed_at = Some(now);
+                step.error = None;
                 step.summary = thread_summary
                     .clone()
                     .or_else(|| Some("step completed".into()));

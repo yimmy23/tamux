@@ -298,6 +298,17 @@ pub type ExpandedReasoning = std::collections::HashSet<usize>;
 /// Set of message indices whose tool details are expanded
 pub type ExpandedTools = std::collections::HashSet<usize>;
 
+pub(crate) fn is_meta_cognition_message(msg: &AgentMessage) -> bool {
+    matches!(msg.role, MessageRole::Assistant | MessageRole::System)
+        && is_meta_cognition_content(&msg.content)
+}
+
+fn is_meta_cognition_content(content: &str) -> bool {
+    content
+        .trim_start()
+        .starts_with("Meta-cognitive intervention")
+}
+
 fn toggle_glyph(expanded: bool) -> &'static str {
     if expanded {
         "\u{25be}"
@@ -523,6 +534,31 @@ fn render_compact(
             .map(|s| Line::from(Span::styled(s, theme.fg_active)))
             .collect()
     };
+    if is_meta_cognition_message(msg) {
+        let is_expanded = expanded.contains(&msg_index);
+        lines.push(Line::from(vec![Span::styled(
+            format!("{} Meta-cognition", toggle_glyph(is_expanded)),
+            theme.fg_dim,
+        )]));
+
+        if is_expanded {
+            let detail_width = width.saturating_sub(2).max(1);
+            let dark_blue = Style::default().fg(Color::Indexed(24));
+            for detail_line in wrap_text(content, detail_width) {
+                lines.push(Line::from(vec![
+                    Span::styled("\u{2502}", dark_blue),
+                    Span::raw(" "),
+                    Span::styled(detail_line, theme.fg_dim),
+                ]));
+            }
+        }
+
+        if !image_lines.is_empty() {
+            lines.extend(image_lines);
+        }
+        return;
+    }
+
     let has_reasoning = msg.role == MessageRole::Assistant
         && msg
             .reasoning

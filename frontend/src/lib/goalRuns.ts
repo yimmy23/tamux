@@ -84,6 +84,7 @@ export interface StartGoalRunPayload {
     priority?: string | null;
     threadId?: string | null;
     clientRequestId?: string | null;
+    requiresApproval?: boolean;
 }
 
 import { getBridge } from "./bridge";

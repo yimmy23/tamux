@@ -20,6 +20,9 @@ fn build_chat_completion_url(base_url: &str) -> String {
     if lower == "https://api.githubcopilot.com" || lower == "http://api.githubcopilot.com" {
         return format!("{base}/chat/completions");
     }
+    if lower == "https://api.deepseek.com" || lower == "http://api.deepseek.com" {
+        return format!("{base}/chat/completions");
+    }
     if lower == "https://models.github.ai" || lower == "http://models.github.ai" {
         return format!("{base}/inference/chat/completions");
     }

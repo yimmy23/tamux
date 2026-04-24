@@ -30,7 +30,10 @@
         <div class="callout info">
           <strong>Short version:</strong> the moat is not “we call a strong model.” The moat is “the runtime compounds intelligence across work, time, tools, and operators.”
         </div>
-        <p>Many of these moats are already materially real in the daemon today. Others are best understood as strong runtime foundations whose loop closure, scope breadth, or client productization is still deepening.</p>
+        <p>As of the 2026-04-24 closure run, all ten moat tracks have fresh implementation evidence under one audited inventory: verification logs, independent review artifacts, code-review artifacts, and moat-level completion markers. The remaining work is mostly about scope breadth, automation depth, and client productization rather than whether the core capability exists at all.</p>
+        <div class="callout success">
+          <strong>Implementation update (2026-04-24):</strong> the latest moat closure run finished <strong>10 pass / 0 blocked / 0 residual</strong>, with <strong>39 focused verification commands</strong> across M1–M10 and a fresh proof bundle for every moat.
+        </div>
       </section>
 
       <section>
@@ -76,21 +79,21 @@
           <tbody>
             <tr>
               <td><strong>M1</strong><br/>Operator Model</td>
-              <td>Learns meaningful aggregate patterns about the operator and already uses them to shape prompts, planning, and some adaptation behavior.</td>
+              <td>Learns meaningful aggregate patterns about the operator and already uses them to shape prompts, planning, and constrained runtime adaptation behavior.</td>
               <td>The system adapts to the real operator instead of treating every user as the same generic prompt source.</td>
               <td>You need durable telemetry, structured behavioral storage, privacy discipline, and a runtime that can actually use the signal.</td>
               <td>Strongly implemented</td>
             </tr>
             <tr>
               <td><strong>M2</strong><br/>Anticipatory Runtime</td>
-              <td>Supports morning briefs, thread hydration, stuck-work hints, disagreement surfacing, and bounded predictions before the operator explicitly asks.</td>
+              <td>Supports morning briefs, thread hydration, stuck-work hints, disagreement surfacing, intent predictions, and conservative trigger-driven intervention before the operator explicitly asks.</td>
               <td>The agent becomes less reactive and more collaborative. It can help with momentum, not just answer requests.</td>
-              <td>Requires persistent state, temporal reasoning, routing logic, and confidence discipline so “proactive” does not become spam.</td>
-              <td>Partially to strongly implemented</td>
+              <td>Requires persistent state, temporal reasoning, routing logic, and confidence discipline so “proactive” does not become spam or unsafe autonomy.</td>
+              <td>Strongly implemented (bounded autonomy)</td>
             </tr>
             <tr>
               <td><strong>M3</strong><br/>Causal Traces</td>
-              <td>Records decision rationale, failed paths, selected and rejected options, and blast-radius reasoning for important runtime decisions.</td>
+              <td>Records decision rationale, failed paths, selected and rejected options, blast-radius reasoning, and collaboration/governance trace events for important runtime decisions.</td>
               <td>Enables explainability, debugging, retrospection, and better replanning after failures.</td>
               <td>Most tools log outputs, not reasoning structure. Causal trace capture requires execution-model integration, not just chat logging.</td>
               <td>Strongly implemented</td>
@@ -99,8 +102,8 @@
               <td><strong>M4</strong><br/>Skill Evolution</td>
               <td>Tracks procedural skill variants with usage, outcome settlement, promotion, retirement, branching, merging, and cross-breeding into candidate offspring.</td>
               <td>The runtime can preserve successful operating procedures instead of relearning them every session.</td>
-              <td>Static prompt libraries are easy. Closed-loop skill evolution with settlement and promotion is much harder.</td>
-              <td>Partially implemented</td>
+              <td>Static prompt libraries are easy. Closed-loop skill evolution with settlement, promotion, and lifecycle control is much harder.</td>
+              <td>Strongly implemented</td>
             </tr>
             <tr>
               <td><strong>M5</strong><br/>Semantic Environment</td>
@@ -118,24 +121,24 @@
             </tr>
             <tr>
               <td><strong>M7</strong><br/>Collaboration Protocol</td>
-              <td>Lets agents coordinate through explicit collaboration sessions with contributions, disagreements, voting, debate escalation, and shared persisted state.</td>
+              <td>Lets agents coordinate through explicit collaboration sessions with contributions, disagreements, voting, debate escalation, shared persisted state, and outcome tracking.</td>
               <td>Multi-agent work becomes inspectable and structured instead of hidden parallel prompting.</td>
               <td>Real collaboration needs protocols, not just spawning more model calls and hoping the results align.</td>
               <td>Strongly implemented</td>
             </tr>
             <tr>
               <td><strong>M8</strong><br/>Trusted Provenance</td>
-              <td>Provides tamper-evident provenance foundations with hash-chained and Ed25519-capable audit and integrity validation paths.</td>
+              <td>Provides tamper-evident provenance with hash validation, signature-presence tracking, legacy-signature compatibility, and Ed25519-capable integrity validation paths.</td>
               <td>Creates a trust substrate for enterprise, compliance, and high-stakes operational use.</td>
               <td>Audit integrity must be designed into the runtime, not sprinkled on top later as reporting veneer.</td>
-              <td>Partially to strongly implemented</td>
+              <td>Strongly implemented</td>
             </tr>
             <tr>
               <td><strong>M9</strong><br/>Implicit Feedback Learning</td>
-              <td>Captures denials, corrections, tool fallbacks, attention shifts, reversions, and operator friction, then already uses them for adaptation while broader self-improvement loops continue to deepen.</td>
+              <td>Captures denials, corrections, tool fallbacks, attention shifts, reversions, and intent-resolution outcomes, then uses them for adaptation and runtime fallback ordering while broader self-improvement loops continue to deepen.</td>
               <td>The system can improve without demanding constant explicit ratings or feedback forms.</td>
               <td>Most systems ignore these signals entirely or collect them without turning them into execution policy.</td>
-              <td>Partially implemented</td>
+              <td>Strongly implemented (loop broadening ongoing)</td>
             </tr>
             <tr>
               <td><strong>M10</strong><br/>Runtime Tool Synthesis</td>
@@ -147,8 +150,27 @@
           </tbody>
         </table>
         <div class="callout info">
-          <strong>Maturity note:</strong> implementation existence, operational loop closure, and full productization are not the same thing. Several moats are already strong daemon capabilities today; others are real but still deepening in coverage, automation, or client parity.
+          <strong>Maturity note:</strong> the 2026-04-24 closure run verified all ten moats under a fresh current-goal inventory. That means the implementation claims on this page are now backed by passing verification, independent review, code review, and completion markers; it does <em>not</em> mean every moat has equal breadth, autonomous reach, or client-surface maturity.
         </div>
+      </section>
+
+      <section>
+        <h2>Implementation closure snapshot</h2>
+        <div class="card-grid three-up">
+          <article class="card">
+            <h3>Final outcome</h3>
+            <p>The 2026-04-24 moat closure run ended with <strong>10 pass</strong>, <strong>0 blocked</strong>, and <strong>0 residual non-terminal moats</strong>.</p>
+          </article>
+          <article class="card">
+            <h3>Proof standard</h3>
+            <p>Each moat now has a current-goal verification log, independent review artifact, code-review artifact, and moat-level completion marker.</p>
+          </article>
+          <article class="card">
+            <h3>Verification depth</h3>
+            <p>The closure inventory records <strong>39 focused verification commands</strong> across operator modeling, anticipation, causal traces, skill evolution, semantics, memory, collaboration, provenance, feedback learning, and tool synthesis.</p>
+          </article>
+        </div>
+        <p>This matters because the moat story is no longer just a directional architecture argument. It now has a single audited closure bundle showing that every M1–M10 track reached a pass state under current implementation evidence.</p>
       </section>
 
       <section>
@@ -272,35 +294,37 @@
       </section>
 
       <section>
-        <h2>What is already real versus directional</h2>
-        <p>Not every part of the moat story is equally mature, and the docs should be precise about where the system is already unusually deep versus where the remaining work is about breadth, closure, and product maturity.</p>
+        <h2>What is already real versus still maturing</h2>
+        <p>Not every part of the moat story is equally mature, and the docs should be precise about where the system is already unusually deep versus where the remaining work is about breadth, automation, and client-facing product maturity.</p>
         <div class="card-grid two-up">
           <article class="card">
             <h3>Already materially real</h3>
             <ul class="check-list">
               <li>daemon-owned durable runtime state</li>
-              <li>operator-model foundations and adaptive prompt/planning summaries</li>
+              <li>operator-model adaptation shaping prompts, planning, and constrained runtime behavior</li>
+              <li>anticipatory hydration, prediction, and governed trigger-driven intervention paths</li>
               <li>semantic workspace queries across packages, services, imports, conventions, infra, and temporal history</li>
-              <li>provenance-backed durable memory with confirm/retract reporting</li>
-              <li>causal trace persistence and reporting for important decision classes</li>
-              <li>collaboration sessions with disagreement tracking, voting, and debate escalation</li>
+              <li>provenance-backed durable memory with contradiction handling and confirm/retract reporting</li>
+              <li>causal trace persistence and reporting for important decision classes, including collaboration and governance slices</li>
+              <li>collaboration sessions with disagreement tracking, voting, debate escalation, and persisted outcomes</li>
+              <li>implicit-feedback signals shaping adaptation and runtime fallback ordering</li>
               <li>guarded runtime tool synthesis with activation and promotion lifecycle</li>
             </ul>
           </article>
           <article class="card">
-            <h3>Still deepening / not yet fully closed-loop</h3>
+            <h3>Still broadening / productizing</h3>
             <ul class="check-list">
-              <li>broader runtime-wide use of operator adaptation beyond prompt and planning layers</li>
-              <li>anticipatory behavior moving from advisory hints toward stronger autonomous intervention where appropriate</li>
-              <li>richer, less heuristic implicit-feedback learning loops</li>
-              <li>broader causal trace and provenance coverage across all execution paths</li>
+              <li>broader runtime-wide use of operator adaptation beyond today’s highest-value control paths</li>
+              <li>anticipatory behavior becoming more autonomous only where confidence and governance justify it</li>
+              <li>richer, less heuristic implicit-feedback and outcome-learning loops</li>
+              <li>broader causal trace and provenance coverage across every execution path</li>
               <li>deeper graph-like long-horizon memory and contradiction handling</li>
               <li>more mature client parity for some backend-heavy capabilities</li>
             </ul>
           </article>
         </div>
         <div class="callout info">
-          <strong>Documentation stance:</strong> the point of this page is not to pretend every moat is equally finished. The point is to explain why these capabilities belong together in one system while being honest about where tamux already has deep implementation versus where loop closure and product maturity are still catching up.
+          <strong>Documentation stance:</strong> as of the 2026-04-24 moat closure run, the right framing is “verified and still maturing,” not “aspirational and maybe someday.” The remaining work is about coverage, breadth, automation quality, and product polish — not about whether the core moat capabilities are real.
         </div>
       </section>
 

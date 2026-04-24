@@ -1196,6 +1196,77 @@ fn selected_expanded_reasoning_message_action_bar_targets_toggle() {
 }
 
 #[test]
+fn meta_cognition_header_uses_reasoning_toggle_hit_target() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::System,
+        content: "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file".into(),
+        ..Default::default()
+    }]);
+
+    let area = Rect::new(0, 0, 80, 5);
+    let (inner, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+    let header_row = visible
+        .iter()
+        .position(|line| {
+            line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ReasoningToggle)
+        })
+        .expect("meta-cognition header should be toggleable");
+    let hit_line = &visible[header_row];
+    let (_, content_start, _) = rendered_line_content_bounds(hit_line);
+
+    let hit = hit_test(
+        area,
+        &chat,
+        &ThemeTokens::default(),
+        0,
+        Position::new(inner.x + content_start as u16, inner.y + header_row as u16),
+    );
+
+    assert_eq!(hit, Some(ChatHitTarget::ReasoningToggle(0)));
+}
+
+#[test]
+fn selected_meta_cognition_message_action_bar_targets_expand() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::System,
+        content: "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file".into(),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+
+    let area = Rect::new(0, 0, 80, 10);
+    let (inner, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+    let action_row = visible
+        .iter()
+        .position(|line| {
+            matches!(line.kind, RenderedLineKind::ActionBar) && line.message_index == Some(0)
+        })
+        .expect("selected meta-cognition message should render an inline action bar");
+    let hit_line = &visible[action_row];
+    let (_, content_start, _) = rendered_line_content_bounds(hit_line);
+    let action_text = rendered_line_plain_text(hit_line);
+
+    let hit = hit_test(
+        area,
+        &chat,
+        &ThemeTokens::default(),
+        0,
+        Position::new(
+            inner.x + content_start as u16 + 1,
+            inner.y + action_row as u16,
+        ),
+    );
+
+    assert!(
+        action_text.contains("[Expand]"),
+        "meta-cognition action bar should expose expand control: {action_text}"
+    );
+    assert_eq!(hit, Some(ChatHitTarget::ReasoningToggle(0)));
+}
+
+#[test]
 fn render_draws_highlight_for_mouse_selection() {
     let chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::User,

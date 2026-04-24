@@ -92,6 +92,135 @@ fn goal_composer_launch_sends_preflight_role_assignments() {
 }
 
 #[test]
+fn goal_composer_role_picker_allows_custom_researcher_assignment() {
+    let mut model = build_model();
+    model.goal_mission_control =
+        goal_mission_control::GoalMissionControlState::from_main_assignment(
+            task::GoalAgentAssignment {
+                role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+                enabled: true,
+                provider: "openai".to_string(),
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: Some("medium".to_string()),
+                inherit_from_main: false,
+            },
+            vec![
+                task::GoalAgentAssignment {
+                    role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+                    enabled: true,
+                    provider: "openai".to_string(),
+                    model: "gpt-5.4".to_string(),
+                    reasoning_effort: Some("medium".to_string()),
+                    inherit_from_main: false,
+                },
+                task::GoalAgentAssignment {
+                    role_id: "research".to_string(),
+                    enabled: true,
+                    provider: "openai".to_string(),
+                    model: "gpt-5.4-mini".to_string(),
+                    reasoning_effort: Some("high".to_string()),
+                    inherit_from_main: false,
+                },
+            ],
+            "Main agent inheritance",
+        );
+    model.goal_mission_control.set_selected_runtime_assignment_index(1);
+    model.main_pane_view = MainPaneView::GoalComposer;
+    model.focus = FocusArea::Chat;
+
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::RolePicker));
+
+    let custom_row = crate::state::subagents::role_picker_item_count() - 1;
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(custom_row as i32));
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::RolePicker,
+    );
+    assert!(!handled);
+    assert_eq!(model.settings.editing_field(), Some("mission_control_assignment_role"));
+
+    model.settings.reduce(SettingsAction::InsertChar('e'));
+    model.settings.reduce(SettingsAction::InsertChar('r'));
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!handled);
+    assert_eq!(
+        model.goal_mission_control.role_assignments[1].role_id,
+        "researcher"
+    );
+}
+
+#[test]
+fn goal_composer_role_picker_allows_builtin_persona_assignment() {
+    let mut model = build_model();
+    model.goal_mission_control =
+        goal_mission_control::GoalMissionControlState::from_main_assignment(
+            task::GoalAgentAssignment {
+                role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+                enabled: true,
+                provider: "openai".to_string(),
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: Some("medium".to_string()),
+                inherit_from_main: false,
+            },
+            vec![
+                task::GoalAgentAssignment {
+                    role_id: amux_protocol::AGENT_ID_SWAROG.to_string(),
+                    enabled: true,
+                    provider: "openai".to_string(),
+                    model: "gpt-5.4".to_string(),
+                    reasoning_effort: Some("medium".to_string()),
+                    inherit_from_main: false,
+                },
+                task::GoalAgentAssignment {
+                    role_id: "research".to_string(),
+                    enabled: true,
+                    provider: "openai".to_string(),
+                    model: "gpt-5.4-mini".to_string(),
+                    reasoning_effort: Some("high".to_string()),
+                    inherit_from_main: false,
+                },
+            ],
+            "Main agent inheritance",
+        );
+    model.goal_mission_control.set_selected_runtime_assignment_index(1);
+    model.main_pane_view = MainPaneView::GoalComposer;
+    model.focus = FocusArea::Chat;
+
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::RolePicker));
+
+    let mokosh_row = crate::state::subagents::role_picker_index_for_id("mokosh")
+        .expect("mokosh should be available as a Mission Control role");
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(mokosh_row as i32));
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::RolePicker,
+    );
+
+    assert!(!handled);
+    assert_eq!(
+        model.goal_mission_control.role_assignments[1].role_id,
+        "mokosh"
+    );
+}
+
+#[test]
 fn goal_composer_launch_includes_attached_text_files_in_goal_prompt() {
     let (_daemon_tx, daemon_rx) = std::sync::mpsc::channel();
     let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel();

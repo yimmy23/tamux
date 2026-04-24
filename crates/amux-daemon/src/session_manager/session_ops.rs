@@ -5,7 +5,7 @@ use crate::governance::{
     evaluate_governance, governance_input_for_managed_command, ConstraintKind, GovernanceInput,
     GovernanceVerdict, RiskClass, TransitionKind, VerdictClass,
 };
-use crate::history::{ApprovalRecordRow, GovernanceEvaluationRow};
+use crate::history::{ApprovalRecordRow, AuditEntryRow, GovernanceEvaluationRow};
 use amux_protocol::ApprovalPayload;
 use serde_json::json;
 
@@ -29,6 +29,18 @@ fn risk_class_str(risk_class: &RiskClass) -> &'static str {
         RiskClass::Medium => "medium",
         RiskClass::High => "high",
         RiskClass::Critical => "critical",
+    }
+}
+
+fn verdict_class_str(verdict_class: &VerdictClass) -> &'static str {
+    match verdict_class {
+        VerdictClass::Allow => "allow",
+        VerdictClass::AllowWithConstraints => "allow_with_constraints",
+        VerdictClass::RequireApproval => "require_approval",
+        VerdictClass::Defer => "defer",
+        VerdictClass::Deny => "deny",
+        VerdictClass::HaltAndIsolate => "halt_and_isolate",
+        VerdictClass::AllowOnlyWithCompensationPlan => "compensation_plan_required",
     }
 }
 
@@ -117,15 +129,7 @@ fn approval_payload_from_verdict(
 }
 
 fn governance_rejection_message(verdict: &GovernanceVerdict) -> String {
-    let verdict_label = match verdict.verdict_class {
-        VerdictClass::Allow => "allow",
-        VerdictClass::AllowWithConstraints => "allow_with_constraints",
-        VerdictClass::RequireApproval => "require_approval",
-        VerdictClass::Defer => "defer",
-        VerdictClass::Deny => "deny",
-        VerdictClass::HaltAndIsolate => "halt_and_isolate",
-        VerdictClass::AllowOnlyWithCompensationPlan => "compensation_plan_required",
-    };
+    let verdict_label = verdict_class_str(&verdict.verdict_class);
 
     let reason = if verdict.rationale.is_empty() {
         format!("governance returned {verdict_label} for this transition")
@@ -137,6 +141,240 @@ fn governance_rejection_message(verdict: &GovernanceVerdict) -> String {
         "managed command blocked by governance ({verdict_label}, {} risk): {reason}",
         risk_class_str(&verdict.risk_class),
     )
+}
+
+fn should_persist_governance_trace(
+    verdict: &GovernanceVerdict,
+    constraints: &[crate::governance::GovernanceConstraint],
+) -> bool {
+    !matches!(verdict.verdict_class, VerdictClass::Allow)
+        || !constraints.is_empty()
+        || !matches!(verdict.risk_class, RiskClass::Low)
+}
+
+async fn persist_managed_command_governance_trace(
+    history: &crate::history::HistoryStore,
+    session_id: SessionId,
+    request: &ManagedCommandRequest,
+    input: &GovernanceInput,
+    verdict: &GovernanceVerdict,
+    constraints: &[crate::governance::GovernanceConstraint],
+    can_honor: bool,
+) -> Result<()> {
+    if !should_persist_governance_trace(verdict, constraints) {
+        return Ok(());
+    }
+
+    let created_at = crate::history::now_ts();
+    let constraint_labels = constraints
+        .iter()
+        .map(|constraint| constraint_kind_str(&constraint.kind).to_string())
+        .collect::<Vec<_>>();
+    let rationale_text = if verdict.rationale.is_empty() {
+        format!(
+            "governance returned {} for this transition",
+            verdict_class_str(&verdict.verdict_class)
+        )
+    } else {
+        verdict.rationale.join("; ")
+    };
+
+    let reasoning = format!(
+        "Governance classified managed command `{}` as {} with {} risk.",
+        request.command,
+        verdict_class_str(&verdict.verdict_class),
+        risk_class_str(&verdict.risk_class),
+    );
+    let selected = crate::agent::learning::traces::DecisionOption {
+        option_type: "governance_evaluation".to_string(),
+        reasoning: if constraint_labels.is_empty() {
+            reasoning.clone()
+        } else {
+            format!(
+                "{} Triggered constraints: {}.",
+                reasoning,
+                constraint_labels.join(", ")
+            )
+        },
+        rejection_reason: None,
+        estimated_success_prob: Some(match verdict.verdict_class {
+            VerdictClass::Allow => 0.9,
+            VerdictClass::AllowWithConstraints => 0.72,
+            VerdictClass::RequireApproval => 0.45,
+            VerdictClass::Defer => 0.2,
+            VerdictClass::Deny
+            | VerdictClass::HaltAndIsolate
+            | VerdictClass::AllowOnlyWithCompensationPlan => 0.1,
+        }),
+        arguments_hash: Some(crate::agent::learning::traces::hash_context_blob(&format!(
+            "{}|{}|{}|{}",
+            request.command, request.rationale, session_id, verdict.policy_fingerprint
+        ))),
+    };
+
+    let mut rejected_options = Vec::new();
+    if !matches!(verdict.verdict_class, VerdictClass::Allow) || !constraint_labels.is_empty() {
+        rejected_options.push(crate::agent::learning::traces::DecisionOption {
+            option_type: "unconstrained_dispatch".to_string(),
+            reasoning:
+                "Execute the managed command immediately without governance gating or constraint enforcement."
+                    .to_string(),
+            rejection_reason: Some(rationale_text.clone()),
+            estimated_success_prob: Some(0.15),
+            arguments_hash: Some(crate::agent::learning::traces::hash_context_blob(&format!(
+                "immediate|{}|{}",
+                request.command, session_id
+            ))),
+        });
+    }
+
+    let mut causal_factors = vec![crate::agent::learning::traces::CausalFactor {
+        factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+        description: format!(
+            "governance verdict {} with {} risk for {}",
+            verdict_class_str(&verdict.verdict_class),
+            risk_class_str(&verdict.risk_class),
+            transition_kind_str(&input.transition_kind)
+        ),
+        weight: 0.85,
+    }];
+    causal_factors.push(crate::agent::learning::traces::CausalFactor {
+        factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+        description: format!(
+            "policy fingerprint {} and stage {}",
+            &verdict.policy_fingerprint,
+            input.stage_id.as_deref().unwrap_or("unknown")
+        ),
+        weight: 0.55,
+    });
+    causal_factors.push(crate::agent::learning::traces::CausalFactor {
+        factor_type: crate::agent::learning::traces::FactorType::ResourceConstraint,
+        description: format!(
+            "provenance completeness: {:?}",
+            input.provenance_status.completeness
+        )
+        .to_lowercase(),
+        weight: 0.45,
+    });
+    if !constraint_labels.is_empty() {
+        causal_factors.push(crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::ResourceConstraint,
+            description: format!("triggered constraints: {}", constraint_labels.join(", ")),
+            weight: 0.65,
+        });
+    }
+    if !can_honor {
+        causal_factors.push(crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::ResourceConstraint,
+            description: "current runtime could not honor computed governance constraints"
+                .to_string(),
+            weight: 0.7,
+        });
+    }
+
+    let outcome = match verdict.verdict_class {
+        VerdictClass::Allow | VerdictClass::AllowWithConstraints if can_honor => {
+            crate::agent::learning::traces::CausalTraceOutcome::Success
+        }
+        VerdictClass::RequireApproval => {
+            crate::agent::learning::traces::CausalTraceOutcome::Unresolved
+        }
+        _ => crate::agent::learning::traces::CausalTraceOutcome::Failure {
+            reason: if can_honor {
+                rationale_text.clone()
+            } else {
+                format!(
+                    "{}; runtime could not honor computed constraints",
+                    rationale_text
+                )
+            },
+        },
+    };
+
+    let trace = crate::agent::learning::traces::CausalTrace {
+        trace_id: format!("causal_{}", uuid::Uuid::new_v4()),
+        thread_id: input.thread_id.clone(),
+        goal_run_id: input.goal_run_id.clone(),
+        task_id: input.task_id.clone(),
+        decision_type: crate::agent::learning::traces::DecisionType::GovernanceEvaluation,
+        selected,
+        rejected_options,
+        context_hash: crate::agent::learning::traces::hash_context_blob(&format!(
+            "{}|{}|{}|{}|{}",
+            input.requested_action_summary,
+            input.intent_summary,
+            session_id,
+            verdict.policy_fingerprint,
+            verdict_class_str(&verdict.verdict_class)
+        )),
+        causal_factors,
+        outcome,
+        model_used: None,
+        created_at,
+    };
+
+    let selected_json = serde_json::to_string(&trace.selected)?;
+    let rejected_json = serde_json::to_string(&trace.rejected_options)?;
+    let factors_json = serde_json::to_string(&trace.causal_factors)?;
+    let outcome_json = serde_json::to_string(&trace.outcome)?;
+    history
+        .insert_causal_trace(
+            &trace.trace_id,
+            trace.thread_id.as_deref(),
+            trace.goal_run_id.as_deref(),
+            trace.task_id.as_deref(),
+            "governance_evaluation",
+            &selected_json,
+            &rejected_json,
+            &trace.context_hash,
+            &factors_json,
+            &outcome_json,
+            trace.model_used.as_deref(),
+            trace.created_at,
+        )
+        .await?;
+
+    let raw_data_json = serde_json::json!({
+        "session_id": session_id.to_string(),
+        "command": request.command,
+        "rationale": request.rationale,
+        "transition_kind": transition_kind_str(&input.transition_kind),
+        "stage_id": input.stage_id,
+        "lane_ids": input.lane_ids,
+        "target_ids": input.target_ids,
+        "verdict_class": verdict_class_str(&verdict.verdict_class),
+        "risk_class": risk_class_str(&verdict.risk_class),
+        "policy_fingerprint": verdict.policy_fingerprint,
+        "constraints": constraint_labels,
+        "rationale_list": verdict.rationale,
+        "provenance_completeness": format!("{:?}", input.provenance_status.completeness).to_lowercase(),
+        "missing_provenance_evidence": input.provenance_status.missing_evidence,
+        "can_honor_constraints": can_honor,
+    });
+    let confidence_val = trace.selected.estimated_success_prob;
+    history
+        .insert_action_audit(&AuditEntryRow {
+            id: format!("audit-governance-{}", trace.trace_id),
+            timestamp: trace.created_at as i64,
+            action_type: "governance_evaluation".to_string(),
+            summary: format!(
+                "Governance evaluated managed command dispatch as {} ({})",
+                verdict_class_str(&verdict.verdict_class),
+                risk_class_str(&verdict.risk_class)
+            ),
+            explanation: Some(trace.selected.reasoning.clone()),
+            confidence: confidence_val,
+            confidence_band: confidence_val
+                .map(|prob| crate::agent::confidence_band(prob).as_str().to_string()),
+            causal_trace_id: Some(trace.trace_id.clone()),
+            thread_id: trace.thread_id.clone(),
+            goal_run_id: trace.goal_run_id.clone(),
+            task_id: trace.task_id.clone(),
+            raw_data_json: Some(raw_data_json.to_string()),
+        })
+        .await?;
+
+    Ok(())
 }
 
 async fn queue_with_snapshot(
@@ -561,6 +799,7 @@ impl SessionManager {
         );
         let verdict = evaluate_governance(&governance_input);
         let constraints = effective_constraints(&verdict);
+        let can_honor = can_honor_constraints(&constraints, &request);
 
         self.history
             .insert_governance_evaluation(&GovernanceEvaluationRow {
@@ -577,7 +816,18 @@ impl SessionManager {
             })
             .await?;
 
-        if !can_honor_constraints(&constraints, &request) {
+        persist_managed_command_governance_trace(
+            self.history.as_ref(),
+            id,
+            &request,
+            &governance_input,
+            &verdict,
+            &constraints,
+            can_honor,
+        )
+        .await?;
+
+        if !can_honor {
             return Ok(DaemonMessage::ManagedCommandRejected {
                 id,
                 execution_id: Some(execution_id),

@@ -64,6 +64,9 @@ pub enum DecisionType {
     Recovery,
     ContextCompression,
     SkillSelection,
+    GovernanceEvaluation,
+    CollaborationResolution,
+    CollaborationOutcome,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

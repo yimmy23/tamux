@@ -203,7 +203,7 @@ impl TuiModel {
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::RolePicker));
         self.modal
-            .set_picker_item_count(crate::state::subagents::SUBAGENT_ROLE_PRESETS.len() + 1);
+            .set_picker_item_count(crate::state::subagents::role_picker_item_count());
     }
 
     fn open_subagent_effort_picker(&mut self) {

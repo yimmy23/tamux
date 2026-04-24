@@ -319,7 +319,24 @@ pub(super) fn tool_definitions() -> Value {
                     "title": { "type": "string", "description": "Optional short title for the goal run" },
                     "thread_id": { "type": "string", "description": "Optional existing agent thread to attach to" },
                     "session_id": { "type": "string", "description": "Optional preferred terminal session" },
-                    "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Goal priority" }
+                    "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Goal priority" },
+                    "requires_approval": { "type": "boolean", "default": false, "description": "Whether this agent-created goal should wait for normal operator approval gates. Defaults to false so the responsible agent can auto-approve its own goal." },
+                    "launch_assignments": {
+                        "type": "array",
+                        "description": "Optional visible goal-local assignment snapshot. Include every role/persona the goal runner should be able to choose, such as swarog, reviewer, researcher, mokosh, or a configured subagent role.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "role_id": { "type": "string", "description": "Visible role or persona id, for example swarog, reviewer, researcher, mokosh, or a subagent role id" },
+                                "enabled": { "type": "boolean", "description": "Whether this assignment is available to the goal runner" },
+                                "provider": { "type": "string", "description": "Provider id for this role" },
+                                "model": { "type": "string", "description": "Model id for this role" },
+                                "reasoning_effort": { "type": "string", "description": "Optional reasoning effort for this role" },
+                                "inherit_from_main": { "type": "boolean", "description": "Whether the row semantically inherits from the main assignment" }
+                            },
+                            "required": ["role_id", "provider", "model"]
+                        }
+                    }
                 },
                 "required": ["goal"]
             }
@@ -760,6 +777,33 @@ mod tests {
                 .as_object()
                 .is_some_and(|properties| properties.contains_key("thread_id")),
             "search_memory should expose thread_id for thread-scoped lookup"
+        );
+    }
+
+    #[test]
+    fn tool_definitions_start_goal_run_exposes_launch_assignments() {
+        let defs = tool_definitions();
+        let tools = defs
+            .as_array()
+            .expect("tool definitions should be an array");
+        let tool = tools
+            .iter()
+            .find(|tool| tool["name"] == "start_goal_run")
+            .expect("start_goal_run tool definition should be present");
+        let properties = tool["inputSchema"]["properties"]
+            .as_object()
+            .expect("start_goal_run should expose an object schema");
+        assert!(
+            properties.contains_key("launch_assignments"),
+            "start_goal_run should let callers provide the visible assignment snapshot"
+        );
+        assert!(
+            properties.contains_key("requires_approval"),
+            "start_goal_run should expose the approval policy for agent-owned goals"
+        );
+        assert_eq!(
+            properties["requires_approval"]["default"], false,
+            "agent-owned goal approval should default to false"
         );
     }
 }

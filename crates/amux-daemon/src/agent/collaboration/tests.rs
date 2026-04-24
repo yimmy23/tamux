@@ -850,6 +850,157 @@ async fn repeated_bid_round_reuses_recorded_outcome_learning_after_roles_were_as
 }
 
 #[tokio::test]
+async fn resolve_bids_records_collaboration_resolution_trace_and_audit() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Choose the best owner for the next workstream".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_research = engine
+        .enqueue_task(
+            "Research child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_execution = engine
+        .enqueue_task(
+            "Execution child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child_research)
+        .await;
+    engine
+        .register_subagent_collaboration(&parent.id, &child_execution)
+        .await;
+    engine
+        .call_for_bids(
+            &parent.id,
+            &[child_research.id.clone(), child_execution.id.clone()],
+        )
+        .await
+        .expect("call_for_bids should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_research.id,
+            0.68,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("research bid should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_execution.id,
+            0.72,
+            crate::agent::collaboration::BidAvailability::Busy,
+        )
+        .await
+        .expect("execution bid should succeed");
+
+    let resolution = engine
+        .resolve_bids(&parent.id)
+        .await
+        .expect("resolve_bids should succeed");
+
+    let records = engine
+        .history
+        .list_recent_causal_trace_records("collaboration_bid_resolution", 1)
+        .await
+        .expect("list collaboration resolution traces");
+    assert_eq!(records.len(), 1);
+    let selected: serde_json::Value =
+        serde_json::from_str(&records[0].selected_json).expect("deserialize selected option");
+    assert_eq!(
+        selected["option_type"].as_str(),
+        Some("collaboration_bid_resolution")
+    );
+    assert!(selected["reasoning"].as_str().is_some_and(|text| {
+        text.contains(child_research.id.as_str()) || text.contains(child_execution.id.as_str())
+    }));
+
+    let factors: Vec<crate::agent::learning::traces::CausalFactor> =
+        serde_json::from_str(&records[0].causal_factors_json).expect("deserialize factors");
+    assert!(factors.iter().any(|factor| {
+        factor
+            .description
+            .contains("resolved collaboration bid round with 2 candidate")
+    }));
+    assert!(factors.iter().any(|factor| {
+        factor
+            .description
+            .contains("availability-constrained during ranking")
+    }));
+
+    let filters = vec!["collaboration_resolution".to_string()];
+    let audits = engine
+        .history
+        .list_action_audit(Some(filters.as_slice()), None, 5)
+        .await
+        .expect("list collaboration resolution audit entries");
+    assert_eq!(audits.len(), 1);
+    assert_eq!(audits[0].task_id.as_deref(), Some(parent.id.as_str()));
+    assert_eq!(audits[0].thread_id.as_deref(), Some("thread-parent"));
+    let raw_json: serde_json::Value = audits[0]
+        .raw_data_json
+        .as_deref()
+        .map(|text| serde_json::from_str(text).expect("deserialize audit raw json"))
+        .expect("raw data json should be present");
+    assert_eq!(
+        raw_json["primary_task_id"].as_str(),
+        resolution["primary_task_id"].as_str()
+    );
+    assert_eq!(
+        raw_json["reviewer_task_id"].as_str(),
+        resolution["reviewer_task_id"].as_str()
+    );
+    assert_eq!(
+        raw_json["ranked_bids"].as_array().map(|items| items.len()),
+        Some(2)
+    );
+}
+
+#[tokio::test]
 async fn dispatch_via_bid_protocol_runs_bid_flow_end_to_end_through_collaboration_runtime() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -1828,4 +1979,138 @@ async fn record_collaboration_outcome_creates_session_for_solo_subagent() {
         serde_json::Value::String(child.id.clone())
     );
     assert!(report["contributions"][0]["position"] == "recommended");
+}
+
+#[tokio::test]
+async fn record_collaboration_outcome_records_trace_and_audit_for_parent_session() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Choose the best owner for the next workstream".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let mut child = engine
+        .enqueue_task(
+            "Research child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let reviewer = engine
+        .enqueue_task(
+            "Review child".to_string(),
+            "Prepare a bid for review ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child)
+        .await;
+    engine
+        .register_subagent_collaboration(&parent.id, &reviewer)
+        .await;
+    engine
+        .call_for_bids(&parent.id, &[child.id.clone(), reviewer.id.clone()])
+        .await
+        .expect("call_for_bids should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child.id,
+            0.83,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("submit primary bid");
+    engine
+        .submit_bid(
+            &parent.id,
+            &reviewer.id,
+            0.71,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("submit reviewer bid");
+    engine
+        .resolve_bids(&parent.id)
+        .await
+        .expect("resolve bids should succeed");
+
+    child.result = Some("implemented successfully".to_string());
+    engine.record_collaboration_outcome(&child, "success").await;
+
+    let records = engine
+        .history
+        .list_recent_causal_trace_records("collaboration_outcome", 1)
+        .await
+        .expect("list collaboration outcome traces");
+    assert_eq!(records.len(), 1);
+    let factors: Vec<crate::agent::learning::traces::CausalFactor> =
+        serde_json::from_str(&records[0].causal_factors_json).expect("deserialize factors");
+    assert!(factors.iter().any(|factor| {
+        factor
+            .description
+            .contains("recorded settled collaboration outcome for role")
+    }));
+    let outcome: crate::agent::learning::traces::CausalTraceOutcome =
+        serde_json::from_str(&records[0].outcome_json).expect("deserialize outcome json");
+    assert!(matches!(
+        outcome,
+        crate::agent::learning::traces::CausalTraceOutcome::Success
+    ));
+
+    let filters = vec!["collaboration_outcome".to_string()];
+    let audits = engine
+        .history
+        .list_action_audit(Some(filters.as_slice()), None, 5)
+        .await
+        .expect("list collaboration outcome audit entries");
+    assert_eq!(audits.len(), 1);
+    assert_eq!(audits[0].task_id.as_deref(), Some(child.id.as_str()));
+    let raw_json: serde_json::Value = audits[0]
+        .raw_data_json
+        .as_deref()
+        .map(|text| serde_json::from_str(text).expect("deserialize audit raw json"))
+        .expect("raw data json should be present");
+    assert_eq!(
+        raw_json["parent_task_id"].as_str(),
+        Some(parent.id.as_str())
+    );
+    assert_eq!(raw_json["task_id"].as_str(), Some(child.id.as_str()));
+    assert_eq!(raw_json["outcome"].as_str(), Some("success"));
 }

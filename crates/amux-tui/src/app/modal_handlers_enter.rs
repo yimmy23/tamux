@@ -162,6 +162,10 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             let cursor = model.modal.picker_cursor();
             let thread_picker_tab = model.modal.thread_picker_tab();
             if cursor == 0 {
+                if thread_picker_tab == modal::ThreadPickerTab::Goals {
+                    model.status_line = "Goal threads are created automatically".to_string();
+                    return;
+                }
                 if thread_picker_tab == modal::ThreadPickerTab::Playgrounds {
                     model.status_line = "Playgrounds are created automatically".to_string();
                     return;
@@ -805,18 +809,24 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         }
         modal::ModalKind::RolePicker => {
             if let Some(edit) = model.goal_mission_control.pending_runtime_edit.clone() {
-                let presets = crate::state::subagents::SUBAGENT_ROLE_PRESETS;
                 let cursor = model.modal.picker_cursor();
-                if cursor == presets.len() {
-                    model.goal_mission_control.clear_runtime_edit();
+                if cursor == crate::state::subagents::role_picker_custom_index() {
+                    let current = model
+                        .goal_mission_control
+                        .display_role_assignments()
+                        .get(edit.row_index)
+                        .map(|assignment| assignment.role_id.clone())
+                        .unwrap_or_default();
                     model.settings_picker_target = None;
                     model.close_top_modal();
-                    model.status_line =
-                        "Custom Mission Control roles are not supported in this editor".to_string();
+                    model
+                        .settings
+                        .start_editing("mission_control_assignment_role", &current);
+                    model.status_line = "Enter Mission Control role ID".to_string();
                     return;
                 }
-                if let Some(preset) = presets.get(cursor) {
-                    let role_id = preset.id.to_string();
+                if let Some(choice) = crate::state::subagents::role_picker_choice(cursor) {
+                    let role_id = choice.id.to_string();
                     model.goal_mission_control.clear_runtime_edit();
                     model.settings_picker_target = None;
                     model.close_top_modal();
@@ -835,9 +845,8 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 }
                 return;
             }
-            let presets = crate::state::subagents::SUBAGENT_ROLE_PRESETS;
             let cursor = model.modal.picker_cursor();
-            if cursor == presets.len() {
+            if cursor == crate::state::subagents::role_picker_custom_index() {
                 let current = model
                     .subagents
                     .editor
@@ -851,11 +860,19 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 return;
             }
 
-            if let Some(preset) = presets.get(cursor) {
+            if let Some(choice) = crate::state::subagents::role_picker_choice(cursor) {
                 if let Some(editor) = model.subagents.editor.as_mut() {
-                    editor.apply_role_preset_by_index(cursor);
+                    match choice.kind {
+                        crate::state::subagents::RolePickerChoiceKind::Preset => {
+                            editor.apply_role_preset_by_index(cursor);
+                        }
+                        crate::state::subagents::RolePickerChoiceKind::Persona => {
+                            editor.role = choice.id.to_string();
+                            editor.previous_role_preset = None;
+                        }
+                    }
                 }
-                model.status_line = format!("Sub-agent role: {}", preset.label);
+                model.status_line = format!("Sub-agent role: {}", choice.label);
             }
             model.settings_picker_target = None;
             model.close_top_modal();

@@ -82,10 +82,12 @@ async fn execute_tool_routes_weles_runtime_review_over_internal_dm_thread() {
         .expect("guarded result should include WELES review metadata");
     assert!(review.weles_reviewed);
     assert_eq!(review.verdict, crate::agent::types::WelesVerdict::Block);
-    assert!(review
-        .reasons
-        .iter()
-        .any(|reason| reason.contains("reviewed over internal dm")));
+    assert!(
+        review
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("reviewed over internal dm"))
+    );
 
     let dm_thread_id = crate::agent::agent_identity::internal_dm_thread_id(
         crate::agent::agent_identity::MAIN_AGENT_ID,

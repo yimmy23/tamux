@@ -1341,7 +1341,14 @@ fn detail_lines(
                     );
                 }
 
-                if let Some(run) = run.dossier.as_ref() {
+                if let Some(dossier) = run.dossier.as_ref() {
+                    let selected_unit = dossier.units.iter().find(|unit| unit.id == step.id);
+                    let projection_state = selected_unit
+                        .map(|unit| unit.status.as_str())
+                        .unwrap_or(dossier.projection_state.as_str());
+                    let summary = selected_unit
+                        .and_then(|unit| unit.summary.as_deref())
+                        .or(dossier.summary.as_deref());
                     push_detail_blank(&mut rows, &mut visual_row);
                     push_detail_header(&mut rows, &mut visual_row, "Execution Dossier", theme);
                     push_detail_line(
@@ -1350,10 +1357,10 @@ fn detail_lines(
                         None,
                         Line::from(vec![
                             Span::styled("Projection ", theme.fg_dim),
-                            Span::styled(run.projection_state.clone(), theme.fg_active),
+                            Span::styled(projection_state.to_string(), theme.fg_active),
                         ]),
                     );
-                    if let Some(summary) = run.summary.as_deref() {
+                    if let Some(summary) = summary {
                         push_detail_wrapped(
                             &mut rows,
                             &mut visual_row,

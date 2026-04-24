@@ -3,6 +3,8 @@ use crate::agent::consensus::bid_engine::{build_persisted_bid, consensus_round_i
 use crate::agent::consensus::bid_priors::effective_bid_confidence;
 use crate::agent::consensus::outcome_feedback::build_quality_metric;
 use crate::agent::consensus::role_assigner::build_role_assignment;
+use crate::agent::explanation::{confidence_band, generate_explanation, ExplanationResult};
+use crate::history::AuditEntryRow;
 
 const MIN_CONSENSUS_BID_CONFIDENCE: f64 = 0.3;
 use super::*;
@@ -68,6 +70,15 @@ fn collaboration_resolution_outcome(session: &CollaborationSession) -> Option<se
         "rationale": rationale,
         "debate_session_id": disagreement.debate_session_id,
     }))
+}
+
+fn collaboration_bid_payload(bid: &ConsensusBid) -> serde_json::Value {
+    serde_json::json!({
+        "task_id": bid.task_id,
+        "confidence": bid.confidence,
+        "availability": bid_availability_label(&bid.availability),
+        "created_at": bid.created_at,
+    })
 }
 
 fn build_pending_debate_seed(
@@ -539,6 +550,403 @@ impl AgentEngine {
             .await
     }
 
+    async fn persist_collaboration_resolution_trace(
+        &self,
+        session: &CollaborationSession,
+        assignment: &ConsensusRoleAssignment,
+        ranked: &[ConsensusBid],
+        role_by_task: &HashMap<String, String>,
+        prior_by_role: &HashMap<String, f64>,
+    ) {
+        let Some(primary_bid) = ranked
+            .iter()
+            .find(|bid| bid.task_id == assignment.primary_task_id)
+        else {
+            return;
+        };
+        let Some(reviewer_bid) = ranked
+            .iter()
+            .find(|bid| bid.task_id == assignment.reviewer_task_id)
+        else {
+            return;
+        };
+
+        let primary_role = role_by_task
+            .get(&assignment.primary_task_id)
+            .cloned()
+            .unwrap_or_else(|| assignment.primary_role.clone());
+        let reviewer_role = role_by_task
+            .get(&assignment.reviewer_task_id)
+            .cloned()
+            .unwrap_or_else(|| assignment.reviewer_role.clone());
+        let primary_prior = prior_by_role.get(&primary_role).copied().unwrap_or(0.5);
+        let reviewer_prior = prior_by_role.get(&reviewer_role).copied().unwrap_or(0.5);
+        let primary_effective = effective_bid_confidence(primary_bid.confidence, primary_prior);
+        let reviewer_effective = effective_bid_confidence(reviewer_bid.confidence, reviewer_prior);
+
+        let mut rejected_options = ranked
+            .iter()
+            .filter(|bid| bid.task_id != assignment.primary_task_id)
+            .map(|bid| {
+                let role = role_by_task
+                    .get(&bid.task_id)
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_string());
+                let prior = prior_by_role.get(&role).copied().unwrap_or(0.5);
+                crate::agent::learning::traces::DecisionOption {
+                    option_type: "collaboration_bid".to_string(),
+                    reasoning: format!(
+                        "Retained {} as a non-primary collaboration bid for role {} with {:.2} confidence and {} availability.",
+                        bid.task_id,
+                        role,
+                        bid.confidence,
+                        bid_availability_label(&bid.availability)
+                    ),
+                    rejection_reason: Some(format!(
+                        "ranked behind {} after prior-adjusted confidence {:.2} vs {:.2}",
+                        assignment.primary_task_id,
+                        effective_bid_confidence(bid.confidence, prior),
+                        primary_effective
+                    )),
+                    estimated_success_prob: Some(effective_bid_confidence(bid.confidence, prior)),
+                    arguments_hash: Some(crate::agent::learning::traces::hash_context_blob(
+                        &format!(
+                            "{}|{}|{:.3}|{}|{}",
+                            session.parent_task_id,
+                            bid.task_id,
+                            bid.confidence,
+                            bid_availability_label(&bid.availability),
+                            role
+                        ),
+                    )),
+                }
+            })
+            .collect::<Vec<_>>();
+        rejected_options.sort_by(|left, right| {
+            right
+                .estimated_success_prob
+                .unwrap_or(0.0)
+                .partial_cmp(&left.estimated_success_prob.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut factors = vec![crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+            description: format!(
+                "resolved collaboration bid round with {} candidate(s)",
+                ranked.len()
+            ),
+            weight: 0.7,
+        }];
+        factors.push(crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::PastSuccess,
+            description: format!(
+                "winner role {} carried prior {:.2} and effective confidence {:.2}",
+                primary_role, primary_prior, primary_effective
+            ),
+            weight: 0.65,
+        });
+        factors.push(crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+            description: format!(
+                "reviewer {} remained with role {} and effective confidence {:.2}",
+                assignment.reviewer_task_id, reviewer_role, reviewer_effective
+            ),
+            weight: 0.45,
+        });
+        if ranked
+            .iter()
+            .any(|bid| matches!(bid.availability, BidAvailability::Busy))
+        {
+            factors.push(crate::agent::learning::traces::CausalFactor {
+                factor_type: crate::agent::learning::traces::FactorType::ResourceConstraint,
+                description: "one or more bids were availability-constrained during ranking"
+                    .to_string(),
+                weight: 0.35,
+            });
+        }
+
+        let selected = crate::agent::learning::traces::DecisionOption {
+            option_type: "collaboration_bid_resolution".to_string(),
+            reasoning: format!(
+                "Assigned primary {} ({}) over reviewer {} ({}) after ranking prior-adjusted collaboration bids.",
+                assignment.primary_task_id,
+                primary_role,
+                assignment.reviewer_task_id,
+                reviewer_role
+            ),
+            rejection_reason: None,
+            estimated_success_prob: Some(primary_effective),
+            arguments_hash: Some(crate::agent::learning::traces::hash_context_blob(&format!(
+                "{}|{}|{}|{}|{}",
+                session.parent_task_id,
+                assignment.primary_task_id,
+                assignment.reviewer_task_id,
+                assignment.assigned_at,
+                ranked
+                    .iter()
+                    .map(|bid| format!(
+                        "{}:{:.3}:{}",
+                        bid.task_id,
+                        bid.confidence,
+                        bid_availability_label(&bid.availability)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("|")
+            ))),
+        };
+        let trace = crate::agent::learning::traces::CausalTrace {
+            trace_id: format!("causal_{}", uuid::Uuid::new_v4()),
+            thread_id: session.thread_id.clone(),
+            goal_run_id: session.goal_run_id.clone(),
+            task_id: Some(session.parent_task_id.clone()),
+            decision_type: crate::agent::learning::traces::DecisionType::CollaborationResolution,
+            selected,
+            rejected_options,
+            context_hash: crate::agent::learning::traces::hash_context_blob(&format!(
+                "{}|{}|{}|{}|{}",
+                session.parent_task_id,
+                session.mission,
+                assignment.primary_task_id,
+                assignment.reviewer_task_id,
+                assignment.assigned_at
+            )),
+            causal_factors: factors,
+            outcome: crate::agent::learning::traces::CausalTraceOutcome::Success,
+            model_used: Some(self.config.read().await.model.clone()),
+            created_at: now_millis(),
+        };
+        let selected_json = serde_json::to_string(&trace.selected).unwrap_or_default();
+        let rejected_json = serde_json::to_string(&trace.rejected_options).unwrap_or_default();
+        let factors_json = serde_json::to_string(&trace.causal_factors).unwrap_or_default();
+        let outcome_json = serde_json::to_string(&trace.outcome).unwrap_or_default();
+        if let Err(error) = self
+            .history
+            .insert_causal_trace(
+                &trace.trace_id,
+                trace.thread_id.as_deref(),
+                trace.goal_run_id.as_deref(),
+                trace.task_id.as_deref(),
+                "collaboration_resolution",
+                &selected_json,
+                &rejected_json,
+                &trace.context_hash,
+                &factors_json,
+                &outcome_json,
+                trace.model_used.as_deref(),
+                trace.created_at,
+            )
+            .await
+        {
+            tracing::warn!(
+                parent_task_id = %session.parent_task_id,
+                "failed to persist collaboration resolution causal trace: {error}"
+            );
+            return;
+        }
+
+        let confidence_val = trace.selected.estimated_success_prob;
+        let data_json = serde_json::json!({
+            "task_title": session.mission,
+            "primary_task_id": assignment.primary_task_id,
+            "reviewer_task_id": assignment.reviewer_task_id,
+        });
+        let summary = match generate_explanation("subagent_spawn", &data_json) {
+            ExplanationResult::Template(summary) => summary,
+            ExplanationResult::NeedsLlm => format!(
+                "Resolved collaboration bid round for {} with primary {} and reviewer {}",
+                session.parent_task_id, assignment.primary_task_id, assignment.reviewer_task_id
+            ),
+        };
+        let audit_entry = AuditEntryRow {
+            id: format!("audit-collaboration-resolution-{}", trace.trace_id),
+            timestamp: trace.created_at as i64,
+            action_type: "collaboration_resolution".to_string(),
+            summary: summary.clone(),
+            explanation: Some(summary),
+            confidence: confidence_val,
+            confidence_band: confidence_val.map(|p| confidence_band(p).as_str().to_string()),
+            causal_trace_id: Some(trace.trace_id.clone()),
+            thread_id: trace.thread_id.clone(),
+            goal_run_id: trace.goal_run_id.clone(),
+            task_id: trace.task_id.clone(),
+            raw_data_json: Some(
+                serde_json::json!({
+                    "session_id": session.id,
+                    "parent_task_id": session.parent_task_id,
+                    "mission": session.mission,
+                    "primary_task_id": assignment.primary_task_id,
+                    "reviewer_task_id": assignment.reviewer_task_id,
+                    "primary_role": primary_role,
+                    "reviewer_role": reviewer_role,
+                    "primary_prior": primary_prior,
+                    "reviewer_prior": reviewer_prior,
+                    "primary_effective_confidence": primary_effective,
+                    "reviewer_effective_confidence": reviewer_effective,
+                    "ranked_bids": ranked.iter().map(collaboration_bid_payload).collect::<Vec<_>>(),
+                })
+                .to_string(),
+            ),
+        };
+        if let Err(error) = self.history.insert_action_audit(&audit_entry).await {
+            tracing::warn!(
+                parent_task_id = %session.parent_task_id,
+                "failed to persist collaboration resolution audit entry: {error}"
+            );
+        }
+    }
+
+    async fn persist_collaboration_outcome_trace(
+        &self,
+        task: &AgentTask,
+        session: &CollaborationSession,
+        outcome: &str,
+        summary: &str,
+    ) {
+        let role_assignment = session.role_assignment.as_ref();
+        let task_role = session
+            .agents
+            .iter()
+            .find(|agent| agent.task_id == task.id)
+            .map(|agent| agent.role.clone())
+            .unwrap_or_else(|| super::participants::infer_collaboration_role(task));
+        let selected = crate::agent::learning::traces::DecisionOption {
+            option_type: "collaboration_outcome".to_string(),
+            reasoning: format!(
+                "Recorded collaboration outcome {} for {} in role {}.",
+                outcome, task.id, task_role
+            ),
+            rejection_reason: None,
+            estimated_success_prob: Some(if outcome == "success" { 0.8 } else { 0.35 }),
+            arguments_hash: Some(crate::agent::learning::traces::hash_context_blob(&format!(
+                "{}|{}|{}|{}",
+                session.parent_task_id, task.id, outcome, summary
+            ))),
+        };
+        let mut factors = vec![crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+            description: format!(
+                "recorded settled collaboration outcome for role {}",
+                task_role
+            ),
+            weight: 0.6,
+        }];
+        if let Some(assignment) = role_assignment {
+            factors.push(crate::agent::learning::traces::CausalFactor {
+                factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+                description: format!(
+                    "role assignment primary={} reviewer={}",
+                    assignment.primary_task_id, assignment.reviewer_task_id
+                ),
+                weight: 0.45,
+            });
+        }
+        factors.push(crate::agent::learning::traces::CausalFactor {
+            factor_type: if outcome == "success" {
+                crate::agent::learning::traces::FactorType::PastSuccess
+            } else {
+                crate::agent::learning::traces::FactorType::PastFailure
+            },
+            description: crate::agent::summarize_text(summary, 180),
+            weight: 0.7,
+        });
+
+        let outcome_value = match outcome {
+            "success" => crate::agent::learning::traces::CausalTraceOutcome::Success,
+            "failure" => crate::agent::learning::traces::CausalTraceOutcome::Failure {
+                reason: crate::agent::summarize_text(summary, 220),
+            },
+            "cancelled" => crate::agent::learning::traces::CausalTraceOutcome::Failure {
+                reason: "collaboration task was cancelled before conclusion".to_string(),
+            },
+            _ => crate::agent::learning::traces::CausalTraceOutcome::Unresolved,
+        };
+        let trace = crate::agent::learning::traces::CausalTrace {
+            trace_id: format!("causal_{}", uuid::Uuid::new_v4()),
+            thread_id: session.thread_id.clone(),
+            goal_run_id: session.goal_run_id.clone(),
+            task_id: Some(task.id.clone()),
+            decision_type: crate::agent::learning::traces::DecisionType::CollaborationOutcome,
+            selected,
+            rejected_options: Vec::new(),
+            context_hash: crate::agent::learning::traces::hash_context_blob(&format!(
+                "{}|{}|{}|{}",
+                session.parent_task_id, task.id, outcome, session.updated_at
+            )),
+            causal_factors: factors,
+            outcome: outcome_value,
+            model_used: Some(self.config.read().await.model.clone()),
+            created_at: now_millis(),
+        };
+        let selected_json = serde_json::to_string(&trace.selected).unwrap_or_default();
+        let rejected_json = serde_json::to_string(&trace.rejected_options).unwrap_or_default();
+        let factors_json = serde_json::to_string(&trace.causal_factors).unwrap_or_default();
+        let outcome_json = serde_json::to_string(&trace.outcome).unwrap_or_default();
+        if let Err(error) = self
+            .history
+            .insert_causal_trace(
+                &trace.trace_id,
+                trace.thread_id.as_deref(),
+                trace.goal_run_id.as_deref(),
+                trace.task_id.as_deref(),
+                "collaboration_outcome",
+                &selected_json,
+                &rejected_json,
+                &trace.context_hash,
+                &factors_json,
+                &outcome_json,
+                trace.model_used.as_deref(),
+                trace.created_at,
+            )
+            .await
+        {
+            tracing::warn!(
+                parent_task_id = %session.parent_task_id,
+                task_id = %task.id,
+                "failed to persist collaboration outcome causal trace: {error}"
+            );
+            return;
+        }
+
+        let confidence_val = trace.selected.estimated_success_prob;
+        let audit_entry = AuditEntryRow {
+            id: format!("audit-collaboration-outcome-{}", trace.trace_id),
+            timestamp: trace.created_at as i64,
+            action_type: "collaboration_outcome".to_string(),
+            summary: format!(
+                "Recorded collaboration outcome {} for {}",
+                outcome, task.title
+            ),
+            explanation: Some(crate::agent::summarize_text(summary, 220)),
+            confidence: confidence_val,
+            confidence_band: confidence_val.map(|p| confidence_band(p).as_str().to_string()),
+            causal_trace_id: Some(trace.trace_id.clone()),
+            thread_id: trace.thread_id.clone(),
+            goal_run_id: trace.goal_run_id.clone(),
+            task_id: trace.task_id.clone(),
+            raw_data_json: Some(
+                serde_json::json!({
+                    "session_id": session.id,
+                    "parent_task_id": session.parent_task_id,
+                    "task_id": task.id,
+                    "task_title": task.title,
+                    "role": task_role,
+                    "outcome": outcome,
+                    "summary": crate::agent::summarize_text(summary, 220),
+                    "role_assignment": role_assignment,
+                })
+                .to_string(),
+            ),
+        };
+        if let Err(error) = self.history.insert_action_audit(&audit_entry).await {
+            tracing::warn!(
+                parent_task_id = %session.parent_task_id,
+                task_id = %task.id,
+                "failed to persist collaboration outcome audit entry: {error}"
+            );
+        }
+    }
+
     pub(in crate::agent) async fn register_subagent_collaboration(
         &self,
         parent_task_id: &str,
@@ -838,6 +1246,14 @@ impl AgentEngine {
         drop(collaboration);
         self.persist_collaboration_session(&snapshot).await?;
         self.persist_role_assignment(persisted_assignment).await?;
+        self.persist_collaboration_resolution_trace(
+            &snapshot,
+            &assignment,
+            &ranked,
+            &role_by_task,
+            &prior_by_role,
+        )
+        .await;
 
         if let Some(launch) = debate_launch {
             if let Err(error) = self
@@ -1426,10 +1842,15 @@ impl AgentEngine {
             );
         }
 
-        let parent_session_exists = {
+        let parent_session = {
             let collaboration = self.collaboration.read().await;
-            collaboration.contains_key(parent_task_id)
+            collaboration.get(parent_task_id).cloned()
         };
+        if let Some(session) = parent_session.as_ref() {
+            self.persist_collaboration_outcome_trace(task, session, outcome, summary)
+                .await;
+        }
+        let parent_session_exists = parent_session.is_some();
         if parent_session_exists {
             let _ = self
                 .record_collaboration_contribution(

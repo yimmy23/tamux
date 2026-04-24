@@ -73,6 +73,7 @@ export type BuiltinAgentProviderId =
   | "groq"
   | "ollama"
   | "chutes"
+  | "deepseek"
   | "huggingface"
   | "minimax"
   | "minimax-coding-plan"
@@ -105,6 +106,7 @@ export const AGENT_PROVIDER_IDS: BuiltinAgentProviderId[] = [
   "groq",
   "ollama",
   "chutes",
+  "deepseek",
   "huggingface",
   "minimax",
   "minimax-coding-plan",

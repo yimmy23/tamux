@@ -26,12 +26,11 @@ pub fn render(
         return;
     }
 
-    let presets = crate::state::subagents::SUBAGENT_ROLE_PRESETS;
     let current_role = current_role.trim();
-    let custom_index = presets.len();
+    let custom_index = crate::state::subagents::role_picker_custom_index();
     let cursor = modal.picker_cursor();
     let current_is_custom = !current_role.is_empty()
-        && crate::state::subagents::find_role_preset(current_role).is_none();
+        && crate::state::subagents::role_picker_index_for_id(current_role).is_none();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -39,7 +38,7 @@ pub fn render(
         .split(inner);
 
     let list_h = chunks[0].height as usize;
-    let total_rows = presets.len() + 1;
+    let total_rows = crate::state::subagents::role_picker_item_count();
     let window_start = cursor
         .saturating_sub(list_h.saturating_sub(1))
         .min(total_rows.saturating_sub(list_h));
@@ -67,15 +66,17 @@ pub fn render(
                 };
             }
 
-            let preset = &presets[absolute_index];
+            let Some(choice) = crate::state::subagents::role_picker_choice(absolute_index) else {
+                return ListItem::new(Line::from(""));
+            };
             let is_selected = absolute_index == cursor;
-            let is_current = preset.id == current_role;
+            let is_current = choice.id.eq_ignore_ascii_case(current_role);
 
             if is_selected {
                 ListItem::new(Line::from(vec![
                     Span::raw(" > "),
-                    Span::raw(preset.label),
-                    Span::styled(format!(" ({})", preset.id), Style::default()),
+                    Span::raw(choice.label),
+                    Span::styled(format!(" ({})", choice.id), Style::default()),
                 ]))
                 .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
             } else {
@@ -88,8 +89,8 @@ pub fn render(
                 ListItem::new(Line::from(vec![
                     Span::raw("   "),
                     Span::styled(marker, style),
-                    Span::styled(preset.label, style),
-                    Span::styled(format!(" ({})", preset.id), theme.fg_dim),
+                    Span::styled(choice.label, style),
+                    Span::styled(format!(" ({})", choice.id), theme.fg_dim),
                 ]))
             }
         })

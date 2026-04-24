@@ -203,6 +203,7 @@
             &store,
             "coding",
             &["preferred_fallback".to_string()],
+            false,
         );
 
         let ordered = tools
@@ -254,6 +255,7 @@
             &store,
             "coding",
             &["missing_tool".to_string()],
+            false,
         );
 
         let ordered = tools

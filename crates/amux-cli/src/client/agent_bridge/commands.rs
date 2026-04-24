@@ -168,6 +168,7 @@ where
             priority,
             client_request_id,
             autonomy_level,
+            requires_approval,
         } => {
             framed
                 .send(ClientMessage::AgentStartGoalRun {
@@ -180,6 +181,7 @@ where
                     launch_assignments: Vec::new(),
                     autonomy_level,
                     client_surface: Some(amux_protocol::ClientSurface::Electron),
+                    requires_approval,
                 })
                 .await?;
         }

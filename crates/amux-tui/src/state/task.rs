@@ -715,12 +715,16 @@ impl TaskState {
 }
 
 fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
-    let mut thread_ids = Vec::new();
-    let mut push_thread_id = |thread_id: &str| {
-        if !thread_id.is_empty() && !thread_ids.iter().any(|existing| existing == thread_id) {
-            thread_ids.push(thread_id.to_string());
+    fn push_unique(ids: &mut Vec<String>, id: &str) -> bool {
+        if id.is_empty() || ids.iter().any(|existing| existing == id) {
+            return false;
         }
-    };
+        ids.push(id.to_string());
+        true
+    }
+
+    let mut thread_ids = Vec::new();
+    let mut task_ids = Vec::new();
 
     for thread_id in run
         .active_thread_id
@@ -728,23 +732,52 @@ fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
         .chain(run.root_thread_id.iter())
         .chain(run.thread_id.iter())
     {
-        push_thread_id(thread_id);
+        push_unique(&mut thread_ids, thread_id);
     }
     for thread_id in &run.execution_thread_ids {
-        push_thread_id(thread_id);
+        push_unique(&mut thread_ids, thread_id);
     }
     for task in state
         .tasks()
         .iter()
         .filter(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
     {
+        push_unique(&mut task_ids, &task.id);
         if let Some(thread_id) = task.thread_id.as_deref() {
-            push_thread_id(thread_id);
+            push_unique(&mut thread_ids, thread_id);
         }
     }
     if let Some(goal_threads) = state.goal_thread_ids.get(&run.id) {
         for thread_id in goal_threads {
-            push_thread_id(thread_id);
+            push_unique(&mut thread_ids, thread_id);
+        }
+    }
+    loop {
+        let mut changed = false;
+        for task in state.tasks() {
+            let belongs_to_goal = task.goal_run_id.as_deref() == Some(run.id.as_str())
+                || task
+                    .parent_task_id
+                    .as_deref()
+                    .is_some_and(|parent_task_id| task_ids.iter().any(|id| id == parent_task_id))
+                || task
+                    .parent_thread_id
+                    .as_deref()
+                    .is_some_and(|parent_thread_id| {
+                        thread_ids.iter().any(|id| id == parent_thread_id)
+                    });
+            if !belongs_to_goal {
+                continue;
+            }
+
+            changed |= push_unique(&mut task_ids, &task.id);
+
+            if let Some(thread_id) = task.thread_id.as_deref() {
+                changed |= push_unique(&mut thread_ids, thread_id);
+            }
+        }
+        if !changed {
+            break;
         }
     }
 

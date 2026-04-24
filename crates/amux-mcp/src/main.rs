@@ -18,7 +18,8 @@
 use std::path::PathBuf;
 
 use amux_protocol::{
-    ClientMessage, DaemonMessage, ManagedCommandRequest, ManagedCommandSource, SecurityLevel,
+    ClientMessage, DaemonMessage, GoalAgentAssignment, ManagedCommandRequest, ManagedCommandSource,
+    SecurityLevel,
 };
 use anyhow::{Context, Result};
 use base64::Engine;
@@ -491,6 +492,11 @@ async fn tool_start_goal_run(args: &Value) -> Result<Value> {
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(ToOwned::to_owned);
+    let requires_approval = args
+        .get("requires_approval")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let launch_assignments = parse_goal_launch_assignments(args)?;
 
     let resp = daemon_roundtrip(ClientMessage::AgentStartGoalRun {
         goal,
@@ -499,9 +505,10 @@ async fn tool_start_goal_run(args: &Value) -> Result<Value> {
         session_id,
         priority,
         client_request_id,
-        launch_assignments: Vec::new(),
+        launch_assignments,
         autonomy_level,
         client_surface: None,
+        requires_approval,
     })
     .await?;
 
@@ -512,6 +519,59 @@ async fn tool_start_goal_run(args: &Value) -> Result<Value> {
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected daemon response: {other:?}"),
     }
+}
+
+fn parse_goal_launch_assignments(args: &Value) -> Result<Vec<GoalAgentAssignment>> {
+    let Some(raw) = args.get("launch_assignments") else {
+        return Ok(Vec::new());
+    };
+    let assignments = raw
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("'launch_assignments' must be an array"))?;
+
+    assignments
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let role_id = required_assignment_string(value, index, "role_id")?;
+            let provider = required_assignment_string(value, index, "provider")?;
+            let model = required_assignment_string(value, index, "model")?;
+            let reasoning_effort = value
+                .get("reasoning_effort")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+            let enabled = value
+                .get("enabled")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true);
+            let inherit_from_main = value
+                .get("inherit_from_main")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            Ok(GoalAgentAssignment {
+                role_id,
+                enabled,
+                provider,
+                model,
+                reasoning_effort,
+                inherit_from_main,
+            })
+        })
+        .collect()
+}
+
+fn required_assignment_string(value: &Value, index: usize, field: &str) -> Result<String> {
+    value
+        .get(field)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| {
+            anyhow::anyhow!("launch_assignments[{index}].{field} must be a non-empty string")
+        })
 }
 
 async fn handle_tools_call(id: Option<Value>, params: Option<Value>) -> JsonRpcResponse {

@@ -463,6 +463,16 @@ async fn execute_spawn_subagent(
     } else {
         None
     };
+    let inherited_client_surface = match agent.get_thread_client_surface(thread_id).await {
+        Some(client_surface) => Some(client_surface),
+        None => match task_snapshot
+            .as_ref()
+            .and_then(|task| task.goal_run_id.as_deref())
+        {
+            Some(goal_run_id) => agent.get_goal_run_client_surface(goal_run_id).await,
+            None => None,
+        },
+    };
     let requested_max_depth = args
         .get("max_depth")
         .and_then(|value| value.as_u64())
@@ -655,6 +665,11 @@ async fn execute_spawn_subagent(
         reserved_thread_profile,
     )
     .await;
+    if let Some(client_surface) = inherited_client_surface {
+        agent
+            .set_thread_client_surface(&reserved_thread_id, client_surface)
+            .await;
+    }
     if let Some(parent_task_id) = task_id {
         agent
             .register_subagent_collaboration(parent_task_id, &subagent)

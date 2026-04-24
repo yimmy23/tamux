@@ -1799,9 +1799,8 @@ impl TuiModel {
                 self.settings_picker_target = Some(SettingsPickerTarget::SubAgentRole);
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::RolePicker));
-                self.modal.set_picker_item_count(
-                    crate::state::subagents::SUBAGENT_ROLE_PRESETS.len() + 1,
-                );
+                self.modal
+                    .set_picker_item_count(crate::state::subagents::role_picker_item_count());
             }
             goal_mission_control::RuntimeAssignmentEditField::Enabled
             | goal_mission_control::RuntimeAssignmentEditField::InheritFromMain => {}

@@ -142,6 +142,18 @@ use amux_shared::providers::{
     }
 
     #[test]
+    fn deepseek_default_url_uses_documented_chat_completion_endpoint() {
+        let provider =
+            get_provider_definition(amux_shared::providers::PROVIDER_ID_DEEPSEEK)
+                .expect("deepseek provider");
+        assert_eq!(provider.default_base_url, "https://api.deepseek.com");
+        assert_eq!(
+            build_chat_completion_url(provider.default_base_url),
+            "https://api.deepseek.com/chat/completions"
+        );
+    }
+
+    #[test]
     fn github_copilot_stored_auth_adds_bearer_header_to_requests() {
         let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
         let _guard = EnvGuard::new(&[

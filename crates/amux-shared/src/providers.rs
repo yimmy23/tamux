@@ -24,6 +24,7 @@ pub const PROVIDER_ID_AZURE_OPENAI: &str = "azure-openai";
 pub const PROVIDER_ID_CEREBRAS: &str = "cerebras";
 pub const PROVIDER_ID_CHUTES: &str = "chutes";
 pub const PROVIDER_ID_CUSTOM: &str = "custom";
+pub const PROVIDER_ID_DEEPSEEK: &str = "deepseek";
 pub const PROVIDER_ID_FEATHERLESS: &str = "featherless";
 pub const PROVIDER_ID_GITHUB_COPILOT: &str = "github-copilot";
 pub const PROVIDER_ID_GROQ: &str = "groq";
@@ -59,6 +60,9 @@ pub const AZURE_OPENAI_PROVIDER: ProviderRef = ProviderRef {
 };
 pub const CUSTOM_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_CUSTOM,
+};
+pub const DEEPSEEK_PROVIDER: ProviderRef = ProviderRef {
+    id: PROVIDER_ID_DEEPSEEK,
 };
 pub const GITHUB_COPILOT_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_GITHUB_COPILOT,

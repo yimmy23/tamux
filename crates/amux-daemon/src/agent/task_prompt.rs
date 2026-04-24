@@ -12,8 +12,8 @@ use super::types::*;
 
 pub(super) fn build_task_prompt(task: &AgentTask) -> String {
     let mut prompt = format!(
-        "Execute the following queued task.\n\nTitle: {}\nDescription: {}",
-        task.title, task.description
+        "Execute the following queued task.\n\nCurrent task ID: {}\nTitle: {}\nDescription: {}",
+        task.id, task.title, task.description
     );
 
     prompt.push_str(
@@ -568,6 +568,18 @@ mod tests {
         assert!(
             prompt.contains("Weles"),
             "main goal tasks should be pointed at the review agent instead of the operator"
+        );
+    }
+
+    #[test]
+    fn build_task_prompt_includes_current_task_id() {
+        let task = sample_task();
+
+        let prompt = build_task_prompt(&task);
+
+        assert!(
+            prompt.contains("Current task ID: task-1"),
+            "queued task prompts should expose the durable task id for task-scoped tools"
         );
     }
 

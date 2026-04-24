@@ -1585,6 +1585,45 @@ fn collapse_history_keeps_latest_page_only() {
 }
 
 #[test]
+fn collapse_history_waits_when_viewport_is_locked_at_zero_offset() {
+    let mut state = ChatState::new();
+    state.set_history_page_size(50);
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 0,
+        loaded_message_end: 120,
+        messages: (0..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+    state.preserve_prepend_scroll_anchor(0);
+
+    state.schedule_history_collapse(10, 5);
+    state.maybe_collapse_history(15);
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.loaded_message_start, 0);
+    assert_eq!(thread.loaded_message_end, 120);
+    assert_eq!(thread.messages.len(), 120);
+    assert_eq!(
+        thread
+            .messages
+            .first()
+            .and_then(|message| message.id.as_deref()),
+        Some("msg-0")
+    );
+}
+
+#[test]
 fn selected_message_tracks_same_message_when_older_page_is_prepended() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadDetailReceived(AgentThread {

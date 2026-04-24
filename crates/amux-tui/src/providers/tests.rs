@@ -2,14 +2,14 @@ use super::*;
 use crate::providers::context::is_known_default_url;
 use amux_shared::providers::{
     MINIMAX_PROVIDER, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE,
-    PROVIDER_ID_CHUTES, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_KIMI, PROVIDER_ID_KIMI_CODING_PLAN,
-    PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN,
-    QWEN_PROVIDER,
+    PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_KIMI,
+    PROVIDER_ID_KIMI_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_Z_AI,
+    PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
 };
 
 #[test]
-fn provider_count_is_28() {
-    assert_eq!(PROVIDERS.len(), 28);
+fn provider_count_is_29() {
+    assert_eq!(PROVIDERS.len(), 29);
 }
 
 #[test]
@@ -299,6 +299,33 @@ fn chutes_provider_uses_expected_defaults() {
     assert_eq!(
         default_model_for_provider_auth(PROVIDER_ID_CHUTES, "api_key"),
         "deepseek-ai/DeepSeek-R1"
+    );
+}
+
+#[test]
+fn deepseek_provider_uses_expected_defaults() {
+    let provider = find_by_id(PROVIDER_ID_DEEPSEEK).unwrap();
+    assert_eq!(provider.name, "DeepSeek");
+    assert_eq!(provider.default_base_url, "https://api.deepseek.com");
+    assert_eq!(provider.default_model, "deepseek-v4-pro");
+    assert_eq!(provider.default_auth_source, "api_key");
+    assert_eq!(provider.supported_auth_sources, API_KEY_ONLY_AUTH_SOURCES);
+    assert_eq!(provider.default_transport, "chat_completions");
+    assert_eq!(provider.supported_transports, CHAT_ONLY_TRANSPORTS);
+    assert_eq!(
+        known_context_window_for(PROVIDER_ID_DEEPSEEK, "deepseek-v4-pro"),
+        Some(1_048_576)
+    );
+    assert!(supports_model_fetch_for(PROVIDER_ID_DEEPSEEK));
+    let models = known_models_for_provider(PROVIDER_ID_DEEPSEEK);
+    assert_eq!(models.len(), 2);
+    assert_eq!(
+        models.first().map(|model| model.id.as_str()),
+        Some("deepseek-v4-pro")
+    );
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_DEEPSEEK, "api_key"),
+        "deepseek-v4-pro"
     );
 }
 

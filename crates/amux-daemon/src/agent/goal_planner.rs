@@ -427,7 +427,9 @@ impl AgentEngine {
         // Check plan confidence and route to approval if needed (UNCR-08)
         let low_confidence_steps = collect_low_confidence_plan_steps(&updated);
         let gate_action = self.plan_confidence_gate(&updated).await;
-        if gate_action == super::uncertainty::PlanConfidenceAction::RequireApproval {
+        if gate_action == super::uncertainty::PlanConfidenceAction::RequireApproval
+            && goal_requires_operator_approval(&updated)
+        {
             self.gate_low_confidence_plan_for_approval(
                 goal_run_id,
                 &updated,
@@ -549,6 +551,9 @@ impl AgentEngine {
         }
 
         if !low_steps.is_empty() {
+            if !goal_requires_operator_approval(goal_run) {
+                return super::uncertainty::PlanConfidenceAction::Proceed;
+            }
             let thread_id = goal_run.thread_id.clone().unwrap_or_default();
             let _ = self.event_tx.send(AgentEvent::ConfidenceWarning {
                 thread_id: thread_id.clone(),
@@ -807,7 +812,8 @@ impl AgentEngine {
             .await
             .unwrap_or(task);
 
-        let requires_ack = super::autonomy::requires_acknowledgment(snapshot.autonomy_level);
+        let requires_ack = goal_requires_operator_approval(&snapshot)
+            && super::autonomy::requires_acknowledgment(snapshot.autonomy_level);
         let autonomy_acknowledgment_id = requires_ack.then(|| {
             format!(
                 "autonomy-ack:{}:{}:{}",
@@ -920,6 +926,10 @@ fn collect_low_confidence_plan_steps(goal_run: &GoalRun) -> Vec<String> {
         .filter(|(_, step)| step.title.starts_with("[LOW]"))
         .map(|(index, step)| format!("Step {}: {}", index + 1, step.title))
         .collect()
+}
+
+fn goal_requires_operator_approval(goal_run: &GoalRun) -> bool {
+    !matches!(goal_run.authorship_tag, Some(super::AuthorshipTag::Agent))
 }
 
 #[cfg(test)]

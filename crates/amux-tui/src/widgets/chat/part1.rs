@@ -411,11 +411,12 @@ pub(crate) fn message_action_targets(
     };
     let mut actions = Vec::new();
 
-    if msg.role == MessageRole::Assistant
+    if ((msg.role == MessageRole::Assistant
         && msg
             .reasoning
             .as_deref()
-            .is_some_and(|reasoning| !reasoning.is_empty())
+            .is_some_and(|reasoning| !reasoning.is_empty()))
+        || super::message::is_meta_cognition_message(msg))
         && matches!(chat.transcript_mode(), TranscriptMode::Compact)
     {
         let toggle_label = if chat.expanded_reasoning().contains(&msg_index) {
@@ -652,6 +653,19 @@ fn classify_message_lines(
             }
             if msg.content.is_empty() && image_line_count == 0 && msg.reasoning.is_none() {
                 return Vec::new();
+            }
+
+            if super::message::is_meta_cognition_message(msg) {
+                let mut kinds = vec![reasoning_toggle_kind];
+                if reasoning_expanded {
+                    let detail_width = content_width.saturating_sub(2).max(1);
+                    let detail_line_count = wrap_text(&msg.content, detail_width).len();
+                    kinds.extend(std::iter::repeat_n(
+                        RenderedLineKind::ReasoningContent,
+                        detail_line_count.max(1),
+                    ));
+                }
+                return kinds;
             }
 
             let content_lines = if msg.content.is_empty() {

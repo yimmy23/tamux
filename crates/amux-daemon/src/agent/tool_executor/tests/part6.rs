@@ -1894,6 +1894,220 @@ async fn start_goal_run_tool_creates_goal_and_list_goal_runs_returns_it() {
 }
 
 #[tokio::test]
+async fn start_goal_run_tool_inherits_client_surface_from_source_thread() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-start-goal-run-tool-tui-surface";
+    engine
+        .set_thread_client_surface(thread_id, amux_protocol::ClientSurface::Tui)
+        .await;
+
+    let start_call = ToolCall::with_default_weles_review(
+        "tool-start-goal-run-tui-surface".to_string(),
+        ToolFunction {
+            name: "start_goal_run".to_string(),
+            arguments: serde_json::json!({
+                "goal": "Keep TUI shell routing for a delegated durable goal",
+                "title": "TUI Routed Goal"
+            })
+            .to_string(),
+        },
+    );
+
+    let start_result = execute_tool(
+        &start_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !start_result.is_error,
+        "start_goal_run should succeed: {}",
+        start_result.content
+    );
+    let started_goal: serde_json::Value =
+        serde_json::from_str(&start_result.content).expect("parse started goal run");
+    let goal_run_id = started_goal
+        .get("id")
+        .and_then(|value| value.as_str())
+        .expect("started goal run should expose id");
+    let goal_thread_id = started_goal
+        .get("thread_id")
+        .and_then(|value| value.as_str())
+        .expect("started goal run should expose dedicated goal thread");
+
+    assert_eq!(
+        engine.get_thread_client_surface(goal_thread_id).await,
+        Some(amux_protocol::ClientSurface::Tui),
+        "dedicated goal thread should inherit the source thread client surface"
+    );
+    assert_eq!(
+        engine.get_goal_run_client_surface(goal_run_id).await,
+        Some(amux_protocol::ClientSurface::Tui),
+        "goal run should retain the source client surface for task fallback routing"
+    );
+}
+
+#[tokio::test]
+async fn start_goal_run_tool_defaults_to_agent_authored_auto_approval() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-start-goal-run-tool-auto-approval";
+
+    let start_call = ToolCall::with_default_weles_review(
+        "tool-start-goal-run-auto-approval".to_string(),
+        ToolFunction {
+            name: "start_goal_run".to_string(),
+            arguments: serde_json::json!({
+                "goal": "Let the responsible agent finish this independently",
+                "title": "Agent-owned Goal"
+            })
+            .to_string(),
+        },
+    );
+
+    let start_result = execute_tool(
+        &start_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !start_result.is_error,
+        "start_goal_run should succeed: {}",
+        start_result.content
+    );
+    let started_goal: serde_json::Value =
+        serde_json::from_str(&start_result.content).expect("parse started goal run");
+    assert_eq!(
+        started_goal["authorship_tag"], "agent",
+        "tool-created goals should default to agent authorship for auto-approval"
+    );
+}
+
+#[tokio::test]
+async fn start_goal_run_tool_forwards_launch_assignments_to_goal_snapshot() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-start-goal-run-tool-assignments";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                title: "Goal launch thread".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user(
+                    "Launch a durable goal with a researcher.",
+                    1,
+                )],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    let start_call = ToolCall::with_default_weles_review(
+        "tool-start-goal-run-assignments".to_string(),
+        ToolFunction {
+            name: "start_goal_run".to_string(),
+            arguments: serde_json::json!({
+                "goal": "Research and implement the release checklist",
+                "title": "Release Research Goal",
+                "launch_assignments": [
+                    {
+                        "role_id": "swarog",
+                        "enabled": true,
+                        "provider": "openai",
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "medium",
+                        "inherit_from_main": false
+                    },
+                    {
+                        "role_id": "researcher",
+                        "enabled": true,
+                        "provider": "alibaba-coding-plan",
+                        "model": "qwen3.6-plus",
+                        "reasoning_effort": "high",
+                        "inherit_from_main": false
+                    }
+                ]
+            })
+            .to_string(),
+        },
+    );
+
+    let start_result = execute_tool(
+        &start_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !start_result.is_error,
+        "start_goal_run should accept launch assignments: {}",
+        start_result.content
+    );
+    let started_goal: serde_json::Value =
+        serde_json::from_str(&start_result.content).expect("parse started goal run");
+    let assignments = started_goal["launch_assignment_snapshot"]
+        .as_array()
+        .expect("started goal should include launch assignment snapshot");
+    let researcher = assignments
+        .iter()
+        .find(|assignment| assignment["role_id"] == "researcher")
+        .expect("tool-provided researcher assignment should be visible in the launch snapshot");
+    assert_eq!(researcher["provider"], "alibaba-coding-plan");
+    assert_eq!(researcher["model"], "qwen3.6-plus");
+    assert!(
+        assignments
+            .iter()
+            .any(|assignment| assignment["role_id"] == "reviewer"),
+        "reviewer should still be injected when missing"
+    );
+}
+
+#[tokio::test]
 async fn spawn_subagent_reserves_thread_id_immediately() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
@@ -1955,6 +2169,48 @@ async fn spawn_subagent_reserves_thread_id_immediately() {
     assert!(
         result.contains(&reserved_thread_id),
         "spawn_subagent result should surface the reserved thread id"
+    );
+}
+
+#[tokio::test]
+async fn spawn_subagent_reserved_thread_inherits_parent_client_surface() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-parent-tui-subagent";
+    engine
+        .set_thread_client_surface(thread_id, amux_protocol::ClientSurface::Tui)
+        .await;
+
+    let result = super::execute_spawn_subagent(
+        &serde_json::json!({
+            "title": "TUI child thread",
+            "description": "Reserve a child thread that keeps the parent client surface."
+        }),
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+    )
+    .await
+    .expect("spawn_subagent should succeed");
+
+    let tasks = engine.list_tasks().await;
+    let reserved_thread_id = tasks[0]
+        .thread_id
+        .clone()
+        .expect("spawn_subagent should reserve a thread id immediately");
+    assert!(
+        result.contains(&reserved_thread_id),
+        "spawn_subagent result should surface the reserved thread id"
+    );
+    assert_eq!(
+        engine.get_thread_client_surface(&reserved_thread_id).await,
+        Some(amux_protocol::ClientSurface::Tui),
+        "spawned subagent thread should inherit the parent thread client surface"
     );
 }
 
@@ -5864,7 +6120,8 @@ async fn submit_goal_step_verdict_records_structured_verdict_for_current_goal_ve
                 "verdict": "pass",
                 "explanation": "all proof checks passed",
                 "goal_run_id": "goal-1",
-                "goal_step_id": "step-1"
+                "goal_step_id": "step-1",
+                "task_id": task_id
             })
             .to_string(),
         },
@@ -5874,7 +6131,7 @@ async fn submit_goal_step_verdict_records_structured_verdict_for_current_goal_ve
         &verdict_call,
         &engine,
         thread_id,
-        Some(task_id),
+        None,
         &manager,
         None,
         &event_tx,

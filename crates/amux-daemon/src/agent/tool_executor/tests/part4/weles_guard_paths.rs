@@ -53,9 +53,11 @@ async fn execute_tool_guarded_call_uses_weles_runtime_structured_block_verdict()
     .await;
 
     assert!(result.is_error);
-    assert!(result
-        .content
-        .contains("runtime policy denied browser reconfiguration"));
+    assert!(
+        result
+            .content
+            .contains("runtime policy denied browser reconfiguration")
+    );
     let review = result
         .weles_review
         .expect("runtime block result should carry governance metadata");
@@ -65,10 +67,12 @@ async fn execute_tool_guarded_call_uses_weles_runtime_structured_block_verdict()
         review.audit_id.as_deref(),
         Some("audit-weles-runtime-block")
     );
-    assert!(review
-        .reasons
-        .iter()
-        .any(|reason| reason.contains("runtime policy denied browser reconfiguration")));
+    assert!(
+        review
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("runtime policy denied browser reconfiguration"))
+    );
 
     let dm_thread_id = crate::agent::agent_identity::internal_dm_thread_id(
         crate::agent::agent_identity::MAIN_AGENT_ID,
@@ -211,10 +215,12 @@ async fn execute_tool_low_risk_read_file_stays_direct_allow() {
         .expect("direct allow should carry explicit governance metadata");
     assert!(!review.weles_reviewed);
     assert_eq!(review.verdict, crate::agent::types::WelesVerdict::Allow);
-    assert!(review
-        .reasons
-        .iter()
-        .any(|reason| reason.contains("allow_direct") || reason.contains("low-risk")));
+    assert!(
+        review
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("allow_direct") || reason.contains("low-risk"))
+    );
 }
 
 #[tokio::test]
@@ -262,10 +268,12 @@ async fn execute_tool_unavailable_guarded_review_blocks_closed_normally_and_degr
         blocked_review.verdict,
         crate::agent::types::WelesVerdict::Block
     );
-    assert!(blocked_review
-        .reasons
-        .iter()
-        .any(|reason| reason.contains("unavailable")));
+    assert!(
+        blocked_review
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("unavailable"))
+    );
 
     {
         let config = engine.config.read().await;
@@ -312,10 +320,12 @@ async fn execute_tool_unavailable_guarded_review_blocks_closed_normally_and_degr
     );
     assert!(!yolo_review.weles_reviewed);
     assert_eq!(yolo_review.security_override_mode.as_deref(), Some("yolo"));
-    assert!(yolo_review
-        .reasons
-        .iter()
-        .any(|reason| reason.contains("unavailable")));
+    assert!(
+        yolo_review
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("unavailable"))
+    );
 
     let config = engine.config.read().await;
     assert_eq!(
@@ -328,8 +338,8 @@ async fn execute_tool_unavailable_guarded_review_blocks_closed_normally_and_degr
 }
 
 #[tokio::test]
-async fn execute_tool_weles_internal_task_allows_low_risk_shell_python_without_recursive_governance_review(
-) {
+async fn execute_tool_weles_internal_task_allows_low_risk_shell_python_without_recursive_governance_review()
+ {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;

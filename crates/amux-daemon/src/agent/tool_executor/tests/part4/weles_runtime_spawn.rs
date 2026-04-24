@@ -149,9 +149,11 @@ async fn spawn_subagent_rejects_hidden_weles_internal_fields_from_normal_callers
     .await
     .expect_err("normal callers must not inject hidden WELES governance fields");
 
-    assert!(error
-        .to_string()
-        .contains("daemon-owned WELES governance fields"));
+    assert!(
+        error
+            .to_string()
+            .contains("daemon-owned WELES governance fields")
+    );
 }
 
 #[tokio::test]

@@ -834,8 +834,12 @@ impl<'a> SendMessageRunner<'a> {
         }
         let preferred_tool_fallbacks = {
             let model = engine.operator_model.read().await;
-            crate::agent::operator_model::BehaviorAdaptationProfile::from_model(&model)
-                .preferred_tool_fallbacks
+            let adaptation =
+                crate::agent::operator_model::BehaviorAdaptationProfile::from_model(&model);
+            (
+                adaptation.preferred_tool_fallbacks,
+                adaptation.prompt_for_clarification,
+            )
         };
         {
             let hs = engine.heuristic_store.read().await;
@@ -843,7 +847,8 @@ impl<'a> SendMessageRunner<'a> {
                 &mut tools,
                 &hs,
                 &task_type_for_trace,
-                &preferred_tool_fallbacks,
+                &preferred_tool_fallbacks.0,
+                preferred_tool_fallbacks.1,
             );
         }
         if let Some(task) = current_task_snapshot.as_ref() {
@@ -1524,6 +1529,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn runner_prioritizes_ask_questions_when_clarification_is_requested() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread_clarification_priority";
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(MAIN_AGENT_NAME.to_string()),
+                title: "Clarification priority".to_string(),
+                messages: vec![AgentMessage::user("help me", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        {
+            let mut model = engine.operator_model.write().await;
+            model.cognitive_style.message_count = 1;
+            model.operator_satisfaction.label = "strained".to_string();
+            model.operator_satisfaction.score = 0.18;
+            model.implicit_feedback.correction_message_count = 1;
+        }
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            Some(thread_id),
+            "help me",
+            &[],
+            "help me",
+            None,
+            None,
+            None,
+            None,
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        let tool_names = runner
+            .tools
+            .iter()
+            .map(|tool| tool.function.name.as_str())
+            .collect::<Vec<_>>();
+        let ask_questions_index = tool_names
+            .iter()
+            .position(|name| *name == "ask_questions")
+            .expect("ask_questions should remain available for non-goal clarification");
+        let search_files_index = tool_names
+            .iter()
+            .position(|name| *name == "search_files")
+            .expect("search_files should be available");
+        assert!(
+            ask_questions_index < search_files_index,
+            "clarification-priority should move ask_questions ahead of generic unscored tools"
+        );
+    }
+
+    #[tokio::test]
     async fn durable_goal_task_prompt_includes_inventory_directories() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
@@ -1722,6 +1798,170 @@ mod tests {
                 .system_prompt
                 .contains("This step cannot be marked complete until that file exists"),
             "expected hard completion marker requirement in the goal task prompt"
+        );
+    }
+
+    #[tokio::test]
+    async fn durable_goal_task_clarification_priority_does_not_reintroduce_ask_questions() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let task_id = "goal-task-clarification-blacklist";
+
+        engine.goal_runs.lock().await.push_back(GoalRun {
+            id: "goal-run-clarification-blacklist".to_string(),
+            title: "Goal Inventory".to_string(),
+            goal: "Write durable goal artifacts".to_string(),
+            client_request_id: None,
+            status: GoalRunStatus::Running,
+            priority: TaskPriority::Normal,
+            created_at: 1,
+            updated_at: 1,
+            started_at: Some(1),
+            completed_at: None,
+            thread_id: Some("thread-goal-clarification-blacklist".to_string()),
+            root_thread_id: None,
+            active_thread_id: None,
+            execution_thread_ids: Vec::new(),
+            session_id: Some("session-1".to_string()),
+            current_step_index: 0,
+            current_step_title: Some("Write plan".to_string()),
+            current_step_kind: Some(GoalRunStepKind::Command),
+            launch_assignment_snapshot: Vec::new(),
+            runtime_assignment_list: Vec::new(),
+            planner_owner_profile: None,
+            current_step_owner_profile: None,
+            replan_count: 0,
+            max_replans: 2,
+            plan_summary: None,
+            reflection_summary: None,
+            memory_updates: Vec::new(),
+            generated_skill_path: None,
+            last_error: None,
+            failure_cause: None,
+            stopped_reason: None,
+            child_task_ids: Vec::new(),
+            child_task_count: 0,
+            approval_count: 0,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            active_task_id: None,
+            duration_ms: None,
+            steps: vec![GoalRunStep {
+                id: "goal-step-1".to_string(),
+                position: 0,
+                title: "Write plan".to_string(),
+                instructions: "Write durable goal artifacts".to_string(),
+                kind: GoalRunStepKind::Command,
+                success_criteria: "plan written".to_string(),
+                session_id: Some("session-1".to_string()),
+                status: GoalRunStepStatus::InProgress,
+                task_id: Some(task_id.to_string()),
+                summary: None,
+                error: None,
+                started_at: Some(1),
+                completed_at: None,
+            }],
+            events: Vec::new(),
+            dossier: None,
+            total_prompt_tokens: 0,
+            total_completion_tokens: 0,
+            estimated_cost_usd: None,
+            autonomy_level: AutonomyLevel::Aware,
+            authorship_tag: None,
+        });
+
+        engine.tasks.lock().await.push_back(AgentTask {
+            id: task_id.to_string(),
+            title: "Execute goal step".to_string(),
+            description: "Write durable goal artifacts".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: None,
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: Some("session-1".to_string()),
+            goal_run_id: Some("goal-run-clarification-blacklist".to_string()),
+            goal_run_title: Some("Goal Inventory".to_string()),
+            goal_step_id: Some("goal-step-1".to_string()),
+            goal_step_title: Some("Write plan".to_string()),
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: Some(vec!["ask_questions".to_string()]),
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+        {
+            let mut model = engine.operator_model.write().await;
+            model.cognitive_style.message_count = 1;
+            model.operator_satisfaction.label = "strained".to_string();
+            model.operator_satisfaction.score = 0.18;
+            model.implicit_feedback.correction_message_count = 1;
+        }
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            None,
+            "continue goal work",
+            &[],
+            "continue goal work",
+            Some(task_id),
+            None,
+            None,
+            None,
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        let tool_names = runner
+            .tools
+            .iter()
+            .map(|tool| tool.function.name.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            !tool_names.contains(&"ask_questions"),
+            "goal task clarification prioritization must not reintroduce ask_questions"
         );
     }
 

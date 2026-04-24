@@ -211,6 +211,52 @@ fn goal_workspace_progress_mode_renders_progress_panel_copy() {
 }
 
 #[test]
+fn goal_workspace_selected_step_dossier_uses_unit_projection_state() {
+    let mut tasks = TaskState::new();
+    tasks.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        goal: "Verify completed step status.".into(),
+        status: Some(crate::state::task::GoalRunStatus::Running),
+        current_step_index: 1,
+        steps: vec![
+            GoalRunStep {
+                id: "step-1".into(),
+                title: "Rebuild matrix".into(),
+                status: Some(crate::state::task::GoalRunStatus::Completed),
+                order: 0,
+                summary: Some("Step passed verification.".into()),
+                ..Default::default()
+            },
+            GoalRunStep {
+                id: "step-2".into(),
+                title: "Run daemon session".into(),
+                status: Some(crate::state::task::GoalRunStatus::Running),
+                order: 1,
+                ..Default::default()
+            },
+        ],
+        dossier: Some(crate::state::task::GoalRunDossier {
+            projection_state: "in_progress".into(),
+            summary: Some("Overall run is still executing.".into()),
+            units: vec![crate::state::task::GoalDeliveryUnitRecord {
+                id: "step-1".into(),
+                title: "Rebuild matrix".into(),
+                status: "completed".into(),
+                summary: Some("Selected unit completed.".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    }));
+
+    let plain = render_plain_text_for_tasks(&tasks, &GoalWorkspaceState::new(), 0);
+
+    assert!(plain.contains("Projection completed"), "{plain}");
+}
+
+#[test]
 fn goal_workspace_files_mode_lists_projection_root_and_nested_inventory_files() {
     let _lock = env_var_lock();
     let temp_home = tempfile::tempdir().expect("temp home should exist");
@@ -549,6 +595,7 @@ fn goal_workspace_plan_step_markers_reflect_status_with_color_and_pulse() {
                 title: "Completed step".into(),
                 order: 1,
                 status: Some(crate::state::task::GoalRunStatus::Completed),
+                error: Some("stale completion gate error".into()),
                 ..Default::default()
             },
             GoalRunStep {

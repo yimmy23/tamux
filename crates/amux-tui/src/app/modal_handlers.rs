@@ -524,6 +524,18 @@ impl TuiModel {
                                         "Mission Control roster is unavailable".to_string();
                                 }
                             }
+                            "mission_control_assignment_role" => {
+                                let role_id = value.trim().to_string();
+                                let updated =
+                                    self.update_selected_runtime_assignment(|assignment| {
+                                        assignment.role_id = role_id.clone();
+                                    });
+                                self.goal_mission_control.clear_runtime_edit();
+                                if !updated {
+                                    self.status_line =
+                                        "Mission Control roster is unavailable".to_string();
+                                }
+                            }
                             "subagent_system_prompt" => {
                                 if let Some(editor) = self.subagents.editor.as_mut() {
                                     editor.system_prompt = value;
@@ -1456,6 +1468,7 @@ impl TuiModel {
                     ) =>
             {
                 self.send_daemon_command(DaemonCommand::Refresh);
+                self.send_daemon_command(DaemonCommand::RefreshServices);
                 self.status_line = "Refreshing thread and goal lists".to_string();
             }
             KeyCode::Down if kind == modal::ModalKind::CommandPalette => self.modal_navigate(1),

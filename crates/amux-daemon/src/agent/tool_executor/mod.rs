@@ -135,6 +135,7 @@ pub fn reorder_tools_by_heuristics(
     heuristic_store: &super::learning::heuristics::HeuristicStore,
     task_type: &str,
     preferred_tool_fallbacks: &[String],
+    prioritize_clarification: bool,
 ) {
     let scores: std::collections::HashMap<String, f64> = if task_type.is_empty() {
         std::collections::HashMap::new()
@@ -156,14 +157,16 @@ pub fn reorder_tools_by_heuristics(
             },
         );
 
-    if scores.is_empty() && preferred_ranks.is_empty() {
+    if scores.is_empty() && preferred_ranks.is_empty() && !prioritize_clarification {
         return;
     }
 
     // Stable sort: preserve the existing heuristic ordering first, then apply a
-    // bounded promotion for preferred fallback tools inside the same score band.
-    // This keeps higher-confidence heuristic wins intact while moving known-good
-    // fallbacks earlier when the base heuristic is otherwise indifferent.
+    // bounded promotion for clarification and preferred fallback tools inside
+    // the same score band. This keeps higher-confidence heuristic wins intact
+    // while moving ask_questions earlier when the operator model says the next
+    // best move is to clarify intent, and still promotes known-good fallbacks
+    // when the base heuristic is otherwise indifferent.
     tools.sort_by(|a, b| {
         let score_cmp = match (
             scores.get(&a.function.name).copied(),
@@ -178,6 +181,17 @@ pub fn reorder_tools_by_heuristics(
         };
         if score_cmp != std::cmp::Ordering::Equal {
             return score_cmp;
+        }
+
+        if prioritize_clarification {
+            match (
+                a.function.name.eq_ignore_ascii_case("ask_questions"),
+                b.function.name.eq_ignore_ascii_case("ask_questions"),
+            ) {
+                (true, false) => return std::cmp::Ordering::Less,
+                (false, true) => return std::cmp::Ordering::Greater,
+                _ => {}
+            }
         }
 
         match (

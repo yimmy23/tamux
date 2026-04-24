@@ -561,6 +561,34 @@ fn goal_step_todos_ignore_thread_scoped_child_todos_without_goal_binding() {
 }
 
 #[test]
+fn goal_thread_ids_include_spawned_descendants_of_goal_threads() {
+    let mut state = TaskState::new();
+    state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
+        id: "goal-1".into(),
+        title: "Goal".into(),
+        active_thread_id: Some("thread-goal-active".into()),
+        ..Default::default()
+    }));
+    state.reduce(TaskAction::TaskListReceived(vec![AgentTask {
+        id: "spawned-task".into(),
+        title: "Spawned worker".into(),
+        thread_id: Some("thread-spawned".into()),
+        parent_thread_id: Some("thread-goal-active".into()),
+        goal_run_id: None,
+        ..Default::default()
+    }]));
+
+    assert_eq!(
+        state.goal_thread_ids("goal-1"),
+        vec![
+            "thread-goal-active".to_string(),
+            "thread-spawned".to_string()
+        ]
+    );
+    assert!(state.thread_belongs_to_goal_run("goal-1", "thread-spawned"));
+}
+
+#[test]
 fn goal_step_todos_use_event_step_index_when_snapshot_items_lack_step_index() {
     let mut state = TaskState::new();
     state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {

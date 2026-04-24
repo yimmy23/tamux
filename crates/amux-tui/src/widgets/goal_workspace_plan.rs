@@ -259,15 +259,15 @@ fn step_marker_state(
     step: &crate::state::task::GoalRunStep,
     active: bool,
 ) -> GoalWorkspacePlanMarkerState {
-    if step
+    if matches!(step.status, Some(GoalRunStatus::Completed)) {
+        GoalWorkspacePlanMarkerState::Completed
+    } else if step
         .error
         .as_deref()
         .is_some_and(|error| !error.trim().is_empty())
         || matches!(step.status, Some(GoalRunStatus::Failed))
     {
         GoalWorkspacePlanMarkerState::Error
-    } else if matches!(step.status, Some(GoalRunStatus::Completed)) {
-        GoalWorkspacePlanMarkerState::Completed
     } else if active
         || matches!(
             step.status,

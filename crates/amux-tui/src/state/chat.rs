@@ -675,10 +675,20 @@ impl ChatState {
     pub fn preserve_prepend_scroll_anchor(&mut self, resolved_scroll: usize) {
         self.scroll_offset = resolved_scroll;
         self.scroll_locked = true;
+        if let Some(thread) = self.active_thread_mut() {
+            thread.collapse_deadline_tick = None;
+        }
         self.bump_render_revision();
     }
 
+    pub fn is_following_bottom(&self) -> bool {
+        self.scroll_offset == 0 && !self.scroll_locked
+    }
+
     pub fn schedule_history_collapse(&mut self, current_tick: u64, delay_ticks: u64) {
+        if !self.is_following_bottom() {
+            return;
+        }
         let history_page_size = self.history_page_size;
         if let Some(thread) = self.active_thread_mut() {
             if thread.history_window_expanded && thread.messages.len() > history_page_size {
@@ -688,7 +698,7 @@ impl ChatState {
     }
 
     pub fn maybe_collapse_history(&mut self, current_tick: u64) {
-        if self.scroll_offset != 0 {
+        if !self.is_following_bottom() {
             if let Some(thread) = self.active_thread_mut() {
                 thread.collapse_deadline_tick = None;
             }

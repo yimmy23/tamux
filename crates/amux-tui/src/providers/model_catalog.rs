@@ -238,6 +238,10 @@ pub(super) fn known_models_for_provider_auth(
             128_000,
         )],
         PROVIDER_ID_CHUTES => &[("deepseek-ai/DeepSeek-R1", "DeepSeek R1", 128_000)],
+        PROVIDER_ID_DEEPSEEK => &[
+            ("deepseek-v4-pro", "DeepSeek V4 Pro", 1_048_576),
+            ("deepseek-v4-flash", "DeepSeek V4 Flash", 1_048_576),
+        ],
         _ => &[],
     };
     models
