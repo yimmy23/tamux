@@ -2,7 +2,7 @@ use super::participants::apply_vote_to_disagreement;
 use super::*;
 use crate::session_manager::SessionManager;
 use tempfile::tempdir;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 #[test]
 fn apply_vote_to_disagreement_accumulates_votes_before_resolving() {
@@ -850,6 +850,157 @@ async fn repeated_bid_round_reuses_recorded_outcome_learning_after_roles_were_as
 }
 
 #[tokio::test]
+async fn resolve_bids_records_collaboration_resolution_trace_and_audit() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Choose the best owner for the next workstream".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_research = engine
+        .enqueue_task(
+            "Research child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child_execution = engine
+        .enqueue_task(
+            "Execution child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child_research)
+        .await;
+    engine
+        .register_subagent_collaboration(&parent.id, &child_execution)
+        .await;
+    engine
+        .call_for_bids(
+            &parent.id,
+            &[child_research.id.clone(), child_execution.id.clone()],
+        )
+        .await
+        .expect("call_for_bids should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_research.id,
+            0.68,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("research bid should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child_execution.id,
+            0.72,
+            crate::agent::collaboration::BidAvailability::Busy,
+        )
+        .await
+        .expect("execution bid should succeed");
+
+    let resolution = engine
+        .resolve_bids(&parent.id)
+        .await
+        .expect("resolve_bids should succeed");
+
+    let records = engine
+        .history
+        .list_recent_causal_trace_records("collaboration_bid_resolution", 1)
+        .await
+        .expect("list collaboration resolution traces");
+    assert_eq!(records.len(), 1);
+    let selected: serde_json::Value =
+        serde_json::from_str(&records[0].selected_json).expect("deserialize selected option");
+    assert_eq!(
+        selected["option_type"].as_str(),
+        Some("collaboration_bid_resolution")
+    );
+    assert!(selected["reasoning"].as_str().is_some_and(|text| {
+        text.contains(child_research.id.as_str()) || text.contains(child_execution.id.as_str())
+    }));
+
+    let factors: Vec<crate::agent::learning::traces::CausalFactor> =
+        serde_json::from_str(&records[0].causal_factors_json).expect("deserialize factors");
+    assert!(factors.iter().any(|factor| {
+        factor
+            .description
+            .contains("resolved collaboration bid round with 2 candidate")
+    }));
+    assert!(factors.iter().any(|factor| {
+        factor
+            .description
+            .contains("availability-constrained during ranking")
+    }));
+
+    let filters = vec!["collaboration_resolution".to_string()];
+    let audits = engine
+        .history
+        .list_action_audit(Some(filters.as_slice()), None, 5)
+        .await
+        .expect("list collaboration resolution audit entries");
+    assert_eq!(audits.len(), 1);
+    assert_eq!(audits[0].task_id.as_deref(), Some(parent.id.as_str()));
+    assert_eq!(audits[0].thread_id.as_deref(), Some("thread-parent"));
+    let raw_json: serde_json::Value = audits[0]
+        .raw_data_json
+        .as_deref()
+        .map(|text| serde_json::from_str(text).expect("deserialize audit raw json"))
+        .expect("raw data json should be present");
+    assert_eq!(
+        raw_json["primary_task_id"].as_str(),
+        resolution["primary_task_id"].as_str()
+    );
+    assert_eq!(
+        raw_json["reviewer_task_id"].as_str(),
+        resolution["reviewer_task_id"].as_str()
+    );
+    assert_eq!(
+        raw_json["ranked_bids"].as_array().map(|items| items.len()),
+        Some(2)
+    );
+}
+
+#[tokio::test]
 async fn dispatch_via_bid_protocol_runs_bid_flow_end_to_end_through_collaboration_runtime() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -1045,9 +1196,11 @@ async fn dispatch_via_bid_protocol_persists_call_metadata_in_collaboration_sessi
         Some(2)
     );
     assert!(persisted["call_metadata"]["called_at"].as_u64().is_some());
-    assert!(persisted["bids"]
-        .as_array()
-        .is_some_and(|bids| { bids.iter().all(|bid| bid["created_at"].as_u64().is_some()) }));
+    assert!(
+        persisted["bids"]
+            .as_array()
+            .is_some_and(|bids| { bids.iter().all(|bid| bid["created_at"].as_u64().is_some()) })
+    );
 }
 
 #[tokio::test]
@@ -1450,12 +1603,14 @@ async fn seeded_bid_debate_advances_completes_and_persists_winning_assignment() 
     assert_eq!(completion["winner_task_id"], child_a.id);
     assert_eq!(completion["reviewer_task_id"], child_b.id);
     assert_eq!(completion["status"], "completed");
-    assert!(completion["verdict"]["recommended_action"]
-        .as_str()
-        .is_some_and(|text| {
-            text.contains(&format!("primary={}", child_a.id))
-                && text.contains(&format!("reviewer={}", child_b.id))
-        }));
+    assert!(
+        completion["verdict"]["recommended_action"]
+            .as_str()
+            .is_some_and(|text| {
+                text.contains(&format!("primary={}", child_a.id))
+                    && text.contains(&format!("reviewer={}", child_b.id))
+            })
+    );
 
     let debate_payload = engine
         .get_debate_session_payload(&debate_session_id)
@@ -1472,12 +1627,14 @@ async fn seeded_bid_debate_advances_completes_and_persists_winning_assignment() 
             text.contains("confidence=0.84") && text.contains("availability=available")
         })
     }));
-    assert!(debate_payload["verdict"]["recommended_action"]
-        .as_str()
-        .is_some_and(|text| {
-            text.contains(&format!("primary={}", child_a.id))
-                && text.contains(&format!("reviewer={}", child_b.id))
-        }));
+    assert!(
+        debate_payload["verdict"]["recommended_action"]
+            .as_str()
+            .is_some_and(|text| {
+                text.contains(&format!("primary={}", child_a.id))
+                    && text.contains(&format!("reviewer={}", child_b.id))
+            })
+    );
 
     let persisted = engine
         .collaboration_sessions_json(Some(&parent.id))
@@ -1487,13 +1644,15 @@ async fn seeded_bid_debate_advances_completes_and_persists_winning_assignment() 
     assert_eq!(persisted["role_assignment"]["reviewer_task_id"], child_b.id);
     assert_eq!(persisted["disagreements"][0]["resolution"], "resolved");
     assert_eq!(persisted["consensus"]["winner"], child_a.id);
-    assert!(persisted["consensus"]["rationale"]
-        .as_str()
-        .is_some_and(|text| {
-            text == completion["verdict"]["recommended_action"]
-                .as_str()
-                .unwrap_or_default()
-        }));
+    assert!(
+        persisted["consensus"]["rationale"]
+            .as_str()
+            .is_some_and(|text| {
+                text == completion["verdict"]["recommended_action"]
+                    .as_str()
+                    .unwrap_or_default()
+            })
+    );
     assert_eq!(
         persisted["resolution_outcome"]["status"].as_str(),
         Some("resolved")
@@ -1510,12 +1669,14 @@ async fn seeded_bid_debate_advances_completes_and_persists_winning_assignment() 
         persisted["resolution_outcome"]["topic"].as_str(),
         Some("bid resolution for choose the best owner for the next workstream")
     );
-    assert!(persisted["resolution_outcome"]["rationale"]
-        .as_str()
-        .is_some_and(|text| {
-            text.contains(&format!("primary={}", child_a.id))
-                && text.contains(&format!("reviewer={}", child_b.id))
-        }));
+    assert!(
+        persisted["resolution_outcome"]["rationale"]
+            .as_str()
+            .is_some_and(|text| {
+                text.contains(&format!("primary={}", child_a.id))
+                    && text.contains(&format!("reviewer={}", child_b.id))
+            })
+    );
 }
 
 #[tokio::test]
@@ -1620,13 +1781,15 @@ async fn dispatch_via_bid_protocol_auto_completes_seeded_bid_debate_on_contest()
 
     assert_eq!(persisted["disagreements"][0]["resolution"], "resolved");
     assert_eq!(persisted["consensus"]["winner"], child_a.id);
-    assert!(persisted["consensus"]["rationale"]
-        .as_str()
-        .is_some_and(|text| {
-            text == report["debate"]["verdict"]["recommended_action"]
-                .as_str()
-                .unwrap_or_default()
-        }));
+    assert!(
+        persisted["consensus"]["rationale"]
+            .as_str()
+            .is_some_and(|text| {
+                text == report["debate"]["verdict"]["recommended_action"]
+                    .as_str()
+                    .unwrap_or_default()
+            })
+    );
 
     let debate_payload = engine
         .get_debate_session_payload(&debate_session_id)
@@ -1828,4 +1991,138 @@ async fn record_collaboration_outcome_creates_session_for_solo_subagent() {
         serde_json::Value::String(child.id.clone())
     );
     assert!(report["contributions"][0]["position"] == "recommended");
+}
+
+#[tokio::test]
+async fn record_collaboration_outcome_records_trace_and_audit_for_parent_session() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Choose the best owner for the next workstream".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let mut child = engine
+        .enqueue_task(
+            "Research child".to_string(),
+            "Prepare a bid for implementation ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let reviewer = engine
+        .enqueue_task(
+            "Review child".to_string(),
+            "Prepare a bid for review ownership".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child)
+        .await;
+    engine
+        .register_subagent_collaboration(&parent.id, &reviewer)
+        .await;
+    engine
+        .call_for_bids(&parent.id, &[child.id.clone(), reviewer.id.clone()])
+        .await
+        .expect("call_for_bids should succeed");
+    engine
+        .submit_bid(
+            &parent.id,
+            &child.id,
+            0.83,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("submit primary bid");
+    engine
+        .submit_bid(
+            &parent.id,
+            &reviewer.id,
+            0.71,
+            crate::agent::collaboration::BidAvailability::Available,
+        )
+        .await
+        .expect("submit reviewer bid");
+    engine
+        .resolve_bids(&parent.id)
+        .await
+        .expect("resolve bids should succeed");
+
+    child.result = Some("implemented successfully".to_string());
+    engine.record_collaboration_outcome(&child, "success").await;
+
+    let records = engine
+        .history
+        .list_recent_causal_trace_records("collaboration_outcome", 1)
+        .await
+        .expect("list collaboration outcome traces");
+    assert_eq!(records.len(), 1);
+    let factors: Vec<crate::agent::learning::traces::CausalFactor> =
+        serde_json::from_str(&records[0].causal_factors_json).expect("deserialize factors");
+    assert!(factors.iter().any(|factor| {
+        factor
+            .description
+            .contains("recorded settled collaboration outcome for role")
+    }));
+    let outcome: crate::agent::learning::traces::CausalTraceOutcome =
+        serde_json::from_str(&records[0].outcome_json).expect("deserialize outcome json");
+    assert!(matches!(
+        outcome,
+        crate::agent::learning::traces::CausalTraceOutcome::Success
+    ));
+
+    let filters = vec!["collaboration_outcome".to_string()];
+    let audits = engine
+        .history
+        .list_action_audit(Some(filters.as_slice()), None, 5)
+        .await
+        .expect("list collaboration outcome audit entries");
+    assert_eq!(audits.len(), 1);
+    assert_eq!(audits[0].task_id.as_deref(), Some(child.id.as_str()));
+    let raw_json: serde_json::Value = audits[0]
+        .raw_data_json
+        .as_deref()
+        .map(|text| serde_json::from_str(text).expect("deserialize audit raw json"))
+        .expect("raw data json should be present");
+    assert_eq!(
+        raw_json["parent_task_id"].as_str(),
+        Some(parent.id.as_str())
+    );
+    assert_eq!(raw_json["task_id"].as_str(), Some(child.id.as_str()));
+    assert_eq!(raw_json["outcome"].as_str(), Some("success"));
 }

@@ -151,6 +151,97 @@ async fn managed_command_governance_persists_evaluation_and_approval() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn managed_command_governance_persists_causal_trace_and_audit_for_risky_transition() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let (session_id, _rx) = manager
+        .spawn(
+            Some("/bin/sh".to_string()),
+            None,
+            Some("workspace-a".to_string()),
+            None,
+            80,
+            24,
+        )
+        .await
+        .expect("spawn test session");
+
+    manager
+        .execute_managed_command(
+            session_id,
+            ManagedCommandRequest {
+                command: "sudo terraform destroy".to_string(),
+                rationale: "apply risky infra change".to_string(),
+                allow_network: true,
+                sandbox_enabled: false,
+                security_level: amux_protocol::SecurityLevel::Moderate,
+                cwd: Some("/tmp".to_string()),
+                language_hint: Some("bash".to_string()),
+                source: amux_protocol::ManagedCommandSource::Agent,
+            },
+        )
+        .await
+        .expect("managed command should return a daemon message");
+
+    let records = manager
+        .history
+        .list_recent_causal_trace_records("governance_evaluation", 1)
+        .await
+        .expect("governance causal trace query should succeed");
+    assert_eq!(records.len(), 1);
+
+    let selected: serde_json::Value =
+        serde_json::from_str(&records[0].selected_json).expect("deserialize selected option");
+    assert_eq!(selected["option_type"].as_str(), Some("governance_evaluation"));
+    assert!(selected["reasoning"]
+        .as_str()
+        .is_some_and(|text| text.contains("require_approval") && text.contains("sandbox_required")));
+
+    let factors: Vec<crate::agent::learning::traces::CausalFactor> =
+        serde_json::from_str(&records[0].causal_factors_json).expect("deserialize factors");
+    assert!(factors
+        .iter()
+        .any(|factor| factor.description.contains("policy fingerprint")));
+    assert!(factors
+        .iter()
+        .any(|factor| factor.description.contains("triggered constraints")));
+    assert!(factors
+        .iter()
+        .any(|factor| factor.description.contains("provenance completeness: complete")));
+
+    let outcome: crate::agent::learning::traces::CausalTraceOutcome =
+        serde_json::from_str(&records[0].outcome_json).expect("deserialize outcome");
+    assert!(matches!(
+        outcome,
+        crate::agent::learning::traces::CausalTraceOutcome::Unresolved
+    ));
+
+    let filters = vec!["governance_evaluation".to_string()];
+    let audits = manager
+        .history
+        .list_action_audit(Some(filters.as_slice()), None, 5)
+        .await
+        .expect("governance audit query should succeed");
+    assert_eq!(audits.len(), 1);
+
+    let raw_json: serde_json::Value = audits[0]
+        .raw_data_json
+        .as_deref()
+        .map(|text| serde_json::from_str(text).expect("deserialize audit raw json"))
+        .expect("raw_data_json should exist");
+    assert_eq!(raw_json["verdict_class"].as_str(), Some("require_approval"));
+    assert_eq!(raw_json["risk_class"].as_str(), Some("high"));
+    assert_eq!(raw_json["provenance_completeness"].as_str(), Some("complete"));
+    assert!(raw_json["policy_fingerprint"]
+        .as_str()
+        .is_some_and(|fingerprint| fingerprint.len() > 8));
+    assert!(raw_json["constraints"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|value| value.as_str() == Some("sandbox_required"))));
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn resolve_approval_updates_persisted_resolution() {
     let root = tempfile::tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
