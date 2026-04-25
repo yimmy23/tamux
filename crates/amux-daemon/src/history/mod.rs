@@ -262,6 +262,20 @@ pub struct EventLogRow {
     pub handled_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HarnessStateRecordRow {
+    pub entry_id: String,
+    pub entity_id: String,
+    pub thread_id: Option<String>,
+    pub goal_run_id: Option<String>,
+    pub task_id: Option<String>,
+    pub record_kind: String,
+    pub status: Option<String>,
+    pub summary: String,
+    pub payload_json: String,
+    pub created_at_ms: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct IntentPredictionRow {
     pub id: String,
@@ -949,6 +963,7 @@ mod event_triggers;
 mod gateway_state;
 mod goal_runs;
 mod governance;
+mod harness;
 mod implicit_feedback;
 mod integrity_helpers;
 mod memory_graph;

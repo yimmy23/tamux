@@ -1019,7 +1019,9 @@ async fn confirm_memory_provenance_entry_rejects_tampered_signed_record() -> Res
         .expect_err("tampered signed record should be rejected");
     assert!(error.to_string().contains("integrity validation"));
 
-    let report = store.memory_provenance_report(Some("MEMORY.md"), 10).await?;
+    let report = store
+        .memory_provenance_report(Some("MEMORY.md"), 10)
+        .await?;
     let entry = report
         .entries
         .iter()

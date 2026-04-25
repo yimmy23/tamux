@@ -580,7 +580,9 @@ fn restore_generated_tool_rejects_non_archived_status() -> Result<()> {
 
     let error = restore_generated_tool(&agent_data_dir, "tool-active")
         .expect_err("non-archived generated tools should not be restorable");
-    assert!(error.to_string().contains("only archived generated tools can be restored"));
+    assert!(error
+        .to_string()
+        .contains("only archived generated tools can be restored"));
 
     let _ = std::fs::remove_dir_all(&test_root);
     Ok(())

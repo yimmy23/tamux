@@ -295,16 +295,22 @@ impl AgentEngine {
                 .find(|goal_run| goal_run.id == goal_run_id)
                 .cloned()
         }?;
+        let task_goal_step_id = task.goal_step_id.clone();
+        let step_index = task_goal_step_id
+            .as_deref()
+            .and_then(|goal_step_id| {
+                goal_run
+                    .steps
+                    .iter()
+                    .position(|step| step.id == goal_step_id)
+            })
+            .unwrap_or(goal_run.current_step_index);
 
         Some(GoalTodoContext {
             goal_run_id,
-            goal_step_id: task.goal_step_id.clone().or_else(|| {
-                goal_run
-                    .steps
-                    .get(goal_run.current_step_index)
-                    .map(|step| step.id.clone())
-            }),
-            current_step_index: goal_run.current_step_index,
+            goal_step_id: task_goal_step_id
+                .or_else(|| goal_run.steps.get(step_index).map(|step| step.id.clone())),
+            current_step_index: step_index,
             authoritative: task.source == "goal_run" && task.parent_task_id.is_none(),
         })
     }

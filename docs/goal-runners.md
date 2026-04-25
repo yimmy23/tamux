@@ -2,6 +2,8 @@
 
 Goal runners are tamux's durable autonomy layer. Instead of a single prompt/response exchange, you give the daemon a long-running objective and let it plan, execute, replan, reflect, and persist what it learns.
 
+For the currently landed additive state-transition substrate that goal work can build on, see [state-transition-harness.md](./state-transition-harness.md).
+
 ![Goal runner operator view](assets/goal-runner-overview.svg)
 
 ## What A Goal Run Does

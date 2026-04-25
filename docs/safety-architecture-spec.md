@@ -17,6 +17,8 @@ This RFC makes three implementation-facing decisions explicit:
 - the output of safety evaluation is a **structured verdict**, not a boolean
 - provenance quality is itself a **blocking dependency** for side-effecting work
 
+The current harness MVP already uses that same governance model for its placeholder effect path, so effect dispatch and verification stay distinct even in the first landed slice. See [state-transition-harness.md](./state-transition-harness.md).
+
 ## Scope
 
 This RFC owns:

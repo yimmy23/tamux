@@ -1,11 +1,11 @@
 use super::participants::{apply_vote_to_disagreement, normalize_position, normalize_topic};
-use rusqlite::OptionalExtension;
 use crate::agent::consensus::bid_engine::{build_persisted_bid, consensus_round_id};
 use crate::agent::consensus::bid_priors::effective_bid_confidence;
 use crate::agent::consensus::outcome_feedback::build_quality_metric;
 use crate::agent::consensus::role_assigner::build_role_assignment;
 use crate::agent::explanation::{confidence_band, generate_explanation, ExplanationResult};
 use crate::history::AuditEntryRow;
+use rusqlite::OptionalExtension;
 
 const MIN_CONSENSUS_BID_CONFIDENCE: f64 = 0.3;
 use super::*;
@@ -1231,7 +1231,10 @@ impl AgentEngine {
         let learned_outcomes = self
             .collaboration_outcome_scores(
                 parent_task_id,
-                &ranked.iter().map(|bid| bid.task_id.clone()).collect::<Vec<_>>(),
+                &ranked
+                    .iter()
+                    .map(|bid| bid.task_id.clone())
+                    .collect::<Vec<_>>(),
             )
             .await?;
         let agent_confidence_by_task = session

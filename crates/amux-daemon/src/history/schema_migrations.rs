@@ -644,12 +644,7 @@ pub(super) fn apply_schema_migrations(
         "TEXT NOT NULL DEFAULT ''",
     )?;
     ensure_column(connection, "memory_provenance", "signature", "TEXT")?;
-    ensure_column(
-        connection,
-        "memory_provenance",
-        "signature_scheme",
-        "TEXT",
-    )?;
+    ensure_column(connection, "memory_provenance", "signature_scheme", "TEXT")?;
     ensure_column(connection, "memory_provenance", "confirmed_at", "INTEGER")?;
     ensure_column(connection, "memory_provenance", "retracted_at", "INTEGER")?;
     connection.execute_batch(

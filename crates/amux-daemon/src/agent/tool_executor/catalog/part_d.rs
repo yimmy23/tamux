@@ -185,6 +185,15 @@ fn add_available_tools_part_d(
             "limit": { "type": "integer", "description": "Maximum number of recent dream hints/cycles to return" }
         }
     })));
+    tools.push(tool_def("show_harness_state", "Show the persisted state-transition harness projection for a thread/goal/task scope, including beliefs, tensions, commitments, effects, verification results, and learned procedures.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "thread_id": { "type": "string", "description": "Optional thread scope; defaults to the current thread" },
+            "goal_run_id": { "type": "string", "description": "Optional goal-run scope" },
+            "task_id": { "type": "string", "description": "Optional task scope; defaults to the current task when available" },
+            "limit": { "type": "integer", "description": "Maximum number of recent items per harness section to include" }
+        }
+    })));
     tools.push(tool_def(
         "cancel_task",
         "Cancel a queued, blocked, running, approval-pending, or retrying background task by ID.",

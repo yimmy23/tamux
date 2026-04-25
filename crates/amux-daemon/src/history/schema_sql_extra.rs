@@ -18,6 +18,22 @@ pub(super) fn extended_schema_sql() -> &'static str {
             CREATE INDEX IF NOT EXISTS idx_causal_traces_decision_type ON causal_traces(decision_type, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_causal_traces_task_id ON causal_traces(task_id, created_at DESC);
 
+            CREATE TABLE IF NOT EXISTS harness_state_records (
+                entry_id       TEXT PRIMARY KEY,
+                entity_id      TEXT NOT NULL,
+                thread_id      TEXT,
+                goal_run_id    TEXT,
+                task_id        TEXT,
+                record_kind    TEXT NOT NULL,
+                status         TEXT,
+                summary        TEXT NOT NULL,
+                payload_json   TEXT NOT NULL,
+                created_at_ms  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_harness_state_scope_created ON harness_state_records(thread_id, goal_run_id, task_id, created_at_ms DESC);
+            CREATE INDEX IF NOT EXISTS idx_harness_state_kind_created ON harness_state_records(record_kind, created_at_ms DESC);
+            CREATE INDEX IF NOT EXISTS idx_harness_state_entity_created ON harness_state_records(entity_id, created_at_ms DESC);
+
             CREATE TABLE IF NOT EXISTS memory_provenance (
                 id            TEXT PRIMARY KEY,
                 target        TEXT NOT NULL,

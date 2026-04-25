@@ -5718,6 +5718,92 @@ async fn get_todos_returns_thread_scoped_items_with_optional_task_id() {
 }
 
 #[tokio::test]
+async fn show_harness_state_returns_projected_sections_for_current_scope() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-show-harness-state";
+    let task = engine
+        .enqueue_task(
+            "Inspect harness state".to_string(),
+            "Return a persisted harness visibility payload for the current scope.".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "agent",
+            None,
+            None,
+            Some(thread_id.to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    crate::agent::harness::run_minimal_closed_loop(
+        &engine.history,
+        crate::agent::harness::HarnessLoopInput {
+            thread_id: Some(thread_id.to_string()),
+            goal_run_id: Some("goal-show-harness-state".to_string()),
+            task_id: Some(task.id.clone()),
+            observation_summary: "surface persisted harness state for tooling".to_string(),
+            observation_details: serde_json::json!({
+                "state": {"actual": "aligned"},
+                "opportunities": ["Expose the harness state to developers"],
+            }),
+            goal_summary: "ship a harness visibility surface".to_string(),
+            desired_state: Some(serde_json::json!({"actual": "aligned"})),
+            preferred_effect_kind: Some(crate::agent::harness::EffectExecutionKind::ReadOnly),
+            allow_network: false,
+            sandbox_enabled: true,
+        },
+    )
+    .await
+    .expect("harness loop should succeed");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-show-harness-state".to_string(),
+        ToolFunction {
+            name: "show_harness_state".to_string(),
+            arguments: serde_json::json!({
+                "limit": 3,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        Some(task.id.as_str()),
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "show_harness_state should succeed: {}",
+        result.content
+    );
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("show_harness_state should return JSON");
+    assert_eq!(payload["scope"]["thread_id"], thread_id);
+    assert_eq!(payload["scope"]["task_id"], task.id);
+    assert!(payload["world_state"]["latest"].is_object());
+    assert!(payload["tensions"]["active"].as_array().is_some_and(|items| !items.is_empty()));
+    assert!(payload["procedures"]["latest"].is_object());
+    assert!(payload["verifications"]["latest"]["verified"].is_boolean());
+}
+
+#[tokio::test]
 async fn update_todo_for_goal_owned_main_task_requires_explicit_goal_binding() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
@@ -6348,6 +6434,313 @@ async fn update_todo_for_goal_owned_main_task_allows_only_status_changes_within_
         assert_eq!(after_invalid.position, before_invalid.position);
         assert_eq!(after_invalid.step_index, before_invalid.step_index);
         assert_eq!(after_invalid.created_at, before_invalid.created_at);
+    }
+}
+
+#[tokio::test]
+async fn update_todo_for_goal_owned_main_task_uses_bound_step_after_goal_advances() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-goal-update-todo-advanced-step";
+    let task_id = "task-goal-update-todo-advanced-step";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(crate::agent::types::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal One".to_string(),
+            goal: "Keep a completed step's todo list immutable after the goal advances"
+                .to_string(),
+            client_request_id: None,
+            status: crate::agent::types::GoalRunStatus::Running,
+            priority: crate::agent::types::TaskPriority::Normal,
+            created_at: 1,
+            updated_at: 2,
+            started_at: Some(1),
+            completed_at: None,
+            thread_id: Some(thread_id.to_string()),
+            root_thread_id: Some(thread_id.to_string()),
+            active_thread_id: Some(thread_id.to_string()),
+            execution_thread_ids: Vec::new(),
+            session_id: None,
+            current_step_index: 0,
+            current_step_title: Some("Inspect".to_string()),
+            current_step_kind: Some(crate::agent::types::GoalRunStepKind::Research),
+            launch_assignment_snapshot: Vec::new(),
+            runtime_assignment_list: Vec::new(),
+            planner_owner_profile: None,
+            current_step_owner_profile: None,
+            replan_count: 0,
+            max_replans: 0,
+            plan_summary: None,
+            reflection_summary: None,
+            memory_updates: Vec::new(),
+            generated_skill_path: None,
+            last_error: None,
+            failure_cause: None,
+            stopped_reason: None,
+            child_task_ids: Vec::new(),
+            child_task_count: 0,
+            approval_count: 0,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            active_task_id: Some(task_id.to_string()),
+            duration_ms: None,
+            steps: vec![
+                crate::agent::types::GoalRunStep {
+                    id: "step-1".to_string(),
+                    position: 0,
+                    title: "Inspect".to_string(),
+                    instructions: "Inspect the active goal step".to_string(),
+                    kind: crate::agent::types::GoalRunStepKind::Research,
+                    success_criteria: "Step context is correct".to_string(),
+                    session_id: None,
+                    status: crate::agent::types::GoalRunStepStatus::InProgress,
+                    task_id: Some(task_id.to_string()),
+                    summary: None,
+                    error: None,
+                    started_at: Some(1),
+                    completed_at: None,
+                },
+                crate::agent::types::GoalRunStep {
+                    id: "step-2".to_string(),
+                    position: 1,
+                    title: "Implement".to_string(),
+                    instructions: "Implement the second goal step".to_string(),
+                    kind: crate::agent::types::GoalRunStepKind::Command,
+                    success_criteria: "Second step is underway".to_string(),
+                    session_id: None,
+                    status: crate::agent::types::GoalRunStepStatus::Pending,
+                    task_id: None,
+                    summary: None,
+                    error: None,
+                    started_at: None,
+                    completed_at: None,
+                },
+            ],
+            events: Vec::new(),
+            dossier: None,
+            total_prompt_tokens: 0,
+            total_completion_tokens: 0,
+            estimated_cost_usd: None,
+            autonomy_level: Default::default(),
+            authorship_tag: None,
+        });
+    engine
+        .tasks
+        .lock()
+        .await
+        .push_back(crate::agent::types::AgentTask {
+            id: task_id.to_string(),
+            title: "Inspect".to_string(),
+            description: "Keep the goal todo list current.".to_string(),
+            status: crate::agent::types::TaskStatus::InProgress,
+            priority: crate::agent::types::TaskPriority::Normal,
+            progress: 10,
+            created_at: 1,
+            started_at: Some(1),
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some(thread_id.to_string()),
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: Some("goal-1".to_string()),
+            goal_run_title: Some("Goal One".to_string()),
+            goal_step_id: Some("step-1".to_string()),
+            goal_step_title: Some("Inspect".to_string()),
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+    let initial_update = ToolCall::with_default_weles_review(
+        "tool-goal-update-todos-before-advance".to_string(),
+        ToolFunction {
+            name: "update_todo".to_string(),
+            arguments: serde_json::json!({
+                "goal_run_id": "goal-1",
+                "goal_step_id": "step-1",
+                "items": [
+                    { "content": "Inspect current state", "status": "in_progress" },
+                    { "content": "Capture failing evidence", "status": "pending" }
+                ]
+            })
+            .to_string(),
+        },
+    );
+
+    let initial_result = execute_tool(
+        &initial_update,
+        &engine,
+        thread_id,
+        Some(task_id),
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !initial_result.is_error,
+        "initial goal-bound update_todo should succeed: {}",
+        initial_result.content
+    );
+    let initial_todos = engine.get_todos(thread_id).await;
+    assert_eq!(initial_todos.len(), 2);
+    assert!(initial_todos
+        .iter()
+        .all(|item| item.step_index == Some(0)));
+
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        let goal_run = goal_runs
+            .iter_mut()
+            .find(|goal_run| goal_run.id == "goal-1")
+            .expect("goal run should exist");
+        goal_run.steps[0].status = crate::agent::types::GoalRunStepStatus::Completed;
+        goal_run.steps[0].completed_at = Some(3);
+        goal_run.steps[1].status = crate::agent::types::GoalRunStepStatus::InProgress;
+        goal_run.steps[1].started_at = Some(4);
+        goal_run.current_step_index = 1;
+        goal_run.current_step_title = Some("Implement".to_string());
+        goal_run.current_step_kind = Some(crate::agent::types::GoalRunStepKind::Command);
+        goal_run.updated_at = 4;
+    }
+
+    let status_update = ToolCall::with_default_weles_review(
+        "tool-goal-update-todos-stale-task-status".to_string(),
+        ToolFunction {
+            name: "update_todo".to_string(),
+            arguments: serde_json::json!({
+                "goal_run_id": "goal-1",
+                "goal_step_id": "step-1",
+                "items": [
+                    { "content": "Inspect current state", "status": "completed" },
+                    { "content": "Capture failing evidence", "status": "completed" }
+                ]
+            })
+            .to_string(),
+        },
+    );
+
+    let status_result = execute_tool(
+        &status_update,
+        &engine,
+        thread_id,
+        Some(task_id),
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !status_result.is_error,
+        "stale goal-bound task may still update statuses for its bound step: {}",
+        status_result.content
+    );
+    let status_todos = engine.get_todos(thread_id).await;
+    assert_eq!(status_todos.len(), 2);
+    for (initial, updated) in initial_todos.iter().zip(status_todos.iter()) {
+        assert_eq!(updated.id, initial.id);
+        assert_eq!(updated.content, initial.content);
+        assert_eq!(updated.position, initial.position);
+        assert_eq!(updated.step_index, Some(0));
+    }
+    assert_eq!(status_todos[0].status, TodoStatus::Completed);
+    assert_eq!(status_todos[1].status, TodoStatus::Completed);
+
+    let invalid_update = ToolCall::with_default_weles_review(
+        "tool-goal-update-todos-stale-task-rename".to_string(),
+        ToolFunction {
+            name: "update_todo".to_string(),
+            arguments: serde_json::json!({
+                "goal_run_id": "goal-1",
+                "goal_step_id": "step-1",
+                "items": [
+                    { "content": "Inspect changed state", "status": "completed" },
+                    { "content": "Capture failing evidence", "status": "completed" }
+                ]
+            })
+            .to_string(),
+        },
+    );
+
+    let invalid_result = execute_tool(
+        &invalid_update,
+        &engine,
+        thread_id,
+        Some(task_id),
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        invalid_result.is_error,
+        "stale goal-bound task must not rewrite todos after its step was set"
+    );
+    assert!(
+        invalid_result.content.contains("only update todo statuses"),
+        "error should explain immutable goal-step todos: {}",
+        invalid_result.content
+    );
+    let todos_after_invalid_update = engine.get_todos(thread_id).await;
+    assert_eq!(todos_after_invalid_update.len(), status_todos.len());
+    for (after_invalid, before_invalid) in
+        todos_after_invalid_update.iter().zip(status_todos.iter())
+    {
+        assert_eq!(after_invalid.id, before_invalid.id);
+        assert_eq!(after_invalid.content, before_invalid.content);
+        assert_eq!(after_invalid.status, before_invalid.status);
+        assert_eq!(after_invalid.position, before_invalid.position);
+        assert_eq!(after_invalid.step_index, before_invalid.step_index);
     }
 }
 

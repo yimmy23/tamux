@@ -16,6 +16,7 @@ mod event_log;
 mod event_triggers;
 mod goal_runs;
 mod governance;
+mod harness;
 mod metacognition;
 mod misc;
 mod notifications;

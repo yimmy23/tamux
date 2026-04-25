@@ -386,6 +386,23 @@
             .iter()
             .find(|tool| tool.function.name == "show_dreams")
             .expect("show_dreams tool should be available");
+
+        let show_harness_state = tools
+            .iter()
+            .find(|tool| tool.function.name == "show_harness_state")
+            .expect("show_harness_state tool should be available");
+        let harness_properties = show_harness_state
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("show_harness_state schema should expose properties object");
+        for expected in ["thread_id", "goal_run_id", "task_id", "limit"] {
+            assert!(
+                harness_properties.contains_key(expected),
+                "show_harness_state should expose {expected}"
+            );
+        }
     }
 
     #[test]

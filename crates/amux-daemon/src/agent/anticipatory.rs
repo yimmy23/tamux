@@ -220,7 +220,8 @@ impl AgentEngine {
         for (thread_id, _) in due_threads {
             self.refresh_thread_repo_context(&thread_id).await;
             self.refresh_anticipatory_prewarm_cache(&thread_id).await;
-            self.persist_predictive_hydration_causal_trace(&thread_id).await;
+            self.persist_predictive_hydration_causal_trace(&thread_id)
+                .await;
             self.anticipatory
                 .write()
                 .await
@@ -235,9 +236,14 @@ impl AgentEngine {
     ) -> Option<String> {
         let awaiting_task_threads = {
             let tasks = self.tasks.lock().await;
-            tasks.iter()
+            tasks
+                .iter()
                 .filter(|task| task.status == TaskStatus::AwaitingApproval)
-                .filter_map(|task| task.thread_id.clone().or_else(|| task.parent_thread_id.clone()))
+                .filter_map(|task| {
+                    task.thread_id
+                        .clone()
+                        .or_else(|| task.parent_thread_id.clone())
+                })
                 .collect::<Vec<_>>()
         };
 

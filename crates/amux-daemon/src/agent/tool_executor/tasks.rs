@@ -888,6 +888,77 @@ async fn execute_show_dreams(args: &serde_json::Value, agent: &AgentEngine) -> R
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
+async fn execute_show_harness_state(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    current_thread_id: &str,
+    current_task_id: Option<&str>,
+) -> Result<String> {
+    let requested_thread_id = args
+        .get("thread_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| Some(current_thread_id.to_string()));
+    let requested_task_id = args
+        .get("task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| current_task_id.map(ToOwned::to_owned));
+    let requested_goal_run_id = args
+        .get("goal_run_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(5);
+
+    let resolved_task = if let Some(task_id) = requested_task_id.as_deref() {
+        Some(
+            agent
+                .list_tasks()
+                .await
+                .into_iter()
+                .find(|task| task.id == task_id)
+                .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
+        )
+    } else {
+        None
+    };
+    let goal_run_id = requested_goal_run_id.or_else(|| {
+        resolved_task
+            .as_ref()
+            .and_then(|task| task.goal_run_id.clone())
+    });
+    let task_id = resolved_task
+        .as_ref()
+        .map(|task| task.id.clone())
+        .or(requested_task_id);
+
+    let projection = crate::agent::harness::load_harness_state_projection(
+        &agent.history,
+        requested_thread_id.as_deref(),
+        goal_run_id.as_deref(),
+        task_id.as_deref(),
+    )
+    .await?;
+    let payload = crate::agent::harness::build_harness_state_payload(
+        &projection,
+        requested_thread_id.as_deref(),
+        goal_run_id.as_deref(),
+        task_id.as_deref(),
+        limit,
+    );
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
 async fn execute_get_todos(
     args: &serde_json::Value,
     agent: &AgentEngine,

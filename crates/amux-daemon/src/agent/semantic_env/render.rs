@@ -308,7 +308,12 @@ pub(super) fn render_infra_dependents(
     let dependents = graph
         .infra_resources
         .iter()
-        .filter(|resource| resource.dependencies.iter().any(|dep| dep == &dependency_key))
+        .filter(|resource| {
+            resource
+                .dependencies
+                .iter()
+                .any(|dep| dep == &dependency_key)
+        })
         .collect::<Vec<_>>();
 
     if dependents.is_empty() {

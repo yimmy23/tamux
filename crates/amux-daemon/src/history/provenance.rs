@@ -177,7 +177,9 @@ impl HistoryStore {
             .as_ref()
             .map(|material| sign_provenance_hash_ed25519(material, &entry_hash))
             .transpose()?;
-        let signature_scheme = signing_material.as_ref().map(|material| material.scheme.clone());
+        let signature_scheme = signing_material
+            .as_ref()
+            .map(|material| material.scheme.clone());
         let relationship_target = match record.mode {
             "remove" => Some((
                 target.clone(),
@@ -434,9 +436,7 @@ impl HistoryStore {
             created_at,
         );
         if expected_hash != entry_hash {
-            anyhow::bail!(
-                "memory provenance entry failed integrity validation: hash mismatch"
-            );
+            anyhow::bail!("memory provenance entry failed integrity validation: hash mismatch");
         }
 
         match (signature.as_deref(), signature_scheme.as_deref()) {
