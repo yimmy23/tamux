@@ -49,6 +49,7 @@ pub struct WormIntegrityResult {
 pub struct HistoryStore {
     pub(crate) conn: tokio_rusqlite::Connection,
     pub(crate) read_conn: tokio_rusqlite::Connection,
+    pub(crate) search_index: Option<search_index::SearchIndex>,
     skill_dir: PathBuf,
     telemetry_dir: PathBuf,
     worm_dir: PathBuf,
@@ -1008,13 +1009,14 @@ mod operator_profile;
 mod protocol_candidates;
 mod protocol_registry;
 mod provenance;
-mod row_mapping;
 mod routines;
+mod row_mapping;
 mod schema;
 mod schema_helpers;
 mod schema_migrations;
 mod schema_sql;
 mod schema_sql_extra;
+pub(crate) mod search_index;
 mod skill_generation;
 mod statistics;
 mod temporal_foresight;

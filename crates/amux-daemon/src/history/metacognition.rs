@@ -48,6 +48,7 @@ impl HistoryStore {
         rows: &[CognitiveBiasRow],
     ) -> Result<()> {
         let rows = rows.to_vec();
+        let rows_for_index = rows.clone();
         self.conn
             .call(move |conn| {
                 let tx = conn.transaction()?;
@@ -69,7 +70,30 @@ impl HistoryStore {
                 Ok(())
             })
             .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        for row in rows_for_index {
+            let bias_name = row.name.clone();
+            self.upsert_search_document(super::search_index::SearchDocument {
+                source_kind: super::search_index::SearchSourceKind::MetaCognition,
+                source_id: format!("cognitive_bias:{model_id}:{bias_name}"),
+                title: format!("cognitive bias {bias_name}"),
+                body: format!("{}\n{}", row.trigger_pattern_json, row.mitigation_prompt),
+                tags: vec!["cognitive_bias".to_string(), bias_name],
+                workspace_id: None,
+                thread_id: None,
+                agent_id: None,
+                timestamp: 0,
+                metadata_json: Some(
+                    serde_json::to_string(&serde_json::json!({
+                        "model_id": row.model_id,
+                        "severity": row.severity,
+                        "occurrence_count": row.occurrence_count,
+                    }))
+                    .unwrap_or_else(|_| "{}".to_string()),
+                ),
+            });
+        }
+        Ok(())
     }
 
     pub async fn list_cognitive_biases(&self, model_id: i64) -> Result<Vec<CognitiveBiasRow>> {

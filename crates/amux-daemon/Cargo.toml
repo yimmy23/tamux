@@ -65,6 +65,7 @@ ureq = { version = "3", features = ["json"] }
 lancedb = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+tantivy = "0.24.2"
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]

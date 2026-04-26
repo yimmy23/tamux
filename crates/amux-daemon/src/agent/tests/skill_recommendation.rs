@@ -309,6 +309,60 @@ keywords: [research, citations]
 }
 
 #[tokio::test]
+async fn discover_local_guidelines_indexes_guideline_documents_for_tantivy_search() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let guidelines_root = root.path().join("guidelines");
+    write_markdown(
+        &guidelines_root,
+        "coding/debugging.md",
+        r#"---
+name: debugging-task
+description: Use for debugging broken behavior.
+recommended_skills: [systematic-debugging]
+---
+
+# Debugging Task
+
+Use systematic debugging before proposing fixes.
+"#,
+    )?;
+
+    let cfg = SkillRecommendationConfig {
+        strong_match_threshold: 0.2,
+        weak_match_threshold: 0.1,
+        ..SkillRecommendationConfig::default()
+    };
+    discover_local_guidelines(
+        &store,
+        &guidelines_root,
+        "systematic debugging fixes",
+        &[],
+        3,
+        &cfg,
+    )
+    .await?;
+
+    let hits = store
+        .search_index
+        .as_ref()
+        .expect("test store should open tantivy search index")
+        .search(crate::history::search_index::SearchRequest {
+            query: "systematic debugging fixes".to_string(),
+            limit: 3,
+            source_kinds: vec![crate::history::search_index::SearchSourceKind::Guideline],
+            workspace_id: None,
+            thread_id: None,
+            agent_id: None,
+        })?;
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].source_id, "coding/debugging.md");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn confidence_tier_is_none_and_action_is_none_when_scores_do_not_clear_threshold(
 ) -> Result<()> {
     let root = tempdir()?;

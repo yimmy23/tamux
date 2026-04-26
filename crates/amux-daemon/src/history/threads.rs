@@ -1,5 +1,39 @@
 use super::*;
 
+fn agent_message_search_document(message: &AgentDbMessage) -> super::search_index::SearchDocument {
+    let mut tags = vec![message.role.clone()];
+    if let Some(provider) = &message.provider {
+        tags.push(provider.clone());
+    }
+    if let Some(model) = &message.model {
+        tags.push(model.clone());
+    }
+    super::search_index::SearchDocument {
+        source_kind: super::search_index::SearchSourceKind::AgentMessage,
+        source_id: message.id.clone(),
+        title: format!("{} message", message.role),
+        body: [
+            message.content.as_str(),
+            message.reasoning.as_deref().unwrap_or_default(),
+            message.tool_calls_json.as_deref().unwrap_or_default(),
+            message.metadata_json.as_deref().unwrap_or_default(),
+        ]
+        .join("\n"),
+        tags,
+        workspace_id: None,
+        thread_id: Some(message.thread_id.clone()),
+        agent_id: None,
+        timestamp: message.created_at,
+        metadata_json: message.metadata_json.clone(),
+    }
+}
+
+fn index_agent_messages(store: &HistoryStore, messages: &[AgentDbMessage]) {
+    for message in messages {
+        store.upsert_search_document(agent_message_search_document(message));
+    }
+}
+
 impl HistoryStore {
     pub async fn reconcile_thread_snapshot(
         &self,
@@ -8,6 +42,7 @@ impl HistoryStore {
     ) -> Result<()> {
         let thread = thread.clone();
         let messages = messages.to_vec();
+        let messages_for_index = messages.clone();
         self.conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
@@ -62,7 +97,7 @@ impl HistoryStore {
                             incoming_latest_created_at,
                             "skipping stale thread snapshot persistence"
                         );
-                        return Ok(());
+                        return Ok(false);
                     }
                 }
 
@@ -199,10 +234,15 @@ impl HistoryStore {
                 }
 
                 transaction.commit()?;
-                Ok(())
+                Ok(true)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
+            .map(|persisted| {
+                if persisted {
+                    index_agent_messages(self, &messages_for_index);
+                }
+            })
     }
 
     pub async fn create_thread(&self, thread: &AgentDbThread) -> Result<()> {
@@ -238,6 +278,7 @@ impl HistoryStore {
     ) -> Result<()> {
         let thread = thread.clone();
         let messages = messages.to_vec();
+        let messages_for_index = messages.clone();
         self.conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
@@ -292,7 +333,7 @@ impl HistoryStore {
                             incoming_latest_created_at,
                             "skipping stale thread snapshot replace"
                         );
-                        return Ok(());
+                        return Ok(false);
                     }
                 }
 
@@ -373,10 +414,15 @@ impl HistoryStore {
                 }
 
                 transaction.commit()?;
-                Ok(())
+                Ok(true)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
+            .map(|persisted| {
+                if persisted {
+                    index_agent_messages(self, &messages_for_index);
+                }
+            })
     }
 
     pub async fn delete_thread(&self, id: &str) -> Result<()> {
@@ -418,6 +464,7 @@ impl HistoryStore {
 
     pub async fn add_message(&self, message: &AgentDbMessage) -> Result<()> {
         let message = message.clone();
+        let search_document = agent_message_search_document(&message);
         self.conn.call(move |conn| {
         conn.execute(
             "INSERT OR REPLACE INTO agent_messages \
@@ -442,7 +489,9 @@ impl HistoryStore {
         )?;
         refresh_thread_stats(conn, &message.thread_id)?;
         Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.upsert_search_document(search_document);
+        Ok(())
     }
 
     pub async fn update_message(&self, id: &str, patch: &AgentMessagePatch) -> Result<()> {

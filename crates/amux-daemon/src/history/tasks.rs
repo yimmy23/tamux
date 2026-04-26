@@ -70,6 +70,18 @@ impl HistoryStore {
 
     pub async fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
         let entry = entry.clone();
+        let search_document = super::search_index::SearchDocument {
+            source_kind: super::search_index::SearchSourceKind::AgentEvent,
+            source_id: entry.id.clone(),
+            title: format!("{} {}", entry.category, entry.kind),
+            body: entry.payload_json.clone(),
+            tags: vec![entry.category.clone(), entry.kind.clone()],
+            workspace_id: entry.workspace_id.as_ref().map(|id| id.to_string()),
+            thread_id: None,
+            agent_id: None,
+            timestamp: entry.timestamp,
+            metadata_json: Some(entry.payload_json.clone()),
+        };
         self.conn.call(move |conn| {
         conn.execute(
             "INSERT OR REPLACE INTO agent_events \
@@ -88,7 +100,9 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.upsert_search_document(search_document);
+        Ok(())
     }
 
     pub async fn list_agent_events(

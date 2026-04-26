@@ -44,13 +44,209 @@ async fn search_returns_history_hits_from_fts_join() -> Result<()> {
             duration_ms: Some(250),
             snapshot_path: None,
         })
-        .await?;
+        .await
+        .map_err(|e| anyhow::anyhow!("add agent message: {e}"))?;
 
     let (summary, hits) = store.search("build", 8).await?;
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].title, "cargo build --workspace");
-    assert!(summary.contains("Found 1 historical matches"));
+    assert!(summary.contains("Found 1 searchable matches"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn search_uses_tantivy_when_sqlite_fts_projection_is_missing() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .record_managed_finish(&ManagedHistoryRecord {
+            execution_id: "exec-tantivy".to_string(),
+            session_id: "session-1".to_string(),
+            workspace_id: Some("workspace-1".to_string()),
+            command: "cargo test search index".to_string(),
+            rationale: "Verify tantivy history search projection".to_string(),
+            source: "test".to_string(),
+            exit_code: Some(0),
+            duration_ms: Some(250),
+            snapshot_path: None,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("upsert agent event: {e}"))?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute("DELETE FROM history_fts WHERE id = 'exec-tantivy'", [])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("add agent message: {e}"))?;
+
+    let (summary, hits) = store.search("tantivy projection", 8).await?;
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, "exec-tantivy");
+    assert_eq!(hits[0].title, "cargo test search index");
+    assert!(summary.contains("Found 1 searchable matches"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn search_indexes_support_capability_documents() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .create_thread(&AgentDbThread {
+            id: "thread-search".to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("agent-search".to_string()),
+            title: "Search support thread".to_string(),
+            created_at: 1_717_199_990,
+            updated_at: 1_717_199_990,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("create thread: {e}"))?;
+    store
+        .add_message(&AgentDbMessage {
+            id: "msg-tool-failure".to_string(),
+            thread_id: "thread-search".to_string(),
+            created_at: 1_717_200_000,
+            role: "assistant".to_string(),
+            content: "Tool call failed while running migration cleanup".to_string(),
+            provider: Some("openai".to_string()),
+            model: Some("gpt-test".to_string()),
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: Some("Need inspect failed tool calls before retrying".to_string()),
+            tool_calls_json: Some(r#"[{"name":"bash","status":"failed"}]"#.to_string()),
+            metadata_json: None,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("add agent message: {e}"))?;
+    store
+        .upsert_agent_event(&AgentEventRow {
+            id: "event-meta".to_string(),
+            category: "behavioral".to_string(),
+            kind: "metacognition".to_string(),
+            pane_id: None,
+            workspace_id: None,
+            surface_id: None,
+            session_id: None,
+            payload_json: r#"{"note":"operator asked for counterfactual search"}"#.to_string(),
+            timestamp: 1_717_200_010,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("upsert agent event: {e}"))?;
+    store
+        .insert_causal_trace(
+            "trace-failure",
+            Some("thread-search"),
+            None,
+            Some("task-1"),
+            "tool_call",
+            "failed_tool_calls",
+            r#"{"tool":"bash","command":"cargo test"}"#,
+            r#"[]"#,
+            "context",
+            r#"[{"description":"failed migration cleanup"}]"#,
+            r#"{"Failure":{"reason":"test failure"}} "#,
+            Some("gpt-test"),
+            1_717_200_020,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("insert causal trace: {e}"))?;
+    store
+        .insert_action_audit(&AuditEntryRow {
+            id: "audit-counterfactual".to_string(),
+            timestamp: 1_717_200_030,
+            action_type: "counterfactual".to_string(),
+            summary: "Counterfactual suggested safer migration cleanup".to_string(),
+            explanation: Some("Use targeted SQL inspection before broad edits".to_string()),
+            confidence: Some(0.8),
+            confidence_band: Some("high".to_string()),
+            causal_trace_id: Some("trace-failure".to_string()),
+            thread_id: Some("thread-search".to_string()),
+            goal_run_id: None,
+            task_id: Some("task-1".to_string()),
+            raw_data_json: None,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("insert action audit: {e}"))?;
+    let dream_cycle_id = store
+        .insert_dream_cycle(&DreamCycleRow {
+            id: None,
+            started_at_ms: 1_717_200_035,
+            completed_at_ms: None,
+            idle_duration_ms: 1000,
+            tasks_analyzed: 1,
+            counterfactuals_generated: 1,
+            counterfactuals_successful: 1,
+            status: "running".to_string(),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("insert dream cycle: {e}"))?;
+    store
+        .insert_counterfactual_evaluation(&CounterfactualEvaluationRow {
+            id: None,
+            dream_cycle_id,
+            source_task_id: "task-1".to_string(),
+            variation_type: "tool_sequence".to_string(),
+            counterfactual_description: "Use read_file before shelling out to inspect migrations"
+                .to_string(),
+            estimated_token_saving: Some(32.0),
+            estimated_time_saving_ms: Some(2000),
+            estimated_revision_reduction: Some(1),
+            score: 0.91,
+            threshold_met: true,
+            created_at_ms: 1_717_200_040,
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("insert counterfactual evaluation: {e}"))?;
+    store
+        .upsert_meta_cognition_model("agent-search", 0.0, 1_717_200_050)
+        .await
+        .map_err(|e| anyhow::anyhow!("upsert metacognition model: {e}"))?;
+    store
+        .replace_cognitive_biases(
+            1,
+            &[CognitiveBiasRow {
+                id: 0,
+                model_id: 1,
+                name: "anchoring".to_string(),
+                trigger_pattern_json: r#"["first failing tool result"]"#.to_string(),
+                mitigation_prompt: "Search counterfactual and causal trace history first"
+                    .to_string(),
+                severity: 0.7,
+                occurrence_count: 2,
+            }],
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("replace cognitive biases: {e}"))?;
+
+    let (_summary, hits) = store
+        .search("counterfactual failed tool migration", 10)
+        .await?;
+    let kinds = hits.iter().map(|hit| hit.kind.as_str()).collect::<Vec<_>>();
+
+    assert!(kinds.contains(&"agent_message"), "{kinds:?}");
+    assert!(kinds.contains(&"agent_event"), "{kinds:?}");
+    assert!(kinds.contains(&"causal_trace"), "{kinds:?}");
+    assert!(kinds.contains(&"action_audit"), "{kinds:?}");
+    assert!(kinds.contains(&"counterfactual"), "{kinds:?}");
+    assert!(kinds.contains(&"meta_cognition"), "{kinds:?}");
 
     fs::remove_dir_all(root)?;
     Ok(())

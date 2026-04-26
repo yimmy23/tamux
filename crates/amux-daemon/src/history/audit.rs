@@ -69,6 +69,26 @@ impl HistoryStore {
     /// Insert or replace an action audit entry.
     pub async fn insert_action_audit(&self, entry: &AuditEntryRow) -> Result<()> {
         let entry = entry.clone();
+        let search_document = super::search_index::SearchDocument {
+            source_kind: super::search_index::SearchSourceKind::ActionAudit,
+            source_id: entry.id.clone(),
+            title: entry.summary.clone(),
+            body: format!(
+                "{}\n{}\n{}",
+                entry.action_type,
+                entry.explanation.as_deref().unwrap_or_default(),
+                entry.raw_data_json.as_deref().unwrap_or_default()
+            ),
+            tags: vec![
+                entry.action_type.clone(),
+                entry.confidence_band.clone().unwrap_or_default(),
+            ],
+            workspace_id: None,
+            thread_id: entry.thread_id.clone(),
+            agent_id: None,
+            timestamp: entry.timestamp,
+            metadata_json: entry.raw_data_json.clone(),
+        };
         self.conn.call(move |conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO action_audit \
@@ -91,7 +111,9 @@ impl HistoryStore {
                 ],
             )?;
             Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("insert_action_audit: {e}"))
+        }).await.map_err(|e| anyhow::anyhow!("insert_action_audit: {e}"))?;
+        self.upsert_search_document(search_document);
+        Ok(())
     }
 
     /// List action audit entries with optional filters.
