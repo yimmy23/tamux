@@ -61,14 +61,26 @@ impl AgentEngine {
             }
         }
 
+        let existing_thread = self.gateway_threads.read().await.get(&channel_key).cloned();
+        if self
+            .handle_gateway_task_approval_reply(
+                &msg,
+                &channel_key,
+                existing_thread.as_deref(),
+                reply_tool_name,
+            )
+            .await
+        {
+            self.release_gateway_inflight_channel(&channel_key).await;
+            return;
+        }
+
         let _ = self.event_tx.send(AgentEvent::GatewayIncoming {
             platform: msg.platform.clone(),
             sender: msg.sender.clone(),
             content: msg.content.clone(),
             channel: msg.channel.clone(),
         });
-
-        let existing_thread = self.gateway_threads.read().await.get(&channel_key).cloned();
         let route_mode = if let Some(request) = route_request {
             request.mode
         } else {

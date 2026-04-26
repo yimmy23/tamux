@@ -429,7 +429,14 @@ impl DaemonClient {
             | DaemonMessage::SessionSpawned { .. }
             | DaemonMessage::ApprovalRequired { .. }
             | DaemonMessage::AgentTaskApprovalRules { .. }
-            | DaemonMessage::ApprovalResolved { .. }) => {
+            | DaemonMessage::ApprovalResolved { .. }
+            | DaemonMessage::AgentWorkspaceSettings { .. }
+            | DaemonMessage::AgentWorkspaceSettingsList { .. }
+            | DaemonMessage::AgentWorkspaceTaskList { .. }
+            | DaemonMessage::AgentWorkspaceTaskUpdated { .. }
+            | DaemonMessage::AgentWorkspaceTaskDeleted { .. }
+            | DaemonMessage::AgentWorkspaceNoticeList { .. }
+            | DaemonMessage::AgentWorkspaceError { .. }) => {
                 Self::handle_daemon_message_part1(message, event_tx, thread_detail_chunks).await
             }
             message @ (DaemonMessage::AgentProviderAuthStates { .. }

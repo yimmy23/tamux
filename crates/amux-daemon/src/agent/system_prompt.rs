@@ -4,9 +4,11 @@ use super::agent_identity::{CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME};
 use super::memory_curation_guidance;
 use super::types::*;
 
-const LOCAL_SKILL_WORKFLOW_PROMPT: &str = "## Local Skills Workflow\n\
+const LOCAL_SKILL_WORKFLOW_PROMPT: &str = "## Local Guidelines and Skills Workflow\n\
+     - Tamux recommends local guidelines before skill discovery for non-trivial work; guidelines orchestrate which skills and checks fit the task type.\n\
+     - When guideline tools are available, call `discover_guidelines` with a very short intent query, then `read_guideline` for the best match before calling `discover_skills`.\n\
      - Tamux runs local skill discovery before non-trivial work and surfaces the ranked result in the runtime prompt and workflow notices.\n\
-     - Treat that discovery result as the source of truth instead of relying on raw `list_skills` output.\n\
+     - Treat daemon discovery results as the source of truth instead of relying on raw `list_skills` output.\n\
      - When you call `discover_skills`, send a very short intent query first: usually 3-6 words, not the full task transcript.\n\
      - If the top match is strong, call `read_skill` for the recommended skill before other substantial tools.\n\
     - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
@@ -59,6 +61,7 @@ pub(super) fn build_system_prompt(
 ) -> String {
     let mut prompt = String::new();
     let skills_root = super::skills_dir(&super::agent_data_dir());
+    let guidelines_root = super::guidelines_dir(&super::agent_data_dir());
     let generated_skills_root = skills_root.join("generated");
 
     if !memory.soul.is_empty() {
@@ -104,11 +107,17 @@ pub(super) fn build_system_prompt(
 
     prompt.push_str(
         &format!(
-            "\n\n## Local Skills\n\
+            "\n\n## Local Guidelines\n\
+             - Guidelines root: {}\n\
+             - Guidelines are documentation-only workflow orchestrators. They should be discovered and read before skill discovery when a task is non-trivial.\n\
+             - Use `discover_guidelines` with a brief 3-6 word intent query, then `read_guideline` for the best match. Follow its recommended skills, checks, and step order.\n\
+             - Guidelines do not replace skills; they sit above skills and tell you which skills to consult and what failure modes to consider.\n\
+\n\
+             ## Local Skills\n\
              - Skills root: {}\n\
              - Generated skills: {}\n\
              - Curated local skills live directly under {} (tamux reference docs for terminals, browser, tasks, goals, memory, safety, etc.).\n\
-             - Before non-trivial work, use `read_memory`, `read_user`, and `read_soul` when you need memory recall, then follow the daemon-provided skill discovery result for this turn.\n\
+             - Before non-trivial work, use `read_memory`, `read_user`, and `read_soul` when you need memory recall, read the relevant guideline first, then follow the daemon-provided skill discovery result for this turn.\n\
              - If you call `discover_skills` directly, start with a brief 3-6 word intent query instead of pasting the whole task.\n\
              - Strong matches require `read_skill` before other substantial tools.\n\
              - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
@@ -117,6 +126,7 @@ pub(super) fn build_system_prompt(
              - `list_skills` remains the raw catalog view, not the decision authority for the task.\n\
              - The `cheatsheet` skill provides a quick reference for all available MCP tools.\n\
              - Prefer reusing an existing skill over inventing a brand-new workflow.\n",
+            guidelines_root.display(),
             skills_root.display(),
             generated_skills_root.display(),
             skills_root.display(),
@@ -574,6 +584,8 @@ mod tests {
         assert!(prompt.contains("Current UTC timestamp:"));
         assert!(prompt.contains("Unix timestamp (ms):"));
         assert!(prompt.contains("read_skill"));
+        assert!(prompt.contains("read_guideline"));
+        assert!(prompt.contains("discover_guidelines"));
         assert!(prompt.contains("justify_skill_skip"));
         assert!(prompt.contains("source of truth"));
         assert!(prompt.contains("onecontext_search"));
@@ -596,6 +608,8 @@ mod tests {
         assert!(prompt.contains("Current UTC timestamp:"));
         assert!(prompt.contains("Unix timestamp (ms):"));
         assert!(prompt.contains("read_skill"));
+        assert!(prompt.contains("read_guideline"));
+        assert!(prompt.contains("discover_guidelines"));
         assert!(prompt.contains("justify_skill_skip"));
         assert!(prompt.contains("source of truth"));
         assert!(prompt.contains("onecontext_search"));

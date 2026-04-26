@@ -53,6 +53,84 @@ impl GoalActionPickerItem {
     }
 }
 
+fn parse_workspace_status(raw: &str) -> Option<amux_protocol::WorkspaceTaskStatus> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "todo" | "to-do" => Some(amux_protocol::WorkspaceTaskStatus::Todo),
+        "progress" | "in-progress" | "in_progress" | "inprogress" => {
+            Some(amux_protocol::WorkspaceTaskStatus::InProgress)
+        }
+        "review" | "in-review" | "in_review" | "inreview" => {
+            Some(amux_protocol::WorkspaceTaskStatus::InReview)
+        }
+        "done" => Some(amux_protocol::WorkspaceTaskStatus::Done),
+        _ => None,
+    }
+}
+
+fn next_workspace_status_for_commands(
+    status: &amux_protocol::WorkspaceTaskStatus,
+) -> amux_protocol::WorkspaceTaskStatus {
+    match status {
+        amux_protocol::WorkspaceTaskStatus::Todo => amux_protocol::WorkspaceTaskStatus::InProgress,
+        amux_protocol::WorkspaceTaskStatus::InProgress => {
+            amux_protocol::WorkspaceTaskStatus::InReview
+        }
+        amux_protocol::WorkspaceTaskStatus::InReview => amux_protocol::WorkspaceTaskStatus::Done,
+        amux_protocol::WorkspaceTaskStatus::Done => amux_protocol::WorkspaceTaskStatus::Done,
+    }
+}
+
+pub(super) fn parse_workspace_priority(raw: &str) -> Option<amux_protocol::WorkspacePriority> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "low" => Some(amux_protocol::WorkspacePriority::Low),
+        "normal" | "medium" => Some(amux_protocol::WorkspacePriority::Normal),
+        "high" => Some(amux_protocol::WorkspacePriority::High),
+        "urgent" => Some(amux_protocol::WorkspacePriority::Urgent),
+        _ => None,
+    }
+}
+
+pub(super) fn parse_workspace_actor(raw: &str) -> Option<amux_protocol::WorkspaceActor> {
+    let raw = raw.trim();
+    if raw.eq_ignore_ascii_case("user") {
+        return Some(amux_protocol::WorkspaceActor::User);
+    }
+    if raw.eq_ignore_ascii_case("svarog") || raw.eq_ignore_ascii_case("swarog") {
+        return Some(amux_protocol::WorkspaceActor::Agent(
+            amux_protocol::AGENT_ID_SWAROG.to_string(),
+        ));
+    }
+    if let Some(id) = raw
+        .strip_prefix("agent:")
+        .or_else(|| raw.strip_prefix("agent/"))
+    {
+        let id = id.trim();
+        return (!id.is_empty()).then(|| amux_protocol::WorkspaceActor::Agent(id.to_string()));
+    }
+    if let Some(id) = raw
+        .strip_prefix("subagent:")
+        .or_else(|| raw.strip_prefix("subagent/"))
+        .or_else(|| raw.strip_prefix("sub:"))
+    {
+        let id = id.trim();
+        return (!id.is_empty()).then(|| amux_protocol::WorkspaceActor::Subagent(id.to_string()));
+    }
+    (!raw.is_empty()).then(|| amux_protocol::WorkspaceActor::Agent(raw.to_string()))
+}
+
+pub(super) fn parse_workspace_actor_field(
+    raw: &str,
+) -> Option<Option<amux_protocol::WorkspaceActor>> {
+    if matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "none" | "clear" | "-"
+    ) {
+        Some(None)
+    } else {
+        parse_workspace_actor(raw).map(Some)
+    }
+}
+
 impl TuiModel {
     pub(super) fn mission_control_navigation_state(&self) -> MissionControlNavigationState {
         self.mission_control_navigation.clone()
@@ -104,9 +182,20 @@ impl TuiModel {
         });
     }
 
+    pub(super) fn mission_control_return_to_workspace(&self) -> bool {
+        self.mission_control_navigation_state().return_to_workspace
+    }
+
+    pub(super) fn set_mission_control_return_to_workspace(&mut self, return_to_workspace: bool) {
+        self.update_mission_control_navigation_state(|state| {
+            state.return_to_workspace = return_to_workspace;
+        });
+    }
+
     pub(super) fn clear_mission_control_return_context(&mut self) {
         self.set_mission_control_return_to_goal_target(None);
         self.set_mission_control_return_to_thread_id(None);
+        self.set_mission_control_return_to_workspace(false);
     }
 
     pub(super) fn current_goal_return_target(&self) -> Option<sidebar::SidebarItemTarget> {
@@ -126,6 +215,13 @@ impl TuiModel {
     ) {
         self.set_mission_control_return_to_goal_target(goal_target);
         self.set_mission_control_return_to_thread_id(thread_id);
+        self.set_mission_control_return_to_workspace(false);
+    }
+
+    pub(super) fn has_mission_control_return_target(&self) -> bool {
+        self.mission_control_return_to_thread_id().is_some()
+            || self.mission_control_return_to_goal_target().is_some()
+            || self.mission_control_return_to_workspace()
     }
 
     fn open_work_context_for_thread(
@@ -615,6 +711,7 @@ impl TuiModel {
             crate::state::goal_workspace::GoalWorkspaceMode::Goal,
             crate::state::goal_workspace::GoalWorkspaceMode::Files,
             crate::state::goal_workspace::GoalWorkspaceMode::Progress,
+            crate::state::goal_workspace::GoalWorkspaceMode::Usage,
             crate::state::goal_workspace::GoalWorkspaceMode::ActiveAgent,
             crate::state::goal_workspace::GoalWorkspaceMode::Threads,
             crate::state::goal_workspace::GoalWorkspaceMode::NeedsAttention,
@@ -1398,7 +1495,11 @@ impl TuiModel {
         provider.is_some() && model.is_some()
     }
 
-    fn open_builtin_persona_setup_flow(&mut self, agent_alias: &str, prompt: String) {
+    fn open_builtin_persona_setup_flow(
+        &mut self,
+        agent_alias: &str,
+        continuation: PendingBuiltinPersonaSetupContinuation,
+    ) {
         let target_agent_id = agent_alias.trim().to_ascii_lowercase();
         let target_agent_name = self.participant_display_name(agent_alias);
         let config_snapshot = BuiltinPersonaSetupConfigSnapshot {
@@ -1417,7 +1518,7 @@ impl TuiModel {
         self.pending_builtin_persona_setup = Some(PendingBuiltinPersonaSetup {
             target_agent_id,
             target_agent_name: target_agent_name.clone(),
-            prompt,
+            continuation,
             config_snapshot,
         });
         self.settings_picker_target = Some(SettingsPickerTarget::BuiltinPersonaProvider);
@@ -1427,6 +1528,25 @@ impl TuiModel {
             widgets::provider_picker::available_provider_defs(&self.auth).len(),
         );
         self.status_line = format!("Configure {} provider", target_agent_name);
+    }
+
+    fn open_builtin_persona_prompt_setup_flow(&mut self, agent_alias: &str, prompt: String) {
+        self.open_builtin_persona_setup_flow(
+            agent_alias,
+            PendingBuiltinPersonaSetupContinuation::SubmitPrompt(prompt),
+        );
+    }
+
+    fn open_builtin_persona_workspace_actor_setup_flow(
+        &mut self,
+        agent_alias: &str,
+        pending: PendingWorkspaceActorPicker,
+        actor: amux_protocol::WorkspaceActor,
+    ) {
+        self.open_builtin_persona_setup_flow(
+            agent_alias,
+            PendingBuiltinPersonaSetupContinuation::SelectWorkspaceActor { pending, actor },
+        );
     }
 
     pub(super) fn restore_builtin_persona_setup_config_snapshot(&mut self) {
@@ -2815,6 +2935,19 @@ impl TuiModel {
             return true;
         }
 
+        if self.mission_control_return_to_workspace() {
+            self.clear_mission_control_return_context();
+            self.cleanup_concierge_on_navigate();
+            self.clear_chat_drag_selection();
+            self.clear_work_context_drag_selection();
+            self.clear_task_view_drag_selection();
+            self.main_pane_view = MainPaneView::Workspace;
+            self.task_view_scroll = 0;
+            self.focus = FocusArea::Chat;
+            self.status_line = "Returned to workspace".to_string();
+            return true;
+        }
+
         self.return_to_goal_from_mission_control()
     }
 
@@ -2900,6 +3033,801 @@ impl TuiModel {
         }
     }
 
+    pub(super) fn open_workspace_view(&mut self) {
+        let concierge_active = self.concierge.loading
+            || self.concierge.has_active_welcome()
+            || (self.chat.active_thread_id() == Some("concierge")
+                && !self.chat.active_actions().is_empty());
+        if concierge_active {
+            self.cleanup_concierge_on_navigate();
+        }
+        self.main_pane_view = MainPaneView::Workspace;
+        self.focus = FocusArea::Chat;
+        self.refresh_workspace_board();
+        self.status_line = "Loading workspace...".to_string();
+    }
+
+    pub(super) fn refresh_workspace_board(&mut self) {
+        let workspace_id = self.workspace.workspace_id().to_string();
+        let include_deleted = self.workspace.filter().include_deleted;
+        self.send_daemon_command(DaemonCommand::GetWorkspaceSettings {
+            workspace_id: workspace_id.clone(),
+        });
+        self.send_daemon_command(DaemonCommand::ListWorkspaceTasks {
+            workspace_id: workspace_id.clone(),
+            include_deleted,
+        });
+        self.send_daemon_command(DaemonCommand::ListWorkspaceNotices {
+            workspace_id,
+            task_id: None,
+        });
+    }
+
+    pub(super) fn open_workspace_picker(&mut self) {
+        self.send_daemon_command(DaemonCommand::ListWorkspaceSettings);
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::WorkspacePicker));
+        self.sync_workspace_picker_item_count();
+        self.status_line = "Loading workspaces...".to_string();
+    }
+
+    pub(super) fn sync_workspace_picker_item_count(&mut self) {
+        let count = self
+            .workspace
+            .workspace_picker_items(self.modal.command_query())
+            .len()
+            .max(1);
+        self.modal.set_picker_item_count(count);
+    }
+
+    pub(super) fn submit_workspace_picker(&mut self) {
+        let cursor = self.modal.picker_cursor();
+        let workspace_id = self
+            .workspace
+            .selected_workspace_id(cursor, self.modal.command_query())
+            .unwrap_or_else(|| self.workspace.workspace_id().to_string());
+        self.close_top_modal();
+        self.switch_workspace_from_ui(&workspace_id);
+    }
+
+    pub(super) fn switch_workspace_operator_from_ui(
+        &mut self,
+        operator: amux_protocol::WorkspaceOperator,
+    ) {
+        let workspace_id = self.workspace.workspace_id().to_string();
+        self.workspace.set_operator(operator.clone());
+        self.send_daemon_command(DaemonCommand::SetWorkspaceOperator {
+            workspace_id: workspace_id.clone(),
+            operator,
+        });
+        self.send_daemon_command(DaemonCommand::ListWorkspaceTasks {
+            workspace_id,
+            include_deleted: self.workspace.filter().include_deleted,
+        });
+    }
+
+    pub(super) fn switch_workspace_from_ui(&mut self, workspace_id: &str) {
+        let workspace_id = workspace_id.trim();
+        if workspace_id.is_empty() {
+            self.status_line = "Usage: /workspace <workspace-id>".to_string();
+            return;
+        }
+        self.workspace.switch_workspace(workspace_id);
+        self.open_workspace_view();
+        self.status_line = format!("Switched workspace to {workspace_id}");
+    }
+
+    pub(super) fn handle_workspace_command(&mut self, args: &str) {
+        let arg = args.trim();
+        if matches!(arg, "auto" | "svarog" | "user") {
+            let operator = if arg == "user" {
+                amux_protocol::WorkspaceOperator::User
+            } else {
+                amux_protocol::WorkspaceOperator::Svarog
+            };
+            let status = format!("Switching workspace operator to {:?}", operator);
+            self.switch_workspace_operator_from_ui(operator);
+            self.main_pane_view = MainPaneView::Workspace;
+            self.status_line = status;
+            return;
+        }
+        if arg.eq_ignore_ascii_case("clear") || arg.eq_ignore_ascii_case("reset") {
+            self.workspace.clear_filter();
+            self.open_workspace_view();
+            self.status_line = "Workspace filters cleared".to_string();
+            return;
+        }
+        if !arg.is_empty() {
+            if !arg.contains('=') {
+                self.switch_workspace_from_ui(arg);
+                return;
+            }
+            let mut filter = self.workspace.filter().clone();
+            for token in arg.split_whitespace() {
+                let Some((key, value)) = token.split_once('=') else {
+                    self.status_line =
+                        "Usage: /workspace [<workspace-id>|auto|user|clear|workspace=<id>|status=<status> priority=<priority> assignee=<actor> reviewer=<actor> deleted=<true|false>]".to_string();
+                    return;
+                };
+                match key.trim().to_ascii_lowercase().as_str() {
+                    "workspace" | "workspace_id" | "id" => {
+                        self.switch_workspace_from_ui(value);
+                        return;
+                    }
+                    "status" => {
+                        let Some(status) = parse_workspace_status(value) else {
+                            self.status_line = format!("Unknown workspace status: {value}");
+                            return;
+                        };
+                        filter.status = Some(status);
+                    }
+                    "priority" => {
+                        let Some(priority) = parse_workspace_priority(value) else {
+                            self.status_line = format!("Unknown workspace priority: {value}");
+                            return;
+                        };
+                        filter.priority = Some(priority);
+                    }
+                    "assignee" => {
+                        let Some(actor) = parse_workspace_actor(value) else {
+                            self.status_line = format!("Unknown workspace assignee: {value}");
+                            return;
+                        };
+                        filter.assignee = Some(actor);
+                    }
+                    "reviewer" => {
+                        let Some(actor) = parse_workspace_actor(value) else {
+                            self.status_line = format!("Unknown workspace reviewer: {value}");
+                            return;
+                        };
+                        filter.reviewer = Some(actor);
+                    }
+                    "deleted" | "include_deleted" => {
+                        filter.include_deleted = matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "1" | "true" | "yes" | "show"
+                        );
+                    }
+                    _ => {
+                        self.status_line = format!("Unknown workspace filter: {key}");
+                        return;
+                    }
+                }
+            }
+            self.workspace.set_filter(filter);
+            self.open_workspace_view();
+            self.status_line = "Workspace filters applied".to_string();
+            return;
+        }
+        self.open_workspace_picker();
+    }
+
+    pub(super) fn create_workspace_task_from_args(&mut self, args: &str) {
+        let draft = match crate::app::workspace_create::parse_workspace_create_args(args) {
+            Ok(draft) => draft,
+            Err(err) => {
+                self.status_line = err.to_string();
+                return;
+            }
+        };
+        let workspace_id = self.workspace.workspace_id().to_string();
+        self.send_daemon_command(DaemonCommand::CreateWorkspaceTask(
+            amux_protocol::WorkspaceTaskCreate {
+                workspace_id: workspace_id.clone(),
+                title: draft.title,
+                task_type: draft.task_type,
+                description: draft.description,
+                definition_of_done: draft.definition_of_done,
+                priority: draft.priority,
+                assignee: draft.assignee,
+                reviewer: draft.reviewer,
+            },
+        ));
+        self.main_pane_view = MainPaneView::Workspace;
+        self.status_line = "Creating workspace task...".to_string();
+    }
+
+    fn resolve_workspace_task_id(&mut self, raw: &str) -> Option<String> {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let mut matches = self
+            .workspace
+            .projection()
+            .columns
+            .iter()
+            .flat_map(|column| column.tasks.iter())
+            .filter(|task| task.id == raw || task.id.starts_with(raw))
+            .map(|task| task.id.clone())
+            .collect::<Vec<_>>();
+        matches.sort();
+        matches.dedup();
+        match matches.len() {
+            0 => Some(raw.to_string()),
+            1 => matches.pop(),
+            _ => {
+                self.status_line = format!("Workspace task id prefix is ambiguous: {raw}");
+                None
+            }
+        }
+    }
+
+    pub(super) fn run_workspace_task_from_args(&mut self, args: &str) {
+        let Some(task_id) = self.resolve_workspace_task_id(args) else {
+            self.status_line = "Usage: /workspace-run <task_id>".to_string();
+            return;
+        };
+        if self.workspace.task_run_blocked(&task_id) {
+            self.status_line = "Assign workspace task before running".to_string();
+            return;
+        }
+        self.send_daemon_command(DaemonCommand::RunWorkspaceTask(task_id));
+        self.main_pane_view = MainPaneView::Workspace;
+        self.status_line = "Running workspace task...".to_string();
+    }
+
+    pub(super) fn pause_workspace_task_from_args(&mut self, args: &str) {
+        let Some(task_id) = self.resolve_workspace_task_id(args) else {
+            self.status_line = "Usage: /workspace-pause <task_id>".to_string();
+            return;
+        };
+        self.send_daemon_command(DaemonCommand::PauseWorkspaceTask(task_id));
+        self.status_line = "Pausing workspace task...".to_string();
+    }
+
+    pub(super) fn stop_workspace_task_from_args(&mut self, args: &str) {
+        let Some(task_id) = self.resolve_workspace_task_id(args) else {
+            self.status_line = "Usage: /workspace-stop <task_id>".to_string();
+            return;
+        };
+        self.send_daemon_command(DaemonCommand::StopWorkspaceTask(task_id));
+        self.status_line = "Stopping workspace task...".to_string();
+    }
+
+    pub(super) fn delete_workspace_task_from_args(&mut self, args: &str) {
+        let Some(task_id) = self.resolve_workspace_task_id(args) else {
+            self.status_line = "Usage: /workspace-delete <task_id>".to_string();
+            return;
+        };
+        self.send_daemon_command(DaemonCommand::DeleteWorkspaceTask(task_id));
+        self.status_line = "Deleting workspace task...".to_string();
+    }
+
+    pub(super) fn move_workspace_task_from_args(&mut self, args: &str) {
+        let mut parts = args.split_whitespace();
+        let Some(raw_task_id) = parts.next() else {
+            self.status_line =
+                "Usage: /workspace-move <task_id> <todo|in-progress|in-review|done>".to_string();
+            return;
+        };
+        let Some(status) = parts.next().and_then(parse_workspace_status) else {
+            self.status_line =
+                "Usage: /workspace-move <task_id> <todo|in-progress|in-review|done>".to_string();
+            return;
+        };
+        let Some(task_id) = self.resolve_workspace_task_id(raw_task_id) else {
+            return;
+        };
+        self.send_daemon_command(DaemonCommand::MoveWorkspaceTask(
+            amux_protocol::WorkspaceTaskMove {
+                task_id,
+                status,
+                sort_order: None,
+            },
+        ));
+        self.main_pane_view = MainPaneView::Workspace;
+        self.status_line = "Moving workspace task...".to_string();
+    }
+
+    pub(super) fn assign_workspace_task_from_args(&mut self, args: &str) {
+        let mut parts = args.split_whitespace();
+        let Some(raw_task_id) = parts.next() else {
+            self.status_line =
+                "Usage: /workspace-assign <task_id> <svarog|agent:id|subagent:id|none>".to_string();
+            return;
+        };
+        let Some(raw_actor) = parts.next() else {
+            self.status_line =
+                "Usage: /workspace-assign <task_id> <svarog|agent:id|subagent:id|none>".to_string();
+            return;
+        };
+        let Some(assignee) = parse_workspace_actor_field(raw_actor) else {
+            self.status_line = "Unknown workspace assignee".to_string();
+            return;
+        };
+        if matches!(&assignee, Some(amux_protocol::WorkspaceActor::User)) {
+            self.status_line = "Workspace assignee must be an agent or subagent".to_string();
+            return;
+        }
+        let Some(task_id) = self.resolve_workspace_task_id(raw_task_id) else {
+            return;
+        };
+        self.send_daemon_command(DaemonCommand::UpdateWorkspaceTask {
+            task_id,
+            update: amux_protocol::WorkspaceTaskUpdate {
+                assignee: Some(assignee),
+                ..Default::default()
+            },
+        });
+        self.status_line = "Updating workspace assignee...".to_string();
+    }
+
+    pub(super) fn open_workspace_actor_picker(
+        &mut self,
+        task_id: String,
+        mode: crate::app::workspace_actor_picker::WorkspaceActorPickerMode,
+    ) {
+        let count = crate::app::workspace_actor_picker::workspace_actor_picker_options(
+            mode,
+            &self.subagents,
+        )
+        .len();
+        self.pending_workspace_actor_picker = Some(PendingWorkspaceActorPicker {
+            target: PendingWorkspaceActorPickerTarget::Task {
+                task_id: task_id.clone(),
+            },
+            task_id,
+            mode,
+        });
+        self.modal.reduce(modal::ModalAction::Push(
+            modal::ModalKind::WorkspaceActorPicker,
+        ));
+        self.modal.set_picker_item_count(count);
+        self.status_line = format!("Select {}", mode.title().to_ascii_lowercase());
+    }
+
+    pub(super) fn workspace_actor_picker_body(&self) -> String {
+        let Some(pending) = self.pending_workspace_actor_picker.as_ref() else {
+            return "No workspace task selected".to_string();
+        };
+        let options = crate::app::workspace_actor_picker::workspace_actor_picker_options(
+            pending.mode,
+            &self.subagents,
+        );
+        crate::app::workspace_actor_picker::workspace_actor_picker_body(
+            &pending.task_id,
+            pending.mode,
+            &options,
+            self.modal.picker_cursor(),
+        )
+    }
+
+    pub(super) fn submit_workspace_actor_picker(&mut self) {
+        let Some(pending) = self.pending_workspace_actor_picker.clone() else {
+            self.close_top_modal();
+            return;
+        };
+        let options = crate::app::workspace_actor_picker::workspace_actor_picker_options(
+            pending.mode,
+            &self.subagents,
+        );
+        let Some(selected) = options.get(self.modal.picker_cursor()).cloned() else {
+            self.status_line = "No workspace actor selected".to_string();
+            return;
+        };
+        self.close_top_modal();
+        if let Some(agent_alias) = self.workspace_actor_setup_alias(selected.actor.as_ref()) {
+            self.open_builtin_persona_workspace_actor_setup_flow(
+                &agent_alias,
+                pending,
+                selected
+                    .actor
+                    .expect("setup alias should only exist for concrete actors"),
+            );
+            return;
+        }
+        self.apply_workspace_actor_selection(pending, selected.actor);
+    }
+
+    fn workspace_actor_setup_alias(
+        &self,
+        actor: Option<&amux_protocol::WorkspaceActor>,
+    ) -> Option<String> {
+        let Some(amux_protocol::WorkspaceActor::Subagent(agent_id)) = actor else {
+            return None;
+        };
+        (!self.builtin_persona_configured(agent_id)).then(|| agent_id.clone())
+    }
+
+    pub(super) fn apply_workspace_actor_selection(
+        &mut self,
+        pending: PendingWorkspaceActorPicker,
+        actor: Option<amux_protocol::WorkspaceActor>,
+    ) {
+        if pending.target == PendingWorkspaceActorPickerTarget::CreateForm {
+            if let Some(form) = self.pending_workspace_create_form.as_mut() {
+                match pending.mode {
+                    crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Assignee => {
+                        form.assignee = actor;
+                        self.status_line = "Workspace assignee selected".to_string();
+                    }
+                    crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Reviewer => {
+                        form.reviewer = actor;
+                        self.status_line = "Workspace reviewer selected".to_string();
+                    }
+                }
+            }
+            return;
+        }
+        if pending.target == PendingWorkspaceActorPickerTarget::EditForm {
+            if let Some(form) = self.pending_workspace_edit_form.as_mut() {
+                match pending.mode {
+                    crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Assignee => {
+                        form.assignee = actor;
+                        self.status_line = "Workspace assignee selected".to_string();
+                    }
+                    crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Reviewer => {
+                        form.reviewer = actor;
+                        self.status_line = "Workspace reviewer selected".to_string();
+                    }
+                }
+            }
+            return;
+        }
+        let update = match pending.mode {
+            crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Assignee => {
+                amux_protocol::WorkspaceTaskUpdate {
+                    assignee: Some(actor),
+                    ..Default::default()
+                }
+            }
+            crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Reviewer => {
+                amux_protocol::WorkspaceTaskUpdate {
+                    reviewer: Some(actor),
+                    ..Default::default()
+                }
+            }
+        };
+        self.send_daemon_command(DaemonCommand::UpdateWorkspaceTask {
+            task_id: match pending.target {
+                PendingWorkspaceActorPickerTarget::Task { task_id } => task_id,
+                PendingWorkspaceActorPickerTarget::CreateForm => pending.task_id,
+                PendingWorkspaceActorPickerTarget::EditForm => pending.task_id,
+            },
+            update,
+        });
+        self.main_pane_view = MainPaneView::Workspace;
+        self.status_line = match pending.mode {
+            crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Assignee => {
+                "Updating workspace assignee...".to_string()
+            }
+            crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Reviewer => {
+                "Updating workspace reviewer...".to_string()
+            }
+        };
+    }
+
+    pub(super) fn update_workspace_task_from_args(&mut self, args: &str) {
+        let draft = match crate::app::workspace_update::parse_workspace_update_args(args) {
+            Ok(draft) => draft,
+            Err(err) => {
+                self.status_line = err.to_string();
+                return;
+            }
+        };
+        let Some(task_id) = self.resolve_workspace_task_id(&draft.task_id) else {
+            return;
+        };
+        self.send_daemon_command(DaemonCommand::UpdateWorkspaceTask {
+            task_id,
+            update: draft.update,
+        });
+        self.main_pane_view = MainPaneView::Workspace;
+        self.status_line = "Updating workspace task...".to_string();
+    }
+
+    pub(super) fn set_workspace_reviewer_from_args(&mut self, args: &str) {
+        let mut parts = args.split_whitespace();
+        let Some(raw_task_id) = parts.next() else {
+            self.status_line =
+                "Usage: /workspace-reviewer <task_id> <user|svarog|agent:id|subagent:id|none>"
+                    .to_string();
+            return;
+        };
+        let Some(raw_actor) = parts.next() else {
+            self.status_line =
+                "Usage: /workspace-reviewer <task_id> <user|svarog|agent:id|subagent:id|none>"
+                    .to_string();
+            return;
+        };
+        let Some(reviewer) = parse_workspace_actor_field(raw_actor) else {
+            self.status_line = "Unknown workspace reviewer".to_string();
+            return;
+        };
+        let Some(task_id) = self.resolve_workspace_task_id(raw_task_id) else {
+            return;
+        };
+        self.send_daemon_command(DaemonCommand::UpdateWorkspaceTask {
+            task_id,
+            update: amux_protocol::WorkspaceTaskUpdate {
+                reviewer: Some(reviewer),
+                ..Default::default()
+            },
+        });
+        self.status_line = "Updating workspace reviewer...".to_string();
+    }
+
+    pub(super) fn review_workspace_task_from_args(&mut self, args: &str) {
+        let mut parts = args.trim().splitn(3, char::is_whitespace);
+        let Some(raw_task_id) = parts.next().filter(|value| !value.is_empty()) else {
+            self.status_line =
+                "Usage: /workspace-review <task_id> <pass|fail> [message]".to_string();
+            return;
+        };
+        let verdict = match parts
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "pass" | "passed" | "approve" | "approved" => {
+                amux_protocol::WorkspaceReviewVerdict::Pass
+            }
+            "fail" | "failed" | "reject" | "rejected" => {
+                amux_protocol::WorkspaceReviewVerdict::Fail
+            }
+            _ => {
+                self.status_line =
+                    "Usage: /workspace-review <task_id> <pass|fail> [message]".to_string();
+                return;
+            }
+        };
+        let Some(task_id) = self.resolve_workspace_task_id(raw_task_id) else {
+            return;
+        };
+        let message = parts
+            .next()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        self.send_daemon_command(DaemonCommand::SubmitWorkspaceReview(
+            amux_protocol::WorkspaceReviewSubmission {
+                task_id,
+                verdict,
+                message,
+            },
+        ));
+        self.main_pane_view = MainPaneView::Workspace;
+        self.status_line = "Submitting workspace review...".to_string();
+    }
+
+    pub(super) fn open_workspace_task_runtime(&mut self, task_id: String) {
+        let Some(task) = self.workspace.task_by_id(&task_id).cloned() else {
+            self.status_line = "Workspace task not found".to_string();
+            return;
+        };
+        if let Some(goal_run_id) = task.goal_run_id {
+            self.open_sidebar_target(sidebar::SidebarItemTarget::GoalRun {
+                goal_run_id: goal_run_id.clone(),
+                step_id: None,
+            });
+            self.set_mission_control_return_to_workspace(true);
+            self.status_line = format!("Opened workspace goal {goal_run_id}");
+            return;
+        }
+        if let Some(thread_id) = task.thread_id {
+            self.open_thread_conversation(thread_id.clone());
+            self.set_mission_control_return_to_workspace(true);
+            self.status_line = format!("Opened workspace thread {thread_id}");
+            return;
+        }
+        self.status_line = "Workspace task has not been run yet".to_string();
+    }
+
+    pub(super) fn step_workspace_board_selection(&mut self, delta: i32) {
+        self.workspace_board_selection = widgets::workspace_board::step_selection(
+            &self.workspace,
+            &self.workspace_expanded_task_ids,
+            self.workspace_board_selection.as_ref(),
+            delta,
+        );
+    }
+
+    pub(super) fn activate_workspace_board_selection(&mut self) {
+        let target = self.workspace_board_selection.clone().or_else(|| {
+            widgets::workspace_board::selectable_targets(
+                &self.workspace,
+                &self.workspace_expanded_task_ids,
+            )
+            .into_iter()
+            .next()
+        });
+        let Some(target) = target else {
+            self.status_line = "No workspace action selected".to_string();
+            return;
+        };
+        self.workspace_board_selection = Some(target.clone());
+        self.activate_workspace_board_target(target);
+    }
+
+    pub(super) fn activate_workspace_board_target(
+        &mut self,
+        target: widgets::workspace_board::WorkspaceBoardHitTarget,
+    ) {
+        match target {
+            widgets::workspace_board::WorkspaceBoardHitTarget::Toolbar(action) => {
+                self.activate_workspace_toolbar_action(action);
+            }
+            widgets::workspace_board::WorkspaceBoardHitTarget::Task { task_id, .. } => {
+                self.open_workspace_detail_modal(task_id);
+            }
+            widgets::workspace_board::WorkspaceBoardHitTarget::Action {
+                task_id,
+                status,
+                action,
+            } => {
+                self.activate_workspace_task_action(task_id, status, action);
+            }
+            widgets::workspace_board::WorkspaceBoardHitTarget::Column { .. } => {}
+        }
+    }
+
+    pub(super) fn activate_workspace_toolbar_action(
+        &mut self,
+        action: widgets::workspace_board::WorkspaceBoardToolbarAction,
+    ) {
+        match action {
+            widgets::workspace_board::WorkspaceBoardToolbarAction::NewTask => {
+                self.open_workspace_create_modal(amux_protocol::WorkspaceTaskType::Thread);
+            }
+            widgets::workspace_board::WorkspaceBoardToolbarAction::Refresh => {
+                self.refresh_workspace_board();
+                self.status_line = "Refreshing workspace...".to_string();
+            }
+            widgets::workspace_board::WorkspaceBoardToolbarAction::ToggleOperator => {
+                let operator =
+                    if self.workspace.operator() == amux_protocol::WorkspaceOperator::User {
+                        amux_protocol::WorkspaceOperator::Svarog
+                    } else {
+                        amux_protocol::WorkspaceOperator::User
+                    };
+                self.switch_workspace_operator_from_ui(operator.clone());
+                self.status_line = match operator {
+                    amux_protocol::WorkspaceOperator::Svarog => {
+                        "Switching workspace operator to svarog..."
+                    }
+                    amux_protocol::WorkspaceOperator::User => {
+                        "Switching workspace operator to user..."
+                    }
+                }
+                .to_string();
+            }
+        }
+    }
+
+    pub(super) fn activate_workspace_task_action(
+        &mut self,
+        task_id: String,
+        status: amux_protocol::WorkspaceTaskStatus,
+        action: widgets::workspace_board::WorkspaceBoardAction,
+    ) {
+        if status == amux_protocol::WorkspaceTaskStatus::InReview
+            && matches!(
+                action,
+                widgets::workspace_board::WorkspaceBoardAction::Run
+                    | widgets::workspace_board::WorkspaceBoardAction::Pause
+                    | widgets::workspace_board::WorkspaceBoardAction::Stop
+            )
+        {
+            self.activate_workspace_review_task_action(&task_id, action);
+            return;
+        }
+
+        match action {
+            widgets::workspace_board::WorkspaceBoardAction::ToggleActions => {
+                if !self.workspace_expanded_task_ids.insert(task_id.clone()) {
+                    self.workspace_expanded_task_ids.remove(&task_id);
+                    self.status_line = "Collapsed workspace task actions".to_string();
+                } else {
+                    self.status_line = "Expanded workspace task actions".to_string();
+                }
+            }
+            widgets::workspace_board::WorkspaceBoardAction::RunBlocked => {
+                self.status_line = "Assign workspace task before running".to_string();
+            }
+            widgets::workspace_board::WorkspaceBoardAction::Run => {
+                self.send_daemon_command(DaemonCommand::RunWorkspaceTask(task_id));
+                self.status_line = "Running workspace task...".to_string();
+            }
+            widgets::workspace_board::WorkspaceBoardAction::Pause => {
+                self.send_daemon_command(DaemonCommand::PauseWorkspaceTask(task_id));
+                self.status_line = "Pausing workspace task...".to_string();
+            }
+            widgets::workspace_board::WorkspaceBoardAction::Stop => {
+                self.send_daemon_command(DaemonCommand::StopWorkspaceTask(task_id));
+                self.status_line = "Stopping workspace task...".to_string();
+            }
+            widgets::workspace_board::WorkspaceBoardAction::MoveNext => {
+                self.send_daemon_command(DaemonCommand::MoveWorkspaceTask(
+                    amux_protocol::WorkspaceTaskMove {
+                        task_id,
+                        status: next_workspace_status_for_commands(&status),
+                        sort_order: Some(
+                            self.workspace
+                                .append_sort_order(&next_workspace_status_for_commands(&status)),
+                        ),
+                    },
+                ));
+                self.status_line = "Moving workspace task...".to_string();
+            }
+            widgets::workspace_board::WorkspaceBoardAction::Review => {
+                if crate::app::workspace_review_modal::workspace_review_action_opens_modal(&status)
+                {
+                    self.open_workspace_review_modal(task_id);
+                } else {
+                    self.send_daemon_command(DaemonCommand::MoveWorkspaceTask(
+                        amux_protocol::WorkspaceTaskMove {
+                            task_id,
+                            status: amux_protocol::WorkspaceTaskStatus::InReview,
+                            sort_order: None,
+                        },
+                    ));
+                    self.status_line = "Sending workspace task to review...".to_string();
+                }
+            }
+            widgets::workspace_board::WorkspaceBoardAction::Assign => {
+                self.open_workspace_actor_picker(
+                    task_id,
+                    crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Assignee,
+                );
+            }
+            widgets::workspace_board::WorkspaceBoardAction::Reviewer => {
+                self.open_workspace_actor_picker(
+                    task_id,
+                    crate::app::workspace_actor_picker::WorkspaceActorPickerMode::Reviewer,
+                );
+            }
+            widgets::workspace_board::WorkspaceBoardAction::Details => {
+                self.open_workspace_detail_modal(task_id);
+            }
+            widgets::workspace_board::WorkspaceBoardAction::OpenRuntime => {
+                self.open_workspace_task_runtime(task_id);
+            }
+            widgets::workspace_board::WorkspaceBoardAction::History => {
+                self.open_workspace_history_modal(task_id);
+            }
+            widgets::workspace_board::WorkspaceBoardAction::Edit => {
+                self.open_workspace_edit_modal_by_id(task_id);
+            }
+            widgets::workspace_board::WorkspaceBoardAction::Delete => {
+                self.send_daemon_command(DaemonCommand::DeleteWorkspaceTask(task_id));
+                self.status_line = "Deleting workspace task...".to_string();
+            }
+        }
+    }
+
+    fn activate_workspace_review_task_action(
+        &mut self,
+        task_id: &str,
+        action: widgets::workspace_board::WorkspaceBoardAction,
+    ) {
+        let Some(review_task_id) = self.workspace.review_task_id_for(task_id) else {
+            self.refresh_workspace_board();
+            self.status_line = "Review task is not loaded yet; refreshing workspace".to_string();
+            return;
+        };
+        if action == widgets::workspace_board::WorkspaceBoardAction::Stop {
+            self.send_daemon_command(DaemonCommand::CancelTask {
+                task_id: review_task_id.clone(),
+            });
+            self.status_line = format!("Stopping review task {review_task_id}...");
+            return;
+        }
+        if let Some(thread_id) = self
+            .tasks
+            .task_by_id(&review_task_id)
+            .and_then(|task| task.thread_id.clone())
+        {
+            self.open_thread_conversation(thread_id.clone());
+            self.status_line = format!("Opened review task {review_task_id}");
+        } else {
+            self.send_daemon_command(DaemonCommand::ListTasks);
+            self.status_line = format!("Review task {review_task_id} is queued; refreshing tasks");
+        }
+    }
+
     pub(super) fn is_builtin_command(&self, command: &str) -> bool {
         matches!(
             command,
@@ -2926,9 +3854,21 @@ impl TuiModel {
                 | "quit"
                 | "prompt"
                 | "new-goal"
+                | "workspace"
+                | "new-workspace"
+                | "workspace-run"
+                | "workspace-pause"
+                | "workspace-stop"
+                | "workspace-delete"
+                | "workspace-move"
+                | "workspace-assign"
+                | "workspace-update"
+                | "workspace-reviewer"
+                | "workspace-review"
                 | "attach"
                 | "plugins install"
                 | "skills install"
+                | "guidelines install"
                 | "help"
                 | "explain"
                 | "diverge"
@@ -3038,6 +3978,72 @@ impl TuiModel {
             "new-goal" => {
                 self.open_new_goal_view();
             }
+            "workspace" => {
+                self.open_workspace_picker();
+            }
+            "new-workspace" => {
+                self.input
+                    .set_text("/new-workspace goal <title> -- <description> --priority low --assignee svarog --reviewer user --dod <definition>");
+                self.focus = FocusArea::Input;
+                self.status_line = "Usage: /new-workspace <thread|goal> <title> -- <description> [--priority high] [--assignee svarog] [--reviewer user|none] [--dod text]".to_string();
+            }
+            "workspace-run" => {
+                self.input.set_text("/workspace-run <task_id>");
+                self.focus = FocusArea::Input;
+                self.status_line = "Usage: /workspace-run <task_id>".to_string();
+            }
+            "workspace-pause" => {
+                self.input.set_text("/workspace-pause <task_id>");
+                self.focus = FocusArea::Input;
+                self.status_line = "Usage: /workspace-pause <task_id>".to_string();
+            }
+            "workspace-stop" => {
+                self.input.set_text("/workspace-stop <task_id>");
+                self.focus = FocusArea::Input;
+                self.status_line = "Usage: /workspace-stop <task_id>".to_string();
+            }
+            "workspace-delete" => {
+                self.input.set_text("/workspace-delete <task_id>");
+                self.focus = FocusArea::Input;
+                self.status_line = "Usage: /workspace-delete <task_id>".to_string();
+            }
+            "workspace-move" => {
+                self.input
+                    .set_text("/workspace-move <task_id> <todo|in-progress|in-review|done>");
+                self.focus = FocusArea::Input;
+                self.status_line =
+                    "Usage: /workspace-move <task_id> <todo|in-progress|in-review|done>"
+                        .to_string();
+            }
+            "workspace-assign" => {
+                self.input
+                    .set_text("/workspace-assign <task_id> <svarog|agent:id|subagent:id|none>");
+                self.focus = FocusArea::Input;
+                self.status_line =
+                    "Usage: /workspace-assign <task_id> <svarog|agent:id|subagent:id|none>"
+                        .to_string();
+            }
+            "workspace-update" => {
+                self.input.set_text("/workspace-update <task_id> --title <title> --description <description> --priority low --assignee svarog --reviewer user --dod <definition>");
+                self.focus = FocusArea::Input;
+                self.status_line = "Usage: /workspace-update <task_id> [--title text] [--description text] [--priority high] [--assignee svarog] [--reviewer user|none] [--dod text|--clear-dod]".to_string();
+            }
+            "workspace-reviewer" => {
+                self.input.set_text(
+                    "/workspace-reviewer <task_id> <user|svarog|agent:id|subagent:id|none>",
+                );
+                self.focus = FocusArea::Input;
+                self.status_line =
+                    "Usage: /workspace-reviewer <task_id> <user|svarog|agent:id|subagent:id|none>"
+                        .to_string();
+            }
+            "workspace-review" => {
+                self.input
+                    .set_text("/workspace-review <task_id> <pass|fail> [message]");
+                self.focus = FocusArea::Input;
+                self.status_line =
+                    "Usage: /workspace-review <task_id> <pass|fail> [message]".to_string();
+            }
             "attach" => {
                 self.status_line =
                     "Usage: /attach <path>  — attach a file to the next message".to_string();
@@ -3051,6 +4057,12 @@ impl TuiModel {
                 self.input.set_text("tamux skill import ");
                 self.focus = FocusArea::Input;
                 self.status_line = "Edit the skill source and run it in the terminal".to_string();
+            }
+            "guidelines install" => {
+                self.input.set_text("tamux guideline install ");
+                self.focus = FocusArea::Input;
+                self.status_line =
+                    "Edit the guideline source and run it in the terminal".to_string();
             }
             "help" => {
                 self.help_modal_scroll = 0;
@@ -3161,7 +4173,7 @@ impl TuiModel {
                 "swarozyc" | "radogost" | "domowoj" | "swietowit" | "perun" | "mokosh" | "dazhbog"
             ) && !self.builtin_persona_configured(&directive.agent_alias)
             {
-                self.open_builtin_persona_setup_flow(
+                self.open_builtin_persona_prompt_setup_flow(
                     &directive.agent_alias,
                     content_with_attachments.clone(),
                 );

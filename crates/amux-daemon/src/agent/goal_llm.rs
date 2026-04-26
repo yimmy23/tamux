@@ -61,6 +61,7 @@ impl AgentEngine {
                 prompt,
                 orchestrator_policy_json_schema(),
                 "orchestrator policy LLM call",
+                None,
             )
             .await?;
 
@@ -175,7 +176,7 @@ impl AgentEngine {
         }
 
         let mut plan = self
-            .run_goal_structured::<GoalPlanResponse>(&prompt)
+            .run_goal_structured_for_goal::<GoalPlanResponse>(&prompt, &goal_run.id)
             .await?;
 
         // Loop with the model to fix validation issues
@@ -198,7 +199,7 @@ impl AgentEngine {
                 serde_json::to_string_pretty(&plan).unwrap_or_default()
             );
             match self
-                .run_goal_structured::<GoalPlanResponse>(&fix_prompt)
+                .run_goal_structured_for_goal::<GoalPlanResponse>(&fix_prompt, &goal_run.id)
                 .await
             {
                 Ok(fixed) => plan = fixed,
@@ -491,7 +492,7 @@ impl AgentEngine {
             );
         }
         let mut plan = self
-            .run_goal_structured::<GoalPlanResponse>(&prompt)
+            .run_goal_structured_for_replan::<GoalPlanResponse>(&prompt, &goal_run.id)
             .await?;
 
         for attempt in 0..10 {
@@ -511,7 +512,7 @@ impl AgentEngine {
                 serde_json::to_string_pretty(&plan).unwrap_or_default()
             );
             match self
-                .run_goal_structured::<GoalPlanResponse>(&fix_prompt)
+                .run_goal_structured_for_replan::<GoalPlanResponse>(&fix_prompt, &goal_run.id)
                 .await
             {
                 Ok(fixed) => plan = fixed,
@@ -568,7 +569,7 @@ impl AgentEngine {
                 step_summaries
             }
         );
-        self.run_goal_structured::<GoalReflectionResponse>(&prompt)
+        self.run_goal_structured_for_goal::<GoalReflectionResponse>(&prompt, &goal_run.id)
             .await
     }
 
@@ -578,8 +579,41 @@ impl AgentEngine {
         &self,
         prompt: &str,
     ) -> Result<T> {
+        self.run_goal_structured_with_mode(prompt, false, None)
+            .await
+    }
+
+    async fn run_goal_structured_for_goal<T: serde::de::DeserializeOwned>(
+        &self,
+        prompt: &str,
+        goal_run_id: &str,
+    ) -> Result<T> {
+        self.run_goal_structured_with_mode(prompt, false, Some(goal_run_id))
+            .await
+    }
+
+    async fn run_goal_structured_for_replan<T: serde::de::DeserializeOwned>(
+        &self,
+        prompt: &str,
+        goal_run_id: &str,
+    ) -> Result<T> {
+        self.run_goal_structured_with_mode(prompt, true, Some(goal_run_id))
+            .await
+    }
+
+    async fn run_goal_structured_with_mode<T: serde::de::DeserializeOwned>(
+        &self,
+        prompt: &str,
+        replan_follow_up: bool,
+        goal_run_id: Option<&str>,
+    ) -> Result<T> {
         // 1. Try JSON
-        let raw1 = self.run_goal_llm_json(prompt).await?;
+        let raw1 = if replan_follow_up {
+            self.run_goal_llm_json_for_replan(prompt, goal_run_id)
+                .await?
+        } else {
+            self.run_goal_llm_json_for_goal(prompt, goal_run_id).await?
+        };
         if let Ok(parsed) = parse_json_block::<T>(&raw1) {
             tracing::info!("goal structured: parsed on first JSON attempt");
             return Ok(parsed);
@@ -588,7 +622,14 @@ impl AgentEngine {
 
         // 2. Retry JSON with correction
         let retry_json_prompt = build_json_retry_prompt(prompt, &raw1);
-        if let Ok(raw2) = self.run_goal_llm_json(&retry_json_prompt).await {
+        let raw2 = if replan_follow_up {
+            self.run_goal_llm_json_for_replan(&retry_json_prompt, goal_run_id)
+                .await
+        } else {
+            self.run_goal_llm_json_for_goal(&retry_json_prompt, goal_run_id)
+                .await
+        };
+        if let Ok(raw2) = raw2 {
             if let Ok(parsed) = parse_json_block::<T>(&raw2) {
                 tracing::info!("goal structured: parsed on JSON retry");
                 return Ok(parsed);
@@ -603,7 +644,13 @@ impl AgentEngine {
              Do not wrap in code fences. Do not include any text outside the YAML.",
             prompt
         );
-        let raw3 = self.run_goal_llm_raw(&yaml_prompt).await?;
+        let raw3 = if replan_follow_up {
+            self.run_goal_llm_raw_for_replan(&yaml_prompt, goal_run_id)
+                .await?
+        } else {
+            self.run_goal_llm_raw_for_goal(&yaml_prompt, goal_run_id)
+                .await?
+        };
         if let Ok(parsed) = parse_yaml_block::<T>(&raw3) {
             tracing::info!("goal structured: parsed on YAML attempt");
             return Ok(parsed);
@@ -619,7 +666,13 @@ impl AgentEngine {
             raw3.chars().take(2000).collect::<String>(),
             prompt
         );
-        let raw4 = self.run_goal_llm_raw(&retry_yaml_prompt).await?;
+        let raw4 = if replan_follow_up {
+            self.run_goal_llm_raw_for_replan(&retry_yaml_prompt, goal_run_id)
+                .await?
+        } else {
+            self.run_goal_llm_raw_for_goal(&retry_yaml_prompt, goal_run_id)
+                .await?
+        };
         if let Ok(parsed) = parse_yaml_block::<T>(&raw4) {
             tracing::info!("goal structured: parsed on YAML retry");
             return Ok(parsed);
@@ -637,7 +690,13 @@ impl AgentEngine {
              Return ONLY the numbered list, nothing else.",
             prompt.lines().last().unwrap_or(prompt)
         );
-        let raw5 = self.run_goal_llm_raw(&md_prompt).await?;
+        let raw5 = if replan_follow_up {
+            self.run_goal_llm_raw_for_replan(&md_prompt, goal_run_id)
+                .await?
+        } else {
+            self.run_goal_llm_raw_for_goal(&md_prompt, goal_run_id)
+                .await?
+        };
         tracing::info!(raw = %raw5, "goal structured: markdown fallback output");
         if let Ok(parsed) = parse_markdown_steps::<T>(&raw5) {
             tracing::info!("goal structured: parsed via markdown fallback");

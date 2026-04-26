@@ -101,11 +101,29 @@ mod thread_participant_runner;
 pub(crate) mod thread_participants;
 mod thread_pins;
 mod tool_synthesis;
+mod webhook_listener;
 pub(crate) mod weles_governance;
 mod weles_health;
 mod whatsapp_link;
 mod whatsapp_native;
 mod work_context;
+mod workspace;
+mod workspace_control;
+#[cfg(test)]
+mod workspace_control_tests;
+#[cfg(test)]
+mod workspace_event_tests;
+mod workspace_events;
+mod workspace_goal;
+#[cfg(test)]
+mod workspace_operator_tests;
+mod workspace_reconcile;
+mod workspace_review;
+mod workspace_runtime;
+mod workspace_support;
+#[cfg(test)]
+mod workspace_tests;
+mod workspace_thread;
 
 pub mod awareness;
 pub mod concierge;

@@ -467,6 +467,7 @@ const MODE_TABS: &[(GoalWorkspaceMode, &str)] = &[
     (GoalWorkspaceMode::Goal, "Dossier"),
     (GoalWorkspaceMode::Files, "Files"),
     (GoalWorkspaceMode::Progress, "Progress"),
+    (GoalWorkspaceMode::Usage, "Usage"),
     (GoalWorkspaceMode::ActiveAgent, "Active agent"),
     (GoalWorkspaceMode::Threads, "Threads"),
     (GoalWorkspaceMode::NeedsAttention, "Needs attention"),
@@ -806,6 +807,7 @@ fn center_pane_title(mode: GoalWorkspaceMode) -> &'static str {
         GoalWorkspaceMode::Goal => " Run timeline ",
         GoalWorkspaceMode::Files => " Files ",
         GoalWorkspaceMode::Progress => " Progress ",
+        GoalWorkspaceMode::Usage => " Usage ",
         GoalWorkspaceMode::ActiveAgent => " Active agent ",
         GoalWorkspaceMode::Threads => " Threads ",
         GoalWorkspaceMode::NeedsAttention => " Needs attention ",
@@ -963,6 +965,7 @@ fn detail_pane_title(mode: GoalWorkspaceMode) -> &'static str {
         GoalWorkspaceMode::Goal => " Dossier ",
         GoalWorkspaceMode::Files => " File details ",
         GoalWorkspaceMode::Progress => " Progress details ",
+        GoalWorkspaceMode::Usage => " Usage details ",
         GoalWorkspaceMode::ActiveAgent => " Runtime details ",
         GoalWorkspaceMode::Threads => " Thread details ",
         GoalWorkspaceMode::NeedsAttention => " Attention details ",
@@ -981,6 +984,7 @@ fn center_rows(
         GoalWorkspaceMode::Goal => timeline_rows(tasks, goal_run_id, width, theme, tick_counter),
         GoalWorkspaceMode::Files => goal_file_rows(goal_run_id, width, theme),
         GoalWorkspaceMode::Progress => progress_rows(tasks, goal_run_id, theme),
+        GoalWorkspaceMode::Usage => usage_rows(tasks, goal_run_id, theme),
         GoalWorkspaceMode::ActiveAgent => active_agent_rows(tasks, goal_run_id, theme),
         GoalWorkspaceMode::Threads => thread_rows(tasks, goal_run_id, theme),
         GoalWorkspaceMode::NeedsAttention => attention_rows(tasks, goal_run_id, theme),
@@ -1010,6 +1014,16 @@ enum ProgressItem {
     ResumeDecision,
     DeliveryUnit(usize),
     Checkpoint(String),
+}
+
+#[derive(Clone)]
+enum UsageItem {
+    Aggregate,
+    Model(usize),
+    CurrentOwner,
+    PlannerOwner,
+    Assignment(usize),
+    Task(String),
 }
 
 #[derive(Clone)]
@@ -1162,6 +1176,117 @@ fn progress_rows(
                         ])
                     } else {
                         Line::from(Span::styled("Missing checkpoint", theme.fg_dim))
+                    }
+                }
+            };
+            WorkspaceVisualRow {
+                target: Some(GoalWorkspaceHitTarget::TimelineRow(index)),
+                line,
+            }
+        })
+        .collect()
+}
+
+fn usage_rows(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    theme: &ThemeTokens,
+) -> Vec<WorkspaceVisualRow> {
+    let items = usage_items(tasks, goal_run_id);
+    if items.is_empty() {
+        return vec![WorkspaceVisualRow {
+            target: None,
+            line: Line::from(Span::styled("No usage data available.", theme.fg_dim)),
+        }];
+    }
+    let Some(run) = tasks.goal_run_by_id(goal_run_id) else {
+        return Vec::new();
+    };
+
+    items
+        .into_iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let line = match item {
+                UsageItem::Aggregate => {
+                    let mut spans = vec![
+                        Span::styled("Goal total  ", theme.fg_active),
+                        Span::styled("prompt ", theme.fg_dim),
+                        Span::styled(format_count(run.total_prompt_tokens), theme.fg_active),
+                        Span::styled("  completion ", theme.fg_dim),
+                        Span::styled(format_count(run.total_completion_tokens), theme.fg_active),
+                    ];
+                    if let Some(cost) = run.estimated_cost_usd {
+                        spans.push(Span::styled("  cost ", theme.fg_dim));
+                        spans.push(Span::styled(format_cost(cost), theme.fg_active));
+                    }
+                    Line::from(spans)
+                }
+                UsageItem::Model(model_index) => {
+                    if let Some(usage) = run.model_usage.get(model_index) {
+                        let mut spans = vec![
+                            Span::styled(
+                                format!("{}/{}", usage.provider, usage.model),
+                                theme.fg_active,
+                            ),
+                            Span::styled("  ", theme.fg_dim),
+                            Span::styled(format!("{} req", usage.request_count), theme.fg_dim),
+                            Span::styled("  in ", theme.fg_dim),
+                            Span::styled(format_count(usage.prompt_tokens), theme.fg_dim),
+                            Span::styled("  out ", theme.fg_dim),
+                            Span::styled(format_count(usage.completion_tokens), theme.fg_dim),
+                        ];
+                        if let Some(cost) = usage.estimated_cost_usd {
+                            spans.push(Span::styled("  ", theme.fg_dim));
+                            spans.push(Span::styled(format_cost(cost), theme.fg_dim));
+                        }
+                        if let Some(duration_ms) = usage.duration_ms {
+                            spans.push(Span::styled("  ", theme.fg_dim));
+                            spans.push(Span::styled(format_duration_ms(duration_ms), theme.fg_dim));
+                        }
+                        Line::from(spans)
+                    } else {
+                        Line::from(Span::styled("Missing model usage", theme.fg_dim))
+                    }
+                }
+                UsageItem::CurrentOwner => {
+                    owner_usage_line("Current", run.current_step_owner_profile.as_ref(), theme)
+                }
+                UsageItem::PlannerOwner => {
+                    owner_usage_line("Planner", run.planner_owner_profile.as_ref(), theme)
+                }
+                UsageItem::Assignment(assignment_index) => {
+                    if let Some(assignment) = runtime_assignments(run).get(assignment_index) {
+                        let detail = if assignment.inherit_from_main {
+                            "inherits main".to_string()
+                        } else {
+                            format!("{}/{}", assignment.provider, assignment.model)
+                        };
+                        Line::from(vec![
+                            Span::styled("Role ", theme.fg_dim),
+                            Span::styled(assignment.role_id.clone(), theme.fg_active),
+                            Span::styled("  ", theme.fg_dim),
+                            Span::styled(detail, theme.fg_dim),
+                        ])
+                    } else {
+                        Line::from(Span::styled("Missing assignment", theme.fg_dim))
+                    }
+                }
+                UsageItem::Task(task_id) => {
+                    if let Some(task) = tasks.task_by_id(&task_id) {
+                        let kind = if is_goal_subagent_task(task) {
+                            "Subagent"
+                        } else {
+                            "Task"
+                        };
+                        Line::from(vec![
+                            Span::styled(format!("{kind} "), theme.fg_dim),
+                            Span::styled(task.title.clone(), theme.fg_active),
+                            Span::styled("  ", theme.fg_dim),
+                            Span::styled(task_status_label(task.status), theme.fg_dim),
+                        ])
+                    } else {
+                        Line::from(Span::styled("Missing task", theme.fg_dim))
                     }
                 }
             };
@@ -1792,6 +1917,180 @@ fn detail_lines(
                 }
             }
         }
+        GoalWorkspaceMode::Usage => {
+            if let Some(run) = run {
+                let items = usage_items(tasks, goal_run_id);
+                if let Some(item) = items.get(state.selected_timeline_row()) {
+                    match item {
+                        UsageItem::Aggregate => {
+                            push_detail_header(&mut rows, &mut visual_row, "Goal Usage", theme);
+                            push_detail_line(
+                                &mut rows,
+                                &mut visual_row,
+                                None,
+                                Line::from(vec![
+                                    Span::styled("Prompt ", theme.fg_dim),
+                                    Span::styled(
+                                        format_count(run.total_prompt_tokens),
+                                        theme.fg_active,
+                                    ),
+                                    Span::styled("  Completion ", theme.fg_dim),
+                                    Span::styled(
+                                        format_count(run.total_completion_tokens),
+                                        theme.fg_active,
+                                    ),
+                                ]),
+                            );
+                            if let Some(cost) = run.estimated_cost_usd {
+                                push_detail_line(
+                                    &mut rows,
+                                    &mut visual_row,
+                                    None,
+                                    Line::from(vec![
+                                        Span::styled("Estimated cost ", theme.fg_dim),
+                                        Span::styled(format_cost(cost), theme.fg_active),
+                                    ]),
+                                );
+                            }
+                        }
+                        UsageItem::Model(model_index) => {
+                            push_detail_header(&mut rows, &mut visual_row, "Model Usage", theme);
+                            if let Some(usage) = run.model_usage.get(*model_index) {
+                                push_detail_line(
+                                    &mut rows,
+                                    &mut visual_row,
+                                    None,
+                                    Line::from(Span::styled(
+                                        format!("{}/{}", usage.provider, usage.model),
+                                        theme.fg_active,
+                                    )),
+                                );
+                                push_detail_line(
+                                    &mut rows,
+                                    &mut visual_row,
+                                    None,
+                                    Line::from(vec![
+                                        Span::styled("Requests ", theme.fg_dim),
+                                        Span::styled(
+                                            usage.request_count.to_string(),
+                                            theme.fg_active,
+                                        ),
+                                        Span::styled("  Prompt ", theme.fg_dim),
+                                        Span::styled(
+                                            format_count(usage.prompt_tokens),
+                                            theme.fg_active,
+                                        ),
+                                    ]),
+                                );
+                                let mut spans = vec![
+                                    Span::styled("Completion ", theme.fg_dim),
+                                    Span::styled(
+                                        format_count(usage.completion_tokens),
+                                        theme.fg_active,
+                                    ),
+                                ];
+                                if let Some(cost) = usage.estimated_cost_usd {
+                                    spans.push(Span::styled("  Cost ", theme.fg_dim));
+                                    spans.push(Span::styled(format_cost(cost), theme.fg_active));
+                                }
+                                if let Some(duration_ms) = usage.duration_ms {
+                                    spans.push(Span::styled("  Duration ", theme.fg_dim));
+                                    spans.push(Span::styled(
+                                        format_duration_ms(duration_ms),
+                                        theme.fg_active,
+                                    ));
+                                }
+                                push_detail_line(
+                                    &mut rows,
+                                    &mut visual_row,
+                                    None,
+                                    Line::from(spans),
+                                );
+                            }
+                        }
+                        UsageItem::CurrentOwner => {
+                            push_detail_header(&mut rows, &mut visual_row, "Current Agent", theme);
+                            if let Some(owner) = run.current_step_owner_profile.as_ref() {
+                                push_owner_profile(&mut rows, &mut visual_row, owner, theme, width);
+                            }
+                        }
+                        UsageItem::PlannerOwner => {
+                            push_detail_header(&mut rows, &mut visual_row, "Planner Agent", theme);
+                            if let Some(owner) = run.planner_owner_profile.as_ref() {
+                                push_owner_profile(&mut rows, &mut visual_row, owner, theme, width);
+                            }
+                        }
+                        UsageItem::Assignment(index) => {
+                            push_detail_header(&mut rows, &mut visual_row, "Assigned Role", theme);
+                            if let Some(assignment) = runtime_assignments(run).get(*index) {
+                                push_assignment(
+                                    &mut rows,
+                                    &mut visual_row,
+                                    assignment,
+                                    theme,
+                                    width,
+                                );
+                            }
+                        }
+                        UsageItem::Task(task_id) => {
+                            push_detail_header(&mut rows, &mut visual_row, "Task Usage", theme);
+                            if let Some(task) = tasks.task_by_id(task_id) {
+                                push_detail_line(
+                                    &mut rows,
+                                    &mut visual_row,
+                                    Some(GoalWorkspaceHitTarget::DetailTask(task.id.clone())),
+                                    Line::from(vec![
+                                        Span::styled(
+                                            if is_goal_subagent_task(task) {
+                                                "Subagent "
+                                            } else {
+                                                "Task "
+                                            },
+                                            theme.fg_dim,
+                                        ),
+                                        Span::styled(task.title.clone(), theme.fg_active),
+                                    ]),
+                                );
+                                push_detail_line(
+                                    &mut rows,
+                                    &mut visual_row,
+                                    None,
+                                    Line::from(vec![
+                                        Span::styled("Status ", theme.fg_dim),
+                                        Span::styled(
+                                            task_status_label(task.status),
+                                            theme.fg_active,
+                                        ),
+                                    ]),
+                                );
+                                if let Some(step_title) = task.goal_step_title.as_deref() {
+                                    push_detail_wrapped(
+                                        &mut rows,
+                                        &mut visual_row,
+                                        &format!("Step {step_title}"),
+                                        theme.fg_dim,
+                                        width,
+                                    );
+                                }
+                                if let Some(thread_id) = task.thread_id.as_deref() {
+                                    push_detail_line(
+                                        &mut rows,
+                                        &mut visual_row,
+                                        Some(GoalWorkspaceHitTarget::DetailThread(
+                                            thread_id.to_string(),
+                                        )),
+                                        Line::from(vec![
+                                            Span::styled("[thread] ", theme.accent_primary),
+                                            Span::styled(thread_id.to_string(), theme.fg_active),
+                                        ]),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         GoalWorkspaceMode::ActiveAgent => {
             if let Some(run) = run {
                 let items = active_agent_items(tasks, goal_run_id);
@@ -1993,6 +2292,39 @@ fn progress_items(tasks: &TaskState, goal_run_id: &str) -> Vec<ProgressItem> {
         for index in 0..dossier.units.len() {
             items.push(ProgressItem::DeliveryUnit(index));
         }
+    }
+    items
+}
+
+fn usage_items(tasks: &TaskState, goal_run_id: &str) -> Vec<UsageItem> {
+    let Some(run) = tasks.goal_run_by_id(goal_run_id) else {
+        return Vec::new();
+    };
+    let mut items = Vec::new();
+    if run.total_prompt_tokens > 0
+        || run.total_completion_tokens > 0
+        || run.estimated_cost_usd.is_some()
+    {
+        items.push(UsageItem::Aggregate);
+    }
+    for index in 0..run.model_usage.len() {
+        items.push(UsageItem::Model(index));
+    }
+    if run.current_step_owner_profile.is_some() {
+        items.push(UsageItem::CurrentOwner);
+    }
+    if run.planner_owner_profile.is_some() {
+        items.push(UsageItem::PlannerOwner);
+    }
+    for index in 0..runtime_assignments(run).len() {
+        items.push(UsageItem::Assignment(index));
+    }
+    for task in tasks
+        .tasks()
+        .iter()
+        .filter(|task| task.goal_run_id.as_deref() == Some(goal_run_id))
+    {
+        items.push(UsageItem::Task(task.id.clone()));
     }
     items
 }
@@ -2346,6 +2678,70 @@ fn goal_status_label(status: Option<crate::state::task::GoalRunStatus>) -> &'sta
         Some(crate::state::task::GoalRunStatus::Cancelled) => "cancelled",
         None => "queued",
     }
+}
+
+fn task_status_label(status: Option<crate::state::task::TaskStatus>) -> &'static str {
+    match status {
+        Some(crate::state::task::TaskStatus::InProgress) => "running",
+        Some(crate::state::task::TaskStatus::Completed) => "completed",
+        Some(crate::state::task::TaskStatus::AwaitingApproval) => "awaiting approval",
+        Some(crate::state::task::TaskStatus::Blocked) => "blocked",
+        Some(crate::state::task::TaskStatus::Failed)
+        | Some(crate::state::task::TaskStatus::FailedAnalyzing) => "failed",
+        Some(crate::state::task::TaskStatus::BudgetExceeded) => "budget exceeded",
+        Some(crate::state::task::TaskStatus::Cancelled) => "cancelled",
+        _ => "queued",
+    }
+}
+
+fn format_count(value: u64) -> String {
+    let raw = value.to_string();
+    let mut grouped = String::new();
+    for (index, ch) in raw.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    grouped.chars().rev().collect()
+}
+
+fn format_cost(cost: f64) -> String {
+    if cost.abs() >= 1.0 {
+        format!("${cost:.2}")
+    } else {
+        format!("${cost:.4}")
+    }
+}
+
+fn format_duration_ms(duration_ms: u64) -> String {
+    let seconds = (duration_ms / 1000).max(1);
+    if seconds < 120 {
+        format!("{seconds}s")
+    } else {
+        format!("{}m", (seconds + 30) / 60)
+    }
+}
+
+fn owner_usage_line(
+    label: &str,
+    owner: Option<&crate::state::task::GoalRuntimeOwnerProfile>,
+    theme: &ThemeTokens,
+) -> Line<'static> {
+    if let Some(owner) = owner {
+        Line::from(vec![
+            Span::styled(format!("{label} "), theme.fg_dim),
+            Span::styled(owner.agent_label.clone(), theme.fg_active),
+            Span::styled("  ", theme.fg_dim),
+            Span::styled(format!("{}/{}", owner.provider, owner.model), theme.fg_dim),
+        ])
+    } else {
+        Line::from(Span::styled(format!("{label} unknown"), theme.fg_dim))
+    }
+}
+
+fn is_goal_subagent_task(task: &crate::state::task::AgentTask) -> bool {
+    task.parent_task_id.is_some() || task.parent_thread_id.is_some()
 }
 
 fn short_checkpoint_id(id: &str) -> String {

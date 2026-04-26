@@ -233,6 +233,14 @@ pub(crate) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
         current_step_owner_profile: r
             .current_step_owner_profile
             .map(convert_goal_runtime_owner_profile),
+        total_prompt_tokens: r.total_prompt_tokens,
+        total_completion_tokens: r.total_completion_tokens,
+        estimated_cost_usd: r.estimated_cost_usd,
+        model_usage: r
+            .model_usage
+            .into_iter()
+            .map(convert_goal_run_model_usage)
+            .collect(),
         steps: r
             .steps
             .into_iter()
@@ -318,6 +326,18 @@ fn convert_goal_agent_assignment(
         model: assignment.model,
         reasoning_effort: assignment.reasoning_effort,
         inherit_from_main: assignment.inherit_from_main,
+    }
+}
+
+fn convert_goal_run_model_usage(usage: crate::wire::GoalRunModelUsage) -> task::GoalRunModelUsage {
+    task::GoalRunModelUsage {
+        provider: usage.provider,
+        model: usage.model,
+        request_count: usage.request_count,
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+        estimated_cost_usd: usage.estimated_cost_usd,
+        duration_ms: usage.duration_ms,
     }
 }
 

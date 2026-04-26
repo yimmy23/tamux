@@ -310,6 +310,7 @@ async fn policy_halt_aborts_before_guarded_tool_execution_and_persists_failure_t
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
             estimated_cost_usd: None,
+            model_usage: Vec::new(),
             autonomy_level: Default::default(),
             authorship_tag: None,
         });

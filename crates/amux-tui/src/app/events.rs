@@ -264,6 +264,40 @@ impl TuiModel {
             ClientEvent::TaskUpdate(task) => {
                 self.handle_task_update_event(task);
             }
+            ClientEvent::WorkspaceSettings(settings) => {
+                self.workspace.set_settings(settings);
+            }
+            ClientEvent::WorkspaceSettingsList(settings) => {
+                self.workspace.set_settings_list(settings);
+                if self.modal.top() == Some(modal::ModalKind::WorkspacePicker) {
+                    self.sync_workspace_picker_item_count();
+                }
+                self.status_line = "Workspaces loaded".to_string();
+            }
+            ClientEvent::WorkspaceTaskList {
+                workspace_id,
+                tasks,
+            } => {
+                self.workspace.set_tasks(workspace_id, tasks);
+                self.status_line = "Workspace refreshed".to_string();
+            }
+            ClientEvent::WorkspaceTaskUpdated(task) => {
+                self.workspace.upsert_task(task);
+                self.status_line = "Workspace task updated".to_string();
+            }
+            ClientEvent::WorkspaceTaskDeleted {
+                task_id,
+                deleted_at,
+            } => {
+                self.workspace.mark_deleted(&task_id, deleted_at);
+                self.status_line = "Workspace task deleted".to_string();
+            }
+            ClientEvent::WorkspaceNotices { notices, .. } => {
+                self.workspace.set_notices(notices);
+            }
+            ClientEvent::WorkspaceNoticeUpdated(notice) => {
+                self.workspace.upsert_notice(notice);
+            }
             ClientEvent::GoalRunList(runs) => {
                 self.handle_goal_run_list_event(runs);
             }

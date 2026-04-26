@@ -51,6 +51,17 @@ fn final_review_prompt(goal_run: &GoalRun) -> String {
     )
 }
 
+fn is_active_goal_task_status(status: TaskStatus) -> bool {
+    matches!(
+        status,
+        TaskStatus::Queued
+            | TaskStatus::InProgress
+            | TaskStatus::Blocked
+            | TaskStatus::FailedAnalyzing
+            | TaskStatus::AwaitingApproval
+    )
+}
+
 fn final_summary_markdown(goal_run: &GoalRun, reflection_summary: &str) -> String {
     let planned = goal_run
         .plan_summary
@@ -116,7 +127,63 @@ async fn persist_reflection_skill_activation_note(
 }
 
 impl AgentEngine {
+    async fn active_goal_tasks(&self, goal_run_id: &str) -> Vec<AgentTask> {
+        let tasks = self.tasks.lock().await;
+        tasks
+            .iter()
+            .filter(|task| task.goal_run_id.as_deref() == Some(goal_run_id))
+            .filter(|task| is_active_goal_task_status(task.status))
+            .cloned()
+            .collect()
+    }
+
+    async fn resume_existing_goal_final_review(
+        &self,
+        snapshot: &GoalRun,
+        review_task: &AgentTask,
+    ) -> Result<()> {
+        let owner_profile = Some(
+            self.goal_owner_profile_for_task_target(review_task, None)
+                .await,
+        );
+        let updated_goal = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == snapshot.id) else {
+                anyhow::bail!("goal run missing while resuming final review");
+            };
+            let already_active =
+                goal_run.active_task_id.as_deref() == Some(review_task.id.as_str());
+            goal_run.status = GoalRunStatus::Running;
+            goal_run.updated_at = now_millis();
+            goal_run.awaiting_approval_id = review_task.awaiting_approval_id.clone();
+            goal_run.active_task_id = Some(review_task.id.clone());
+            goal_run.current_step_owner_profile = owner_profile;
+            if !already_active {
+                goal_run.events.push(make_goal_run_event(
+                    "final_review",
+                    "final review already queued",
+                    Some(review_task.id.clone()),
+                ));
+            }
+            goal_run.clone()
+        };
+
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(&updated_goal, Some("Final review already queued".into()));
+        Ok(())
+    }
+
     async fn enqueue_goal_final_review(&self, snapshot: &GoalRun) -> Result<()> {
+        let active_tasks = self.active_goal_tasks(&snapshot.id).await;
+        if let Some(review_task) = active_tasks
+            .iter()
+            .find(|task| task.source == GOAL_FINAL_REVIEW_SOURCE)
+        {
+            self.resume_existing_goal_final_review(snapshot, review_task)
+                .await?;
+            return Ok(());
+        }
+
         let review_description = final_review_prompt(snapshot);
         let review_task = self
             .enqueue_task(
@@ -294,7 +361,16 @@ impl AgentEngine {
             .get_goal_run(goal_run_id)
             .await
             .context("goal run missing during completion")?;
-        if self.goal_run_has_active_tasks(goal_run_id).await {
+        let active_tasks = self.active_goal_tasks(goal_run_id).await;
+        if !active_tasks.is_empty() {
+            if active_tasks
+                .iter()
+                .all(|task| task.source == GOAL_FINAL_REVIEW_SOURCE)
+            {
+                self.resume_existing_goal_final_review(&snapshot, &active_tasks[0])
+                    .await?;
+                return Ok(());
+            }
             anyhow::bail!("goal run still has active child work");
         }
         if !all_goal_steps_completed(&snapshot) {
@@ -382,6 +458,13 @@ impl AgentEngine {
             let trackers = self.cost_trackers.lock().await;
             trackers.get(goal_run_id).map(|t| t.summary().clone())
         };
+        let model_usage = {
+            let trackers = self.cost_trackers.lock().await;
+            trackers
+                .get(goal_run_id)
+                .map(|t| t.model_usage())
+                .unwrap_or_default()
+        };
 
         let updated = {
             let mut goal_runs = self.goal_runs.lock().await;
@@ -407,6 +490,13 @@ impl AgentEngine {
                 goal_run.total_completion_tokens = summary.total_completion_tokens;
                 goal_run.estimated_cost_usd = summary.estimated_cost_usd;
             }
+            if !model_usage.is_empty() {
+                goal_run.model_usage = model_usage;
+            }
+            goal_run.duration_ms = goal_run
+                .started_at
+                .zip(goal_run.completed_at)
+                .map(|(started_at, completed_at)| completed_at.saturating_sub(started_at));
             super::goal_dossier::set_goal_report(
                 goal_run,
                 GoalProjectionState::Completed,
@@ -547,6 +637,13 @@ impl AgentEngine {
             let trackers = self.cost_trackers.lock().await;
             trackers.get(goal_run_id).map(|t| t.summary().clone())
         };
+        let model_usage = {
+            let trackers = self.cost_trackers.lock().await;
+            trackers
+                .get(goal_run_id)
+                .map(|t| t.model_usage())
+                .unwrap_or_default()
+        };
 
         let mut maybe_updated = None;
         {
@@ -565,6 +662,13 @@ impl AgentEngine {
                     goal_run.total_completion_tokens = summary.total_completion_tokens;
                     goal_run.estimated_cost_usd = summary.estimated_cost_usd;
                 }
+                if !model_usage.is_empty() {
+                    goal_run.model_usage = model_usage;
+                }
+                goal_run.duration_ms = goal_run
+                    .started_at
+                    .zip(goal_run.completed_at)
+                    .map(|(started_at, completed_at)| completed_at.saturating_sub(started_at));
                 if let Some(step_id) = goal_run
                     .steps
                     .get(goal_run.current_step_index)

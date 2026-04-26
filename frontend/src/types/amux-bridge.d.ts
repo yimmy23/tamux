@@ -182,6 +182,46 @@ declare global {
         session_id?: string | null;
         awaiting_approval_id?: string | null;
         active_task_id?: string | null;
+        total_prompt_tokens?: number | null;
+        total_completion_tokens?: number | null;
+        estimated_cost_usd?: number | null;
+        model_usage?: {
+            provider: string;
+            model: string;
+            request_count: number;
+            prompt_tokens: number;
+            completion_tokens: number;
+            estimated_cost_usd?: number | null;
+            duration_ms?: number | null;
+        }[];
+        launch_assignment_snapshot?: {
+            role_id: string;
+            enabled: boolean;
+            provider: string;
+            model: string;
+            reasoning_effort?: string | null;
+            inherit_from_main: boolean;
+        }[];
+        runtime_assignment_list?: {
+            role_id: string;
+            enabled: boolean;
+            provider: string;
+            model: string;
+            reasoning_effort?: string | null;
+            inherit_from_main: boolean;
+        }[];
+        planner_owner_profile?: {
+            agent_label: string;
+            provider: string;
+            model: string;
+            reasoning_effort?: string | null;
+        } | null;
+        current_step_owner_profile?: {
+            agent_label: string;
+            provider: string;
+            model: string;
+            reasoning_effort?: string | null;
+        } | null;
         steps?: AmuxGoalRunStep[];
     };
 

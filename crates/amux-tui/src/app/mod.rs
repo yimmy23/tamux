@@ -15,6 +15,22 @@ mod mouse;
 mod render_helpers;
 mod rendering;
 mod settings_handlers;
+mod workspace_actor_picker;
+mod workspace_create;
+mod workspace_create_modal;
+#[cfg(test)]
+mod workspace_create_modal_tests;
+mod workspace_detail_modal;
+#[cfg(test)]
+mod workspace_detail_modal_tests;
+mod workspace_edit_modal;
+#[cfg(test)]
+mod workspace_edit_modal_tests;
+mod workspace_history_modal;
+mod workspace_review_modal;
+#[cfg(test)]
+mod workspace_review_modal_tests;
+mod workspace_update;
 
 use std::process::Child;
 use std::sync::mpsc::Receiver;
@@ -76,6 +92,7 @@ pub(crate) struct ChatFilePreviewTarget {
 enum MainPaneView {
     Conversation,
     Collaboration,
+    Workspace,
     Task(sidebar::SidebarItemTarget),
     WorkContext,
     FilePreview(ChatFilePreviewTarget),
@@ -87,6 +104,7 @@ struct MissionControlNavigationState {
     source_goal_target: Option<sidebar::SidebarItemTarget>,
     return_to_goal_target: Option<sidebar::SidebarItemTarget>,
     return_to_thread_id: Option<String>,
+    return_to_workspace: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -294,8 +312,17 @@ struct BuiltinPersonaSetupConfigSnapshot {
 struct PendingBuiltinPersonaSetup {
     target_agent_id: String,
     target_agent_name: String,
-    prompt: String,
+    continuation: PendingBuiltinPersonaSetupContinuation,
     config_snapshot: BuiltinPersonaSetupConfigSnapshot,
+}
+
+#[derive(Clone, Debug)]
+enum PendingBuiltinPersonaSetupContinuation {
+    SubmitPrompt(String),
+    SelectWorkspaceActor {
+        pending: PendingWorkspaceActorPicker,
+        actor: amux_protocol::WorkspaceActor,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -472,6 +499,20 @@ struct GoalApprovalContext {
     step_title: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PendingWorkspaceActorPickerTarget {
+    Task { task_id: String },
+    CreateForm,
+    EditForm,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingWorkspaceActorPicker {
+    target: PendingWorkspaceActorPickerTarget,
+    task_id: String,
+    mode: workspace_actor_picker::WorkspaceActorPickerMode,
+}
+
 pub struct TuiModel {
     // State modules
     chat: chat::ChatState,
@@ -496,6 +537,7 @@ pub struct TuiModel {
     pub collaboration: CollaborationState,
     pub concierge: ConciergeState,
     pub tier: TierState,
+    pub workspace: crate::state::workspace::WorkspaceState,
 
     // UI chrome
     focus: FocusArea,
@@ -642,6 +684,19 @@ pub struct TuiModel {
     task_view_drag_current: Option<Position>,
     task_view_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
     task_view_drag_current_point: Option<widgets::chat::SelectionPoint>,
+
+    // Active workspace board drag
+    workspace_drag_task: Option<String>,
+    workspace_drag_status: Option<amux_protocol::WorkspaceTaskStatus>,
+    workspace_drag_start_target: Option<widgets::workspace_board::WorkspaceBoardHitTarget>,
+    workspace_board_selection: Option<widgets::workspace_board::WorkspaceBoardHitTarget>,
+    workspace_expanded_task_ids: std::collections::HashSet<String>,
+    pending_workspace_create_form: Option<workspace_create_modal::WorkspaceCreateTaskForm>,
+    pending_workspace_review_form: Option<workspace_review_modal::WorkspaceReviewForm>,
+    pending_workspace_edit_form: Option<workspace_edit_modal::WorkspaceEditForm>,
+    pending_workspace_detail_task_id: Option<String>,
+    pending_workspace_history_task_id: Option<String>,
+    pending_workspace_actor_picker: Option<PendingWorkspaceActorPicker>,
 }
 
 include!("model_impl_part1.rs");

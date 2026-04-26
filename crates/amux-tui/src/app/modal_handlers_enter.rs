@@ -220,6 +220,27 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 model.status_line = "No goals available".to_string();
             }
         }
+        modal::ModalKind::WorkspacePicker => {
+            model.submit_workspace_picker();
+        }
+        modal::ModalKind::WorkspaceCreateTask => {
+            model.submit_workspace_create_modal();
+        }
+        modal::ModalKind::WorkspaceReviewTask => {
+            model.submit_workspace_review_modal();
+        }
+        modal::ModalKind::WorkspaceEditTask => {
+            model.submit_workspace_edit_modal();
+        }
+        modal::ModalKind::WorkspaceTaskDetail => {
+            model.close_top_modal();
+        }
+        modal::ModalKind::WorkspaceTaskHistory => {
+            model.submit_workspace_history_modal();
+        }
+        modal::ModalKind::WorkspaceActorPicker => {
+            model.submit_workspace_actor_picker();
+        }
         modal::ModalKind::GoalStepActionPicker => {
             let cursor = model.modal.picker_cursor();
             let items = model.goal_action_picker_items();
@@ -738,6 +759,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                             serde_json::Value::String(model_id.clone());
                         model.config.agent_config_raw = Some(raw);
                         model.restore_builtin_persona_setup_config_snapshot();
+                        let continuation = setup.continuation.clone();
                         model.pending_builtin_persona_setup = None;
                         model.status_line = format!(
                             "{} configured with {} / {}",
@@ -745,7 +767,17 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         );
                         model.settings_picker_target = None;
                         model.close_top_modal();
-                        model.submit_prompt(setup.prompt);
+                        match continuation {
+                            PendingBuiltinPersonaSetupContinuation::SubmitPrompt(prompt) => {
+                                model.submit_prompt(prompt);
+                            }
+                            PendingBuiltinPersonaSetupContinuation::SelectWorkspaceActor {
+                                pending,
+                                actor,
+                            } => {
+                                model.apply_workspace_actor_selection(pending, Some(actor));
+                            }
+                        }
                         return;
                     }
                     SettingsPickerTarget::CompactionWelesModel => {

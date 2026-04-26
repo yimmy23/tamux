@@ -46,6 +46,7 @@ pub struct ChatState {
     threads: Vec<AgentThread>,
     history_page_size: usize,
     active_thread_id: Option<String>,
+    new_thread_pending: bool,
     thread_history_stack: Vec<String>,
     thread_activity: std::collections::HashMap<String, ThreadActivityState>,
     render_revision: u64,
@@ -446,6 +447,7 @@ impl ChatState {
             threads: Vec::new(),
             history_page_size: CHAT_HISTORY_PAGE_SIZE,
             active_thread_id: None,
+            new_thread_pending: false,
             thread_history_stack: Vec::new(),
             thread_activity: std::collections::HashMap::new(),
             render_revision: 0,
@@ -545,6 +547,7 @@ impl ChatState {
 
         self.append_thread_history(from_thread_id);
         self.active_thread_id = Some(to_thread_id.to_string());
+        self.new_thread_pending = false;
         true
     }
 
@@ -552,6 +555,7 @@ impl ChatState {
         while let Some(next_thread_id) = self.thread_history_stack.pop() {
             if self.thread_exists(&next_thread_id) {
                 self.active_thread_id = Some(next_thread_id.clone());
+                self.new_thread_pending = false;
                 return Some(next_thread_id);
             }
         }
@@ -984,7 +988,7 @@ impl ChatState {
             ChatAction::Delta { thread_id, content } => {
                 self.pinned_message_top = None;
                 // Set active thread if not set, or if it matches the incoming thread
-                if self.active_thread_id.is_none()
+                if (self.active_thread_id.is_none() && !self.new_thread_pending)
                     || self.active_thread_id.as_deref() == Some(thread_id.as_str())
                 {
                     self.active_thread_id = Some(thread_id.clone());
@@ -1195,7 +1199,7 @@ impl ChatState {
                 message,
                 received_at_tick,
             } => {
-                if self.active_thread_id.is_none() {
+                if self.active_thread_id.is_none() && !self.new_thread_pending {
                     self.active_thread_id = Some(thread_id.clone());
                 }
                 self.activity_for_thread_mut(&thread_id).retry_status = Some(RetryStatusVm {
@@ -1410,6 +1414,7 @@ impl ChatState {
                 }
                 self.move_thread_to_front(&thread_id);
                 self.active_thread_id = Some(thread_id);
+                self.new_thread_pending = false;
                 self.clear_thread_history_stack();
             }
 
@@ -1424,6 +1429,7 @@ impl ChatState {
                 self.retain_thread_history_stack(&remaining_thread_ids);
                 if self.active_thread_id.as_deref() == Some(thread_id.as_str()) {
                     self.active_thread_id = self.threads.first().map(|thread| thread.id.clone());
+                    self.new_thread_pending = false;
                     self.clear_thread_history_stack();
                 }
             }
@@ -1525,6 +1531,7 @@ impl ChatState {
                 } else {
                     Some(thread_id)
                 };
+                self.new_thread_pending = false;
                 self.scroll_offset = 0;
                 self.scroll_locked = false;
             }
@@ -1556,6 +1563,7 @@ impl ChatState {
             ChatAction::NewThread => {
                 self.pinned_message_top = None;
                 self.active_thread_id = None;
+                self.new_thread_pending = true;
                 self.clear_thread_history_stack();
                 self.copied_message_feedback = None;
             }

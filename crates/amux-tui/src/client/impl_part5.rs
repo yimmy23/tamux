@@ -183,6 +183,89 @@ impl DaemonClient {
         self.send(ClientMessage::AgentDeleteGoalRun { goal_run_id })
     }
 
+    pub fn cancel_task(&self, task_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentCancelTask { task_id })
+    }
+
+    pub fn get_workspace_settings(&self, workspace_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentGetWorkspaceSettings { workspace_id })
+    }
+
+    pub fn list_workspace_settings(&self) -> Result<()> {
+        self.send(ClientMessage::AgentListWorkspaceSettings)
+    }
+
+    pub fn set_workspace_operator(
+        &self,
+        workspace_id: String,
+        operator: amux_protocol::WorkspaceOperator,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentSetWorkspaceOperator {
+            workspace_id,
+            operator,
+        })
+    }
+
+    pub fn create_workspace_task(
+        &self,
+        request: amux_protocol::WorkspaceTaskCreate,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentCreateWorkspaceTask { request })
+    }
+
+    pub fn list_workspace_tasks(&self, workspace_id: String, include_deleted: bool) -> Result<()> {
+        self.send(ClientMessage::AgentListWorkspaceTasks {
+            workspace_id,
+            include_deleted,
+        })
+    }
+
+    pub fn list_workspace_notices(
+        &self,
+        workspace_id: String,
+        task_id: Option<String>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentListWorkspaceNotices {
+            workspace_id,
+            task_id,
+        })
+    }
+
+    pub fn update_workspace_task(
+        &self,
+        task_id: String,
+        update: amux_protocol::WorkspaceTaskUpdate,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentUpdateWorkspaceTask { task_id, update })
+    }
+
+    pub fn run_workspace_task(&self, task_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentRunWorkspaceTask { task_id })
+    }
+
+    pub fn pause_workspace_task(&self, task_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentPauseWorkspaceTask { task_id })
+    }
+
+    pub fn stop_workspace_task(&self, task_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentStopWorkspaceTask { task_id })
+    }
+
+    pub fn move_workspace_task(&self, request: amux_protocol::WorkspaceTaskMove) -> Result<()> {
+        self.send(ClientMessage::AgentMoveWorkspaceTask { request })
+    }
+
+    pub fn submit_workspace_review(
+        &self,
+        review: amux_protocol::WorkspaceReviewSubmission,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentSubmitWorkspaceReview { review })
+    }
+
+    pub fn delete_workspace_task(&self, task_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentDeleteWorkspaceTask { task_id })
+    }
+
     pub fn fetch_models(
         &self,
         provider_id: String,

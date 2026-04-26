@@ -26,6 +26,9 @@ test("powershell installer provisions bundled skills into canonical tamux root",
   const script = fs.readFileSync(scriptPath, "utf8");
 
   assert.match(script, /\$SkillsDir = if \(\$env:TAMUX_SKILLS_DIR\) \{ \$env:TAMUX_SKILLS_DIR \} else \{ Join-Path \$HOME "\.tamux\\skills" \}/);
-  assert.match(script, /Extracting binaries and skills/);
+  assert.match(script, /\$GuidelinesDir = if \(\$env:TAMUX_GUIDELINES_DIR\) \{ \$env:TAMUX_GUIDELINES_DIR \} else \{ Join-Path \$HOME "\.tamux\\guidelines" \}/);
+  assert.match(script, /Extracting binaries, skills, and guidelines/);
   assert.match(script, /Copy-Item -Path \(Join-Path \$script:ExtractDir "skills\\\*"\) -Destination \$SkillsDir -Recurse -Force/);
+  assert.match(script, /function Install-Guidelines/);
+  assert.match(script, /if \(Test-Path \$targetPath\) \{/);
 });

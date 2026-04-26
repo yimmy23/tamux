@@ -16,6 +16,14 @@ pub fn tamux_skills_dir() -> PathBuf {
     )
 }
 
+pub fn tamux_guidelines_dir() -> PathBuf {
+    canonical_tamux_guidelines_dir_from_parts(
+        cfg!(windows),
+        dirs::home_dir().as_deref(),
+        dirs::data_local_dir().as_deref(),
+    )
+}
+
 pub fn legacy_agent_skills_dir(agent_data_dir: &Path) -> PathBuf {
     agent_data_dir.join("skills")
 }
@@ -65,6 +73,14 @@ fn canonical_tamux_skills_dir_from_parts(
     canonical_tamux_root_dir_from_parts(is_windows, home_dir, local_data_dir).join("skills")
 }
 
+fn canonical_tamux_guidelines_dir_from_parts(
+    is_windows: bool,
+    home_dir: Option<&Path>,
+    local_data_dir: Option<&Path>,
+) -> PathBuf {
+    canonical_tamux_root_dir_from_parts(is_windows, home_dir, local_data_dir).join("guidelines")
+}
+
 fn sanitize_runtime_path_segment(raw: &str) -> String {
     raw.chars()
         .map(|ch| match ch {
@@ -104,6 +120,15 @@ mod tests {
         assert_eq!(
             canonical_tamux_skills_dir_from_parts(false, Some(Path::new("/tmp/tamux")), None),
             root.join("skills")
+        );
+    }
+
+    #[test]
+    fn canonical_guidelines_root_is_nested_under_tamux_root() {
+        let root = canonical_tamux_root_dir_from_parts(false, Some(Path::new("/tmp/tamux")), None);
+        assert_eq!(
+            canonical_tamux_guidelines_dir_from_parts(false, Some(Path::new("/tmp/tamux")), None),
+            root.join("guidelines")
         );
     }
 

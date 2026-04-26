@@ -1,4 +1,29 @@
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_DEEPSEEK, PROVIDER_ID_OPENROUTER};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GoalLlmRequestMode {
+    Default,
+    ReplanFollowUp,
+}
+
+fn adjust_goal_llm_provider_config_for_mode(
+    provider: &str,
+    provider_config: &mut ProviderConfig,
+    mode: GoalLlmRequestMode,
+) {
+    if mode != GoalLlmRequestMode::ReplanFollowUp {
+        return;
+    }
+
+    if provider_config.api_transport != ApiTransport::ChatCompletions {
+        return;
+    }
+
+    if matches!(provider, PROVIDER_ID_OPENROUTER | PROVIDER_ID_DEEPSEEK) {
+        provider_config.reasoning_effort = "off".to_string();
+    }
+}
 
 pub(super) fn orchestrator_policy_json_schema() -> serde_json::Value {
     serde_json::json!({
@@ -57,12 +82,36 @@ fn should_fallback_from_structured_output_error(err: &anyhow::Error) -> bool {
 }
 
 impl AgentEngine {
-    pub(super) async fn run_goal_llm_raw(&self, prompt: &str) -> Result<String> {
+    pub(super) async fn run_goal_llm_raw_for_goal(
+        &self,
+        prompt: &str,
+        goal_run_id: Option<&str>,
+    ) -> Result<String> {
+        self.run_goal_llm_raw_with_mode(prompt, GoalLlmRequestMode::Default, goal_run_id)
+            .await
+    }
+
+    pub(super) async fn run_goal_llm_raw_for_replan(
+        &self,
+        prompt: &str,
+        goal_run_id: Option<&str>,
+    ) -> Result<String> {
+        self.run_goal_llm_raw_with_mode(prompt, GoalLlmRequestMode::ReplanFollowUp, goal_run_id)
+            .await
+    }
+
+    async fn run_goal_llm_raw_with_mode(
+        &self,
+        prompt: &str,
+        mode: GoalLlmRequestMode,
+        goal_run_id: Option<&str>,
+    ) -> Result<String> {
         let config = self.config.read().await.clone();
         if config.agent_backend != AgentBackend::Daemon {
             anyhow::bail!("goal runs currently require the built-in daemon agent backend");
         }
-        let provider_config = self.resolve_provider_config(&config)?;
+        let mut provider_config = self.resolve_provider_config(&config)?;
+        adjust_goal_llm_provider_config_for_mode(&config.provider, &mut provider_config, mode);
         let messages = vec![ApiMessage {
             role: "user".into(),
             content: ApiContent::Text(prompt.to_string()),
@@ -71,6 +120,7 @@ impl AgentEngine {
             tool_calls: None,
         }];
         self.check_circuit_breaker(&config.provider).await?;
+        let request_started = std::time::Instant::now();
         let mut stream = send_completion_request(
             &self.http_client,
             &config.provider,
@@ -106,9 +156,22 @@ impl AgentEngine {
                 CompletionChunk::Done {
                     content: done,
                     reasoning: done_reasoning,
+                    input_tokens,
+                    output_tokens,
                     ..
                 } => {
                     self.record_llm_outcome(&config.provider, true).await;
+                    if let Some(goal_run_id) = goal_run_id {
+                        self.accumulate_goal_run_cost_by_id(
+                            goal_run_id,
+                            input_tokens,
+                            output_tokens,
+                            &config.provider,
+                            &provider_config.model,
+                            Some(request_started.elapsed().as_millis() as u64),
+                        )
+                        .await;
+                    }
                     if let Some(done_reasoning) = done_reasoning {
                         reasoning = done_reasoning;
                     }
@@ -139,11 +202,31 @@ impl AgentEngine {
         anyhow::bail!("goal LLM returned empty output")
     }
 
-    pub(super) async fn run_goal_llm_json(&self, prompt: &str) -> Result<String> {
+    pub(super) async fn run_goal_llm_json_for_goal(
+        &self,
+        prompt: &str,
+        goal_run_id: Option<&str>,
+    ) -> Result<String> {
         self.run_goal_llm_json_with_schema(
             prompt,
             goal_plan_json_schema(),
             "goal planning LLM call",
+            goal_run_id,
+        )
+        .await
+    }
+
+    pub(super) async fn run_goal_llm_json_for_replan(
+        &self,
+        prompt: &str,
+        goal_run_id: Option<&str>,
+    ) -> Result<String> {
+        self.run_goal_llm_json_with_schema_for_mode(
+            prompt,
+            goal_plan_json_schema(),
+            "goal replan LLM call",
+            GoalLlmRequestMode::ReplanFollowUp,
+            goal_run_id,
         )
         .await
     }
@@ -153,12 +236,32 @@ impl AgentEngine {
         prompt: &str,
         schema: serde_json::Value,
         log_label: &str,
+        goal_run_id: Option<&str>,
+    ) -> Result<String> {
+        self.run_goal_llm_json_with_schema_for_mode(
+            prompt,
+            schema,
+            log_label,
+            GoalLlmRequestMode::Default,
+            goal_run_id,
+        )
+        .await
+    }
+
+    async fn run_goal_llm_json_with_schema_for_mode(
+        &self,
+        prompt: &str,
+        schema: serde_json::Value,
+        log_label: &str,
+        mode: GoalLlmRequestMode,
+        goal_run_id: Option<&str>,
     ) -> Result<String> {
         let config = self.config.read().await.clone();
         if config.agent_backend != AgentBackend::Daemon {
             anyhow::bail!("goal runs currently require the built-in daemon agent backend");
         }
         let mut provider_config = self.resolve_provider_config(&config)?;
+        adjust_goal_llm_provider_config_for_mode(&config.provider, &mut provider_config, mode);
         provider_config.response_schema = Some(schema);
         tracing::info!(
             provider = %config.provider,
@@ -174,6 +277,7 @@ impl AgentEngine {
             tool_calls: None,
         }];
         self.check_circuit_breaker(&config.provider).await?;
+        let request_started = std::time::Instant::now();
         let mut stream = send_completion_request(
             &self.http_client,
             &config.provider,
@@ -201,7 +305,9 @@ impl AgentEngine {
                             error = %error,
                             "structured output rejected upstream; falling back to unstructured goal request"
                         );
-                        return self.run_goal_llm_raw(prompt).await;
+                        return self
+                            .run_goal_llm_raw_with_mode(prompt, mode, goal_run_id)
+                            .await;
                     }
                     return Err(error);
                 }
@@ -219,9 +325,22 @@ impl AgentEngine {
                 CompletionChunk::Done {
                     content: done,
                     reasoning: done_reasoning,
+                    input_tokens,
+                    output_tokens,
                     ..
                 } => {
                     self.record_llm_outcome(&config.provider, true).await;
+                    if let Some(goal_run_id) = goal_run_id {
+                        self.accumulate_goal_run_cost_by_id(
+                            goal_run_id,
+                            input_tokens,
+                            output_tokens,
+                            &config.provider,
+                            &provider_config.model,
+                            Some(request_started.elapsed().as_millis() as u64),
+                        )
+                        .await;
+                    }
                     if let Some(done_reasoning) = done_reasoning {
                         reasoning = done_reasoning;
                     }
@@ -251,7 +370,9 @@ impl AgentEngine {
                             error = %message,
                             "structured output rejected in stream; falling back to unstructured goal request"
                         );
-                        return self.run_goal_llm_raw(prompt).await;
+                        return self
+                            .run_goal_llm_raw_with_mode(prompt, mode, goal_run_id)
+                            .await;
                     }
                     anyhow::bail!(message);
                 }

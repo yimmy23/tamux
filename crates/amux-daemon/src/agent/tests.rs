@@ -81,6 +81,7 @@ fn sample_goal_run() -> GoalRun {
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: Default::default(),
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),
@@ -928,6 +929,89 @@ async fn request_goal_replan_includes_recovery_guidance_when_present() {
     assert!(
         body.contains("replanned into smaller scoped steps"),
         "expected recovery guidance text in the replan prompt"
+    );
+}
+
+#[tokio::test]
+async fn openrouter_goal_replan_follow_up_disables_reasoning_fields() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENROUTER.to_string();
+    config.base_url = spawn_goal_recording_server(
+        recorded_bodies.clone(),
+        serde_json::json!({
+            "title": "Recovered plan",
+            "summary": "Use the narrowed recovery path.",
+            "steps": [
+                {
+                    "title": "Retry with the bounded fix",
+                    "instructions": "Use the minimal recovery sequence.",
+                    "kind": "command",
+                    "success_criteria": "recovery step succeeds",
+                    "session_id": null,
+                    "llm_confidence": "likely",
+                    "llm_confidence_rationale": "same provider path, smaller request"
+                }
+            ],
+            "rejected_alternatives": ["Keep the broad failing recovery unchanged"]
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "arcee-ai/trinity-large-thinking".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.reasoning_effort = "high".to_string();
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let plan_goal = sample_goal_run();
+    let mut replan_goal = sample_goal_run();
+    replan_goal.current_step_index = 0;
+    replan_goal.steps.truncate(1);
+
+    let _ = engine
+        .request_goal_plan(&plan_goal)
+        .await
+        .expect("initial goal plan should succeed");
+    let _ = engine
+        .request_goal_replan(
+            &replan_goal,
+            "OpenRouter 400: reasoning_content must be replayed",
+        )
+        .await
+        .expect("goal replan should succeed with reasoning disabled");
+
+    let recorded = recorded_bodies.lock().expect("lock recorded bodies");
+    assert_eq!(
+        recorded.len(),
+        2,
+        "expected exactly two consecutive planner calls"
+    );
+
+    let first = recorded.front().expect("first planner request body");
+    assert!(
+        first.contains("planning a durable autonomous goal runner"),
+        "expected first request to be the normal goal plan prompt: {first}"
+    );
+    assert!(
+        first.contains("\"reasoning_effort\":\"high\"")
+            || first.contains("\"reasoning\":{\"effort\":\"high\"}"),
+        "expected the initial planning request to keep reasoning enabled: {first}"
+    );
+
+    let second = recorded.back().expect("second planner request body");
+    assert!(
+        second.contains("replanning a tamux goal runner after a failed step"),
+        "expected second request to be the replan prompt: {second}"
+    );
+    assert!(
+        !second.contains("\"reasoning_effort\"") && !second.contains("\"reasoning\":{\"effort\""),
+        "expected replan follow-up request to disable reasoning fields: {second}"
     );
 }
 

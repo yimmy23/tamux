@@ -314,8 +314,7 @@ impl TuiModel {
             || self.should_show_daemon_connection_loading()
             || self.should_show_local_landing()
             || self.should_show_concierge_hero_loading()
-            || (self.mission_control_return_to_goal_target().is_none()
-                && self.mission_control_return_to_thread_id().is_none())
+            || !self.has_mission_control_return_target()
         {
             return None;
         }
@@ -332,6 +331,8 @@ impl TuiModel {
         let area = self.conversation_return_area()?;
         if self.mission_control_return_to_thread_id().is_some() {
             widgets::goal_mission_control::return_to_thread_button_area(area)
+        } else if self.mission_control_return_to_workspace() {
+            widgets::goal_mission_control::return_to_workspace_button_area(area)
         } else {
             widgets::goal_mission_control::return_to_goal_button_area(area)
         }
@@ -340,9 +341,53 @@ impl TuiModel {
     fn render_conversation_return_banner(&self, frame: &mut Frame, area: Rect) {
         if self.mission_control_return_to_thread_id().is_some() {
             widgets::goal_mission_control::render_return_to_thread_banner(frame, area, &self.theme);
+        } else if self.mission_control_return_to_workspace() {
+            widgets::goal_mission_control::render_return_to_workspace_banner(
+                frame,
+                area,
+                &self.theme,
+            );
         } else {
             widgets::goal_mission_control::render_return_to_goal_banner(frame, area, &self.theme);
         }
+    }
+
+    fn task_return_area_for(&self, area: Rect) -> Option<Rect> {
+        if !matches!(self.main_pane_view, MainPaneView::Task(_))
+            || !self.mission_control_return_to_workspace()
+        {
+            return None;
+        }
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(1)])
+            .split(area);
+        Some(chunks[0])
+    }
+
+    pub(super) fn task_content_area(&self) -> Option<Rect> {
+        if !matches!(self.main_pane_view, MainPaneView::Task(_)) {
+            return None;
+        }
+        let chat_area = self.pane_layout().chat;
+        if self.task_return_area_for(chat_area).is_some() {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(1)])
+                .split(chat_area);
+            Some(chunks[1])
+        } else {
+            Some(chat_area)
+        }
+    }
+
+    pub(super) fn task_return_to_workspace_button_area(&self) -> Option<Rect> {
+        let area = self.task_return_area_for(self.pane_layout().chat)?;
+        widgets::goal_mission_control::return_to_workspace_button_area(area)
+    }
+
+    fn render_task_return_banner(&self, frame: &mut Frame, area: Rect) {
+        widgets::goal_mission_control::render_return_to_workspace_banner(frame, area, &self.theme);
     }
 
     fn configured_model_label(model: &str, custom_model_name: &str) -> String {
@@ -1403,11 +1448,24 @@ impl TuiModel {
                     &self.theme,
                     self.focus == FocusArea::Chat,
                 ),
+                MainPaneView::Workspace => widgets::workspace_board::render(
+                    frame,
+                    layout.chat,
+                    &self.workspace,
+                    &self.workspace_expanded_task_ids,
+                    self.workspace_board_selection.as_ref(),
+                    &self.theme,
+                    self.focus == FocusArea::Chat,
+                ),
                 MainPaneView::Task(target) => {
+                    let task_area = self.task_content_area().unwrap_or(layout.chat);
+                    if let Some(return_area) = self.task_return_area_for(layout.chat) {
+                        self.render_task_return_banner(frame, return_area);
+                    }
                     if let SidebarItemTarget::GoalRun { goal_run_id, .. } = target {
                         widgets::goal_workspace::render_with_selection(
                             frame,
-                            layout.chat,
+                            task_area,
                             &self.tasks,
                             goal_run_id,
                             &self.goal_workspace,
@@ -1419,7 +1477,7 @@ impl TuiModel {
                                     self.task_view_drag_anchor.and_then(|anchor| {
                                         self.task_view_drag_current.and_then(|current| {
                                             widgets::goal_workspace::selection_points_from_mouse(
-                                                layout.chat,
+                                                task_area,
                                                 &self.tasks,
                                                 goal_run_id,
                                                 &self.goal_workspace,
@@ -1433,7 +1491,7 @@ impl TuiModel {
                     } else {
                         widgets::task_view::render(
                             frame,
-                            layout.chat,
+                            task_area,
                             &self.tasks,
                             target,
                             &self.theme,
@@ -1449,7 +1507,7 @@ impl TuiModel {
                                     self.task_view_drag_anchor.and_then(|anchor| {
                                         self.task_view_drag_current.and_then(|current| {
                                             widgets::task_view::selection_points_from_mouse(
-                                                layout.chat,
+                                                task_area,
                                                 &self.tasks,
                                                 target,
                                                 &self.theme,
@@ -1595,11 +1653,24 @@ impl TuiModel {
                     &self.theme,
                     self.focus == FocusArea::Chat,
                 ),
+                MainPaneView::Workspace => widgets::workspace_board::render(
+                    frame,
+                    layout.chat,
+                    &self.workspace,
+                    &self.workspace_expanded_task_ids,
+                    self.workspace_board_selection.as_ref(),
+                    &self.theme,
+                    self.focus == FocusArea::Chat,
+                ),
                 MainPaneView::Task(target) => {
+                    let task_area = self.task_content_area().unwrap_or(layout.chat);
+                    if let Some(return_area) = self.task_return_area_for(layout.chat) {
+                        self.render_task_return_banner(frame, return_area);
+                    }
                     if let SidebarItemTarget::GoalRun { goal_run_id, .. } = target {
                         widgets::goal_workspace::render_with_selection(
                             frame,
-                            layout.chat,
+                            task_area,
                             &self.tasks,
                             goal_run_id,
                             &self.goal_workspace,
@@ -1611,7 +1682,7 @@ impl TuiModel {
                                     self.task_view_drag_anchor.and_then(|anchor| {
                                         self.task_view_drag_current.and_then(|current| {
                                             widgets::goal_workspace::selection_points_from_mouse(
-                                                layout.chat,
+                                                task_area,
                                                 &self.tasks,
                                                 goal_run_id,
                                                 &self.goal_workspace,
@@ -1625,7 +1696,7 @@ impl TuiModel {
                     } else {
                         widgets::task_view::render(
                             frame,
-                            layout.chat,
+                            task_area,
                             &self.tasks,
                             target,
                             &self.theme,
@@ -1641,7 +1712,7 @@ impl TuiModel {
                                     self.task_view_drag_anchor.and_then(|anchor| {
                                         self.task_view_drag_current.and_then(|current| {
                                             widgets::task_view::selection_points_from_mouse(
-                                                layout.chat,
+                                                task_area,
                                                 &self.tasks,
                                                 target,
                                                 &self.theme,
@@ -1794,6 +1865,23 @@ impl TuiModel {
                 modal::ModalKind::ThreadParticipants => render_helpers::centered_rect(76, 68, area),
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
+                modal::ModalKind::WorkspacePicker => render_helpers::centered_rect(54, 42, area),
+                modal::ModalKind::WorkspaceCreateTask => {
+                    render_helpers::centered_rect(64, 46, area)
+                }
+                modal::ModalKind::WorkspaceReviewTask => {
+                    render_helpers::centered_rect(58, 34, area)
+                }
+                modal::ModalKind::WorkspaceEditTask => render_helpers::centered_rect(64, 42, area),
+                modal::ModalKind::WorkspaceTaskDetail => {
+                    render_helpers::centered_rect(72, 58, area)
+                }
+                modal::ModalKind::WorkspaceTaskHistory => {
+                    render_helpers::centered_rect(80, 58, area)
+                }
+                modal::ModalKind::WorkspaceActorPicker => {
+                    render_helpers::centered_rect(46, 36, area)
+                }
                 modal::ModalKind::GoalStepActionPicker => {
                     render_helpers::centered_rect(46, 28, area)
                 }
@@ -1834,6 +1922,97 @@ impl TuiModel {
                         overlay_area,
                         &self.tasks,
                         &self.modal,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::WorkspacePicker => {
+                    widgets::workspace_picker::render(
+                        frame,
+                        overlay_area,
+                        &self.workspace,
+                        &self.modal,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::WorkspaceCreateTask => {
+                    let body = self
+                        .pending_workspace_create_form
+                        .as_ref()
+                        .map(|form| {
+                            crate::app::workspace_create_modal::workspace_create_modal_lines_with_subagents(
+                                form,
+                                &self.subagents,
+                                &self.theme,
+                            )
+                        })
+                        .unwrap_or_else(|| vec![ratatui::text::Line::raw("No workspace task draft")]);
+                    render_helpers::render_status_modal_lines(
+                        frame,
+                        overlay_area,
+                        "WORKSPACE TASK",
+                        body,
+                        0,
+                        false,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::WorkspaceReviewTask => {
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        "WORKSPACE REVIEW",
+                        &self.workspace_review_modal_body(),
+                        0,
+                        false,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::WorkspaceEditTask => {
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        "WORKSPACE EDIT",
+                        &self.workspace_edit_modal_body(),
+                        0,
+                        false,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::WorkspaceTaskDetail => {
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        "WORKSPACE DETAIL",
+                        &self.workspace_detail_modal_body(),
+                        0,
+                        false,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::WorkspaceTaskHistory => {
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        "WORKSPACE HISTORY",
+                        &self.workspace_history_modal_body(),
+                        0,
+                        false,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::WorkspaceActorPicker => {
+                    let title = self
+                        .pending_workspace_actor_picker
+                        .as_ref()
+                        .map(|pending| pending.mode.title())
+                        .unwrap_or("WORKSPACE ACTOR");
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        title,
+                        &self.workspace_actor_picker_body(),
+                        0,
+                        false,
                         &self.theme,
                     );
                 }
@@ -2123,6 +2302,13 @@ impl TuiModel {
             modal::ModalKind::ThreadParticipants => render_helpers::centered_rect(76, 68, area),
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
+            modal::ModalKind::WorkspacePicker => render_helpers::centered_rect(54, 42, area),
+            modal::ModalKind::WorkspaceCreateTask => render_helpers::centered_rect(64, 46, area),
+            modal::ModalKind::WorkspaceReviewTask => render_helpers::centered_rect(58, 34, area),
+            modal::ModalKind::WorkspaceEditTask => render_helpers::centered_rect(64, 42, area),
+            modal::ModalKind::WorkspaceTaskDetail => render_helpers::centered_rect(72, 58, area),
+            modal::ModalKind::WorkspaceTaskHistory => render_helpers::centered_rect(80, 58, area),
+            modal::ModalKind::WorkspaceActorPicker => render_helpers::centered_rect(46, 36, area),
             modal::ModalKind::GoalStepActionPicker => render_helpers::centered_rect(46, 28, area),
             modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),
             modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),

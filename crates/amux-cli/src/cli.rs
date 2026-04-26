@@ -131,6 +131,13 @@ pub(crate) enum Commands {
         action: SkillAction,
     },
 
+    /// Manage local guidelines.
+    #[command(alias = "guidelines")]
+    Guideline {
+        #[command(subcommand)]
+        action: GuidelineAction,
+    },
+
     /// Inspect the tools currently available to the daemon agent.
     Tool {
         #[command(subcommand)]
@@ -184,6 +191,12 @@ pub(crate) enum Commands {
     Goal {
         #[command(subcommand)]
         action: GoalAction,
+    },
+
+    /// Inspect and manage workspace board tasks.
+    Workspace {
+        #[command(subcommand)]
+        action: WorkspaceAction,
     },
 
     /// Send a direct message to svarog or Rarog from the CLI.
@@ -284,6 +297,17 @@ pub(crate) enum InstallTarget {
     Plugin {
         /// npm package spec or local package directory.
         package: String,
+    },
+    /// Install a markdown guideline into the tamux guidelines directory.
+    Guideline {
+        /// Source markdown guideline file.
+        source: String,
+        /// Destination filename under the guidelines directory.
+        #[arg(long)]
+        name: Option<String>,
+        /// Overwrite an existing guideline with the same destination name.
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -394,6 +418,48 @@ pub(crate) enum SkillAction {
     Publish {
         /// Skill name or variant ID.
         name: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum GuidelineAction {
+    /// Rank installed guidelines for a task and suggest the next action.
+    Discover {
+        /// Task or problem description to match against installed guidelines.
+        query: String,
+        /// Optional terminal session UUID for workspace-aware ranking.
+        #[arg(long)]
+        session: Option<String>,
+        /// Maximum number of ranked candidates to show.
+        #[arg(long, default_value = "3")]
+        limit: usize,
+        /// Continue from an earlier discovery page cursor.
+        #[arg(long)]
+        cursor: Option<String>,
+    },
+    /// Show the contents of a specific guideline.
+    #[command(alias = "read")]
+    Inspect {
+        /// Guideline name, file stem, or relative path.
+        name: String,
+    },
+    /// Install a markdown guideline into the tamux guidelines directory.
+    Install {
+        /// Source markdown guideline file.
+        source: String,
+        /// Destination filename under the guidelines directory.
+        #[arg(long)]
+        name: Option<String>,
+        /// Overwrite an existing guideline with the same destination name.
+        #[arg(long)]
+        force: bool,
+    },
+    /// List installed guidelines from the tamux guidelines directory.
+    #[command(alias = "ls")]
+    List {
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -562,9 +628,186 @@ pub(crate) enum GoalAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+pub(crate) enum WorkspaceAction {
+    /// List workspace board tasks.
+    #[command(alias = "ls")]
+    List {
+        /// Workspace ID.
+        #[arg(long, default_value = "main")]
+        workspace: String,
+        /// Include soft-deleted tasks.
+        #[arg(long)]
+        include_deleted: bool,
+        /// Filter by status: todo, in-progress, in-review, done.
+        #[arg(long)]
+        status: Option<String>,
+        /// Filter by priority: low, normal, high, urgent.
+        #[arg(long)]
+        priority: Option<String>,
+        /// Filter by assignee: user, svarog, agent:id, subagent:id, or none.
+        #[arg(long)]
+        assignee: Option<String>,
+        /// Filter by reviewer: user, svarog, agent:id, subagent:id, or none.
+        #[arg(long)]
+        reviewer: Option<String>,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one workspace task.
+    Get {
+        /// Workspace task ID.
+        task_id: String,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a workspace task.
+    New {
+        /// Task type: thread or goal.
+        task_type: String,
+        /// Task title.
+        title: String,
+        /// Task description.
+        description: String,
+        /// Workspace ID.
+        #[arg(long, default_value = "main")]
+        workspace: String,
+        /// Optional definition of done.
+        #[arg(long)]
+        dod: Option<String>,
+        /// Priority: low, normal, high, urgent.
+        #[arg(long, default_value = "low")]
+        priority: String,
+        /// Assignee: svarog, agent:id, subagent:id, or none.
+        #[arg(long)]
+        assignee: Option<String>,
+        /// Reviewer: user, svarog, agent:id, subagent:id, or none.
+        #[arg(long, default_value = "user")]
+        reviewer: String,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Update editable workspace task fields.
+    Update {
+        /// Workspace task ID.
+        task_id: String,
+        /// Replace task title.
+        #[arg(long)]
+        title: Option<String>,
+        /// Replace task description.
+        #[arg(long)]
+        description: Option<String>,
+        /// Replace definition of done.
+        #[arg(long)]
+        dod: Option<String>,
+        /// Clear definition of done.
+        #[arg(long, conflicts_with = "dod")]
+        clear_dod: bool,
+        /// Priority: low, normal, high, urgent.
+        #[arg(long)]
+        priority: Option<String>,
+        /// Assignee: svarog, agent:id, subagent:id, or none.
+        #[arg(long)]
+        assignee: Option<String>,
+        /// Reviewer: user, svarog, agent:id, subagent:id, or none.
+        #[arg(long)]
+        reviewer: Option<String>,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show or set the workspace-level operator.
+    Operator {
+        /// Workspace ID.
+        #[arg(long, default_value = "main")]
+        workspace: String,
+        /// Optional operator: user or svarog.
+        operator: Option<String>,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Assign task to an agent/subagent, or clear with none.
+    Assign {
+        task_id: String,
+        assignee: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set task reviewer, or clear with none.
+    Reviewer {
+        task_id: String,
+        reviewer: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run one workspace task.
+    Run {
+        task_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Pause one workspace task.
+    Pause {
+        task_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop one workspace task.
+    Stop {
+        task_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Move task to a board status.
+    Move {
+        task_id: String,
+        status: String,
+        /// Insert before tasks at this sort order in the target status.
+        #[arg(long)]
+        sort_order: Option<i64>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Submit a review verdict.
+    Review {
+        task_id: String,
+        verdict: String,
+        message: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Soft-delete one workspace task.
+    Delete {
+        task_id: String,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List workspace task notices.
+    Notices {
+        /// Workspace ID.
+        #[arg(long, default_value = "main")]
+        workspace: String,
+        /// Optional task ID filter.
+        #[arg(long)]
+        task: Option<String>,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, GoalAction, SkillAction, ThreadAction, ToolAction};
+    use super::{
+        Cli, Commands, GoalAction, GuidelineAction, SkillAction, ThreadAction, ToolAction,
+        WorkspaceAction,
+    };
     use clap::{CommandFactory, Parser};
 
     #[test]
@@ -584,6 +827,122 @@ mod tests {
                 assert_eq!(query, "debug panic");
                 assert_eq!(session, None);
                 assert_eq!(limit, 3);
+            }
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn guideline_install_subcommand_parses_source_and_force() {
+        let cli = Cli::try_parse_from([
+            "tamux",
+            "guideline",
+            "install",
+            "/tmp/coding-task.md",
+            "--name",
+            "team-coding.md",
+            "--force",
+        ])
+        .expect("guideline install subcommand should parse");
+        match cli.command {
+            Some(Commands::Guideline {
+                action:
+                    GuidelineAction::Install {
+                        source,
+                        name,
+                        force,
+                    },
+            }) => {
+                assert_eq!(source, "/tmp/coding-task.md");
+                assert_eq!(name.as_deref(), Some("team-coding.md"));
+                assert!(force);
+            }
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn guideline_list_subcommand_parses_json_flag() {
+        let cli = Cli::try_parse_from(["tamux", "guidelines", "list", "--json"])
+            .expect("guidelines list alias should parse");
+        match cli.command {
+            Some(Commands::Guideline {
+                action: GuidelineAction::List { json },
+            }) => assert!(json),
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn guideline_discover_subcommand_parses_like_skill_discover() {
+        let cli = Cli::try_parse_from([
+            "tamux",
+            "guidelines",
+            "discover",
+            "--session",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "--limit",
+            "5",
+            "research papers",
+        ])
+        .expect("guidelines discover alias should parse");
+        match cli.command {
+            Some(Commands::Guideline {
+                action:
+                    GuidelineAction::Discover {
+                        query,
+                        session,
+                        limit,
+                        cursor,
+                    },
+            }) => {
+                assert_eq!(query, "research papers");
+                assert_eq!(
+                    session.as_deref(),
+                    Some("550e8400-e29b-41d4-a716-446655440000")
+                );
+                assert_eq!(limit, 5);
+                assert_eq!(cursor, None);
+            }
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn guideline_inspect_subcommand_parses_read_alias() {
+        let cli = Cli::try_parse_from(["tamux", "guideline", "read", "research-task"])
+            .expect("guideline read alias should parse");
+        match cli.command {
+            Some(Commands::Guideline {
+                action: GuidelineAction::Inspect { name },
+            }) => assert_eq!(name, "research-task"),
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn install_guideline_target_parses_source_and_name() {
+        let cli = Cli::try_parse_from([
+            "tamux",
+            "install",
+            "guideline",
+            "/tmp/coding-task.md",
+            "--name",
+            "team-coding.md",
+        ])
+        .expect("install guideline target should parse");
+        match cli.command {
+            Some(Commands::Install {
+                target:
+                    super::InstallTarget::Guideline {
+                        source,
+                        name,
+                        force,
+                    },
+            }) => {
+                assert_eq!(source, "/tmp/coding-task.md");
+                assert_eq!(name.as_deref(), Some("team-coding.md"));
+                assert!(!force);
             }
             other => panic!("parsed unexpected command: {other:?}"),
         }
@@ -870,6 +1229,171 @@ mod tests {
                 assert!(yes);
             }
             other => panic!("expected goal delete command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_new_subcommand_parses() {
+        let cli = Cli::try_parse_from([
+            "tamux",
+            "workspace",
+            "new",
+            "goal",
+            "Ship board",
+            "Implement workspace board",
+            "--workspace",
+            "main",
+            "--assignee",
+            "svarog",
+            "--reviewer",
+            "user",
+            "--priority",
+            "high",
+        ])
+        .expect("workspace new subcommand should parse");
+        match cli.command {
+            Some(Commands::Workspace {
+                action:
+                    WorkspaceAction::New {
+                        task_type,
+                        title,
+                        description,
+                        workspace,
+                        assignee,
+                        reviewer,
+                        priority,
+                        ..
+                    },
+            }) => {
+                assert_eq!(task_type, "goal");
+                assert_eq!(title, "Ship board");
+                assert_eq!(description, "Implement workspace board");
+                assert_eq!(workspace, "main");
+                assert_eq!(assignee.as_deref(), Some("svarog"));
+                assert_eq!(reviewer, "user");
+                assert_eq!(priority, "high");
+            }
+            other => panic!("expected workspace new command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_list_subcommand_parses_filters() {
+        let cli = Cli::try_parse_from([
+            "tamux",
+            "workspace",
+            "list",
+            "--workspace",
+            "main",
+            "--status",
+            "in-review",
+            "--priority",
+            "urgent",
+            "--assignee",
+            "svarog",
+            "--reviewer",
+            "user",
+            "--include-deleted",
+        ])
+        .expect("workspace list filters should parse");
+        match cli.command {
+            Some(Commands::Workspace {
+                action:
+                    WorkspaceAction::List {
+                        workspace,
+                        include_deleted,
+                        status,
+                        priority,
+                        assignee,
+                        reviewer,
+                        ..
+                    },
+            }) => {
+                assert_eq!(workspace, "main");
+                assert!(include_deleted);
+                assert_eq!(status.as_deref(), Some("in-review"));
+                assert_eq!(priority.as_deref(), Some("urgent"));
+                assert_eq!(assignee.as_deref(), Some("svarog"));
+                assert_eq!(reviewer.as_deref(), Some("user"));
+            }
+            other => panic!("expected workspace list command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_update_subcommand_parses_editable_fields() {
+        let cli = Cli::try_parse_from([
+            "tamux",
+            "workspace",
+            "update",
+            "wtask_1",
+            "--title",
+            "New title",
+            "--description",
+            "New description",
+            "--dod",
+            "Tests pass",
+            "--priority",
+            "urgent",
+            "--assignee",
+            "svarog",
+            "--reviewer",
+            "none",
+        ])
+        .expect("workspace update subcommand should parse");
+        match cli.command {
+            Some(Commands::Workspace {
+                action:
+                    WorkspaceAction::Update {
+                        task_id,
+                        title,
+                        description,
+                        dod,
+                        priority,
+                        assignee,
+                        reviewer,
+                        ..
+                    },
+            }) => {
+                assert_eq!(task_id, "wtask_1");
+                assert_eq!(title.as_deref(), Some("New title"));
+                assert_eq!(description.as_deref(), Some("New description"));
+                assert_eq!(dod.as_deref(), Some("Tests pass"));
+                assert_eq!(priority.as_deref(), Some("urgent"));
+                assert_eq!(assignee.as_deref(), Some("svarog"));
+                assert_eq!(reviewer.as_deref(), Some("none"));
+            }
+            other => panic!("expected workspace update command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_move_subcommand_parses_sort_order() {
+        let cli = Cli::try_parse_from([
+            "tamux",
+            "workspace",
+            "move",
+            "wtask_1",
+            "in-review",
+            "--sort-order",
+            "4",
+        ])
+        .expect("workspace move subcommand should parse");
+        match cli.command {
+            Some(Commands::Workspace {
+                action:
+                    WorkspaceAction::Move {
+                        task_id,
+                        status,
+                        sort_order,
+                        ..
+                    },
+            }) => {
+                assert_eq!(task_id, "wtask_1");
+                assert_eq!(status, "in-review");
+                assert_eq!(sort_order, Some(4));
+            }
+            other => panic!("expected workspace move command, got {other:?}"),
         }
     }
 

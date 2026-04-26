@@ -232,6 +232,41 @@ impl DaemonClient {
                         .await;
                 }
             }
+            "workspace_task_update" => {
+                if let Some(task) = event.get("task").cloned().and_then(|raw| {
+                    serde_json::from_value::<amux_protocol::WorkspaceTask>(raw).ok()
+                }) {
+                    let _ = event_tx.send(ClientEvent::WorkspaceTaskUpdated(task)).await;
+                }
+            }
+            "workspace_settings_update" => {
+                if let Some(settings) = event.get("settings").cloned().and_then(|raw| {
+                    serde_json::from_value::<amux_protocol::WorkspaceSettings>(raw).ok()
+                }) {
+                    let _ = event_tx
+                        .send(ClientEvent::WorkspaceSettings(settings))
+                        .await;
+                }
+            }
+            "workspace_task_deleted" => {
+                let task_id = get_string(&event, "task_id").unwrap_or_default();
+                let deleted_at = event.get("deleted_at").and_then(Value::as_u64);
+                let _ = event_tx
+                    .send(ClientEvent::WorkspaceTaskDeleted {
+                        task_id,
+                        deleted_at,
+                    })
+                    .await;
+            }
+            "workspace_notice_update" => {
+                if let Some(notice) = event.get("notice").cloned().and_then(|raw| {
+                    serde_json::from_value::<amux_protocol::WorkspaceNotice>(raw).ok()
+                }) {
+                    let _ = event_tx
+                        .send(ClientEvent::WorkspaceNoticeUpdated(notice))
+                        .await;
+                }
+            }
             "weles_health_update" => {
                 let _ = event_tx
                     .send(ClientEvent::WelesHealthUpdate {

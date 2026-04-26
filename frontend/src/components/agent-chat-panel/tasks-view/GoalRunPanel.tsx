@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { GoalRun } from "../../../lib/goalRuns";
+import type { AgentRun } from "../../../lib/agentRuns";
 import { ActionButton, EmptyPanel, SectionTitle } from "../shared";
 import { GoalRunCard, GoalRunDetail } from "./GoalRunSection";
 import { inputBlockStyle, inputRowStyle, sectionLabelStyle } from "./styles";
@@ -19,6 +20,7 @@ interface GoalRunPanelProps {
   historicalGoalRuns: GoalRun[];
   completedGoalRuns: GoalRun[];
   selectedGoalRun: GoalRun | null;
+  selectedGoalRunAgentRuns: AgentRun[];
   selectedGoalRunId: string | null;
   goalActionId: string | null;
   onSelectGoalRun: (goalRunId: string) => void;
@@ -55,6 +57,7 @@ export function GoalRunPanel({
   historicalGoalRuns,
   completedGoalRuns,
   selectedGoalRun,
+  selectedGoalRunAgentRuns,
   selectedGoalRunId,
   goalActionId,
   onSelectGoalRun,
@@ -280,6 +283,7 @@ export function GoalRunPanel({
               />
               <GoalRunDetail
                 goalRun={selectedGoalRun}
+                agentRuns={selectedGoalRunAgentRuns}
                 busy={goalActionId === selectedGoalRun.id}
                 onRetryStep={(stepIndex) =>
                   onChangeGoalRunState(

@@ -1003,6 +1003,7 @@ impl AgentEngine {
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
             estimated_cost_usd: None,
+            model_usage: Vec::new(),
             autonomy_level: autonomy_level
                 .as_deref()
                 .map(super::autonomy::AutonomyLevel::from_str_or_default)

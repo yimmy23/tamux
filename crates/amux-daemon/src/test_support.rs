@@ -7,8 +7,12 @@ fn env_lock_cell() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-pub(crate) fn env_test_lock() -> MutexGuard<'static, ()> {
+pub(crate) fn env_test_mutex() -> &'static Mutex<()> {
     env_lock_cell()
+}
+
+pub(crate) fn env_test_lock() -> MutexGuard<'static, ()> {
+    env_test_mutex()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

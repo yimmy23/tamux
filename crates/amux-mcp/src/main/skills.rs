@@ -7,6 +7,10 @@ pub(super) fn tamux_skills_dir() -> PathBuf {
     amux_protocol::tamux_skills_dir()
 }
 
+pub(super) fn tamux_guidelines_dir() -> PathBuf {
+    amux_protocol::tamux_guidelines_dir()
+}
+
 pub(super) fn collect_skill_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     if !dir.exists() {
         return Ok(());
@@ -44,36 +48,92 @@ pub(super) fn collect_skill_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Res
     Ok(())
 }
 
-pub(super) fn resolve_skill_path(skills_root: &Path, skill: &str) -> Result<PathBuf> {
-    if skill.trim().is_empty() {
-        anyhow::bail!("skill must not be empty");
+pub(super) fn collect_guideline_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    if !dir.exists() {
+        return Ok(());
     }
 
-    let root_canonical = std::fs::canonicalize(skills_root).unwrap_or(skills_root.to_path_buf());
-    let candidate = Path::new(skill);
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_guideline_documents(&path, out)?;
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let include = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("md"));
+        if include {
+            out.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+pub(super) fn resolve_skill_path(skills_root: &Path, skill: &str) -> Result<PathBuf> {
+    resolve_document_path(
+        skills_root,
+        skill,
+        "skill",
+        collect_skill_documents,
+        "skill must not be empty",
+    )
+}
+
+pub(super) fn resolve_guideline_path(guidelines_root: &Path, guideline: &str) -> Result<PathBuf> {
+    resolve_document_path(
+        guidelines_root,
+        guideline,
+        "guideline",
+        collect_guideline_documents,
+        "guideline must not be empty",
+    )
+}
+
+fn resolve_document_path(
+    documents_root: &Path,
+    lookup: &str,
+    kind: &str,
+    collect_documents: fn(&Path, &mut Vec<PathBuf>) -> Result<()>,
+    empty_message: &str,
+) -> Result<PathBuf> {
+    if lookup.trim().is_empty() {
+        anyhow::bail!("{empty_message}");
+    }
+
+    let root_canonical =
+        std::fs::canonicalize(documents_root).unwrap_or(documents_root.to_path_buf());
+    let candidate = Path::new(lookup);
     if candidate.components().count() > 1 || candidate.is_absolute() {
         let full = if candidate.is_absolute() {
             candidate.to_path_buf()
         } else {
-            skills_root.join(candidate)
+            documents_root.join(candidate)
         };
         let canonical = std::fs::canonicalize(&full)
-            .with_context(|| format!("skill '{}' was not found", skill))?;
+            .with_context(|| format!("{kind} '{}' was not found", lookup))?;
         if !canonical.starts_with(&root_canonical) {
-            anyhow::bail!("skill path must stay inside {}", skills_root.display());
+            anyhow::bail!("{kind} path must stay inside {}", documents_root.display());
         }
         return Ok(canonical);
     }
 
     let mut files = Vec::new();
-    collect_skill_documents(skills_root, &mut files)?;
+    collect_documents(documents_root, &mut files)?;
     files.sort();
-    let normalized = normalize_skill_lookup(skill);
+    let normalized = normalize_skill_lookup(lookup);
 
     for path in &files {
         let relative = path
             .strip_prefix(&root_canonical)
-            .or_else(|_| path.strip_prefix(skills_root))
+            .or_else(|_| path.strip_prefix(documents_root))
             .unwrap_or(path.as_path())
             .to_string_lossy()
             .replace('\\', "/");
@@ -88,7 +148,7 @@ pub(super) fn resolve_skill_path(skills_root: &Path, skill: &str) -> Result<Path
     for path in &files {
         let relative = path
             .strip_prefix(&root_canonical)
-            .or_else(|_| path.strip_prefix(skills_root))
+            .or_else(|_| path.strip_prefix(documents_root))
             .unwrap_or(path.as_path())
             .to_string_lossy()
             .replace('\\', "/");
@@ -101,9 +161,9 @@ pub(super) fn resolve_skill_path(skills_root: &Path, skill: &str) -> Result<Path
     }
 
     anyhow::bail!(
-        "skill '{}' was not found under {}",
-        skill,
-        skills_root.display()
+        "{kind} '{}' was not found under {}",
+        lookup,
+        documents_root.display()
     )
 }
 
@@ -146,13 +206,21 @@ fn skill_lookup_keys(path: &Path, relative: &str, content: &str) -> Vec<String> 
 }
 
 fn extract_skill_frontmatter_name(content: &str) -> Option<String> {
+    extract_frontmatter_string(content, "name")
+}
+
+fn extract_frontmatter(content: &str) -> Option<Value> {
     let rest = content.strip_prefix("---\n")?;
     let split_at = rest.find("\n---\n")?;
     let yaml = &rest[..split_at];
-    let frontmatter = serde_yaml::from_str::<Value>(yaml).ok()?;
+    serde_yaml::from_str::<Value>(yaml).ok()
+}
+
+fn extract_frontmatter_string(content: &str, key: &str) -> Option<String> {
+    let frontmatter = extract_frontmatter(content)?;
     frontmatter
         .as_mapping()
-        .and_then(|mapping| mapping.get(Value::String("name".to_string())))
+        .and_then(|mapping| mapping.get(Value::String(key.to_string())))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -214,6 +282,32 @@ mod tests {
             .expect("skill should resolve by frontmatter name");
 
         assert_eq!(resolved, skill_path);
+
+        std::fs::remove_dir_all(root).expect("remove temp directory");
+    }
+
+    #[test]
+    fn resolve_guideline_path_matches_frontmatter_name() {
+        let root = std::env::temp_dir().join(format!(
+            "tamux-mcp-guidelines-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let guidelines_root = root.join("guidelines");
+        let guideline_path = guidelines_root.join("coding-task.md");
+        std::fs::create_dir_all(&guidelines_root).expect("create guideline directory");
+        std::fs::write(
+            &guideline_path,
+            "---\nname: coding-task\ndescription: Use before implementing code.\nrecommended_skills:\n  - test-driven-development\n---\n# Coding Task\n",
+        )
+        .expect("write guideline");
+
+        let resolved = resolve_guideline_path(&guidelines_root, "coding-task")
+            .expect("guideline should resolve by frontmatter name");
+
+        assert_eq!(resolved, guideline_path);
 
         std::fs::remove_dir_all(root).expect("remove temp directory");
     }

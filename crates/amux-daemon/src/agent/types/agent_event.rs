@@ -143,6 +143,20 @@ pub enum AgentEvent {
     NotificationInboxUpsert {
         notification: amux_protocol::InboxNotification,
     },
+    WorkspaceSettingsUpdate {
+        settings: amux_protocol::WorkspaceSettings,
+    },
+    WorkspaceTaskUpdate {
+        task: amux_protocol::WorkspaceTask,
+    },
+    WorkspaceTaskDeleted {
+        task_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deleted_at: Option<u64>,
+    },
+    WorkspaceNoticeUpdate {
+        notice: amux_protocol::WorkspaceNotice,
+    },
     /// Request to send a message via a gateway platform (Slack/Discord/Telegram/WhatsApp).
     GatewaySend {
         platform: String,

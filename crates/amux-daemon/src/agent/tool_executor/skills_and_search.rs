@@ -108,6 +108,210 @@ async fn execute_discover_skills(
         .map_err(|error| anyhow::anyhow!("failed to serialize skill discovery result: {error}"))
 }
 
+async fn execute_list_guidelines(
+    args: &serde_json::Value,
+    agent_data_dir: &std::path::Path,
+) -> Result<String> {
+    let guidelines_root = super::guidelines_dir(agent_data_dir);
+    let query = args
+        .get("query")
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty());
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(20)
+        .clamp(1, 100) as usize;
+
+    let mut files = Vec::new();
+    collect_skill_documents(&guidelines_root, &mut files)?;
+    files.sort();
+    let mut entries = files
+        .into_iter()
+        .filter_map(|path| {
+            let relative = path
+                .strip_prefix(&guidelines_root)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let name = path.file_stem()?.to_str()?.to_string();
+            Some((name, relative))
+        })
+        .filter(|(name, relative)| match query.as_ref() {
+            Some(needle) => {
+                name.to_ascii_lowercase().contains(needle)
+                    || relative.to_ascii_lowercase().contains(needle)
+            }
+            None => true,
+        })
+        .collect::<Vec<_>>();
+    entries.truncate(limit);
+
+    if entries.is_empty() {
+        return Ok(format!(
+            "No local guidelines matched under {}.",
+            guidelines_root.display()
+        ));
+    }
+
+    let mut body = format!("Local guidelines under {}:\n", guidelines_root.display());
+    for (name, relative) in entries {
+        body.push_str(&format!("- {name} ({relative})\n"));
+    }
+    Ok(body)
+}
+
+async fn execute_discover_guidelines(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    current_session_id: Option<SessionId>,
+) -> Result<String> {
+    let query = args
+        .get("query")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'query' argument"))?;
+
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(3)
+        .clamp(1, 20) as usize;
+    let cursor = args
+        .get("cursor")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let session_id = args
+        .get("session")
+        .or_else(|| args.get("session_id"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            SessionId::parse_str(value)
+                .map_err(|error| anyhow::anyhow!("invalid session `{value}`: {error}"))
+        })
+        .transpose()?
+        .or(current_session_id);
+
+    let result = agent
+        .discover_guideline_recommendations_public(query, session_id, limit, cursor)
+        .await?;
+    serde_json::to_string(&result).map_err(|error| {
+        anyhow::anyhow!("failed to serialize guideline discovery result: {error}")
+    })
+}
+
+async fn execute_read_guideline(
+    args: &serde_json::Value,
+    agent_data_dir: &std::path::Path,
+) -> Result<String> {
+    let guideline = args
+        .get("guideline")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'guideline' argument"))?
+        .trim();
+    if guideline.is_empty() {
+        return Err(anyhow::anyhow!("'guideline' must not be empty"));
+    }
+
+    let max_lines = args
+        .get("max_lines")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(200)
+        .clamp(20, 1000) as usize;
+    let guidelines_root = super::guidelines_dir(agent_data_dir);
+    let guideline_path = resolve_guideline_document_path(&guidelines_root, guideline)?;
+    let content = tokio::fs::read_to_string(&guideline_path).await?;
+    let total_lines = content.lines().count();
+    let lines = content.lines().take(max_lines).collect::<Vec<_>>();
+    let relative = guideline_path
+        .strip_prefix(&guidelines_root)
+        .unwrap_or(guideline_path.as_path())
+        .display()
+        .to_string();
+
+    let mut body = format!("Guideline {}:\n\n{}", relative, lines.join("\n"));
+    if total_lines > max_lines {
+        body.push_str(&format!(
+            "\n\n... (truncated, showing {max_lines} of {total_lines} lines)"
+        ));
+    }
+    Ok(body)
+}
+
+fn resolve_guideline_document_path(
+    guidelines_root: &std::path::Path,
+    guideline: &str,
+) -> Result<std::path::PathBuf> {
+    validate_read_path(guideline)?;
+    let root_canonical =
+        std::fs::canonicalize(guidelines_root).unwrap_or(guidelines_root.to_path_buf());
+    let direct_candidate = std::path::Path::new(guideline);
+    if direct_candidate.components().count() > 1 || direct_candidate.is_absolute() {
+        let candidate = if direct_candidate.is_absolute() {
+            direct_candidate.to_path_buf()
+        } else {
+            guidelines_root.join(direct_candidate)
+        };
+        let canonical = std::fs::canonicalize(&candidate)
+            .with_context(|| format!("guideline '{}' was not found", guideline))?;
+        if !canonical.starts_with(&root_canonical) {
+            anyhow::bail!("guideline path must stay inside {}", guidelines_root.display());
+        }
+        return Ok(canonical);
+    }
+
+    let mut files = Vec::new();
+    collect_skill_documents(guidelines_root, &mut files)?;
+    let normalized = guideline.to_lowercase();
+
+    files.sort();
+    for path in &files {
+        let relative = path
+            .strip_prefix(&root_canonical)
+            .or_else(|_| path.strip_prefix(guidelines_root))
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if stem == normalized || relative.to_lowercase() == normalized {
+            return Ok(path.clone());
+        }
+    }
+
+    for path in &files {
+        let relative = path
+            .strip_prefix(&root_canonical)
+            .or_else(|_| path.strip_prefix(guidelines_root))
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if stem.contains(&normalized) || relative.to_lowercase().contains(&normalized) {
+            return Ok(path.clone());
+        }
+    }
+
+    anyhow::bail!(
+        "guideline '{}' was not found under {}",
+        guideline,
+        guidelines_root.display()
+    )
+}
+
 fn parse_clamped_non_negative_usize_arg(
     args: &serde_json::Value,
     key: &str,
@@ -190,15 +394,7 @@ async fn execute_read_skill(
     thread_id: &str,
     task_id: Option<&str>,
 ) -> Result<String> {
-    let skill = args
-        .get("skill")
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'skill' argument"))?
-        .trim();
-    if skill.is_empty() {
-        return Err(anyhow::anyhow!("'skill' must not be empty"));
-    }
-
+    let skills = parse_read_skill_targets(args)?;
     let max_lines = args
         .get("max_lines")
         .and_then(|value| value.as_u64())
@@ -209,6 +405,77 @@ async fn execute_read_skill(
     let context_tags =
         resolve_skill_context_tags(agent.workspace_root.as_ref(), session_manager, session_id)
             .await;
+
+    let mut bodies = Vec::with_capacity(skills.len());
+    for skill in &skills {
+        bodies.push(
+            read_single_skill(
+                skill,
+                max_lines,
+                agent,
+                history,
+                thread_id,
+                task_id,
+                &skills_root,
+                &context_tags,
+            )
+            .await?,
+        );
+    }
+
+    Ok(bodies.join("\n\n---\n\n"))
+}
+
+fn parse_read_skill_targets(args: &serde_json::Value) -> Result<Vec<String>> {
+    let mut skills = Vec::new();
+
+    if let Some(skill) = args.get("skill") {
+        let skill = skill
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("'skill' must be a string"))?
+            .trim();
+        if skill.is_empty() {
+            return Err(anyhow::anyhow!("'skill' must not be empty"));
+        }
+        skills.push(skill.to_string());
+    }
+
+    if let Some(values) = args.get("skills") {
+        let values = values
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("'skills' must be an array of strings"))?;
+        if values.is_empty() {
+            return Err(anyhow::anyhow!("'skills' must not be empty"));
+        }
+        for (index, value) in values.iter().enumerate() {
+            let skill = value
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("'skills[{index}]' must be a string"))?
+                .trim();
+            if skill.is_empty() {
+                return Err(anyhow::anyhow!("'skills[{index}]' must not be empty"));
+            }
+            skills.push(skill.to_string());
+        }
+    }
+
+    if skills.is_empty() {
+        anyhow::bail!("missing 'skill' or 'skills' argument");
+    }
+
+    Ok(skills)
+}
+
+async fn read_single_skill(
+    skill: &str,
+    max_lines: usize,
+    agent: &AgentEngine,
+    history: &HistoryStore,
+    thread_id: &str,
+    task_id: Option<&str>,
+    skills_root: &std::path::Path,
+    context_tags: &[String],
+) -> Result<String> {
     let variant = history.resolve_skill_variant(skill, &context_tags).await?;
     let candidate_variants = match variant.as_ref() {
         Some(selected) => history
@@ -404,6 +671,18 @@ async fn execute_update_todo(
                         "goal-owned main-task update_todo must use goal_step_id '{}' but received '{}'",
                         expected_goal_step_id,
                         provided_goal_step_id
+                    ));
+                }
+                if matches!(
+                    context.step_status,
+                    Some(
+                        crate::agent::types::GoalRunStepStatus::Completed
+                            | crate::agent::types::GoalRunStepStatus::Failed
+                            | crate::agent::types::GoalRunStepStatus::Skipped
+                    )
+                ) {
+                    return Err(anyhow::anyhow!(
+                        "goal-step todos are closed for this step; closed steps cannot update todo items or statuses"
                     ));
                 }
             }

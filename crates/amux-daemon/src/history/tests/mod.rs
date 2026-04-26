@@ -26,3 +26,4 @@ mod sqlite_audit;
 mod statistics;
 mod temporal_foresight;
 mod tombstones_gateway;
+mod workspaces;

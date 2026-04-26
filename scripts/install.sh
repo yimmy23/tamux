@@ -8,6 +8,7 @@ set -eu
 
 INSTALL_DIR="${TAMUX_INSTALL_DIR:-$HOME/.local/bin}"
 SKILLS_DIR="${TAMUX_SKILLS_DIR:-$HOME/.tamux/skills}"
+GUIDELINES_DIR="${TAMUX_GUIDELINES_DIR:-$HOME/.tamux/guidelines}"
 GITHUB_OWNER="mkurman"
 GITHUB_REPO="tamux"
 GITHUB_API_URL="https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}"
@@ -216,6 +217,28 @@ install_skills() {
   echo "Installed bundled skills -> ${SKILLS_DIR}"
 }
 
+install_guidelines() {
+  guidelines_source="$EXTRACT_DIR/guidelines"
+  if [ ! -d "$guidelines_source" ]; then
+    die "Release bundle is missing bundled guidelines"
+  fi
+
+  mkdir -p "$GUIDELINES_DIR"
+  (
+    cd "$guidelines_source"
+    find . -type f | while IFS= read -r relative_path; do
+      relative_path="${relative_path#./}"
+      target_path="$GUIDELINES_DIR/$relative_path"
+      if [ -e "$target_path" ]; then
+        continue
+      fi
+      mkdir -p "$(dirname "$target_path")"
+      cp "$guidelines_source/$relative_path" "$target_path"
+    done
+  )
+  echo "Installed missing bundled guidelines -> ${GUIDELINES_DIR}"
+}
+
 install_custom_auth_template() {
   root_dir="${HOME}/.tamux"
   custom_auth_path="${root_dir}/custom-auth.yaml"
@@ -287,6 +310,7 @@ if [ "$DRY_RUN" = true ]; then
   echo "Checksum URL: ${CHECKSUM_URL}"
   echo "Install directory: ${INSTALL_DIR}"
   echo "Skills directory: ${SKILLS_DIR}"
+  echo "Guidelines directory: ${GUIDELINES_DIR}"
   echo "Binaries: ${BINARIES}"
   echo "Dry run complete -- no files downloaded or modified."
   exit 0
@@ -310,12 +334,13 @@ if verify_archive; then
   verify_extracted_binaries=false
 fi
 
-echo "Extracting binaries and skills..."
+echo "Extracting binaries, skills, and guidelines..."
 extract_archive
 
 echo "Verifying extracted binaries..."
 install_binaries "$verify_extracted_binaries"
 install_skills
+install_guidelines
 install_custom_auth_template
 start_daemon_after_upgrade
 

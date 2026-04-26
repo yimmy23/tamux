@@ -43,7 +43,21 @@ if matches!(
         ClientMessage::AgentGetSubsystemMetrics |
         ClientMessage::AgentListCheckpoints{ .. } |
         ClientMessage::AgentRestoreCheckpoint{ .. } |
-        ClientMessage::AgentGetHealthStatus
+        ClientMessage::AgentGetHealthStatus |
+        ClientMessage::AgentListWorkspaceSettings |
+        ClientMessage::AgentGetWorkspaceSettings{ .. } |
+        ClientMessage::AgentSetWorkspaceOperator{ .. } |
+        ClientMessage::AgentCreateWorkspaceTask{ .. } |
+        ClientMessage::AgentListWorkspaceTasks{ .. } |
+        ClientMessage::AgentGetWorkspaceTask{ .. } |
+        ClientMessage::AgentUpdateWorkspaceTask{ .. } |
+        ClientMessage::AgentMoveWorkspaceTask{ .. } |
+        ClientMessage::AgentRunWorkspaceTask{ .. } |
+        ClientMessage::AgentPauseWorkspaceTask{ .. } |
+        ClientMessage::AgentStopWorkspaceTask{ .. } |
+        ClientMessage::AgentDeleteWorkspaceTask{ .. } |
+        ClientMessage::AgentSubmitWorkspaceReview{ .. } |
+        ClientMessage::AgentListWorkspaceNotices{ .. }
     ) {
         match msg {
                 ClientMessage::AgentRecordAttention {
@@ -1065,6 +1079,304 @@ if matches!(
                         .await
                         .ok();
                 }
+
+                ClientMessage::AgentListWorkspaceSettings => {
+                    match agent.history.list_workspace_settings().await {
+                        Ok(settings) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceSettingsList { settings })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetWorkspaceSettings { workspace_id } => {
+                    match agent.get_or_create_workspace_settings(&workspace_id).await {
+                        Ok(settings) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceSettings { settings })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentSetWorkspaceOperator {
+                    workspace_id,
+                    operator,
+                } => match agent
+                    .set_workspace_operator_deferred_auto_start(&workspace_id, operator)
+                    .await
+                {
+                    Ok(settings) => {
+                        framed
+                            .send(DaemonMessage::AgentWorkspaceSettings { settings })
+                            .await?;
+                    }
+                    Err(error) => {
+                        framed
+                            .send(DaemonMessage::AgentWorkspaceError {
+                                message: error.to_string(),
+                            })
+                            .await?;
+                    }
+                },
+
+                ClientMessage::AgentCreateWorkspaceTask { request } => {
+                    match agent
+                        .create_workspace_task_deferred_auto_start(
+                            request,
+                            amux_protocol::WorkspaceActor::User,
+                        )
+                        .await
+                    {
+                        Ok(task) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskUpdated { task })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentListWorkspaceTasks {
+                    workspace_id,
+                    include_deleted,
+                } => match agent
+                    .list_workspace_tasks(&workspace_id, include_deleted)
+                    .await
+                {
+                    Ok(tasks) => {
+                        framed
+                            .send(DaemonMessage::AgentWorkspaceTaskList {
+                                workspace_id,
+                                tasks,
+                            })
+                            .await?;
+                    }
+                    Err(error) => {
+                        framed
+                            .send(DaemonMessage::AgentWorkspaceError {
+                                message: error.to_string(),
+                            })
+                            .await?;
+                    }
+                },
+
+                ClientMessage::AgentGetWorkspaceTask { task_id } => {
+                    match agent.get_workspace_task(&task_id).await {
+                        Ok(task) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskDetail { task })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentUpdateWorkspaceTask { task_id, update } => {
+                    match agent
+                        .update_workspace_task_deferred_auto_start(&task_id, update)
+                        .await
+                    {
+                        Ok(Some(task)) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskUpdated { task })
+                                .await?;
+                        }
+                        Ok(None) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskDetail { task: None })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentMoveWorkspaceTask { request } => {
+                    match agent.move_workspace_task_deferred_auto_start(request).await {
+                        Ok(Some(task)) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskUpdated { task })
+                                .await?;
+                        }
+                        Ok(None) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskDetail { task: None })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentRunWorkspaceTask { task_id } => {
+                    match agent.run_workspace_task(&task_id).await {
+                        Ok(task) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskUpdated { task })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentPauseWorkspaceTask { task_id } => {
+                    match agent.pause_workspace_task(&task_id).await {
+                        Ok(Some(task)) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskUpdated { task })
+                                .await?;
+                        }
+                        Ok(None) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskDetail { task: None })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentStopWorkspaceTask { task_id } => {
+                    match agent.stop_workspace_task(&task_id).await {
+                        Ok(Some(task)) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskUpdated { task })
+                                .await?;
+                        }
+                        Ok(None) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskDetail { task: None })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentDeleteWorkspaceTask { task_id } => {
+                    match agent.delete_workspace_task(&task_id).await {
+                        Ok(Some(task)) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskDeleted {
+                                    task_id: task.id,
+                                    deleted_at: task.deleted_at,
+                                })
+                                .await?;
+                        }
+                        Ok(None) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskDetail { task: None })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentSubmitWorkspaceReview { review } => {
+                    match agent.submit_workspace_review(review).await {
+                        Ok(Some(task)) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskUpdated { task })
+                                .await?;
+                        }
+                        Ok(None) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceTaskDetail { task: None })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentWorkspaceError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentListWorkspaceNotices {
+                    workspace_id,
+                    task_id,
+                } => match agent
+                    .list_workspace_notices(&workspace_id, task_id.as_deref())
+                    .await
+                {
+                    Ok(notices) => {
+                        framed
+                            .send(DaemonMessage::AgentWorkspaceNoticeList {
+                                workspace_id,
+                                notices,
+                            })
+                            .await?;
+                    }
+                    Err(error) => {
+                        framed
+                            .send(DaemonMessage::AgentWorkspaceError {
+                                message: error.to_string(),
+                            })
+                            .await?;
+                    }
+                },
 
             _ => unreachable!("message chunk should be exhaustive"),
         }

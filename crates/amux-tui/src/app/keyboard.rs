@@ -227,13 +227,14 @@ impl TuiModel {
                 KeyCode::Char('3') => {
                     Some(crate::state::goal_workspace::GoalWorkspaceMode::Progress)
                 }
-                KeyCode::Char('4') => {
+                KeyCode::Char('4') => Some(crate::state::goal_workspace::GoalWorkspaceMode::Usage),
+                KeyCode::Char('5') => {
                     Some(crate::state::goal_workspace::GoalWorkspaceMode::ActiveAgent)
                 }
-                KeyCode::Char('5') => {
+                KeyCode::Char('6') => {
                     Some(crate::state::goal_workspace::GoalWorkspaceMode::Threads)
                 }
-                KeyCode::Char('6') => {
+                KeyCode::Char('7') => {
                     Some(crate::state::goal_workspace::GoalWorkspaceMode::NeedsAttention)
                 }
                 _ => None,
@@ -275,7 +276,56 @@ impl TuiModel {
             return false;
         }
 
-        if !self.chat.active_actions().is_empty() && self.focus == FocusArea::Chat {
+        if self.focus == FocusArea::Chat
+            && matches!(self.main_pane_view, MainPaneView::Workspace)
+            && !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            match code {
+                KeyCode::Left | KeyCode::Up => {
+                    self.step_workspace_board_selection(-1);
+                    return false;
+                }
+                KeyCode::Right | KeyCode::Down | KeyCode::Tab => {
+                    self.step_workspace_board_selection(1);
+                    return false;
+                }
+                KeyCode::BackTab => {
+                    self.step_workspace_board_selection(-1);
+                    return false;
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.activate_workspace_board_selection();
+                    return false;
+                }
+                KeyCode::Char('n') => {
+                    self.open_workspace_create_modal(amux_protocol::WorkspaceTaskType::Thread);
+                    return false;
+                }
+                KeyCode::Char('a') => {
+                    self.switch_workspace_operator_from_ui(
+                        amux_protocol::WorkspaceOperator::Svarog,
+                    );
+                    self.status_line = "Switching workspace operator to svarog...".to_string();
+                    return false;
+                }
+                KeyCode::Char('u') => {
+                    self.switch_workspace_operator_from_ui(amux_protocol::WorkspaceOperator::User);
+                    self.status_line = "Switching workspace operator to user...".to_string();
+                    return false;
+                }
+                KeyCode::Char('r') => {
+                    self.refresh_workspace_board();
+                    self.status_line = "Refreshing workspace...".to_string();
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
+        if matches!(self.main_pane_view, MainPaneView::Conversation)
+            && !self.chat.active_actions().is_empty()
+            && self.focus == FocusArea::Chat
+        {
             match code {
                 KeyCode::Left | KeyCode::Up => {
                     self.navigate_visible_concierge_action(-1);
@@ -584,6 +634,7 @@ impl TuiModel {
                     if self.focus == FocusArea::Chat {
                         match &self.main_pane_view {
                             MainPaneView::Collaboration
+                            | MainPaneView::Workspace
                             | MainPaneView::Task(_)
                             | MainPaneView::WorkContext
                             | MainPaneView::FilePreview(_)
@@ -886,9 +937,11 @@ impl TuiModel {
             }
             KeyCode::Char('b')
                 if self.focus == FocusArea::Chat
-                    && matches!(self.main_pane_view, MainPaneView::Conversation)
-                    && (self.mission_control_return_to_thread_id().is_some()
-                        || self.mission_control_return_to_goal_target().is_some()) =>
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Conversation | MainPaneView::Task(_)
+                    )
+                    && self.has_mission_control_return_target() =>
             {
                 let _ = self.return_from_mission_control_navigation();
             }

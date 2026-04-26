@@ -115,6 +115,17 @@ impl<'a> SendMessageRunner<'a> {
                         None,
                     )
                     .await;
+                if let Err(error) = self
+                    .engine
+                    .complete_workspace_thread_task_by_thread_id(&self.tid)
+                    .await
+                {
+                    tracing::warn!(
+                        thread_id = %self.tid,
+                        error = %error,
+                        "failed to complete workspace thread task"
+                    );
+                }
                 let _ = self.engine.event_tx.send(AgentEvent::Done {
                     thread_id: self.tid.clone(),
                     input_tokens: 0,
@@ -229,9 +240,21 @@ impl<'a> SendMessageRunner<'a> {
                 output_tokens,
                 &self.config.provider,
                 &self.provider_config.model,
+                generation_ms,
             )
             .await;
         self.provider_final_result = provider_final_result.clone();
+        if let Err(error) = self
+            .engine
+            .complete_workspace_thread_task_by_thread_id(&self.tid)
+            .await
+        {
+            tracing::warn!(
+                thread_id = %self.tid,
+                error = %error,
+                "failed to complete workspace thread task"
+            );
+        }
 
         let _ = self.engine.event_tx.send(AgentEvent::Done {
             thread_id: self.tid.clone(),

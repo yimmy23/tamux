@@ -43,6 +43,32 @@ export interface GoalRunEvent {
     todo_snapshot: TodoItem[];
 }
 
+export interface GoalRunModelUsage {
+    provider: string;
+    model: string;
+    request_count: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    estimated_cost_usd?: number | null;
+    duration_ms?: number | null;
+}
+
+export interface GoalRuntimeOwnerProfile {
+    agent_label: string;
+    provider: string;
+    model: string;
+    reasoning_effort?: string | null;
+}
+
+export interface GoalAgentAssignment {
+    role_id: string;
+    enabled: boolean;
+    provider: string;
+    model: string;
+    reasoning_effort?: string | null;
+    inherit_from_main: boolean;
+}
+
 export interface GoalRun {
     id: string;
     title: string;
@@ -73,6 +99,14 @@ export interface GoalRun {
     session_id?: string | null;
     awaiting_approval_id?: string | null;
     active_task_id?: string | null;
+    total_prompt_tokens?: number | null;
+    total_completion_tokens?: number | null;
+    estimated_cost_usd?: number | null;
+    model_usage?: GoalRunModelUsage[];
+    launch_assignment_snapshot?: GoalAgentAssignment[];
+    runtime_assignment_list?: GoalAgentAssignment[];
+    planner_owner_profile?: GoalRuntimeOwnerProfile | null;
+    current_step_owner_profile?: GoalRuntimeOwnerProfile | null;
     steps?: GoalRunStep[];
     events?: GoalRunEvent[];
 }
@@ -134,6 +168,90 @@ function toStringArray(value: unknown): string[] {
 
 function toNumberOrNull(value: unknown): number | null {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function toStringOrEmpty(value: unknown): string {
+    return typeof value === "string" ? value : "";
+}
+
+function normalizeOwnerProfile(raw: unknown): GoalRuntimeOwnerProfile | null {
+    const profile = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : null;
+    if (!profile) {
+        return null;
+    }
+
+    const agentLabel = toStringOrEmpty(profile.agent_label ?? profile.agentLabel);
+    const provider = toStringOrEmpty(profile.provider);
+    const model = toStringOrEmpty(profile.model);
+    if (!agentLabel || !provider || !model) {
+        return null;
+    }
+
+    return {
+        agent_label: agentLabel,
+        provider,
+        model,
+        reasoning_effort: typeof profile.reasoning_effort === "string"
+            ? profile.reasoning_effort
+            : typeof profile.reasoningEffort === "string"
+                ? profile.reasoningEffort
+                : null,
+    };
+}
+
+function normalizeAssignmentList(raw: unknown): GoalAgentAssignment[] {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+
+    return raw
+        .map((entry): GoalAgentAssignment | null => {
+            const assignment = (entry && typeof entry === "object") ? (entry as Record<string, unknown>) : {};
+            const roleId = toStringOrEmpty(assignment.role_id ?? assignment.roleId);
+            if (!roleId) {
+                return null;
+            }
+
+            return {
+                role_id: roleId,
+                enabled: typeof assignment.enabled === "boolean" ? assignment.enabled : true,
+                provider: toStringOrEmpty(assignment.provider),
+                model: toStringOrEmpty(assignment.model),
+                reasoning_effort: typeof assignment.reasoning_effort === "string"
+                    ? assignment.reasoning_effort
+                    : typeof assignment.reasoningEffort === "string"
+                        ? assignment.reasoningEffort
+                        : null,
+                inherit_from_main: Boolean(assignment.inherit_from_main ?? assignment.inheritFromMain),
+            };
+        })
+        .filter((entry): entry is GoalAgentAssignment => entry !== null);
+}
+
+function normalizeModelUsage(raw: unknown): GoalRunModelUsage[] {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+
+    return raw
+        .map((entry): GoalRunModelUsage | null => {
+            const usage = (entry && typeof entry === "object") ? (entry as Record<string, unknown>) : {};
+            const provider = typeof usage.provider === "string" ? usage.provider : "";
+            const model = typeof usage.model === "string" ? usage.model : "";
+            if (!provider || !model) {
+                return null;
+            }
+            return {
+                provider,
+                model,
+                request_count: toNumberOrNull(usage.request_count ?? usage.requestCount) ?? 0,
+                prompt_tokens: toNumberOrNull(usage.prompt_tokens ?? usage.promptTokens) ?? 0,
+                completion_tokens: toNumberOrNull(usage.completion_tokens ?? usage.completionTokens) ?? 0,
+                estimated_cost_usd: toNumberOrNull(usage.estimated_cost_usd ?? usage.estimatedCostUsd),
+                duration_ms: toNumberOrNull(usage.duration_ms ?? usage.durationMs),
+            };
+        })
+        .filter((entry): entry is GoalRunModelUsage => entry !== null);
 }
 
 function toTodoStatus(value: unknown): TodoStatus {
@@ -292,6 +410,22 @@ export function normalizeGoalRun(raw: unknown): GoalRun | null {
         child_task_count: toNumberOrNull(goalRun.child_task_count ?? goalRun.childTaskCount),
         approval_count: toNumberOrNull(goalRun.approval_count ?? goalRun.approvalCount),
         duration_ms: toNumberOrNull(goalRun.duration_ms ?? goalRun.durationMs),
+        total_prompt_tokens: toNumberOrNull(goalRun.total_prompt_tokens ?? goalRun.totalPromptTokens),
+        total_completion_tokens: toNumberOrNull(goalRun.total_completion_tokens ?? goalRun.totalCompletionTokens),
+        estimated_cost_usd: toNumberOrNull(goalRun.estimated_cost_usd ?? goalRun.estimatedCostUsd),
+        model_usage: normalizeModelUsage(goalRun.model_usage ?? goalRun.modelUsage),
+        launch_assignment_snapshot: normalizeAssignmentList(
+            goalRun.launch_assignment_snapshot ?? goalRun.launchAssignmentSnapshot,
+        ),
+        runtime_assignment_list: normalizeAssignmentList(
+            goalRun.runtime_assignment_list ?? goalRun.runtimeAssignmentList,
+        ),
+        planner_owner_profile: normalizeOwnerProfile(
+            goalRun.planner_owner_profile ?? goalRun.plannerOwnerProfile,
+        ),
+        current_step_owner_profile: normalizeOwnerProfile(
+            goalRun.current_step_owner_profile ?? goalRun.currentStepOwnerProfile,
+        ),
         session_id: typeof goalRun.session_id === "string"
             ? goalRun.session_id
             : typeof goalRun.sessionId === "string"

@@ -6,8 +6,8 @@ use super::agent_bridge::initial_bridge_messages;
 use super::agent_protocol::AgentBridgeCommand;
 use super::connection::closed_connection_error;
 use super::skill_api::{
-    parse_skill_discover_terminal_response, parse_skill_import_terminal_response,
-    parse_skill_publish_terminal_response,
+    parse_guideline_discover_terminal_response, parse_skill_discover_terminal_response,
+    parse_skill_import_terminal_response, parse_skill_publish_terminal_response,
 };
 use amux_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
 use futures::{SinkExt, StreamExt};
@@ -85,6 +85,31 @@ fn skill_discover_terminal_response_parses_result_payload() {
 
     assert_eq!(parsed.query, "debug panic");
     assert_eq!(parsed.confidence_tier, "strong");
+}
+
+#[test]
+fn guideline_discover_terminal_response_parses_result_payload() {
+    let parsed =
+        parse_guideline_discover_terminal_response(DaemonMessage::GuidelineDiscoverResult {
+            result_json: serde_json::json!({
+                "query": "research papers",
+                "required": true,
+                "confidence_tier": "strong",
+                "recommended_action": "read_guideline academic-literature-review-task",
+                "explicit_rationale_required": false,
+                "workspace_tags": ["research"],
+                "candidates": []
+            })
+            .to_string(),
+        })
+        .expect("result frame should terminate")
+        .expect("payload should parse");
+
+    assert_eq!(parsed.query, "research papers");
+    assert_eq!(
+        parsed.recommended_action,
+        "read_guideline academic-literature-review-task"
+    );
 }
 
 #[test]

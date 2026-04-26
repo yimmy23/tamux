@@ -17,8 +17,8 @@ use selection::{display_slice, highlight_line_range, line_display_width, line_pl
 
 use crate::state::sidebar::SidebarItemTarget;
 use crate::state::task::{
-    AgentTask, GoalRun, GoalRunStatus, GoalRunStep, TaskState, TaskStatus, TodoItem, TodoStatus,
-    WorkContextEntryKind,
+    AgentTask, GoalAgentAssignment, GoalRun, GoalRunModelUsage, GoalRunStatus, GoalRunStep,
+    GoalRuntimeOwnerProfile, TaskState, TaskStatus, TodoItem, TodoStatus, WorkContextEntryKind,
 };
 use crate::theme::ThemeTokens;
 use crate::widgets::chat::SelectionPoint;
@@ -537,6 +537,253 @@ fn render_goal_controls(
     }
 }
 
+fn format_count(value: u64) -> String {
+    let raw = value.to_string();
+    let mut grouped = String::new();
+    for (index, ch) in raw.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    grouped.chars().rev().collect()
+}
+
+fn format_cost(cost: f64) -> String {
+    if cost.abs() >= 1.0 {
+        format!("${cost:.2}")
+    } else {
+        format!("${cost:.4}")
+    }
+}
+
+fn format_duration_ms(duration_ms: u64) -> String {
+    let seconds = (duration_ms / 1000).max(1);
+    if seconds < 120 {
+        format!("{seconds}s")
+    } else {
+        format!("{}m", (seconds + 30) / 60)
+    }
+}
+
+fn has_goal_usage(run: &GoalRun) -> bool {
+    run.total_prompt_tokens > 0
+        || run.total_completion_tokens > 0
+        || run.estimated_cost_usd.is_some()
+        || !run.model_usage.is_empty()
+}
+
+fn render_goal_usage(rows: &mut Vec<RenderRow>, run: &GoalRun, theme: &ThemeTokens, _width: usize) {
+    if !has_goal_usage(run) {
+        return;
+    }
+
+    push_section_title(
+        rows,
+        "Usage",
+        theme.accent_primary.add_modifier(Modifier::BOLD),
+    );
+    let mut aggregate = vec![
+        Span::styled("prompt ", theme.fg_dim),
+        Span::styled(format_count(run.total_prompt_tokens), theme.fg_active),
+        Span::styled("  completion ", theme.fg_dim),
+        Span::styled(format_count(run.total_completion_tokens), theme.fg_active),
+    ];
+    if let Some(cost) = run.estimated_cost_usd {
+        aggregate.push(Span::styled("  cost ", theme.fg_dim));
+        aggregate.push(Span::styled(format_cost(cost), theme.fg_active));
+    }
+    rows.push(RenderRow {
+        line: Line::from(aggregate),
+        work_path: None,
+        goal_step_id: None,
+        close_preview: false,
+    });
+
+    for usage in &run.model_usage {
+        render_goal_model_usage(rows, usage, theme);
+    }
+}
+
+fn render_goal_model_usage(
+    rows: &mut Vec<RenderRow>,
+    usage: &GoalRunModelUsage,
+    theme: &ThemeTokens,
+) {
+    let mut spans = vec![
+        Span::styled(
+            format!("{}/{}", usage.provider, usage.model),
+            theme.fg_active,
+        ),
+        Span::styled("  ", theme.fg_dim),
+        Span::styled(format!("{} req", usage.request_count), theme.fg_dim),
+        Span::styled("  in ", theme.fg_dim),
+        Span::styled(format_count(usage.prompt_tokens), theme.fg_dim),
+        Span::styled("  out ", theme.fg_dim),
+        Span::styled(format_count(usage.completion_tokens), theme.fg_dim),
+    ];
+    if let Some(cost) = usage.estimated_cost_usd {
+        spans.push(Span::styled("  ", theme.fg_dim));
+        spans.push(Span::styled(format_cost(cost), theme.fg_dim));
+    }
+    if let Some(duration_ms) = usage.duration_ms {
+        spans.push(Span::styled("  ", theme.fg_dim));
+        spans.push(Span::styled(format_duration_ms(duration_ms), theme.fg_dim));
+    }
+    rows.push(RenderRow {
+        line: Line::from(spans),
+        work_path: None,
+        goal_step_id: None,
+        close_preview: false,
+    });
+}
+
+fn owner_profile_key(label: &str, provider: &str, model: &str) -> String {
+    format!("{label}\n{provider}\n{model}")
+}
+
+fn render_owner_profile(
+    rows: &mut Vec<RenderRow>,
+    label: &str,
+    profile: &GoalRuntimeOwnerProfile,
+    theme: &ThemeTokens,
+) {
+    let mut spans = vec![
+        Span::styled(format!("{label} "), theme.fg_dim),
+        Span::styled(profile.agent_label.clone(), theme.fg_active),
+        Span::styled("  ", theme.fg_dim),
+        Span::styled(
+            format!("{}/{}", profile.provider, profile.model),
+            theme.fg_dim,
+        ),
+    ];
+    if let Some(reasoning_effort) = &profile.reasoning_effort {
+        spans.push(Span::styled("  ", theme.fg_dim));
+        spans.push(Span::styled(reasoning_effort.clone(), theme.fg_dim));
+    }
+    rows.push(RenderRow {
+        line: Line::from(spans),
+        work_path: None,
+        goal_step_id: None,
+        close_preview: false,
+    });
+}
+
+fn render_goal_assignment(
+    rows: &mut Vec<RenderRow>,
+    assignment: &GoalAgentAssignment,
+    theme: &ThemeTokens,
+) {
+    let mut spans = vec![
+        Span::styled("Role ", theme.fg_dim),
+        Span::styled(assignment.role_id.clone(), theme.fg_active),
+    ];
+    if assignment.inherit_from_main {
+        spans.push(Span::styled("  inherits main", theme.fg_dim));
+    } else {
+        spans.push(Span::styled("  ", theme.fg_dim));
+        spans.push(Span::styled(
+            format!("{}/{}", assignment.provider, assignment.model),
+            theme.fg_dim,
+        ));
+    }
+    if let Some(reasoning_effort) = &assignment.reasoning_effort {
+        spans.push(Span::styled("  ", theme.fg_dim));
+        spans.push(Span::styled(reasoning_effort.clone(), theme.fg_dim));
+    }
+    if !assignment.enabled {
+        spans.push(Span::styled("  disabled", theme.fg_dim));
+    }
+    rows.push(RenderRow {
+        line: Line::from(spans),
+        work_path: None,
+        goal_step_id: None,
+        close_preview: false,
+    });
+}
+
+fn render_goal_agents(
+    rows: &mut Vec<RenderRow>,
+    tasks: &TaskState,
+    run: &GoalRun,
+    theme: &ThemeTokens,
+    _width: usize,
+) {
+    let related_tasks: Vec<&AgentTask> = tasks
+        .tasks()
+        .iter()
+        .filter(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
+        .collect();
+    if run.planner_owner_profile.is_none()
+        && run.current_step_owner_profile.is_none()
+        && run.runtime_assignment_list.is_empty()
+        && run.launch_assignment_snapshot.is_empty()
+        && related_tasks.is_empty()
+    {
+        return;
+    }
+
+    push_section_title(
+        rows,
+        "Agents",
+        theme.accent_primary.add_modifier(Modifier::BOLD),
+    );
+
+    let mut owner_keys = Vec::new();
+    if let Some(profile) = &run.planner_owner_profile {
+        owner_keys.push(owner_profile_key(
+            "Planner",
+            &profile.provider,
+            &profile.model,
+        ));
+        render_owner_profile(rows, "Planner", profile, theme);
+    }
+    if let Some(profile) = &run.current_step_owner_profile {
+        let key = owner_profile_key("Current", &profile.provider, &profile.model);
+        if !owner_keys.contains(&key) {
+            owner_keys.push(key);
+            render_owner_profile(rows, "Current", profile, theme);
+        }
+    }
+
+    let assignments = if run.runtime_assignment_list.is_empty() {
+        &run.launch_assignment_snapshot
+    } else {
+        &run.runtime_assignment_list
+    };
+    let mut assignment_keys = Vec::new();
+    for assignment in assignments {
+        let key = format!(
+            "{}\n{}\n{}\n{}",
+            assignment.role_id, assignment.provider, assignment.model, assignment.inherit_from_main
+        );
+        if assignment_keys.contains(&key) {
+            continue;
+        }
+        assignment_keys.push(key);
+        render_goal_assignment(rows, assignment, theme);
+    }
+
+    for task in related_tasks {
+        let kind = if task.parent_task_id.is_some() || task.parent_thread_id.is_some() {
+            "Subagent"
+        } else {
+            "Task"
+        };
+        rows.push(RenderRow {
+            line: Line::from(vec![
+                Span::styled(format!("{kind} "), theme.fg_dim),
+                Span::styled(task.title.clone(), theme.fg_active),
+                Span::styled("  ", theme.fg_dim),
+                Span::styled(task_status_label(task.status), theme.fg_dim),
+            ]),
+            work_path: None,
+            goal_step_id: None,
+            close_preview: false,
+        });
+    }
+}
+
 fn build_rows(
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -569,6 +816,8 @@ fn build_rows(
             };
             render_goal_summary(&mut rows, run, theme, width, tick);
             render_goal_controls(&mut rows, run, step_id.as_deref(), theme, width);
+            render_goal_usage(&mut rows, run, theme, width);
+            render_goal_agents(&mut rows, tasks, run, theme, width);
             render_live_activity(&mut rows, tasks, run, theme, width, tick);
             render_dossier(&mut rows, run, theme, width);
             render_resume_decision(&mut rows, run, theme, width);
@@ -1369,5 +1618,95 @@ mod tests {
             found.is_some(),
             "expected task view navigation row to be clickable"
         );
+    }
+
+    #[test]
+    fn goal_run_rows_include_usage_and_agents() {
+        let mut tasks = TaskState::new();
+        tasks.reduce(crate::state::task::TaskAction::TaskListReceived(vec![
+            AgentTask {
+                id: "task-root".to_string(),
+                title: "Root implementation".to_string(),
+                goal_run_id: Some("goal-usage".to_string()),
+                status: Some(TaskStatus::Completed),
+                ..Default::default()
+            },
+            AgentTask {
+                id: "task-review".to_string(),
+                title: "Verifier subagent".to_string(),
+                goal_run_id: Some("goal-usage".to_string()),
+                parent_task_id: Some("task-root".to_string()),
+                status: Some(TaskStatus::Completed),
+                ..Default::default()
+            },
+        ]));
+        tasks.reduce(crate::state::task::TaskAction::GoalRunDetailReceived(
+            GoalRun {
+                id: "goal-usage".to_string(),
+                title: "Token accounting".to_string(),
+                goal: "Show model usage".to_string(),
+                total_prompt_tokens: 1234,
+                total_completion_tokens: 567,
+                estimated_cost_usd: Some(0.0425),
+                planner_owner_profile: Some(crate::state::task::GoalRuntimeOwnerProfile {
+                    agent_label: "Svarog".to_string(),
+                    provider: "openai".to_string(),
+                    model: "gpt-5.4".to_string(),
+                    reasoning_effort: None,
+                }),
+                runtime_assignment_list: vec![crate::state::task::GoalAgentAssignment {
+                    role_id: "weles".to_string(),
+                    enabled: true,
+                    provider: "openrouter".to_string(),
+                    model: "anthropic/claude-sonnet-4".to_string(),
+                    reasoning_effort: Some("high".to_string()),
+                    inherit_from_main: false,
+                }],
+                model_usage: vec![crate::state::task::GoalRunModelUsage {
+                    provider: "openrouter".to_string(),
+                    model: "anthropic/claude-sonnet-4".to_string(),
+                    request_count: 2,
+                    prompt_tokens: 1000,
+                    completion_tokens: 500,
+                    estimated_cost_usd: Some(0.04),
+                    duration_ms: Some(90_000),
+                }],
+                ..Default::default()
+            },
+        ));
+
+        let target = SidebarItemTarget::GoalRun {
+            goal_run_id: "goal-usage".to_string(),
+            step_id: None,
+        };
+        let text = rows_for_width(
+            &tasks,
+            &target,
+            &ThemeTokens::default(),
+            120,
+            true,
+            true,
+            true,
+            None,
+        )
+        .into_iter()
+        .map(|row| line_plain_text(&row.line))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+        assert!(text.contains("Usage"), "{text}");
+        assert!(text.contains("prompt 1,234"), "{text}");
+        assert!(text.contains("completion 567"), "{text}");
+        assert!(text.contains("$0.0425"), "{text}");
+        assert!(
+            text.contains("openrouter/anthropic/claude-sonnet-4"),
+            "{text}"
+        );
+        assert!(text.contains("2 req"), "{text}");
+        assert!(text.contains("Agents"), "{text}");
+        assert!(text.contains("Planner Svarog"), "{text}");
+        assert!(text.contains("Role weles"), "{text}");
+        assert!(text.contains("Task Root implementation"), "{text}");
+        assert!(text.contains("Subagent Verifier subagent"), "{text}");
     }
 }

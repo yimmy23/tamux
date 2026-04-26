@@ -1,7 +1,8 @@
 use super::*;
 use crate::agent::types::{
     GoalAgentAssignment, GoalDeliveryUnit, GoalProjectionState, GoalResumeAction,
-    GoalResumeDecision, GoalRoleBinding, GoalRunDossier, GoalRuntimeOwnerProfile,
+    GoalResumeDecision, GoalRoleBinding, GoalRunDossier, GoalRunModelUsage,
+    GoalRuntimeOwnerProfile,
 };
 use crate::history::schema_helpers::table_has_column;
 
@@ -324,6 +325,7 @@ async fn goal_run_event_todo_snapshot_round_trips() -> Result<()> {
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: Default::default(),
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),
@@ -454,6 +456,15 @@ async fn goal_run_extended_metadata_round_trips() -> Result<()> {
         total_prompt_tokens: 123,
         total_completion_tokens: 456,
         estimated_cost_usd: Some(0.42),
+        model_usage: vec![GoalRunModelUsage {
+            provider: "openai".to_string(),
+            model: "gpt-4o".to_string(),
+            request_count: 2,
+            prompt_tokens: 123,
+            completion_tokens: 456,
+            estimated_cost_usd: Some(0.42),
+            duration_ms: Some(777),
+        }],
         autonomy_level: crate::agent::AutonomyLevel::Supervised,
         authorship_tag: Some(crate::agent::AuthorshipTag::Joint),
     };
@@ -503,6 +514,13 @@ async fn goal_run_extended_metadata_round_trips() -> Result<()> {
     assert_eq!(loaded.total_prompt_tokens, 123);
     assert_eq!(loaded.total_completion_tokens, 456);
     assert_eq!(loaded.estimated_cost_usd, Some(0.42));
+    assert_eq!(loaded.model_usage.len(), 1);
+    assert_eq!(loaded.model_usage[0].provider, "openai");
+    assert_eq!(loaded.model_usage[0].model, "gpt-4o");
+    assert_eq!(loaded.model_usage[0].request_count, 2);
+    assert_eq!(loaded.model_usage[0].prompt_tokens, 123);
+    assert_eq!(loaded.model_usage[0].completion_tokens, 456);
+    assert_eq!(loaded.model_usage[0].duration_ms, Some(777));
     assert_eq!(
         loaded.autonomy_level,
         crate::agent::AutonomyLevel::Supervised
@@ -672,6 +690,7 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
                 table_has_column(conn, "goal_runs", "total_prompt_tokens")?,
                 table_has_column(conn, "goal_runs", "total_completion_tokens")?,
                 table_has_column(conn, "goal_runs", "estimated_cost_usd")?,
+                table_has_column(conn, "goal_runs", "model_usage_json")?,
                 table_has_column(conn, "goal_runs", "autonomy_level")?,
                 table_has_column(conn, "goal_runs", "authorship_tag")?,
                 table_has_column(conn, "goal_runs", "planner_owner_profile_json")?,
@@ -711,6 +730,7 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
     assert!(cols.22);
     assert!(cols.23);
     assert!(cols.24);
+    assert!(cols.25);
 
     let legacy_goal = store
         .list_goal_runs()

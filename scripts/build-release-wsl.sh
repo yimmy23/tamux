@@ -123,6 +123,12 @@ with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive
         for path in sorted(skills_root.rglob("*")):
             if path.is_file():
                 archive.write(path, arcname=str(path.relative_to(project_root)).replace(os.sep, "/"))
+
+    guidelines_root = project_root / "guidelines"
+    if guidelines_root.exists():
+        for path in sorted(guidelines_root.rglob("*")):
+            if path.is_file():
+                archive.write(path, arcname=str(path.relative_to(project_root)).replace(os.sep, "/"))
 PY
 }
 

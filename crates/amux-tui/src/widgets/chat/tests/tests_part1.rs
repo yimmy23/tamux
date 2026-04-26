@@ -328,6 +328,44 @@ fn read_skill_file_chip_falls_back_to_daemon_result_header() {
 }
 
 #[test]
+fn read_guideline_tool_row_renders_clickable_file_chip_from_result_header() {
+    let message = AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("read_guideline".into()),
+        tool_arguments: Some(r#"{"guideline":"coding-task"}"#.into()),
+        tool_status: Some("done".into()),
+        content: "Guideline coding-task.md:\n\n# Coding Task\n".into(),
+        ..Default::default()
+    };
+    let chip =
+        tool_file_chip(&message).expect("daemon-style read_guideline output should expose a chip");
+    assert_eq!(
+        chip.path,
+        amux_protocol::tamux_guidelines_dir()
+            .join("coding-task.md")
+            .display()
+            .to_string()
+    );
+    assert_eq!(chip.label, "coding-task.md");
+
+    let chat = chat_with_messages(vec![message]);
+    let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 100, 0, false);
+    let tool_line = lines
+        .iter()
+        .find(|line| {
+            line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ToolToggle)
+        })
+        .expect("tool row should be rendered");
+    let text = rendered_line_plain_text(tool_line);
+
+    assert!(text.contains("read_guideline"));
+    assert!(
+        text.contains("[coding-task.md]"),
+        "expected guideline file chip, got: {text}"
+    );
+}
+
+#[test]
 fn tool_file_path_chip_prefers_tool_output_preview_path_metadata() {
     let preview_path = std::env::temp_dir()
         .join(format!("bash_command-preview-{}.txt", uuid::Uuid::new_v4()));
@@ -630,6 +668,46 @@ fn hit_test_returns_tool_file_path_target_for_read_skill() {
     let chip_col = plain
         .find("[SKILL.md]")
         .expect("skill path chip should be rendered on the tool row");
+
+    let chip_hit = hit_test(
+        area,
+        &chat,
+        &ThemeTokens::default(),
+        0,
+        Position::new(inner.x + chip_col as u16 + 1, inner.y + tool_row as u16),
+    );
+
+    assert_eq!(
+        chip_hit,
+        Some(ChatHitTarget::ToolFilePath { message_index: 0 })
+    );
+}
+
+#[test]
+fn hit_test_returns_tool_file_path_target_for_read_guideline() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("read_guideline".into()),
+        tool_arguments: Some(r#"{"guideline":"coding-task"}"#.into()),
+        tool_status: Some("done".into()),
+        content: "Guideline coding-task.md:\n\n# Coding Task\n".into(),
+        ..Default::default()
+    }]);
+
+    let area = Rect::new(0, 0, 100, 6);
+    let (inner, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+    let tool_row = visible
+        .iter()
+        .position(|line| {
+            line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ToolToggle)
+        })
+        .expect("tool row should be visible");
+    let hit_line = &visible[tool_row];
+    let (plain, _, _) = rendered_line_content_bounds(hit_line);
+    let chip_col = plain
+        .find("[coding-task.md]")
+        .expect("guideline path chip should be rendered on the tool row");
 
     let chip_hit = hit_test(
         area,

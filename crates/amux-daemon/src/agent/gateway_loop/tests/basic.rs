@@ -82,6 +82,31 @@ fn gateway_reply_helpers_accept_lowercase_platform_names() {
 }
 
 #[test]
+fn gateway_approval_decision_parser_accepts_canonical_reply_tokens() {
+    assert!(matches!(
+        parse_gateway_approval_decision("approve-once"),
+        Some(amux_protocol::ApprovalDecision::ApproveOnce)
+    ));
+    assert!(matches!(
+        parse_gateway_approval_decision("approve once"),
+        Some(amux_protocol::ApprovalDecision::ApproveOnce)
+    ));
+    assert!(matches!(
+        parse_gateway_approval_decision("approve session"),
+        Some(amux_protocol::ApprovalDecision::ApproveSession)
+    ));
+    assert!(matches!(
+        parse_gateway_approval_decision("deny"),
+        Some(amux_protocol::ApprovalDecision::Deny)
+    ));
+    assert!(matches!(
+        parse_gateway_approval_decision("denied"),
+        Some(amux_protocol::ApprovalDecision::Deny)
+    ));
+    assert!(matches!(parse_gateway_approval_decision("what now?"), None));
+}
+
+#[test]
 fn gateway_prompt_prefers_auto_delivery_over_forced_send_tool() {
     let prompt = build_gateway_agent_prompt(
         "discord",

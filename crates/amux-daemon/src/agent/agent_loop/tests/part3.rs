@@ -171,6 +171,7 @@ async fn post_tool_policy_checkpoint_pivots_for_non_error_stuckness_with_runtime
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
             estimated_cost_usd: None,
+            model_usage: Vec::new(),
             autonomy_level: Default::default(),
             authorship_tag: None,
         });

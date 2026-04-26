@@ -15,6 +15,7 @@ pub enum GoalWorkspaceMode {
     Goal,
     Files,
     Progress,
+    Usage,
     ActiveAgent,
     Threads,
     NeedsAttention,

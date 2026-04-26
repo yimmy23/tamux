@@ -37,12 +37,17 @@ impl AutonomyLevel {
 /// Determine whether an event should be emitted at the given autonomy level.
 ///
 /// Event kinds:
-/// - `"completed"`, `"failed"`, `"budget_alert"` — always emitted.
+/// - `"completed"`, `"failed"`, `"budget_alert"`, `"paused"` — always emitted.
 /// - `"step_started"`, `"planning"`, `"step_completed"` — emitted at Aware and Supervised.
 /// - `"step_detail"` — only emitted at Supervised.
 pub fn should_emit_event(level: AutonomyLevel, event_kind: &str) -> bool {
     match level {
-        AutonomyLevel::Autonomous => matches!(event_kind, "completed" | "failed" | "budget_alert"),
+        AutonomyLevel::Autonomous => {
+            matches!(
+                event_kind,
+                "completed" | "failed" | "budget_alert" | "paused"
+            )
+        }
         AutonomyLevel::Aware => event_kind != "step_detail",
         AutonomyLevel::Supervised => true,
     }
@@ -149,6 +154,11 @@ mod tests {
     fn autonomous_allows_failed_and_budget_alert() {
         assert!(should_emit_event(AutonomyLevel::Autonomous, "failed"));
         assert!(should_emit_event(AutonomyLevel::Autonomous, "budget_alert"));
+    }
+
+    #[test]
+    fn autonomous_allows_paused_recovery_notice() {
+        assert!(should_emit_event(AutonomyLevel::Autonomous, "paused"));
     }
 
     #[test]

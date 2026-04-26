@@ -145,6 +145,24 @@ pub struct AgentGoalRunReportRecord {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentGoalRunModelUsageRecord {
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub request_count: u64,
+    #[serde(default)]
+    pub prompt_tokens: u64,
+    #[serde(default)]
+    pub completion_tokens: u64,
+    #[serde(default)]
+    pub estimated_cost_usd: Option<f64>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentGoalResumeDecisionRecord {
     #[serde(default)]
     pub action: String,
@@ -282,6 +300,8 @@ pub struct AgentGoalRunRecord {
     pub total_completion_tokens: u64,
     #[serde(default)]
     pub estimated_cost_usd: Option<f64>,
+    #[serde(default)]
+    pub model_usage: Vec<AgentGoalRunModelUsageRecord>,
     #[serde(default)]
     pub autonomy_level: String,
     #[serde(default)]

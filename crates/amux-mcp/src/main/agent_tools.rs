@@ -32,8 +32,11 @@ fn map_skill_variant_inspect_response(identifier: &str, resp: DaemonMessage) -> 
 
 fn map_skill_discovery_response(resp: DaemonMessage) -> Result<Value> {
     match resp {
-        DaemonMessage::SkillDiscoverResult { result_json } => serde_json::from_str(&result_json)
-            .map_err(|error| anyhow::anyhow!("invalid daemon skill discovery payload: {error}")),
+        DaemonMessage::SkillDiscoverResult { result_json }
+        | DaemonMessage::GuidelineDiscoverResult { result_json } => {
+            serde_json::from_str(&result_json)
+                .map_err(|error| anyhow::anyhow!("invalid daemon discovery payload: {error}"))
+        }
         DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
             anyhow::bail!("daemon error: {message}")
         }
@@ -149,6 +152,48 @@ pub(super) async fn tool_discover_skills(args: &Value) -> Result<Value> {
 
     super::daemon::daemon_roundtrip_until(
         ClientMessage::SkillDiscover {
+            query,
+            session_id,
+            limit,
+            cursor,
+        },
+        parse_skill_discovery_event,
+    )
+    .await
+}
+
+pub(super) async fn tool_discover_guidelines(args: &Value) -> Result<Value> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: query"))?
+        .to_string();
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|value| value.clamp(1, 20) as usize)
+        .unwrap_or(3);
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|value| {
+            amux_protocol::SessionId::parse_str(value)
+                .map_err(|error| anyhow::anyhow!("invalid session_id `{value}`: {error}"))
+        })
+        .transpose()?;
+    let cursor = args
+        .get("cursor")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    super::daemon::daemon_roundtrip_until(
+        ClientMessage::GuidelineDiscover {
             query,
             session_id,
             limit,
@@ -754,5 +799,30 @@ mod tests {
         assert_eq!(value["capability_family"][0], "development");
         assert_eq!(value["candidates"][0]["trust_tier"], "trusted_builtin");
         assert_eq!(value["next_cursor"], "cursor:skill-2");
+    }
+
+    #[test]
+    fn parse_skill_discovery_event_maps_guideline_result_payload() {
+        let value = parse_skill_discovery_event(DaemonMessage::GuidelineDiscoverResult {
+            result_json: serde_json::json!({
+                "query": "implement feature",
+                "normalized_intent": "implement feature",
+                "required": true,
+                "confidence_tier": "strong",
+                "recommended_action": "read_guideline coding-task",
+                "candidates": [{
+                    "skill_name": "coding-task",
+                    "relative_path": "coding-task.md",
+                    "source_kind": "guideline",
+                    "recommended_action": "read_guideline coding-task"
+                }]
+            })
+            .to_string(),
+        })
+        .expect("result frame should terminate")
+        .expect("payload should parse");
+
+        assert_eq!(value["recommended_action"], "read_guideline coding-task");
+        assert_eq!(value["candidates"][0]["source_kind"], "guideline");
     }
 }

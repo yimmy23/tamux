@@ -1,7 +1,8 @@
 use super::*;
 use crate::state::goal_workspace::{GoalWorkspaceMode, GoalWorkspaceState};
 use crate::state::task::{
-    GoalRun, GoalRunEvent, GoalRunStep, TaskAction, TaskState, ThreadWorkContext, TodoItem,
+    AgentTask, GoalAgentAssignment, GoalRun, GoalRunEvent, GoalRunModelUsage, GoalRunStep,
+    GoalRuntimeOwnerProfile, TaskAction, TaskState, TaskStatus, ThreadWorkContext, TodoItem,
     TodoStatus, WorkContextEntry,
 };
 use crate::test_support::{env_var_lock, EnvVarGuard, TAMUX_DATA_DIR_ENV};
@@ -208,6 +209,77 @@ fn goal_workspace_progress_mode_renders_progress_panel_copy() {
 
     assert!(plain.contains("Progress"), "{plain}");
     assert!(plain.contains("Checkpoints"), "{plain}");
+}
+
+#[test]
+fn goal_workspace_usage_mode_renders_model_and_agent_usage() {
+    let mut tasks = sample_tasks();
+    tasks.reduce(TaskAction::TaskListReceived(vec![
+        AgentTask {
+            id: "task-root".into(),
+            title: "Root implementation".into(),
+            goal_run_id: Some("goal-1".into()),
+            status: Some(TaskStatus::Completed),
+            thread_id: Some("thread-root".into()),
+            ..Default::default()
+        },
+        AgentTask {
+            id: "task-review".into(),
+            title: "Verifier subagent".into(),
+            goal_run_id: Some("goal-1".into()),
+            parent_task_id: Some("task-root".into()),
+            status: Some(TaskStatus::Completed),
+            thread_id: Some("thread-review".into()),
+            ..Default::default()
+        },
+    ]));
+    tasks.reduce(TaskAction::GoalRunUpdate(GoalRun {
+        id: "goal-1".into(),
+        total_prompt_tokens: 1234,
+        total_completion_tokens: 567,
+        estimated_cost_usd: Some(0.0425),
+        planner_owner_profile: Some(GoalRuntimeOwnerProfile {
+            agent_label: "Svarog".into(),
+            provider: "openai".into(),
+            model: "gpt-5.4".into(),
+            reasoning_effort: None,
+        }),
+        runtime_assignment_list: vec![GoalAgentAssignment {
+            role_id: "weles".into(),
+            enabled: true,
+            provider: "openrouter".into(),
+            model: "anthropic/claude-sonnet-4".into(),
+            reasoning_effort: Some("high".into()),
+            inherit_from_main: false,
+        }],
+        model_usage: vec![GoalRunModelUsage {
+            provider: "openrouter".into(),
+            model: "anthropic/claude-sonnet-4".into(),
+            request_count: 2,
+            prompt_tokens: 1000,
+            completion_tokens: 500,
+            estimated_cost_usd: Some(0.04),
+            duration_ms: Some(90_000),
+        }],
+        sparse_update: true,
+        ..Default::default()
+    }));
+    let mut state = GoalWorkspaceState::new();
+    state.set_mode(GoalWorkspaceMode::Usage);
+
+    let plain = render_plain_text_for_tasks(&tasks, &state, 0);
+
+    assert!(plain.contains("Usage"), "{plain}");
+    assert!(plain.contains("Goal total"), "{plain}");
+    assert!(plain.contains("prompt 1,234"), "{plain}");
+    assert!(plain.contains("completion 567"), "{plain}");
+    assert!(plain.contains("$0.0425"), "{plain}");
+    assert!(plain.contains("openrouter/anthropic/claude-so"), "{plain}");
+    assert!(plain.contains("nnet-4"), "{plain}");
+    assert!(plain.contains("2 req"), "{plain}");
+    assert!(plain.contains("Planner Svarog"), "{plain}");
+    assert!(plain.contains("Role weles"), "{plain}");
+    assert!(plain.contains("Subagent Verifier subagent"), "{plain}");
 }
 
 #[test]

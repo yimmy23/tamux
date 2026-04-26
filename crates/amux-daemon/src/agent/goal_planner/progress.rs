@@ -120,6 +120,18 @@ fn legacy_review_failure_reason(review_result: String) -> String {
     }
 }
 
+fn stale_goal_step_task_reason(goal_run: &GoalRun, task: &AgentTask) -> Option<String> {
+    let task_step_id = task.goal_step_id.as_deref()?;
+    let current_step = goal_run.steps.get(goal_run.current_step_index)?;
+    if current_step.id == task_step_id {
+        return None;
+    }
+    Some(format!(
+        "task {} is bound to goal step '{}' but current step is '{}' at index {}",
+        task.id, task_step_id, current_step.id, goal_run.current_step_index
+    ))
+}
+
 impl AgentEngine {
     async fn load_goal_step_review_record(
         &self,
@@ -267,6 +279,41 @@ impl AgentEngine {
             .await;
         }
         Ok(())
+    }
+
+    async fn ignore_stale_goal_step_task(
+        &self,
+        event_type: &str,
+        summary: &str,
+        goal_run: &GoalRun,
+        task: &AgentTask,
+        reason: &str,
+    ) {
+        tracing::warn!(
+            goal_run_id = goal_run.id.as_str(),
+            task_id = task.id.as_str(),
+            task_goal_step_id = task.goal_step_id.as_deref().unwrap_or("<none>"),
+            current_step_index = goal_run.current_step_index,
+            reason,
+            "ignoring stale goal-step task lifecycle event"
+        );
+        self.record_provenance_event(
+            event_type,
+            summary,
+            serde_json::json!({
+                "goal_run_id": goal_run.id.clone(),
+                "task_id": task.id.clone(),
+                "task_goal_step_id": task.goal_step_id.clone(),
+                "current_step_index": goal_run.current_step_index,
+                "reason": reason,
+            }),
+            Some(goal_run.id.as_str()),
+            Some(task.id.as_str()),
+            goal_run.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
     }
 
     async fn requeue_goal_step_for_missing_completion_marker(
@@ -594,6 +641,27 @@ impl AgentEngine {
         goal_run_id: &str,
         task: &AgentTask,
     ) {
+        let snapshot = {
+            let goal_runs = self.goal_runs.lock().await;
+            goal_runs
+                .iter()
+                .find(|item| item.id == goal_run_id)
+                .cloned()
+        };
+        if let Some(snapshot) = snapshot {
+            if let Some(reason) = stale_goal_step_task_reason(&snapshot, task) {
+                self.ignore_stale_goal_step_task(
+                    "stale_step_sync_ignored",
+                    "ignored stale goal-step task sync",
+                    &snapshot,
+                    task,
+                    &reason,
+                )
+                .await;
+                return;
+            }
+        }
+
         let current_step_owner_profile = {
             let goal_runs = self.goal_runs.lock().await;
             goal_runs
@@ -676,11 +744,23 @@ impl AgentEngine {
         goal_run_id: &str,
         task: &AgentTask,
     ) -> Result<()> {
+        let snapshot = self
+            .get_goal_run(goal_run_id)
+            .await
+            .context("goal run missing during step completion")?;
+        if let Some(reason) = stale_goal_step_task_reason(&snapshot, task) {
+            self.ignore_stale_goal_step_task(
+                "stale_step_completion_ignored",
+                "ignored stale goal-step completion",
+                &snapshot,
+                task,
+                &reason,
+            )
+            .await;
+            return Ok(());
+        }
+
         if task.source == "handoff" {
-            let snapshot = self
-                .get_goal_run(goal_run_id)
-                .await
-                .context("goal run missing during specialist validation")?;
             let current_step = snapshot.steps.get(snapshot.current_step_index);
             if let Some(step) = current_step {
                 if let GoalRunStepKind::Specialist(_) = &step.kind {
@@ -738,10 +818,6 @@ impl AgentEngine {
             }
         }
 
-        let snapshot = self
-            .get_goal_run(goal_run_id)
-            .await
-            .context("goal run missing during step completion")?;
         let incomplete_todos = self.current_step_incomplete_todos(&snapshot, task).await;
         if !incomplete_todos.is_empty() {
             let detail = format!(
@@ -944,24 +1020,32 @@ impl AgentEngine {
         goal_run_id: &str,
         task: &AgentTask,
     ) -> Result<()> {
-        let step_id = {
-            let goal_runs = self.goal_runs.lock().await;
-            goal_runs
-                .iter()
-                .find(|item| item.id == goal_run_id)
-                .and_then(|goal_run| goal_run.steps.get(goal_run.current_step_index))
-                .map(|step| step.id.clone())
-        };
+        let snapshot = self
+            .get_goal_run(goal_run_id)
+            .await
+            .context("goal run missing during failure handling")?;
+        if let Some(reason) = stale_goal_step_task_reason(&snapshot, task) {
+            self.ignore_stale_goal_step_task(
+                "stale_step_failure_ignored",
+                "ignored stale goal-step failure",
+                &snapshot,
+                task,
+                &reason,
+            )
+            .await;
+            return Ok(());
+        }
+
+        let step_id = snapshot
+            .steps
+            .get(snapshot.current_step_index)
+            .map(|step| step.id.clone());
         if let Some(step_id) = step_id {
             self.goal_step_completion_marker_retries
                 .lock()
                 .await
                 .remove(&completion_marker_retry_key(goal_run_id, &step_id));
         }
-        let snapshot = self
-            .get_goal_run(goal_run_id)
-            .await
-            .context("goal run missing during failure handling")?;
         let failure = task
             .last_error
             .clone()

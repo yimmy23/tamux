@@ -43,6 +43,15 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
             tool_name: tool_name.to_string(),
         });
     }
+    if tool_name == "read_guideline" {
+        let path = read_guideline_preview_path(message)?;
+        let label = file_name_label(&path);
+        return Some(ToolFileChip {
+            path,
+            label,
+            tool_name: tool_name.to_string(),
+        });
+    }
 
     if !matches!(
         tool_name,
@@ -139,6 +148,11 @@ fn read_skill_preview_path(message: &AgentMessage) -> Option<String> {
         .or_else(|| skill_path_from_result_header(&message.content))
 }
 
+fn read_guideline_preview_path(message: &AgentMessage) -> Option<String> {
+    guideline_path_from_result_json(&message.content)
+        .or_else(|| guideline_path_from_result_header(&message.content))
+}
+
 fn skill_path_from_result_json(content: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(content).ok()?;
     let path = non_empty_string_field(&value, "path")?;
@@ -163,6 +177,26 @@ fn skill_path_from_result_header(content: &str) -> Option<String> {
     Some(resolve_skill_path_for_preview(None, relative_path))
 }
 
+fn guideline_path_from_result_json(content: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(content).ok()?;
+    let path = non_empty_string_field(&value, "path")?;
+    Some(resolve_guideline_path_for_preview(
+        non_empty_string_field(&value, "guidelines_root"),
+        &path,
+    ))
+}
+
+fn guideline_path_from_result_header(content: &str) -> Option<String> {
+    let first_line = content.lines().next()?.trim();
+    let raw_path = first_line.strip_prefix("Guideline ")?;
+    let relative_path = raw_path.strip_suffix(':').unwrap_or(raw_path).trim();
+    if relative_path.is_empty() {
+        return None;
+    }
+
+    Some(resolve_guideline_path_for_preview(None, relative_path))
+}
+
 fn resolve_skill_path_for_preview(skills_root: Option<String>, path: &str) -> String {
     if Path::new(path).is_absolute() {
         return path.to_string();
@@ -171,6 +205,19 @@ fn resolve_skill_path_for_preview(skills_root: Option<String>, path: &str) -> St
     skills_root
         .map(std::path::PathBuf::from)
         .unwrap_or_else(amux_protocol::tamux_skills_dir)
+        .join(path)
+        .display()
+        .to_string()
+}
+
+fn resolve_guideline_path_for_preview(guidelines_root: Option<String>, path: &str) -> String {
+    if Path::new(path).is_absolute() {
+        return path.to_string();
+    }
+
+    guidelines_root
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(amux_protocol::tamux_guidelines_dir)
         .join(path)
         .display()
         .to_string()

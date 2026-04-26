@@ -26,6 +26,7 @@ impl TuiModel {
             collaboration: CollaborationState::new(),
             concierge: ConciergeState::new(),
             tier: TierState::default(),
+            workspace: crate::state::workspace::WorkspaceState::new(),
             focus: FocusArea::Input,
             theme: ThemeTokens::default(),
             width: 120,
@@ -125,6 +126,17 @@ impl TuiModel {
             task_view_drag_current: None,
             task_view_drag_anchor_point: None,
             task_view_drag_current_point: None,
+            workspace_drag_task: None,
+            workspace_drag_status: None,
+            workspace_drag_start_target: None,
+            workspace_board_selection: None,
+            workspace_expanded_task_ids: std::collections::HashSet::new(),
+            pending_workspace_create_form: None,
+            pending_workspace_review_form: None,
+            pending_workspace_edit_form: None,
+            pending_workspace_detail_task_id: None,
+            pending_workspace_history_task_id: None,
+            pending_workspace_actor_picker: None,
         }
     }
 
@@ -1038,6 +1050,9 @@ impl TuiModel {
     }
 
     fn actions_bar_visible(&self) -> bool {
+        if !matches!(self.main_pane_view, MainPaneView::Conversation) {
+            return false;
+        }
         if self.should_show_local_landing() {
             return false;
         }
@@ -1060,6 +1075,7 @@ impl TuiModel {
             && self.agent_config_loaded
             && matches!(self.main_pane_view, MainPaneView::Conversation)
             && self.chat.active_thread().is_none()
+            && !self.has_mission_control_return_target()
             && !self.chat.is_streaming()
             && !self.concierge.loading
             && !self.should_show_operator_profile_onboarding()
@@ -1358,6 +1374,24 @@ impl TuiModel {
         }
         if self.modal.top() == Some(modal::ModalKind::Settings) {
             self.settings_modal_scroll = 0;
+        }
+        if self.modal.top() == Some(modal::ModalKind::WorkspaceActorPicker) {
+            self.pending_workspace_actor_picker = None;
+        }
+        if self.modal.top() == Some(modal::ModalKind::WorkspaceCreateTask) {
+            self.pending_workspace_create_form = None;
+        }
+        if self.modal.top() == Some(modal::ModalKind::WorkspaceReviewTask) {
+            self.pending_workspace_review_form = None;
+        }
+        if self.modal.top() == Some(modal::ModalKind::WorkspaceEditTask) {
+            self.pending_workspace_edit_form = None;
+        }
+        if self.modal.top() == Some(modal::ModalKind::WorkspaceTaskDetail) {
+            self.pending_workspace_detail_task_id = None;
+        }
+        if self.modal.top() == Some(modal::ModalKind::WorkspaceTaskHistory) {
+            self.pending_workspace_history_task_id = None;
         }
         self.modal.reduce(modal::ModalAction::Pop);
     }

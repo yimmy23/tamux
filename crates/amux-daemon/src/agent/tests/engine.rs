@@ -556,6 +556,7 @@ async fn hydrate_restores_full_persisted_goal_run_event_history() {
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: crate::agent::AutonomyLevel::Supervised,
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),

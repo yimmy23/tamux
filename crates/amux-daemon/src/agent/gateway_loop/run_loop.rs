@@ -62,6 +62,11 @@ impl AgentEngine {
             tokio::spawn({
                 let engine = self.clone();
                 let rx = shutdown.clone();
+                async move { engine.run_webhook_listener(rx).await }
+            }),
+            tokio::spawn({
+                let engine = self.clone();
+                let rx = shutdown.clone();
                 async move { engine.run_subagent_supervision_loop(rx).await }
             }),
         ];

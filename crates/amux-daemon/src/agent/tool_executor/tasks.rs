@@ -869,8 +869,18 @@ async fn execute_submit_goal_step_verdict(
 }
 
 async fn execute_list_triggers(_args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    agent.ensure_default_event_triggers().await?;
     let payload = agent.list_event_triggers_json().await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_ingest_webhook_event(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    agent.ensure_default_event_triggers().await?;
+    let payload = agent.ingest_webhook_event_json(args).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
 async fn execute_add_trigger(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {

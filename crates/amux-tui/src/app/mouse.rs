@@ -13,6 +13,7 @@ impl TuiModel {
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
         self.clear_task_view_drag_selection();
+        self.clear_workspace_drag();
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
@@ -344,6 +345,73 @@ impl TuiModel {
                     }
                 } else if cursor_in_chat {
                     self.focus = FocusArea::Chat;
+                    if matches!(self.main_pane_view, MainPaneView::Workspace) {
+                        let pos = Position::new(mouse.column, mouse.row);
+                        match widgets::workspace_board::hit_test(
+                            chat_area,
+                            &self.workspace,
+                            &self.workspace_expanded_task_ids,
+                            pos,
+                        ) {
+                            Some(widgets::workspace_board::WorkspaceBoardHitTarget::Toolbar(
+                                action,
+                            )) => {
+                                self.clear_workspace_drag();
+                                self.workspace_board_selection = Some(
+                                    widgets::workspace_board::WorkspaceBoardHitTarget::Toolbar(
+                                        action.clone(),
+                                    ),
+                                );
+                                self.activate_workspace_toolbar_action(action);
+                            }
+                            Some(widgets::workspace_board::WorkspaceBoardHitTarget::Action {
+                                task_id,
+                                status,
+                                action,
+                            }) => {
+                                let target =
+                                    widgets::workspace_board::WorkspaceBoardHitTarget::Action {
+                                        task_id: task_id.clone(),
+                                        status: status.clone(),
+                                        action: action.clone(),
+                                    };
+                                self.workspace_board_selection = Some(target.clone());
+                                if action
+                                    == widgets::workspace_board::WorkspaceBoardAction::ToggleActions
+                                {
+                                    self.workspace_drag_task = Some(task_id);
+                                    self.workspace_drag_status = Some(status);
+                                    self.workspace_drag_start_target = Some(target);
+                                    self.status_line =
+                                        "Drag workspace task to another column".to_string();
+                                } else {
+                                    self.clear_workspace_drag();
+                                    self.activate_workspace_task_action(task_id, status, action);
+                                }
+                            }
+                            Some(widgets::workspace_board::WorkspaceBoardHitTarget::Task {
+                                task_id,
+                                status,
+                            }) => {
+                                let target =
+                                    widgets::workspace_board::WorkspaceBoardHitTarget::Task {
+                                        task_id: task_id.clone(),
+                                        status: status.clone(),
+                                    };
+                                self.workspace_board_selection = Some(target.clone());
+                                self.workspace_drag_task = Some(task_id);
+                                self.workspace_drag_status = Some(status);
+                                self.workspace_drag_start_target = Some(target);
+                                self.status_line =
+                                    "Drag workspace task to another column".to_string();
+                            }
+                            _ => {
+                                self.clear_workspace_drag();
+                            }
+                        }
+                        self.input.set_mode(input::InputMode::Insert);
+                        return;
+                    }
                     if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
                         if matches!(
                             widgets::goal_mission_control::hit_test(
@@ -368,6 +436,14 @@ impl TuiModel {
                             self.input.set_mode(input::InputMode::Insert);
                             return;
                         }
+                    } else if matches!(self.main_pane_view, MainPaneView::Task(_))
+                        && self
+                            .task_return_to_workspace_button_area()
+                            .is_some_and(|rect| contains_mouse(rect, mouse))
+                    {
+                        let _ = self.return_from_mission_control_navigation();
+                        self.input.set_mode(input::InputMode::Insert);
+                        return;
                     }
                     if matches!(self.main_pane_view, MainPaneView::Collaboration) {
                         if let Some(hit) = widgets::collaboration_view::hit_test(
@@ -647,6 +723,7 @@ impl TuiModel {
                         self.work_context_drag_current_point = point;
                     } else if let MainPaneView::Task(target) = self.main_pane_view.clone() {
                         let pos = Position::new(mouse.column, mouse.row);
+                        let task_area = self.task_content_area().unwrap_or(chat_area);
                         if matches!(target, sidebar::SidebarItemTarget::GoalRun { .. }) {
                             self.focus = FocusArea::Chat;
                             self.clear_chat_drag_selection();
@@ -657,7 +734,7 @@ impl TuiModel {
                             let point = match &target {
                                 sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } => {
                                     widgets::goal_workspace::selection_point_from_mouse(
-                                        chat_area,
+                                        task_area,
                                         &self.tasks,
                                         goal_run_id,
                                         &self.goal_workspace,
@@ -673,7 +750,7 @@ impl TuiModel {
                         self.task_view_drag_anchor = Some(pos);
                         self.task_view_drag_current = Some(pos);
                         let point = widgets::task_view::selection_point_from_mouse(
-                            chat_area,
+                            task_area,
                             &self.tasks,
                             &target,
                             &self.theme,
@@ -879,13 +956,14 @@ impl TuiModel {
                         self.step_detail_view_scroll(1);
                     }
                     let pos = Position::new(mouse.column, mouse.row);
+                    let task_area = self.task_content_area().unwrap_or(chat_area);
                     self.task_view_drag_current = Some(pos);
                     self.task_view_drag_current_point = match &self.main_pane_view {
                         MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
                             goal_run_id,
                             ..
                         }) => widgets::goal_workspace::selection_point_from_mouse(
-                            chat_area,
+                            task_area,
                             &self.tasks,
                             goal_run_id,
                             &self.goal_workspace,
@@ -893,7 +971,7 @@ impl TuiModel {
                         ),
                         MainPaneView::Task(target) => {
                             widgets::task_view::selection_point_from_mouse(
-                                chat_area,
+                                task_area,
                                 &self.tasks,
                                 target,
                                 &self.theme,
@@ -927,6 +1005,106 @@ impl TuiModel {
                     .take()
                     .is_some()
                 {
+                    return;
+                }
+                if let Some(task_id) = self.workspace_drag_task.take() {
+                    let start_status = self.workspace_drag_status.take();
+                    let start_target = self.workspace_drag_start_target.take();
+                    if cursor_in_chat && matches!(self.main_pane_view, MainPaneView::Workspace) {
+                        let pos = Position::new(mouse.column, mouse.row);
+                        let drop_target = widgets::workspace_board::hit_test(
+                            chat_area,
+                            &self.workspace,
+                            &self.workspace_expanded_task_ids,
+                            pos,
+                        );
+                        if start_target == drop_target {
+                            if let Some(
+                                widgets::workspace_board::WorkspaceBoardHitTarget::Action {
+                                    task_id,
+                                    status,
+                                    action:
+                                        widgets::workspace_board::WorkspaceBoardAction::ToggleActions,
+                                },
+                            ) = drop_target
+                            {
+                                self.activate_workspace_task_action(
+                                    task_id,
+                                    status,
+                                    widgets::workspace_board::WorkspaceBoardAction::ToggleActions,
+                                );
+                            }
+                            return;
+                        }
+                        let (drop_status, target_task_id) = match drop_target {
+                            Some(widgets::workspace_board::WorkspaceBoardHitTarget::Column {
+                                status,
+                            }) => (Some(status), None),
+                            Some(widgets::workspace_board::WorkspaceBoardHitTarget::Task {
+                                status,
+                                task_id,
+                            }) => (Some(status), Some(task_id)),
+                            Some(widgets::workspace_board::WorkspaceBoardHitTarget::Action {
+                                status,
+                                task_id,
+                                ..
+                            }) => (Some(status), Some(task_id)),
+                            Some(widgets::workspace_board::WorkspaceBoardHitTarget::Toolbar(_)) => {
+                                (None, None)
+                            }
+                            None => (None, None),
+                        };
+                        if let Some(status) = drop_status {
+                            let target_task_id = target_task_id.as_deref();
+                            if Some(&status) == start_status.as_ref()
+                                && (target_task_id.is_none()
+                                    || self.workspace.drop_targets_same_task(
+                                        &task_id,
+                                        &status,
+                                        target_task_id,
+                                    ))
+                            {
+                                return;
+                            }
+                            let should_auto_run = start_status.as_ref()
+                                == Some(&amux_protocol::WorkspaceTaskStatus::Todo)
+                                && status == amux_protocol::WorkspaceTaskStatus::InProgress
+                                && !self.workspace.drop_to_in_progress_run_blocked(
+                                    &task_id,
+                                    start_status.as_ref(),
+                                    &status,
+                                );
+                            let moved_without_auto_run = start_status.as_ref()
+                                == Some(&amux_protocol::WorkspaceTaskStatus::Todo)
+                                && status == amux_protocol::WorkspaceTaskStatus::InProgress
+                                && !should_auto_run;
+                            if moved_without_auto_run {
+                                self.status_line =
+                                    "Moving workspace task without running; assign before running"
+                                        .to_string();
+                            }
+                            let sort_order = self.workspace.sort_order_for_drop(
+                                &task_id,
+                                &status,
+                                target_task_id,
+                            );
+                            self.send_daemon_command(DaemonCommand::MoveWorkspaceTask(
+                                amux_protocol::WorkspaceTaskMove {
+                                    task_id: task_id.clone(),
+                                    status: status.clone(),
+                                    sort_order: Some(sort_order),
+                                },
+                            ));
+                            if should_auto_run {
+                                self.send_daemon_command(DaemonCommand::RunWorkspaceTask(task_id));
+                            }
+                            if should_auto_run {
+                                self.status_line = "Moving workspace task...".to_string();
+                            } else if !moved_without_auto_run {
+                                self.status_line = "Moving workspace task...".to_string();
+                            }
+                        }
+                    }
                     return;
                 }
                 if let Some(anchor) = self.chat_drag_anchor.take() {
@@ -968,6 +1146,7 @@ impl TuiModel {
                         self.handle_chat_click(conversation_chat_area, anchor);
                     }
                 } else if let Some(anchor) = self.task_view_drag_anchor.take() {
+                    let task_area = self.task_content_area().unwrap_or(chat_area);
                     let current = self
                         .task_view_drag_current
                         .take()
@@ -978,7 +1157,7 @@ impl TuiModel {
                                 goal_run_id,
                                 ..
                             }) => widgets::goal_workspace::selection_point_from_mouse(
-                                chat_area,
+                                task_area,
                                 &self.tasks,
                                 goal_run_id,
                                 &self.goal_workspace,
@@ -986,7 +1165,7 @@ impl TuiModel {
                             ),
                             MainPaneView::Task(target) => {
                                 widgets::task_view::selection_point_from_mouse(
-                                    chat_area,
+                                    task_area,
                                     &self.tasks,
                                     target,
                                     &self.theme,
@@ -1016,7 +1195,7 @@ impl TuiModel {
                                 goal_run_id,
                                 ..
                             }) => widgets::goal_workspace::selection_point_from_mouse(
-                                chat_area,
+                                task_area,
                                 &self.tasks,
                                 goal_run_id,
                                 &self.goal_workspace,
@@ -1024,7 +1203,7 @@ impl TuiModel {
                             ),
                             MainPaneView::Task(target) => {
                                 widgets::task_view::selection_point_from_mouse(
-                                    chat_area,
+                                    task_area,
                                     &self.tasks,
                                     target,
                                     &self.theme,
@@ -1051,7 +1230,7 @@ impl TuiModel {
                     let Some((anchor_point, current_point)) = anchor_point.zip(current_point)
                     else {
                         if cursor_in_chat {
-                            self.handle_task_view_click(chat_area, anchor);
+                            self.handle_task_view_click(task_area, anchor);
                         }
                         return;
                     };
@@ -1062,7 +1241,7 @@ impl TuiModel {
                                 let text = match target {
                                     sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } => {
                                         widgets::goal_workspace::selected_text(
-                                            chat_area,
+                                            task_area,
                                             &self.tasks,
                                             goal_run_id,
                                             &self.goal_workspace,
@@ -1071,7 +1250,7 @@ impl TuiModel {
                                         )
                                     }
                                     _ => widgets::task_view::selected_text(
-                                        chat_area,
+                                        task_area,
                                         &self.tasks,
                                         target,
                                         &self.theme,
@@ -1105,7 +1284,7 @@ impl TuiModel {
                             _ => {}
                         }
                     } else if cursor_in_chat {
-                        self.handle_task_view_click(chat_area, anchor);
+                        self.handle_task_view_click(task_area, anchor);
                     }
                 } else if let Some(anchor) = self.work_context_drag_anchor.take() {
                     let current = self

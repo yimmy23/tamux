@@ -169,6 +169,38 @@
     }
 
     #[test]
+    fn read_skill_tool_schema_avoids_top_level_combinators() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let read_skill = tools
+            .iter()
+            .find(|tool| tool.function.name == "read_skill")
+            .expect("read_skill tool should be available");
+
+        assert_eq!(
+            read_skill
+                .function
+                .parameters
+                .get("type")
+                .and_then(|value| value.as_str()),
+            Some("object")
+        );
+        for forbidden in ["oneOf", "anyOf", "allOf", "enum", "not"] {
+            assert!(
+                !read_skill.function.parameters.get(forbidden).is_some(),
+                "read_skill schema must not expose top-level {forbidden}"
+            );
+        }
+        assert!(read_skill
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|properties| properties.get("skills"))
+            .is_some());
+    }
+
+    #[test]
     fn web_search_tool_schema_exposes_timeout_seconds() {
         let mut config = AgentConfig::default();
         config.tools.web_search = true;

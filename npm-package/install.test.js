@@ -16,6 +16,7 @@ test("getReleaseAssetInfo maps linux x64 to published zip asset names", function
     checksumName: "SHA256SUMS-linux-x86_64.txt",
     bundleChecksumName: "SHA256SUMS.txt",
     skillsArchiveRoot: "skills",
+    guidelinesArchiveRoot: "guidelines",
     requiredBinaries: [
       "tamux",
       "tamux-daemon",
@@ -34,6 +35,7 @@ test("getReleaseAssetInfo maps linux arm64 to published zip asset names", functi
     checksumName: "SHA256SUMS-linux-aarch64.txt",
     bundleChecksumName: "SHA256SUMS.txt",
     skillsArchiveRoot: "skills",
+    guidelinesArchiveRoot: "guidelines",
     requiredBinaries: [
       "tamux",
       "tamux-daemon",
@@ -52,6 +54,7 @@ test("getReleaseAssetInfo maps windows x64 to published zip asset names", functi
     checksumName: "SHA256SUMS-windows-x64.txt",
     bundleChecksumName: "SHA256SUMS.txt",
     skillsArchiveRoot: "skills",
+    guidelinesArchiveRoot: "guidelines",
     requiredBinaries: [
       "tamux.exe",
       "tamux-daemon.exe",
@@ -142,6 +145,22 @@ test("getRuntimeSkillsDir resolves to the canonical tamux skills root", function
   );
 });
 
+test("getRuntimeGuidelinesDir resolves beside the canonical tamux skills root", function () {
+  assert.equal(
+    install.getRuntimeGuidelinesDir("linux", {
+      HOME: "/home/aline",
+    }),
+    "/home/aline/.tamux/guidelines"
+  );
+
+  assert.equal(
+    install.getRuntimeGuidelinesDir("win32", {
+      LOCALAPPDATA: "C:\\Users\\aline\\AppData\\Local",
+    }),
+    "C:\\Users\\aline\\AppData\\Local\\tamux\\guidelines"
+  );
+});
+
 test("getRuntimeCustomAuthPath resolves beside daemon runtime data", function () {
   assert.equal(
     install.getRuntimeCustomAuthPath("linux", {
@@ -191,6 +210,34 @@ test("release bundle metadata includes bundled skills payload", function () {
   const info = install.getReleaseAssetInfo("linux", "x64", "0.2.0");
 
   assert.equal(info.skillsArchiveRoot, "skills");
+  assert.equal(info.guidelinesArchiveRoot, "guidelines");
+});
+
+test("extractBundledGuidelines copies missing defaults without overwriting user files", function () {
+  const AdmZip = require("adm-zip");
+  const zip = new AdmZip();
+  zip.addFile("guidelines/coding-task.md", Buffer.from("# bundled coding\n"));
+  zip.addFile("guidelines/research-task.md", Buffer.from("# bundled research\n"));
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamux-guidelines-"));
+  const guidelinesDir = path.join(root, "guidelines");
+  fs.mkdirSync(guidelinesDir, { recursive: true });
+  fs.writeFileSync(path.join(guidelinesDir, "coding-task.md"), "# user coding\n");
+
+  install.extractBundledGuidelines(
+    zip.toBuffer(),
+    { guidelinesArchiveRoot: "guidelines" },
+    guidelinesDir
+  );
+
+  assert.equal(
+    fs.readFileSync(path.join(guidelinesDir, "coding-task.md"), "utf8"),
+    "# user coding\n"
+  );
+  assert.equal(
+    fs.readFileSync(path.join(guidelinesDir, "research-task.md"), "utf8"),
+    "# bundled research\n"
+  );
 });
 
 test("global npm install stops processes before replacing binaries and restarts daemon after success", async function () {

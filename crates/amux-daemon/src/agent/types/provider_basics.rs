@@ -117,6 +117,12 @@ pub const DEEPSEEK_MODELS: &[ModelDefinition] = &[
 
 pub const GITHUB_COPILOT_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        context_window: 400_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
         id: "gpt-5.5",
         name: "GPT-5.5",
         context_window: 400_000,
@@ -245,12 +251,6 @@ pub const GITHUB_COPILOT_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "gpt-5.3-codex",
         name: "GPT-5.3-Codex",
-        context_window: 400_000,
-        modalities: TEXT_IMAGE,
-    },
-    ModelDefinition {
-        id: "gpt-5.4",
-        name: "GPT-5.4",
         context_window: 400_000,
         modalities: TEXT_IMAGE,
     },

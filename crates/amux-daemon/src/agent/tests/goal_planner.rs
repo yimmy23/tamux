@@ -145,6 +145,7 @@ fn sample_goal_run(goal_run_id: &str) -> GoalRun {
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: super::autonomy::AutonomyLevel::Supervised,
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),
@@ -882,6 +883,64 @@ async fn plan_goal_run_preserves_planner_owner_profile_when_plan_request_fails()
 }
 
 #[tokio::test]
+async fn dispatcher_pauses_goal_run_on_transient_planning_transport_failure() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.base_url = "http://127.0.0.1:9/v1".to_string();
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let goal_run_id = "goal-pause-transport-failure";
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Run the planned work after connectivity returns",
+    );
+    goal_run.status = GoalRunStatus::Queued;
+    goal_run.steps.clear();
+    goal_run.thread_id = Some("thread-goal-pause-transport".to_string());
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    engine.clone().dispatch_goal_runs().await;
+
+    let paused = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let current = engine
+                .get_goal_run(goal_run_id)
+                .await
+                .expect("goal run should still exist");
+            if matches!(
+                current.status,
+                GoalRunStatus::Paused | GoalRunStatus::Failed
+            ) {
+                return current;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("goal dispatch should settle");
+
+    assert_eq!(paused.status, GoalRunStatus::Paused);
+    assert!(paused.completed_at.is_none());
+    assert!(paused
+        .last_error
+        .as_deref()
+        .is_some_and(|error| error.contains("transport") || error.contains("request")));
+    assert!(paused
+        .events
+        .iter()
+        .any(|event| { event.phase == "provider_recovery" && event.message.contains("paused") }));
+}
+
+#[tokio::test]
 async fn handle_goal_run_step_failure_preserves_planner_owner_profile_when_replan_request_fails() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -1262,6 +1321,89 @@ async fn sync_goal_run_with_task_preserves_captured_subagent_owner_profile_after
 }
 
 #[tokio::test]
+async fn stale_goal_step_verifier_completion_does_not_complete_current_step() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-stale-step-completion";
+    let mut goal_run = sample_goal_run(goal_run_id);
+    goal_run.thread_id = Some("thread-goal-stale-step-completion".to_string());
+    goal_run.current_step_index = 1;
+    goal_run.current_step_title = Some("step-2".to_string());
+    goal_run.current_step_kind = Some(GoalRunStepKind::Command);
+    goal_run.active_task_id = Some("task-step-2".to_string());
+    goal_run.steps[0].status = GoalRunStepStatus::Failed;
+    goal_run.steps[0].task_id = Some("task-step-1-verifier".to_string());
+    goal_run.steps[0].completed_at = Some(now_millis().saturating_sub(500));
+    goal_run.steps[0].error = Some("previous step failed".to_string());
+    goal_run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "do second step work".to_string(),
+        kind: GoalRunStepKind::Command,
+        success_criteria: "second step done".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::InProgress,
+        task_id: Some("task-step-2".to_string()),
+        summary: None,
+        error: None,
+        started_at: Some(now_millis().saturating_sub(250)),
+        completed_at: None,
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+    let mut active_step_task = sample_completed_goal_task(goal_run_id, "task-step-2", "goal_run");
+    active_step_task.title = "step-2".to_string();
+    active_step_task.status = TaskStatus::InProgress;
+    active_step_task.progress = 25;
+    active_step_task.completed_at = None;
+    active_step_task.result = None;
+    active_step_task.thread_id = Some("thread-goal-stale-step-completion".to_string());
+    active_step_task.goal_step_id = Some("step-2".to_string());
+    active_step_task.goal_step_title = Some("step-2".to_string());
+    engine.tasks.lock().await.push_back(active_step_task);
+    write_step_completion_marker(&engine, goal_run_id, 1).await;
+
+    let mut stale_verifier = sample_completed_goal_task(
+        goal_run_id,
+        "task-step-1-verifier",
+        GOAL_VERIFICATION_SOURCE,
+    );
+    stale_verifier.thread_id = Some("thread-goal-stale-step-completion".to_string());
+    stale_verifier.goal_step_id = Some("step-1".to_string());
+    stale_verifier.goal_step_title = Some("step-1".to_string());
+    stale_verifier.result = Some("VERDICT: PASS\nstale verifier finished late".to_string());
+
+    let before_completion = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should exist before stale completion");
+    assert_eq!(before_completion.current_step_index, 1);
+    assert_eq!(
+        before_completion.active_task_id.as_deref(),
+        Some("task-step-2")
+    );
+    assert_eq!(before_completion.steps[1].id, "step-2");
+    assert_eq!(stale_verifier.goal_step_id.as_deref(), Some("step-1"));
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &stale_verifier)
+        .await
+        .expect("stale completion should be ignored without failing the runner");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should remain");
+    assert_eq!(updated.current_step_index, 1);
+    assert_eq!(updated.active_task_id.as_deref(), Some("task-step-2"));
+    assert_eq!(updated.steps[0].status, GoalRunStepStatus::Failed);
+    assert_eq!(updated.steps[1].status, GoalRunStepStatus::InProgress);
+    assert_eq!(updated.steps[1].task_id.as_deref(), Some("task-step-2"));
+    assert!(updated.steps[1].completed_at.is_none());
+}
+
+#[tokio::test]
 async fn requeue_goal_run_step_clears_current_step_owner_profile() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -1362,6 +1504,7 @@ fn sample_goal_run_with_kind(
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: super::autonomy::AutonomyLevel::Aware,
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),
@@ -3775,6 +3918,64 @@ async fn complete_goal_run_queues_final_review_before_marking_completed() {
         .cloned()
         .expect("queued final review task should exist");
     assert_eq!(review_task.source, "goal_final_review");
+}
+
+#[tokio::test]
+async fn complete_goal_run_reuses_existing_active_final_review() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-final-review-existing";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Finish the only step",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::Completed;
+    goal_run.steps[0].summary = Some("done".to_string());
+    goal_run.current_step_index = goal_run.steps.len();
+    goal_run.current_step_title = None;
+    goal_run.current_step_kind = None;
+    goal_run.active_task_id = None;
+    engine.goal_runs.lock().await.push_back(goal_run);
+    write_step_completion_marker(&engine, goal_run_id, 0).await;
+
+    let mut existing_review = sample_completed_goal_task(
+        goal_run_id,
+        "task-existing-final-review",
+        "goal_final_review",
+    );
+    existing_review.status = TaskStatus::InProgress;
+    existing_review.progress = 50;
+    existing_review.completed_at = None;
+    existing_review.result = None;
+    existing_review.goal_step_id = None;
+    existing_review.goal_step_title = None;
+    engine.tasks.lock().await.push_back(existing_review.clone());
+
+    engine
+        .complete_goal_run(goal_run_id)
+        .await
+        .expect("existing final review should be resumed instead of duplicated");
+
+    let updated = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should still exist");
+    assert_eq!(
+        updated.active_task_id.as_deref(),
+        Some(existing_review.id.as_str())
+    );
+    let final_review_task_count = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .filter(|task| task.goal_run_id.as_deref() == Some(goal_run_id))
+        .filter(|task| task.source == "goal_final_review")
+        .count();
+    assert_eq!(final_review_task_count, 1);
 }
 
 #[tokio::test]

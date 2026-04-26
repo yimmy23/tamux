@@ -98,6 +98,13 @@ fn render_local_skills_section(
     )
 }
 
+fn render_local_guidelines_section(guidelines_root: &std::path::Path) -> String {
+    format!(
+        "- Guidelines root: {}\n- Guidelines are documentation-only workflow orchestrators above skills.\n- For non-trivial work, call `discover_guidelines` with a brief 3-6 word intent query and `read_guideline` for the best match before calling `discover_skills`.\n- Follow the guideline's recommended skills, checks, and task-specific failure modes.",
+        guidelines_root.display(),
+    )
+}
+
 fn render_plugin_skills_section(skills_root: &std::path::Path) -> Option<String> {
     let plugin_skills_dir = skills_root.join("plugins");
     if !plugin_skills_dir.exists() || !plugin_skills_dir.is_dir() {
@@ -452,6 +459,7 @@ fn build_sections(
     active_skill_gate: Option<&crate::agent::types::LatestSkillDiscoveryState>,
 ) -> Vec<PromptInspectionSection> {
     let skills_root = super::skills_dir(&super::agent_data_dir());
+    let guidelines_root = super::guidelines_dir(&super::agent_data_dir());
     let generated_skills_root = skills_root.join("generated");
     let mut sections = Vec::new();
 
@@ -493,6 +501,12 @@ fn build_sections(
             render_shared_user_profile_policy(),
         );
     }
+    push_section(
+        &mut sections,
+        "local_guidelines",
+        "Local Guidelines",
+        render_local_guidelines_section(&guidelines_root),
+    );
     push_section(
         &mut sections,
         "local_skills",

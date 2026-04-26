@@ -346,6 +346,24 @@ pub struct GoalAgentAssignment {
     pub inherit_from_main: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GoalRunModelUsage {
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub request_count: u64,
+    #[serde(default)]
+    pub prompt_tokens: u64,
+    #[serde(default)]
+    pub completion_tokens: u64,
+    #[serde(default)]
+    pub estimated_cost_usd: Option<f64>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+}
+
 fn deserialize_goal_binding<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -394,6 +412,14 @@ pub struct GoalRun {
     pub planner_owner_profile: Option<GoalRuntimeOwnerProfile>,
     #[serde(default)]
     pub current_step_owner_profile: Option<GoalRuntimeOwnerProfile>,
+    #[serde(default)]
+    pub total_prompt_tokens: u64,
+    #[serde(default)]
+    pub total_completion_tokens: u64,
+    #[serde(default)]
+    pub estimated_cost_usd: Option<f64>,
+    #[serde(default)]
+    pub model_usage: Vec<GoalRunModelUsage>,
     #[serde(default)]
     pub child_task_count: u32,
     #[serde(default)]

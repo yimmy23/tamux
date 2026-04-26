@@ -128,7 +128,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         id: PROVIDER_ID_GITHUB_COPILOT,
         name: "GitHub Copilot",
         default_base_url: "https://api.githubcopilot.com",
-        default_model: "gpt-5.5",
+        default_model: "gpt-5.4",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: GITHUB_COPILOT_MODELS,

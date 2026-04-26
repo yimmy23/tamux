@@ -757,3 +757,188 @@ pub struct TelemetryLedgerStatus {
     pub first_invalid_seq: Option<usize>,
     pub message: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceOperator {
+    User,
+    Svarog,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceTaskType {
+    Thread,
+    Goal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceTaskStatus {
+    Todo,
+    InProgress,
+    InReview,
+    Done,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkspacePriority {
+    Low,
+    Normal,
+    High,
+    Urgent,
+}
+
+impl Default for WorkspacePriority {
+    fn default() -> Self {
+        Self::Low
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceActor {
+    User,
+    Agent(String),
+    Subagent(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceTaskRuntimeHistoryEntry {
+    pub task_type: WorkspaceTaskType,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub goal_run_id: Option<String>,
+    #[serde(default)]
+    pub agent_task_id: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub review_path: Option<String>,
+    #[serde(default)]
+    pub review_feedback: Option<String>,
+    pub archived_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceSettings {
+    pub workspace_id: String,
+    #[serde(default)]
+    pub workspace_root: Option<String>,
+    pub operator: WorkspaceOperator,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceTask {
+    pub id: String,
+    pub workspace_id: String,
+    pub title: String,
+    pub task_type: WorkspaceTaskType,
+    pub description: String,
+    #[serde(default)]
+    pub definition_of_done: Option<String>,
+    #[serde(default)]
+    pub priority: WorkspacePriority,
+    pub status: WorkspaceTaskStatus,
+    pub sort_order: i64,
+    pub reporter: WorkspaceActor,
+    #[serde(default)]
+    pub assignee: Option<WorkspaceActor>,
+    #[serde(default)]
+    pub reviewer: Option<WorkspaceActor>,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub goal_run_id: Option<String>,
+    #[serde(default)]
+    pub runtime_history: Vec<WorkspaceTaskRuntimeHistoryEntry>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    #[serde(default)]
+    pub started_at: Option<u64>,
+    #[serde(default)]
+    pub completed_at: Option<u64>,
+    #[serde(default)]
+    pub deleted_at: Option<u64>,
+    #[serde(default)]
+    pub last_notice_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceTaskCreate {
+    pub workspace_id: String,
+    pub title: String,
+    pub task_type: WorkspaceTaskType,
+    pub description: String,
+    #[serde(default)]
+    pub definition_of_done: Option<String>,
+    #[serde(default)]
+    pub priority: Option<WorkspacePriority>,
+    #[serde(default)]
+    pub assignee: Option<WorkspaceActor>,
+    #[serde(default)]
+    pub reviewer: Option<WorkspaceActor>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct WorkspaceTaskUpdate {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub definition_of_done: Option<Option<String>>,
+    #[serde(default)]
+    pub priority: Option<WorkspacePriority>,
+    #[serde(default)]
+    pub assignee: Option<Option<WorkspaceActor>>,
+    #[serde(default)]
+    pub reviewer: Option<Option<WorkspaceActor>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceTaskMove {
+    pub task_id: String,
+    pub status: WorkspaceTaskStatus,
+    #[serde(default)]
+    pub sort_order: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceReviewVerdict {
+    Pass,
+    Fail,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceReviewSubmission {
+    pub task_id: String,
+    pub verdict: WorkspaceReviewVerdict,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceCompletionSubmission {
+    pub task_id: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceNotice {
+    pub id: String,
+    pub workspace_id: String,
+    pub task_id: String,
+    pub notice_type: String,
+    pub message: String,
+    #[serde(default)]
+    pub actor: Option<WorkspaceActor>,
+    pub created_at: u64,
+}

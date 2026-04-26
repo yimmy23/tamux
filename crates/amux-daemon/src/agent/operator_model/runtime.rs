@@ -351,6 +351,12 @@ impl AgentEngine {
         self.record_operator_approval_resolution(approval_id, decision)
             .await?;
 
+        let continuation = self
+            .critique_approval_continuations
+            .lock()
+            .await
+            .remove(approval_id);
+
         if matches!(decision, ApprovalDecision::Deny) {
             return Ok(ToolResult {
                 tool_call_id: approval_id.to_string(),
@@ -362,14 +368,9 @@ impl AgentEngine {
             });
         }
 
-        let continuation = self
-            .critique_approval_continuations
-            .lock()
-            .await
-            .remove(approval_id)
-            .ok_or_else(|| {
-                anyhow::anyhow!("unknown critique approval continuation: {approval_id}")
-            })?;
+        let continuation = continuation.ok_or_else(|| {
+            anyhow::anyhow!("unknown critique approval continuation: {approval_id}")
+        })?;
 
         Ok(execute_tool(
             &continuation.tool_call,

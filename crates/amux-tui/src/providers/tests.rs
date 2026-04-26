@@ -23,22 +23,23 @@ fn shared_provider_refs_match_tui_catalog() {
 }
 
 #[test]
-fn github_copilot_defaults_to_gpt_55_and_lists_it_first() {
+fn github_copilot_defaults_to_gpt_54_and_keeps_gpt_55_selectable() {
     let provider = find_by_id(PROVIDER_ID_GITHUB_COPILOT).unwrap();
-    assert_eq!(provider.default_model, "gpt-5.5");
+    assert_eq!(provider.default_model, "gpt-5.4");
     assert_eq!(
         default_model_for_provider_auth(PROVIDER_ID_GITHUB_COPILOT, "github_copilot"),
-        "gpt-5.5"
+        "gpt-5.4"
     );
     let models = known_models_for_provider_auth(PROVIDER_ID_GITHUB_COPILOT, "github_copilot");
     assert_eq!(
         models.first().map(|model| model.id.as_str()),
-        Some("gpt-5.5")
+        Some("gpt-5.4")
     );
     assert_eq!(
         models.first().and_then(|model| model.context_window),
         Some(400_000)
     );
+    assert!(models.iter().any(|model| model.id == "gpt-5.5"));
 }
 
 #[test]

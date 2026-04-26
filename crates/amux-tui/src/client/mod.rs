@@ -390,6 +390,22 @@ pub enum ClientEvent {
     },
     NotificationSnapshot(Vec<amux_protocol::InboxNotification>),
     NotificationUpsert(amux_protocol::InboxNotification),
+    WorkspaceSettings(amux_protocol::WorkspaceSettings),
+    WorkspaceSettingsList(Vec<amux_protocol::WorkspaceSettings>),
+    WorkspaceTaskList {
+        workspace_id: String,
+        tasks: Vec<amux_protocol::WorkspaceTask>,
+    },
+    WorkspaceTaskUpdated(amux_protocol::WorkspaceTask),
+    WorkspaceTaskDeleted {
+        task_id: String,
+        deleted_at: Option<u64>,
+    },
+    WorkspaceNotices {
+        workspace_id: String,
+        notices: Vec<amux_protocol::WorkspaceNotice>,
+    },
+    WorkspaceNoticeUpdated(amux_protocol::WorkspaceNotice),
 
     Error(String),
 }

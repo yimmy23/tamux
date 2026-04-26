@@ -1,6 +1,249 @@
 use super::*;
 
 impl AgentEngine {
+    fn extract_gateway_approval_id_from_message(content: &str) -> Option<String> {
+        let (_, remainder) = content.split_once("Approval ID:")?;
+        remainder
+            .trim()
+            .split_whitespace()
+            .next()
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
+    fn gateway_approval_request_text(&self, pending_approval: &ToolPendingApproval) -> String {
+        format!(
+            "Approval required for a pending task.\nApproval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}\n\nReply with one of: approve-once | approve-session | deny",
+            pending_approval.approval_id,
+            pending_approval.risk_level,
+            pending_approval.blast_radius,
+            pending_approval.command,
+            pending_approval.reasons.join("\n- "),
+        )
+    }
+
+    pub(in crate::agent) async fn maybe_send_gateway_thread_approval_request(
+        &self,
+        thread_id: &str,
+        pending_approval: &ToolPendingApproval,
+    ) -> bool {
+        let Some(msg) = self.gateway_message_target_for_thread(thread_id).await else {
+            return false;
+        };
+
+        let (_, reply_tool_name) = gateway_reply_tool(&msg.platform, &msg.channel);
+        let response_text = self.gateway_approval_request_text(pending_approval);
+        self.add_assistant_message(
+            thread_id,
+            &response_text,
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+        self.persist_thread_by_id(thread_id).await;
+
+        let tool_result = self
+            .send_gateway_platform_tool(
+                thread_id,
+                "gateway_approval_prompt",
+                reply_tool_name,
+                &msg,
+                &response_text,
+            )
+            .await;
+
+        if tool_result.is_error {
+            tracing::error!(
+                thread_id = %thread_id,
+                platform = %msg.platform,
+                channel = %msg.channel,
+                error = %tool_result.content,
+                "gateway: failed to send approval prompt"
+            );
+            return false;
+        }
+
+        true
+    }
+
+    pub(super) async fn gateway_pending_approval_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Option<String> {
+        {
+            let tasks = self.tasks.lock().await;
+            if let Some(approval_id) = tasks
+                .iter()
+                .rev()
+                .find(|task| {
+                    task.thread_id.as_deref() == Some(thread_id)
+                        && task.awaiting_approval_id.is_some()
+                })
+                .and_then(|task| task.awaiting_approval_id.clone())
+            {
+                return Some(approval_id);
+            }
+        }
+
+        if let Some(approval_id) = self
+            .critique_approval_continuations
+            .lock()
+            .await
+            .iter()
+            .find(|(_, continuation)| continuation.thread_id == thread_id)
+            .map(|(approval_id, _)| approval_id.clone())
+        {
+            return Some(approval_id);
+        }
+
+        let approval_ids = {
+            let threads = self.threads.read().await;
+            threads
+                .get(thread_id)
+                .map(|thread| {
+                    thread
+                        .messages
+                        .iter()
+                        .rev()
+                        .filter_map(|message| {
+                            Self::extract_gateway_approval_id_from_message(&message.content)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
+        if approval_ids.is_empty() {
+            return None;
+        }
+
+        let pending = self.pending_operator_approvals.read().await;
+        approval_ids
+            .into_iter()
+            .find(|approval_id| pending.contains_key(approval_id))
+    }
+
+    async fn gateway_resolve_thread_approval(
+        &self,
+        approval_id: &str,
+        decision: amux_protocol::ApprovalDecision,
+    ) -> bool {
+        if self
+            .session_manager
+            .resolve_approval_by_id(approval_id, decision)
+            .await
+            .is_ok()
+        {
+            let _ = self
+                .record_operator_approval_resolution(approval_id, decision)
+                .await;
+            return true;
+        }
+
+        if self
+            .handle_task_approval_resolution(approval_id, decision)
+            .await
+        {
+            let _ = self
+                .record_operator_approval_resolution(approval_id, decision)
+                .await;
+            return true;
+        }
+
+        self.resume_critique_approval_continuation(
+            approval_id,
+            decision,
+            &self.session_manager,
+            &self.event_tx,
+            &self.data_dir,
+            &self.http_client,
+        )
+        .await
+        .is_ok()
+    }
+
+    fn gateway_approval_confirmation_text(
+        &self,
+        decision: amux_protocol::ApprovalDecision,
+    ) -> &'static str {
+        match decision {
+            amux_protocol::ApprovalDecision::ApproveOnce => {
+                "Approved once. I resumed the pending task."
+            }
+            amux_protocol::ApprovalDecision::ApproveSession => {
+                "Approved for this session. I resumed the pending task."
+            }
+            amux_protocol::ApprovalDecision::Deny => "Denied. I rejected the pending task.",
+        }
+    }
+
+    pub(in crate::agent) async fn handle_gateway_task_approval_reply(
+        &self,
+        msg: &gateway::IncomingMessage,
+        channel_key: &str,
+        existing_thread: Option<&str>,
+        reply_tool_name: &str,
+    ) -> bool {
+        let Some(decision) = parse_gateway_approval_decision(&msg.content) else {
+            return false;
+        };
+
+        let Some(thread_id) = existing_thread else {
+            return false;
+        };
+
+        let Some(approval_id) = self.gateway_pending_approval_for_thread(thread_id).await else {
+            return false;
+        };
+
+        if !self
+            .gateway_resolve_thread_approval(&approval_id, decision)
+            .await
+        {
+            return false;
+        }
+
+        let response_text = self.gateway_approval_confirmation_text(decision);
+        let thread_id = match self
+            .persist_gateway_fast_path_exchange(channel_key, msg, response_text)
+            .await
+        {
+            Ok(thread_id) => thread_id,
+            Err(error) => {
+                tracing::error!(
+                    platform = %msg.platform,
+                    channel = %msg.channel,
+                    %error,
+                    "gateway: failed to persist approval reply exchange"
+                );
+                return true;
+            }
+        };
+
+        let tool_result = self
+            .send_gateway_platform_tool(
+                &thread_id,
+                "gateway_approval",
+                reply_tool_name,
+                msg,
+                response_text,
+            )
+            .await;
+        if tool_result.is_error {
+            tracing::error!(
+                platform = %msg.platform,
+                channel = %msg.channel,
+                error = %tool_result.content,
+                "gateway: failed to send approval confirmation"
+            );
+        }
+        true
+    }
+
     pub(super) async fn release_gateway_inflight_channel(&self, channel_key: &str) {
         self.gateway_inflight_channels
             .lock()

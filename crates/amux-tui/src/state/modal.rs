@@ -9,6 +9,13 @@ pub enum ModalKind {
     ThreadParticipants,
     ThreadPicker,
     GoalPicker,
+    WorkspacePicker,
+    WorkspaceCreateTask,
+    WorkspaceReviewTask,
+    WorkspaceEditTask,
+    WorkspaceTaskDetail,
+    WorkspaceTaskHistory,
+    WorkspaceActorPicker,
     GoalStepActionPicker,
     ProviderPicker,
     ModelPicker,
@@ -457,6 +464,18 @@ fn default_command_items() -> Vec<CommandItem> {
             description: "Open new goal composer".into(),
         },
         CommandItem {
+            command: "workspace".into(),
+            description: "Open workspace board".into(),
+        },
+        CommandItem {
+            command: "new-workspace".into(),
+            description: "Seed workspace task creation".into(),
+        },
+        CommandItem {
+            command: "workspace-update".into(),
+            description: "Seed workspace task update".into(),
+        },
+        CommandItem {
             command: "goal".into(),
             description: "Open goal picker".into(),
         },
@@ -511,6 +530,10 @@ fn default_command_items() -> Vec<CommandItem> {
         CommandItem {
             command: "skills install".into(),
             description: "Seed community skill install command".into(),
+        },
+        CommandItem {
+            command: "guidelines install".into(),
+            description: "Seed custom guideline install command".into(),
         },
         CommandItem {
             command: "quit".into(),

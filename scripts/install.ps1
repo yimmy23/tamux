@@ -34,6 +34,7 @@ $ErrorActionPreference = "Stop"
 
 $InstallDir = if ($env:TAMUX_INSTALL_DIR) { $env:TAMUX_INSTALL_DIR } else { "C:\Program Files\tamux" }
 $SkillsDir = if ($env:TAMUX_SKILLS_DIR) { $env:TAMUX_SKILLS_DIR } else { Join-Path $HOME ".tamux\skills" }
+$GuidelinesDir = if ($env:TAMUX_GUIDELINES_DIR) { $env:TAMUX_GUIDELINES_DIR } else { Join-Path $HOME ".tamux\guidelines" }
 $GitHubOwner = "mkurman"
 $GitHubRepo = "tamux"
 $GitHubApiUrl = "https://api.github.com/repos/$GitHubOwner/$GitHubRepo"
@@ -172,7 +173,7 @@ function Download-AndVerify {
     Invoke-WebRequest -Uri $script:ArchiveUrl -Headers $RequestHeaders `
         -OutFile $script:ArchivePath -ErrorAction Stop
 
-    Write-Host "Extracting binaries and skills..."
+    Write-Host "Extracting binaries, skills, and guidelines..."
     Expand-Archive -Path $script:ArchivePath -DestinationPath $script:ExtractDir -Force
 
     Write-Host "Verifying extracted binaries..."
@@ -216,6 +217,26 @@ function Install-Skills {
     New-Item -ItemType Directory -Force -Path $SkillsDir | Out-Null
     Copy-Item -Path (Join-Path $script:ExtractDir "skills\*") -Destination $SkillsDir -Recurse -Force
     Write-Host "Installed bundled skills -> $SkillsDir"
+}
+
+function Install-Guidelines {
+    $guidelinesSource = Join-Path $script:ExtractDir "guidelines"
+    if (-not (Test-Path $guidelinesSource)) {
+        throw "Release bundle is missing bundled guidelines"
+    }
+
+    New-Item -ItemType Directory -Force -Path $GuidelinesDir | Out-Null
+    Get-ChildItem -Path $guidelinesSource -Recurse -File | ForEach-Object {
+        $relativePath = [System.IO.Path]::GetRelativePath($guidelinesSource, $_.FullName)
+        $targetPath = Join-Path $GuidelinesDir $relativePath
+        if (Test-Path $targetPath) {
+            return
+        }
+
+        New-Item -ItemType Directory -Force -Path (Split-Path $targetPath -Parent) | Out-Null
+        Copy-Item -Path $_.FullName -Destination $targetPath
+    }
+    Write-Host "Installed missing bundled guidelines -> $GuidelinesDir"
 }
 
 function Install-CustomAuthTemplate {
@@ -300,6 +321,7 @@ if ($DryRun) {
     Write-Host "Checksum URL: $script:ChecksumUrl"
     Write-Host "Would install to: $InstallDir"
     Write-Host "Would install bundled skills to: $SkillsDir"
+    Write-Host "Would install bundled guidelines to: $GuidelinesDir"
     Write-Host "Binaries: $($Binaries -join ', ')"
     Write-Host "Dry run complete -- no files downloaded or modified."
     exit 0
@@ -310,6 +332,7 @@ try {
     Download-AndVerify
     Install-Binaries
     Install-Skills
+    Install-Guidelines
     Install-CustomAuthTemplate
     Update-Path
     Start-DaemonAfterUpgrade

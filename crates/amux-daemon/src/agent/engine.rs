@@ -177,6 +177,7 @@ pub struct AgentEngine {
     pub gateway_inflight_channels: Mutex<HashSet<String>>,
     /// Queue of externally injected gateway messages (e.g. linked WhatsApp sidecar).
     pub gateway_injected_messages: Mutex<VecDeque<gateway::IncomingMessage>>,
+    pub(super) webhook_listener_addr: RwLock<Option<String>>,
     /// External agent runners for openclaw/hermes backends.
     pub external_runners: RwLock<HashMap<String, external_runner::ExternalAgentRunner>>,
     pub(super) subagent_runtime: RwLock<HashMap<String, SubagentRuntimeStats>>,
@@ -291,6 +292,25 @@ impl AgentEngine {
         data_dir: PathBuf,
         http_client: reqwest::Client,
     ) -> Arc<Self> {
+        let workspace_root = std::env::current_dir().ok().filter(|path| path.is_dir());
+        Self::new_with_storage_and_http_client_for_root(
+            session_manager,
+            config,
+            history,
+            data_dir,
+            http_client,
+            workspace_root,
+        )
+    }
+
+    fn new_with_storage_and_http_client_for_root(
+        session_manager: Arc<SessionManager>,
+        config: AgentConfig,
+        history: HistoryStore,
+        data_dir: PathBuf,
+        http_client: reqwest::Client,
+        workspace_root: Option<PathBuf>,
+    ) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(config.agent_event_channel_capacity);
         let (watcher_refresh_tx, watcher_refresh_rx) = mpsc::unbounded_channel();
         let (skill_discovery_result_tx, skill_discovery_result_rx) = mpsc::unbounded_channel();
@@ -315,7 +335,6 @@ impl AgentEngine {
 
         let initial_config_runtime_projection =
             super::config::derive_startup_config_runtime_projection(&config);
-        let workspace_root = std::env::current_dir().ok().filter(|path| path.is_dir());
 
         let config = Arc::new(RwLock::new(config));
         let concierge = Arc::new(ConciergeEngine::new(
@@ -387,6 +406,7 @@ impl AgentEngine {
             gateway_seen_ids: Mutex::new(Vec::new()),
             gateway_inflight_channels: Mutex::new(HashSet::new()),
             gateway_injected_messages: Mutex::new(VecDeque::new()),
+            webhook_listener_addr: RwLock::new(None),
             external_runners: RwLock::new(runners),
             subagent_runtime: RwLock::new(HashMap::new()),
             trusted_weles_tasks: RwLock::new(HashSet::new()),
@@ -446,6 +466,7 @@ impl AgentEngine {
             engine.clone(),
             skill_discovery_result_rx,
         );
+        Self::spawn_svarog_workspace_reconciliation(engine.clone());
 
         engine
     }
@@ -587,7 +608,14 @@ impl AgentEngine {
             .expect("test history store initialization failed");
         let data_dir = root.join("agent");
         std::fs::create_dir_all(&data_dir).expect("failed to create test agent data dir");
-        Self::new_with_storage(session_manager, config, history, data_dir)
+        Self::new_with_storage_and_http_client_for_root(
+            session_manager,
+            config,
+            history,
+            data_dir,
+            build_agent_http_client(AGENT_HTTP_READ_TIMEOUT),
+            Some(root.to_path_buf()),
+        )
     }
 
     #[cfg(test)]

@@ -79,6 +79,50 @@ impl TuiModel {
             }
             return true;
         }
+        if cmd == "workspace" {
+            self.handle_workspace_command(args);
+            return true;
+        }
+        if cmd == "new-workspace" {
+            self.create_workspace_task_from_args(args);
+            return true;
+        }
+        if cmd == "workspace-run" {
+            self.run_workspace_task_from_args(args);
+            return true;
+        }
+        if cmd == "workspace-pause" {
+            self.pause_workspace_task_from_args(args);
+            return true;
+        }
+        if cmd == "workspace-stop" {
+            self.stop_workspace_task_from_args(args);
+            return true;
+        }
+        if cmd == "workspace-delete" {
+            self.delete_workspace_task_from_args(args);
+            return true;
+        }
+        if cmd == "workspace-move" {
+            self.move_workspace_task_from_args(args);
+            return true;
+        }
+        if cmd == "workspace-assign" {
+            self.assign_workspace_task_from_args(args);
+            return true;
+        }
+        if cmd == "workspace-update" {
+            self.update_workspace_task_from_args(args);
+            return true;
+        }
+        if cmd == "workspace-reviewer" {
+            self.set_workspace_reviewer_from_args(args);
+            return true;
+        }
+        if cmd == "workspace-review" {
+            self.review_workspace_task_from_args(args);
+            return true;
+        }
         if cmd == "new" {
             let target_agent_id = if args.trim().is_empty() {
                 Some(amux_protocol::AGENT_ID_SWAROG.to_string())

@@ -1688,6 +1688,7 @@ async fn dispatch_tool_execution(
             execute_submit_goal_step_verdict(args, agent, task_id).await
         }
         "list_triggers" => execute_list_triggers(args, agent).await,
+        "ingest_webhook_event" => execute_ingest_webhook_event(args, agent).await,
         "add_trigger" => execute_add_trigger(args, agent).await,
         "show_dreams" => execute_show_dreams(args, agent).await,
         "show_harness_state" => {
@@ -1715,6 +1716,22 @@ async fn dispatch_tool_execution(
         | "create_snippet"
         | "run_snippet" => {
             execute_workspace_tool(prepared.tool_name.as_str(), args, event_tx).await
+        }
+        "workspace_get_settings"
+        | "workspace_list_tasks"
+        | "workspace_get_task"
+        | "workspace_list_notices"
+        | "workspace_set_operator"
+        | "workspace_create_task"
+        | "workspace_update_task"
+        | "workspace_move_task"
+        | "workspace_run_task"
+        | "workspace_pause_task"
+        | "workspace_stop_task"
+        | "workspace_delete_task"
+        | "workspace_submit_review"
+        | "workspace_submit_completion" => {
+            execute_workspace_task_tool(prepared.tool_name.as_str(), args, agent).await
         }
         "bash_command" => {
             match execute_bash_command(
@@ -1792,6 +1809,9 @@ async fn dispatch_tool_execution(
         }
         "list_tools" => execute_list_tools(args, agent, session_manager, agent_data_dir).await,
         "tool_search" => execute_tool_search(args, agent, session_manager, agent_data_dir).await,
+        "list_guidelines" => execute_list_guidelines(args, agent_data_dir).await,
+        "discover_guidelines" => execute_discover_guidelines(args, agent, session_id).await,
+        "read_guideline" => execute_read_guideline(args, agent_data_dir).await,
         "list_skills" => execute_list_skills(args, agent_data_dir, &agent.history).await,
         "discover_skills" => execute_discover_skills(args, agent, session_id).await,
         "semantic_query" => {

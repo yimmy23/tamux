@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 const OPEN_ACTIVE_THREAD_LABEL: &str = "[Ctrl+O] Open active thread";
 const RETURN_TO_GOAL_LABEL: &str = "[B] Return to goal";
 const RETURN_TO_THREAD_LABEL: &str = "[B] Return to thread";
+const RETURN_TO_WORKSPACE_LABEL: &str = "[B] Return to workspace";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GoalMissionControlHitTarget {
@@ -95,6 +96,17 @@ pub fn render_return_to_thread_banner(frame: &mut Frame, area: Rect, theme: &The
     );
 }
 
+pub fn render_return_to_workspace_banner(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
+    render_return_banner(
+        frame,
+        area,
+        theme,
+        RETURN_TO_WORKSPACE_LABEL,
+        "Return to the workspace board",
+        "Return to workspace unavailable",
+    );
+}
+
 fn render_return_banner(
     frame: &mut Frame,
     area: Rect,
@@ -130,6 +142,10 @@ pub fn return_to_goal_button_area(area: Rect) -> Option<Rect> {
 
 pub fn return_to_thread_button_area(area: Rect) -> Option<Rect> {
     return_button_area(area, RETURN_TO_THREAD_LABEL)
+}
+
+pub fn return_to_workspace_button_area(area: Rect) -> Option<Rect> {
+    return_button_area(area, RETURN_TO_WORKSPACE_LABEL)
 }
 
 fn return_button_area(area: Rect, label: &str) -> Option<Rect> {

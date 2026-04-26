@@ -218,6 +218,121 @@ fn daemon_message_roundtrips_agent_tool_list() {
 }
 
 #[test]
+fn workspace_task_payload_round_trips() {
+    let task = WorkspaceTask {
+        id: "wtask_1".into(),
+        workspace_id: "workspace-main".into(),
+        title: "Ship workspace board".into(),
+        task_type: WorkspaceTaskType::Goal,
+        description: "Implement daemon and TUI board".into(),
+        definition_of_done: Some("Four columns render live".into()),
+        priority: WorkspacePriority::Low,
+        status: WorkspaceTaskStatus::Todo,
+        sort_order: 10,
+        reporter: WorkspaceActor::User,
+        assignee: Some(WorkspaceActor::Agent(AGENT_ID_SWAROG.into())),
+        reviewer: Some(WorkspaceActor::User),
+        thread_id: None,
+        goal_run_id: None,
+        runtime_history: Vec::new(),
+        created_at: 1,
+        updated_at: 2,
+        started_at: None,
+        completed_at: None,
+        deleted_at: None,
+        last_notice_id: None,
+    };
+
+    let json = serde_json::to_string(&task).unwrap();
+    let decoded: WorkspaceTask = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(decoded.task_type, WorkspaceTaskType::Goal);
+    assert_eq!(decoded.status, WorkspaceTaskStatus::Todo);
+    assert_eq!(decoded.priority, WorkspacePriority::Low);
+    assert_eq!(
+        decoded.assignee,
+        Some(WorkspaceActor::Agent(AGENT_ID_SWAROG.into()))
+    );
+}
+
+#[test]
+fn client_message_roundtrips_create_workspace_task() {
+    let actor = WorkspaceActor::Agent(AGENT_ID_SWAROG.into());
+    let actor_bytes = bincode::serialize(&actor).unwrap();
+    let decoded_actor: WorkspaceActor = bincode::deserialize(&actor_bytes).unwrap();
+    assert_eq!(decoded_actor, actor);
+
+    let request = WorkspaceTaskCreate {
+        workspace_id: "workspace-main".into(),
+        title: "Write daemon store".into(),
+        task_type: WorkspaceTaskType::Thread,
+        description: "Persist workspace tasks in SQLite".into(),
+        definition_of_done: None,
+        priority: None,
+        assignee: Some(WorkspaceActor::Agent(AGENT_ID_SWAROG.into())),
+        reviewer: Some(WorkspaceActor::User),
+    };
+    let request_bytes = bincode::serialize(&request).unwrap();
+    let decoded_request: WorkspaceTaskCreate = bincode::deserialize(&request_bytes).unwrap();
+    assert_eq!(decoded_request.task_type, WorkspaceTaskType::Thread);
+
+    let msg = ClientMessage::AgentCreateWorkspaceTask { request };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+
+    match decoded {
+        ClientMessage::AgentCreateWorkspaceTask { request } => {
+            assert_eq!(request.workspace_id, "workspace-main");
+            assert_eq!(request.task_type, WorkspaceTaskType::Thread);
+            assert_eq!(request.priority, None);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_workspace_task_update() {
+    let msg = DaemonMessage::AgentWorkspaceTaskUpdated {
+        task: WorkspaceTask {
+            id: "wtask_1".into(),
+            workspace_id: "workspace-main".into(),
+            title: "Review workspace schema".into(),
+            task_type: WorkspaceTaskType::Goal,
+            description: "Check DB tables".into(),
+            definition_of_done: None,
+            priority: WorkspacePriority::Low,
+            status: WorkspaceTaskStatus::InReview,
+            sort_order: 20,
+            reporter: WorkspaceActor::User,
+            assignee: None,
+            reviewer: Some(WorkspaceActor::Agent(AGENT_ID_SWAROG.into())),
+            thread_id: None,
+            goal_run_id: Some("goal_1".into()),
+            runtime_history: Vec::new(),
+            created_at: 1,
+            updated_at: 3,
+            started_at: Some(2),
+            completed_at: None,
+            deleted_at: None,
+            last_notice_id: Some("wnotice_1".into()),
+        },
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+
+    match decoded {
+        DaemonMessage::AgentWorkspaceTaskUpdated { task } => {
+            assert_eq!(task.id, "wtask_1");
+            assert_eq!(task.status, WorkspaceTaskStatus::InReview);
+            assert_eq!(task.goal_run_id.as_deref(), Some("goal_1"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn daemon_message_roundtrips_agent_tool_search_result() {
     let msg = DaemonMessage::AgentToolSearchResult {
         result: ToolSearchResultPublic {
@@ -1558,6 +1673,33 @@ fn skill_discover_round_trip() {
 }
 
 #[test]
+fn guideline_discover_round_trip() {
+    let expected_session_id = SessionId::new_v4();
+    let msg = ClientMessage::GuidelineDiscover {
+        query: "coding task workflow".to_string(),
+        session_id: Some(expected_session_id),
+        limit: 3,
+        cursor: Some("cursor:coding-task".to_string()),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::GuidelineDiscover {
+            query,
+            session_id,
+            limit,
+            cursor,
+        } => {
+            assert_eq!(query, "coding task workflow");
+            assert_eq!(session_id, Some(expected_session_id));
+            assert_eq!(limit, 3);
+            assert_eq!(cursor.as_deref(), Some("cursor:coding-task"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn skill_discover_result_round_trip() {
     let payload = sample_skill_discovery_result();
     let msg = DaemonMessage::SkillDiscoverResult {
@@ -1623,6 +1765,35 @@ fn skill_discover_result_round_trip() {
             assert_eq!(result.candidates[0].use_count, 12);
             assert_eq!(result.candidates[0].success_count, 10);
             assert_eq!(result.candidates[0].failure_count, 2);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn guideline_discover_result_round_trip() {
+    let mut payload = sample_skill_discovery_result();
+    payload.recommended_action = "read_guideline coding-task".to_string();
+    payload.candidates[0].skill_name = "coding-task".to_string();
+    payload.candidates[0].relative_path = "coding-task.md".to_string();
+    payload.candidates[0].source_kind = "guideline".to_string();
+    payload.candidates[0].recommended_action = "read_guideline coding-task".to_string();
+
+    let msg = DaemonMessage::GuidelineDiscoverResult {
+        result_json: serde_json::to_string(&payload).unwrap(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::GuidelineDiscoverResult { result_json } => {
+            let result: SkillDiscoveryResultPublic = serde_json::from_str(&result_json).unwrap();
+            assert_eq!(result.recommended_action, "read_guideline coding-task");
+            assert_eq!(result.candidates[0].skill_name, "coding-task");
+            assert_eq!(result.candidates[0].source_kind, "guideline");
+            assert_eq!(
+                result.candidates[0].recommended_action,
+                "read_guideline coding-task"
+            );
         }
         other => panic!("unexpected variant: {:?}", other),
     }

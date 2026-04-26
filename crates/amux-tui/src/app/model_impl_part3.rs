@@ -91,6 +91,21 @@ impl TuiModel {
                 modal::ModalKind::ThreadParticipants => "modal:thread_participants".to_string(),
                 modal::ModalKind::ThreadPicker => "modal:thread_picker".to_string(),
                 modal::ModalKind::GoalPicker => "modal:goal_picker".to_string(),
+                modal::ModalKind::WorkspacePicker => "modal:workspace_picker".to_string(),
+                modal::ModalKind::WorkspaceCreateTask => {
+                    "modal:workspace_create_task".to_string()
+                }
+                modal::ModalKind::WorkspaceReviewTask => {
+                    "modal:workspace_review_task".to_string()
+                }
+                modal::ModalKind::WorkspaceEditTask => "modal:workspace_edit_task".to_string(),
+                modal::ModalKind::WorkspaceTaskDetail => "modal:workspace_task_detail".to_string(),
+                modal::ModalKind::WorkspaceTaskHistory => {
+                    "modal:workspace_task_history".to_string()
+                }
+                modal::ModalKind::WorkspaceActorPicker => {
+                    "modal:workspace_actor_picker".to_string()
+                }
                 modal::ModalKind::GoalStepActionPicker => {
                     "modal:goal_step_action_picker".to_string()
                 }
@@ -146,6 +161,11 @@ impl TuiModel {
             },
             MainPaneView::Collaboration => (
                 "collaboration:workspace".to_string(),
+                self.chat.active_thread_id().map(str::to_string),
+                None,
+            ),
+            MainPaneView::Workspace => (
+                "workspace:board".to_string(),
                 self.chat.active_thread_id().map(str::to_string),
                 None,
             ),

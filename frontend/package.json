@@ -1,7 +1,7 @@
 {
   "name": "tamux",
   "private": true,
-  "version": "0.6.15",
+  "version": "0.7.0",
   "description": "Agentic terminal multiplexer with AI-native workflows",
   "homepage": "https://tamux.app",
   "author": {
@@ -78,6 +78,10 @@
       {
         "from": "dist/GETTING_STARTED.md",
         "to": "GETTING_STARTED.md"
+      },
+      {
+        "from": "../guidelines",
+        "to": "guidelines"
       }
     ],
     "win": {

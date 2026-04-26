@@ -47,13 +47,13 @@ mod transport;
 mod utils;
 
 use agent_tools::{
-    tool_activate_generated_tool, tool_ask_questions, tool_control_goal_run, tool_discover_skills,
-    tool_generate_soc2_artifact, tool_get_causal_trace_report, tool_get_collaboration_sessions,
-    tool_get_counterfactual_report, tool_get_goal_run, tool_get_memory_provenance_report,
-    tool_get_operator_model, tool_get_provenance_report, tool_inspect_skill_variant,
-    tool_list_generated_tools, tool_list_goal_runs, tool_list_skill_variants,
-    tool_promote_generated_tool, tool_query_audits, tool_reset_operator_model,
-    tool_run_generated_tool, tool_synthesize_tool,
+    tool_activate_generated_tool, tool_ask_questions, tool_control_goal_run,
+    tool_discover_guidelines, tool_discover_skills, tool_generate_soc2_artifact,
+    tool_get_causal_trace_report, tool_get_collaboration_sessions, tool_get_counterfactual_report,
+    tool_get_goal_run, tool_get_memory_provenance_report, tool_get_operator_model,
+    tool_get_provenance_report, tool_inspect_skill_variant, tool_list_generated_tools,
+    tool_list_goal_runs, tool_list_skill_variants, tool_promote_generated_tool, tool_query_audits,
+    tool_reset_operator_model, tool_run_generated_tool, tool_synthesize_tool,
 };
 use daemon::{connect_daemon, daemon_roundtrip};
 use daemon_tools::{
@@ -64,7 +64,10 @@ use daemon_tools::{
     tool_verify_integrity,
 };
 use rpc::{handle_initialize, handle_tools_list, JsonRpcRequest, JsonRpcResponse};
-use skills::{collect_skill_documents, resolve_skill_path, tamux_skills_dir};
+use skills::{
+    collect_guideline_documents, collect_skill_documents, resolve_guideline_path,
+    resolve_skill_path, tamux_guidelines_dir, tamux_skills_dir,
+};
 use tool_definitions::tool_definitions;
 use transport::{read_message, write_message};
 use utils::{default_task_title, parse_scheduled_at, strip_ansi_basic};
@@ -125,8 +128,11 @@ async fn dispatch_tool(name: &str, args: &Value) -> Result<Value> {
         "get_todos" => tool_get_todos(args).await,
         "list_skills" => tool_list_skills(args).await,
         "discover_skills" => tool_discover_skills(args).await,
+        "list_guidelines" => tool_list_guidelines(args).await,
+        "discover_guidelines" => tool_discover_guidelines(args).await,
         "ask_questions" => tool_ask_questions(args).await,
         "read_skill" => tool_read_skill(args).await,
+        "read_guideline" => tool_read_guideline(args).await,
         "list_skill_variants" => tool_list_skill_variants(args).await,
         "inspect_skill_variant" => tool_inspect_skill_variant(args).await,
         "start_goal_run" => tool_start_goal_run(args).await,
@@ -414,12 +420,7 @@ fn decode_local_skill_cursor(cursor: Option<&str>) -> Result<Option<String>> {
 }
 
 async fn tool_read_skill(args: &Value) -> Result<Value> {
-    let skill = args
-        .get("skill")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("missing required parameter: skill"))?;
+    let skills = parse_read_skill_targets(args)?;
     let max_lines = args
         .get("max_lines")
         .and_then(|v| v.as_u64())
@@ -427,7 +428,66 @@ async fn tool_read_skill(args: &Value) -> Result<Value> {
         .clamp(20, 1000) as usize;
 
     let skills_root = tamux_skills_dir();
-    let skill_path = resolve_skill_path(&skills_root, skill)?;
+    let mut entries = Vec::with_capacity(skills.len());
+    for skill in &skills {
+        entries.push(read_skill_entry(&skills_root, skill, max_lines)?);
+    }
+
+    if skills.len() == 1 {
+        return Ok(entries
+            .into_iter()
+            .next()
+            .expect("single skill entry should be present"));
+    }
+
+    Ok(serde_json::json!({
+        "skills_root": skills_root,
+        "skills": entries,
+    }))
+}
+
+fn parse_read_skill_targets(args: &Value) -> Result<Vec<String>> {
+    let mut skills = Vec::new();
+
+    if let Some(skill) = args.get("skill") {
+        let skill = skill
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("skill must be a string"))?
+            .trim();
+        if skill.is_empty() {
+            anyhow::bail!("skill must not be empty");
+        }
+        skills.push(skill.to_string());
+    }
+
+    if let Some(values) = args.get("skills") {
+        let values = values
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("skills must be an array of strings"))?;
+        if values.is_empty() {
+            anyhow::bail!("skills must not be empty");
+        }
+        for (index, value) in values.iter().enumerate() {
+            let skill = value
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("skills[{index}] must be a string"))?
+                .trim();
+            if skill.is_empty() {
+                anyhow::bail!("skills[{index}] must not be empty");
+            }
+            skills.push(skill.to_string());
+        }
+    }
+
+    if skills.is_empty() {
+        anyhow::bail!("missing required parameter: skill or skills");
+    }
+
+    Ok(skills)
+}
+
+fn read_skill_entry(skills_root: &std::path::Path, skill: &str, max_lines: usize) -> Result<Value> {
+    let skill_path = resolve_skill_path(skills_root, skill)?;
     let content = std::fs::read_to_string(&skill_path)
         .with_context(|| format!("failed to read {}", skill_path.display()))?;
     let total_lines = content.lines().count();
@@ -444,6 +504,152 @@ async fn tool_read_skill(args: &Value) -> Result<Value> {
         "truncated": total_lines > max_lines,
         "total_lines": total_lines,
     }))
+}
+
+async fn tool_list_guidelines(args: &Value) -> Result<Value> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_lowercase());
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20)
+        .clamp(1, 100) as usize;
+    let cursor = args
+        .get("cursor")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let guidelines_root = tamux_guidelines_dir();
+    let mut files = Vec::new();
+    collect_guideline_documents(&guidelines_root, &mut files)?;
+    files.sort();
+
+    let guidelines = files
+        .into_iter()
+        .map(|path: PathBuf| {
+            let relative = path
+                .strip_prefix(&guidelines_root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            let stem = path
+                .file_stem()
+                .and_then(|value: &std::ffi::OsStr| value.to_str())
+                .unwrap_or("guideline")
+                .to_string();
+            serde_json::json!({
+                "name": stem,
+                "path": relative,
+            })
+        })
+        .filter(|entry: &Value| match query.as_ref() {
+            Some(needle) => {
+                entry
+                    .get("name")
+                    .and_then(|v: &Value| v.as_str())
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .contains(needle)
+                    || entry
+                        .get("path")
+                        .and_then(|v: &Value| v.as_str())
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(needle)
+            }
+            None => true,
+        })
+        .collect::<Vec<_>>();
+    let start_index = decode_local_guideline_cursor(cursor)?
+        .as_deref()
+        .and_then(|path| {
+            guidelines.iter().position(|entry| {
+                entry
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|value| value == path)
+            })
+        })
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let page = guidelines
+        .iter()
+        .skip(start_index)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let next_cursor = if start_index + page.len() < guidelines.len() {
+        page.last()
+            .and_then(|entry| entry.get("path"))
+            .and_then(|v| v.as_str())
+            .map(encode_local_guideline_cursor)
+    } else {
+        None
+    };
+
+    Ok(serde_json::json!({
+        "guidelines_root": guidelines_root,
+        "guidelines": page,
+        "next_cursor": next_cursor,
+    }))
+}
+
+async fn tool_read_guideline(args: &Value) -> Result<Value> {
+    let guideline = args
+        .get("guideline")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: guideline"))?;
+    let max_lines = args
+        .get("max_lines")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(200)
+        .clamp(20, 1000) as usize;
+
+    let guidelines_root = tamux_guidelines_dir();
+    let guideline_path = resolve_guideline_path(&guidelines_root, guideline)?;
+    let content = std::fs::read_to_string(&guideline_path)
+        .with_context(|| format!("failed to read {}", guideline_path.display()))?;
+    let total_lines = content.lines().count();
+    let excerpt = content
+        .lines()
+        .take(max_lines)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(serde_json::json!({
+        "guidelines_root": guidelines_root,
+        "path": guideline_path.strip_prefix(&guidelines_root).unwrap_or(guideline_path.as_path()).display().to_string(),
+        "content": excerpt,
+        "truncated": total_lines > max_lines,
+        "total_lines": total_lines,
+    }))
+}
+
+fn encode_local_guideline_cursor(path: &str) -> String {
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(path.as_bytes());
+    format!("local-guideline-list:{encoded}")
+}
+
+fn decode_local_guideline_cursor(cursor: Option<&str>) -> Result<Option<String>> {
+    let Some(cursor) = cursor else {
+        return Ok(None);
+    };
+    let payload = cursor
+        .strip_prefix("local-guideline-list:")
+        .ok_or_else(|| anyhow::anyhow!("invalid local guideline cursor"))?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|error| anyhow::anyhow!("invalid local guideline cursor: {error}"))?;
+    let value = String::from_utf8(bytes)
+        .map_err(|error| anyhow::anyhow!("invalid local guideline cursor: {error}"))?;
+    Ok(Some(value))
 }
 
 async fn tool_start_goal_run(args: &Value) -> Result<Value> {

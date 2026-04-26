@@ -413,13 +413,17 @@ describe("frontend curated media provider catalog", () => {
 });
 
 describe("frontend GitHub Copilot provider routing", () => {
-  it("defaults to GPT-5.5 and lists it first in the fallback catalog", () => {
-    expect(getDefaultModelForProvider("github-copilot")).toBe("gpt-5.5");
-    expect(DEFAULT_AGENT_SETTINGS["github-copilot"].model).toBe("gpt-5.5");
+  it("defaults to GPT-5.4 and keeps GPT-5.5 selectable in the fallback catalog", () => {
+    expect(getDefaultModelForProvider("github-copilot")).toBe("gpt-5.4");
+    expect(DEFAULT_AGENT_SETTINGS["github-copilot"].model).toBe("gpt-5.4");
     expect(getProviderModels("github-copilot").map((model) => model.id).slice(0, 2)).toEqual([
+      "gpt-5.4",
       "gpt-5.5",
-      "claude-haiku-4.5",
     ]);
+    expect(getProviderModels("github-copilot").map((model) => model.id)).toContain(
+      "gpt-5.5",
+    );
+    expect(getModelDefinition("github-copilot", "gpt-5.4")?.contextWindow).toBe(400_000);
     expect(getModelDefinition("github-copilot", "gpt-5.5")?.contextWindow).toBe(400_000);
   });
 

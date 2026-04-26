@@ -757,6 +757,24 @@ fn new_thread_clears_active() {
 }
 
 #[test]
+fn background_delta_after_new_thread_does_not_reselect_previous_thread() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "First".into(),
+    });
+    state.reduce(ChatAction::NewThread);
+
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: "background output".into(),
+    });
+
+    assert_eq!(state.active_thread_id(), None);
+    assert_eq!(state.streaming_content(), "");
+}
+
+#[test]
 fn select_thread_changes_active() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadListReceived(vec![

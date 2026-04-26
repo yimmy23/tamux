@@ -21,6 +21,7 @@ pub mod statistics;
 pub mod subagents;
 pub mod task;
 pub mod tier;
+pub mod workspace;
 
 // ── Focus ────────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,9 @@ pub enum DaemonCommand {
         max_bytes: Option<usize>,
     },
     RequestAgentStatus,
+    CancelTask {
+        task_id: String,
+    },
     RequestAgentStatistics {
         window: amux_protocol::AgentStatisticsWindow,
     },
@@ -163,6 +167,33 @@ pub enum DaemonCommand {
         goal_run_id: String,
     },
     ListTaskApprovalRules,
+    ListWorkspaceSettings,
+    GetWorkspaceSettings {
+        workspace_id: String,
+    },
+    SetWorkspaceOperator {
+        workspace_id: String,
+        operator: amux_protocol::WorkspaceOperator,
+    },
+    CreateWorkspaceTask(amux_protocol::WorkspaceTaskCreate),
+    ListWorkspaceTasks {
+        workspace_id: String,
+        include_deleted: bool,
+    },
+    ListWorkspaceNotices {
+        workspace_id: String,
+        task_id: Option<String>,
+    },
+    UpdateWorkspaceTask {
+        task_id: String,
+        update: amux_protocol::WorkspaceTaskUpdate,
+    },
+    RunWorkspaceTask(String),
+    PauseWorkspaceTask(String),
+    StopWorkspaceTask(String),
+    MoveWorkspaceTask(amux_protocol::WorkspaceTaskMove),
+    SubmitWorkspaceReview(amux_protocol::WorkspaceReviewSubmission),
+    DeleteWorkspaceTask(String),
     CreateTaskApprovalRule {
         approval_id: String,
     },

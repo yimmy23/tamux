@@ -12,7 +12,8 @@ if matches!(
         ClientMessage::AuditDismiss{ .. } |
         ClientMessage::EscalationCancel{ .. } |
         ClientMessage::SkillList{ .. } |
-        ClientMessage::SkillDiscover{ .. }
+        ClientMessage::SkillDiscover{ .. } |
+        ClientMessage::GuidelineDiscover{ .. }
     ) {
         match msg {
                 ClientMessage::AgentValidateProvider {
@@ -651,6 +652,48 @@ if matches!(
                             framed
                                 .send(DaemonMessage::Error {
                                     message: format!("skill discovery failed: {error}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::GuidelineDiscover {
+                    query,
+                    session_id,
+                    limit,
+                    cursor,
+                } => {
+                    let limit = limit.clamp(1, 20);
+                    match agent
+                        .discover_guideline_recommendations_public(
+                            &query,
+                            session_id,
+                            limit,
+                            cursor.as_deref(),
+                        )
+                        .await
+                    {
+                        Ok(result) => match serde_json::to_string(&result) {
+                            Ok(result_json) => {
+                                framed
+                                    .send(DaemonMessage::GuidelineDiscoverResult { result_json })
+                                    .await?;
+                            }
+                            Err(error) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: format!(
+                                            "guideline discovery serialization failed: {error}"
+                                        ),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("guideline discovery failed: {error}"),
                                 })
                                 .await?;
                         }

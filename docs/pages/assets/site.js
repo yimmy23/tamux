@@ -27,6 +27,7 @@
           <li><a href="${indexHref}" data-nav="index.html">Overview</a></li>
           <li><a href="${pageHref('why-tamux.html')}" data-nav="why-tamux.html">Why tamux</a></li>
           <li><a href="${pageHref('guides.html')}" data-nav="guides.html">Guides</a></li>
+          <li><a href="${pageHref('guidelines.html')}" data-nav="guidelines.html">Guidelines</a></li>
           <li><a href="${pageHref('best-practices.html')}" data-nav="best-practices.html">Best Practices</a></li>
         </ul>
       </div>

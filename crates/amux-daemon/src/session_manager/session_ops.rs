@@ -1086,6 +1086,23 @@ impl SessionManager {
         Ok(responses)
     }
 
+    pub async fn resolve_approval_by_id(
+        &self,
+        approval_id: &str,
+        decision: ApprovalDecision,
+    ) -> Result<Vec<DaemonMessage>> {
+        let session_id = self
+            .pending_approvals
+            .read()
+            .await
+            .get(approval_id)
+            .map(|pending| pending.session_id)
+            .ok_or_else(|| anyhow::anyhow!("approval not found: {approval_id}"))?;
+
+        self.resolve_approval(session_id, approval_id, decision)
+            .await
+    }
+
     pub fn verify_telemetry_integrity(&self) -> Result<Vec<TelemetryLedgerStatus>> {
         let results = self.history.verify_worm_integrity()?;
         Ok(results

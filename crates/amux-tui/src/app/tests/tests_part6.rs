@@ -681,17 +681,24 @@ fn goal_workspace_mode_tabs_are_clickable_and_keyboard_focusable() {
     assert!(!handled);
     assert_eq!(
         model.goal_workspace.mode(),
-        goal_workspace::GoalWorkspaceMode::ActiveAgent
+        goal_workspace::GoalWorkspaceMode::Usage
     );
 
     let handled = model.handle_key(KeyCode::Char('5'), KeyModifiers::NONE);
     assert!(!handled);
     assert_eq!(
         model.goal_workspace.mode(),
-        goal_workspace::GoalWorkspaceMode::Threads
+        goal_workspace::GoalWorkspaceMode::ActiveAgent
     );
 
     let handled = model.handle_key(KeyCode::Char('6'), KeyModifiers::NONE);
+    assert!(!handled);
+    assert_eq!(
+        model.goal_workspace.mode(),
+        goal_workspace::GoalWorkspaceMode::Threads
+    );
+
+    let handled = model.handle_key(KeyCode::Char('7'), KeyModifiers::NONE);
     assert!(!handled);
     assert_eq!(
         model.goal_workspace.mode(),

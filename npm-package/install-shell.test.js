@@ -38,15 +38,18 @@ test("shell installer dry-run targets GitHub release zip assets", { skip: proces
 
 test("shell installer provisions bundled skills into canonical tamux root", function () {
   const scriptPath = path.join(__dirname, "..", "scripts", "install.sh");
-  const script = childProcess.execFileSync("sed", ["-n", "1,320p", scriptPath], {
+  const script = childProcess.execFileSync("sed", ["-n", "1,380p", scriptPath], {
     cwd: path.join(__dirname, ".."),
     encoding: "utf8",
   });
 
   assert.match(script, /SKILLS_DIR="\$\{TAMUX_SKILLS_DIR:-\$HOME\/\.tamux\/skills\}"/);
-  assert.match(script, /Extracting binaries and skills/);
+  assert.match(script, /GUIDELINES_DIR="\$\{TAMUX_GUIDELINES_DIR:-\$HOME\/\.tamux\/guidelines\}"/);
+  assert.match(script, /Extracting binaries, skills, and guidelines/);
   assert.match(script, /verify_extracted_binaries="\$\{1:-true\}"/);
   assert.match(script, /cp -R "\$EXTRACT_DIR\/skills\/\." "\$SKILLS_DIR\/"/);
+  assert.match(script, /install_guidelines\(\)/);
+  assert.match(script, /if \[ -e "\$target_path" \]; then/);
 });
 
 test("computeSha256Hex returns stable hex digests without shelling out", function () {
@@ -61,14 +64,18 @@ test("shell installer accepts archive-only checksum manifests", { skip: process.
   const homeDir = path.join(tmpRoot, "home");
   const installDir = path.join(tmpRoot, "bin");
   const skillsDir = path.join(tmpRoot, "skills");
+  const guidelinesDir = path.join(tmpRoot, "guidelines");
   const mockBinDir = path.join(tmpRoot, "mock-bin");
   const payloadDir = path.join(tmpRoot, "payload");
   const payloadSkillsDir = path.join(payloadDir, "skills", "demo");
+  const payloadGuidelinesDir = path.join(payloadDir, "guidelines");
   fs.mkdirSync(homeDir, { recursive: true });
   fs.mkdirSync(installDir, { recursive: true });
   fs.mkdirSync(skillsDir, { recursive: true });
+  fs.mkdirSync(guidelinesDir, { recursive: true });
   fs.mkdirSync(mockBinDir, { recursive: true });
   fs.mkdirSync(payloadSkillsDir, { recursive: true });
+  fs.mkdirSync(payloadGuidelinesDir, { recursive: true });
 
   const binaries = [
     "tamux",
@@ -85,6 +92,9 @@ test("shell installer accepts archive-only checksum manifests", { skip: process.
     binaryHashes.set(name, computeSha256Hex(contents));
   }
   fs.writeFileSync(path.join(payloadSkillsDir, "SKILL.md"), "# demo\n");
+  fs.writeFileSync(path.join(payloadGuidelinesDir, "coding-task.md"), "# bundled coding\n");
+  fs.writeFileSync(path.join(payloadGuidelinesDir, "research-task.md"), "# bundled research\n");
+  fs.writeFileSync(path.join(guidelinesDir, "coding-task.md"), "# user coding\n");
 
   const archivePath = path.join(tmpRoot, "tamux-linux-aarch64.zip");
   const archiveContents = "mock archive payload\n";
@@ -196,6 +206,7 @@ esac
       TAMUX_VERSION: "0.5.2",
       TAMUX_INSTALL_DIR: installDir,
       TAMUX_SKILLS_DIR: skillsDir,
+      TAMUX_GUIDELINES_DIR: guidelinesDir,
     },
     encoding: "utf8",
   });
@@ -204,4 +215,12 @@ esac
     assert.ok(fs.existsSync(path.join(installDir, name)), `expected ${name} to be installed`);
   }
   assert.ok(fs.existsSync(path.join(skillsDir, "demo", "SKILL.md")));
+  assert.equal(
+    fs.readFileSync(path.join(guidelinesDir, "coding-task.md"), "utf8"),
+    "# user coding\n"
+  );
+  assert.equal(
+    fs.readFileSync(path.join(guidelinesDir, "research-task.md"), "utf8"),
+    "# bundled research\n"
+  );
 });

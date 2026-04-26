@@ -372,6 +372,7 @@ async fn hydrate_does_not_wait_for_goal_run_projection_persistence() {
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: crate::agent::AutonomyLevel::Supervised,
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),

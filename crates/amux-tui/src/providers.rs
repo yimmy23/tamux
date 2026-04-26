@@ -160,7 +160,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         id: PROVIDER_ID_GITHUB_COPILOT,
         name: "GitHub Copilot",
         default_base_url: "https://api.githubcopilot.com",
-        default_model: "gpt-5.5",
+        default_model: "gpt-5.4",
         supported_transports: RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS,
         default_transport: "responses",
         supported_auth_sources: GITHUB_COPILOT_AUTH_SOURCES,

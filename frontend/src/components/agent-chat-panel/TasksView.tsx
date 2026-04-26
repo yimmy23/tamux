@@ -395,6 +395,12 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
     goalRuns.find((goalRun) => goalRun.id === selectedGoalRunId) ??
     goalRuns[0] ??
     null;
+  const selectedGoalRunAgentRuns = useMemo(
+    () => selectedGoalRun
+      ? runs.filter((run) => run.goal_run_id === selectedGoalRun.id)
+      : [],
+    [runs, selectedGoalRun],
+  );
 
   return (
     <div style={{ padding: "var(--space-4)", overflow: "auto", height: "100%" }}>
@@ -413,6 +419,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
         historicalGoalRuns={historicalGoalRuns}
         completedGoalRuns={completedGoalRuns}
         selectedGoalRun={selectedGoalRun}
+        selectedGoalRunAgentRuns={selectedGoalRunAgentRuns}
         selectedGoalRunId={selectedGoalRunId}
         goalActionId={goalActionId}
         onSelectGoalRun={setSelectedGoalRunId}

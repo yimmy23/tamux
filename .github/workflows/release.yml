@@ -71,8 +71,10 @@ jobs:
         run: npx electron-builder --linux AppImage deb
         working-directory: frontend
 
-      - name: Stage bundled skills
-        run: cp -R skills dist-release/linux/
+      - name: Stage bundled skills and guidelines
+        run: |
+          cp -R skills dist-release/linux/
+          cp -R guidelines dist-release/linux/
 
       - name: Package Linux binaries
         env:
@@ -80,7 +82,7 @@ jobs:
         run: |
           cd dist-release/linux
           ZIP="tamux-linux-x86_64.zip"
-          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills
+          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills guidelines
           sha256sum "$ZIP" > "SHA256SUMS-linux-x86_64.txt"
 
       - name: Upload Linux artifacts
@@ -128,14 +130,16 @@ jobs:
             cp target/aarch64-unknown-linux-gnu/release/$bin dist-release/linux-arm64/
           done
 
-      - name: Stage bundled skills
-        run: cp -R skills dist-release/linux-arm64/
+      - name: Stage bundled skills and guidelines
+        run: |
+          cp -R skills dist-release/linux-arm64/
+          cp -R guidelines dist-release/linux-arm64/
 
       - name: Package Linux arm64 binaries
         run: |
           cd dist-release/linux-arm64
           ZIP="tamux-linux-aarch64.zip"
-          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills
+          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills guidelines
           sha256sum "$ZIP" > "SHA256SUMS-linux-aarch64.txt"
 
       - name: Upload Linux arm64 artifacts
@@ -208,9 +212,11 @@ jobs:
         run: npx electron-builder --win portable nsis
         working-directory: frontend
 
-      - name: Stage bundled skills
+      - name: Stage bundled skills and guidelines
         shell: pwsh
-        run: Copy-Item -Recurse skills dist-release/windows/
+        run: |
+          Copy-Item -Recurse skills dist-release/windows/
+          Copy-Item -Recurse guidelines dist-release/windows/
 
       - name: Package Windows binaries
         env:
@@ -219,7 +225,7 @@ jobs:
         working-directory: dist-release/windows
         run: |
           $zip = "tamux-windows-x64.zip"
-          Compress-Archive -Path tamux-daemon.exe, tamux.exe, tamux-tui.exe, tamux-mcp.exe, tamux-gateway.exe, skills -DestinationPath $zip -Force
+          Compress-Archive -Path tamux-daemon.exe, tamux.exe, tamux-tui.exe, tamux-mcp.exe, tamux-gateway.exe, skills, guidelines -DestinationPath $zip -Force
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $zip" | Out-File -FilePath SHA256SUMS-windows-x64.txt -Encoding ascii
 
@@ -287,8 +293,10 @@ jobs:
         run: npx electron-builder --mac dmg zip
         working-directory: frontend
 
-      - name: Stage bundled skills
-        run: cp -R skills dist-release/macos/
+      - name: Stage bundled skills and guidelines
+        run: |
+          cp -R skills dist-release/macos/
+          cp -R guidelines dist-release/macos/
 
       - name: Package macOS Intel binaries
         env:
@@ -296,7 +304,7 @@ jobs:
         run: |
           cd dist-release/macos
           ZIP="tamux-darwin-x86_64.zip"
-          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills
+          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills guidelines
           shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-x86_64.txt"
 
       - name: Upload macOS Intel artifacts
@@ -364,8 +372,10 @@ jobs:
         run: npx electron-builder --mac dmg zip
         working-directory: frontend
 
-      - name: Stage bundled skills
-        run: cp -R skills dist-release/macos/
+      - name: Stage bundled skills and guidelines
+        run: |
+          cp -R skills dist-release/macos/
+          cp -R guidelines dist-release/macos/
 
       - name: Package macOS ARM64 binaries
         env:
@@ -373,7 +383,7 @@ jobs:
         run: |
           cd dist-release/macos
           ZIP="tamux-darwin-arm64.zip"
-          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills
+          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills guidelines
           shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-arm64.txt"
 
       - name: Upload macOS ARM64 artifacts

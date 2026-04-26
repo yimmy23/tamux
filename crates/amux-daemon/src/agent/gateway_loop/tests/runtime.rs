@@ -327,6 +327,5458 @@ async fn gateway_auto_send_thread_response_emits_gateway_request_for_latest_assi
     fs::remove_dir_all(&root).expect("cleanup test root");
 }
 
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_resolves_pending_task_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "approval-fast-path-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-fast-path".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-once".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-fast-path")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| message.role == MessageRole::User && message.content == "approve-once"));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_approve_once_phrase_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-approve-once-phrase");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-approve-once-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "approval-fast-path-approve-once-phrase-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-fast-path-approve-once-phrase".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve once".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-approve-once-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-approve-once-phrase-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-fast-path-approve-once-phrase")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "approve once" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_approve_session_phrase_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-approve-session-phrase");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-approve-session-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "approval-fast-path-approve-session-phrase-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-fast-path-approve-session-phrase".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve session".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-approve-session-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved for this session"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-approve-session-phrase-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-fast-path-approve-session-phrase")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::User && message.content == "approve session"
+    }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved for this session")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_resolves_pending_task_with_session_grant_and_notifies_channel(
+) {
+    let root = make_test_root("gateway-approval-reply-fast-path-approve-session");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-approve-session-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "approval-fast-path-approve-session-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-fast-path-approve-session".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-session".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-approve-session-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved for this session"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-approve-session-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-fast-path-approve-session")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+    assert!(task.blocked_reason.is_none());
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::User && message.content == "approve-session"
+    }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved for this session")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_allow_session_alias_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-allow-session-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-allow-session-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "approval-fast-path-allow-session-alias-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-fast-path-allow-session-alias".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "allow session".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-allow-session-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved for this session"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-allow-session-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-fast-path-allow-session-alias")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::User && message.content == "allow session"
+    }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved for this session")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_reject_alias_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-reject-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-reject-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "approval-fast-path-reject-alias-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-fast-path-reject-alias".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "reject".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-reject-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway denial confirmation should be emitted")
+        .expect("gateway denial confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.to_ascii_lowercase().contains("denied"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-reject-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-fast-path-reject-alias")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Failed);
+    assert!(task.awaiting_approval_id.is_none());
+    assert_eq!(
+        task.blocked_reason.as_deref(),
+        Some("operator denied managed command approval")
+    );
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "reject" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("denied")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_allow_once_alias_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-allow-once-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-allow-once-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "approval-fast-path-allow-once-alias-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-fast-path-allow-once-alias".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "allow once".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-allow-once-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-allow-once-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-fast-path-allow-once-alias")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "allow once" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_denied_alias_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-denied-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-denied-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "approval-fast-path-denied-alias-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-fast-path-denied-alias".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "denied".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-denied-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway denial confirmation should be emitted")
+        .expect("gateway denial confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.to_ascii_lowercase().contains("denied"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-denied-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-fast-path-denied-alias")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Failed);
+    assert!(task.awaiting_approval_id.is_none());
+    assert_eq!(
+        task.blocked_reason.as_deref(),
+        Some("operator denied managed command approval")
+    );
+    assert_eq!(
+        task.error.as_deref(),
+        Some("operator denied managed command approval")
+    );
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "denied" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("denied")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_denies_pending_task_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-deny");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-deny-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "approval-fast-path-deny-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-fast-path-deny".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "deny".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-deny-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway denial confirmation should be emitted")
+        .expect("gateway denial confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.to_ascii_lowercase().contains("denied"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-deny-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-fast-path-deny")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Failed);
+    assert!(task.awaiting_approval_id.is_none());
+    assert_eq!(
+        task.blocked_reason.as_deref(),
+        Some("operator denied managed command approval")
+    );
+    assert_eq!(
+        task.error.as_deref(),
+        Some("operator denied managed command approval")
+    );
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| message.role == MessageRole::User && message.content == "deny"));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("denied")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_resolves_real_session_backed_approval_and_notifies_channel(
+) {
+    let root = make_test_root("gateway-approval-reply-fast-path-session-backed");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-session-backed-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let approval = match manager
+        .execute_managed_command(
+            session_id,
+            amux_protocol::ManagedCommandRequest {
+                command: "sudo terraform destroy".to_string(),
+                rationale: "apply risky infra change".to_string(),
+                allow_network: true,
+                sandbox_enabled: false,
+                security_level: amux_protocol::SecurityLevel::Moderate,
+                cwd: Some("/tmp".to_string()),
+                language_hint: Some("bash".to_string()),
+                source: amux_protocol::ManagedCommandSource::Agent,
+            },
+        )
+        .await
+        .expect("managed command should return approval")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-once".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-session-backed-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-session-backed-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+    assert!(
+        manager
+            .resolve_approval_by_id(
+                &pending.approval_id,
+                amux_protocol::ApprovalDecision::ApproveOnce
+            )
+            .await
+            .is_err(),
+        "session-backed approval should already be resolved"
+    );
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| message.role == MessageRole::User && message.content == "approve-once"));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_real_session_backed_approve_once_phrase_and_notifies_channel(
+) {
+    let root =
+        make_test_root("gateway-approval-reply-fast-path-session-backed-approve-once-phrase");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-session-backed-approve-once-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let request = amux_protocol::ManagedCommandRequest {
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        allow_network: true,
+        sandbox_enabled: false,
+        security_level: amux_protocol::SecurityLevel::Moderate,
+        cwd: Some("/tmp".to_string()),
+        language_hint: Some("bash".to_string()),
+        source: amux_protocol::ManagedCommandSource::Agent,
+    };
+
+    let approval = match manager
+        .execute_managed_command(session_id, request.clone())
+        .await
+        .expect("managed command should return approval")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve once".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-session-backed-approve-once-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-session-backed-approve-once-phrase-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+    assert!(
+        manager
+            .resolve_approval_by_id(
+                &pending.approval_id,
+                amux_protocol::ApprovalDecision::ApproveOnce
+            )
+            .await
+            .is_err(),
+        "session-backed approval should already be resolved"
+    );
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "approve once" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_real_session_backed_approve_session_phrase_and_notifies_channel(
+) {
+    let root =
+        make_test_root("gateway-approval-reply-fast-path-session-backed-approve-session-phrase");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-session-backed-approve-session-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let request = amux_protocol::ManagedCommandRequest {
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        allow_network: true,
+        sandbox_enabled: false,
+        security_level: amux_protocol::SecurityLevel::Moderate,
+        cwd: Some("/tmp".to_string()),
+        language_hint: Some("bash".to_string()),
+        source: amux_protocol::ManagedCommandSource::Agent,
+    };
+
+    let approval = match manager
+        .execute_managed_command(session_id, request.clone())
+        .await
+        .expect("managed command should return approval")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve session".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-session-backed-approve-session-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let gateway_request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(gateway_request.platform, "discord");
+    assert_eq!(gateway_request.channel_id, "user:123456789");
+    assert!(gateway_request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved for this session"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: gateway_request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some(
+                "delivery-approval-session-backed-approve-session-phrase-1".to_string(),
+            ),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+    assert!(
+        manager
+            .resolve_approval_by_id(
+                &pending.approval_id,
+                amux_protocol::ApprovalDecision::ApproveSession,
+            )
+            .await
+            .is_err(),
+        "session-backed approval should already be resolved"
+    );
+
+    let reused = manager
+        .execute_managed_command(session_id, request)
+        .await
+        .expect("matching session grant should allow queueing");
+    assert!(matches!(
+        reused,
+        amux_protocol::DaemonMessage::ManagedCommandQueued { .. }
+    ));
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::User && message.content == "approve session"
+    }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved for this session")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_resolves_real_session_backed_session_approval_and_notifies_channel(
+) {
+    let root = make_test_root("gateway-approval-reply-fast-path-session-backed-approve-session");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-session-backed-approve-session-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let request = amux_protocol::ManagedCommandRequest {
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        allow_network: true,
+        sandbox_enabled: false,
+        security_level: amux_protocol::SecurityLevel::Moderate,
+        cwd: Some("/tmp".to_string()),
+        language_hint: Some("bash".to_string()),
+        source: amux_protocol::ManagedCommandSource::Agent,
+    };
+
+    let approval = match manager
+        .execute_managed_command(session_id, request.clone())
+        .await
+        .expect("managed command should return approval")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-session".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-session-backed-approve-session-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let gateway_request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(gateway_request.platform, "discord");
+    assert_eq!(gateway_request.channel_id, "user:123456789");
+    assert!(gateway_request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved for this session"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: gateway_request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-session-backed-approve-session-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+    assert!(
+        manager
+            .resolve_approval_by_id(
+                &pending.approval_id,
+                amux_protocol::ApprovalDecision::ApproveSession,
+            )
+            .await
+            .is_err(),
+        "session-backed approval should already be resolved"
+    );
+
+    let reused = manager
+        .execute_managed_command(session_id, request)
+        .await
+        .expect("matching session grant should allow queueing");
+    assert!(matches!(
+        reused,
+        amux_protocol::DaemonMessage::ManagedCommandQueued { .. }
+    ));
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::User && message.content == "approve-session"
+    }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved for this session")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_real_session_backed_allow_session_alias_and_notifies_channel(
+) {
+    let root =
+        make_test_root("gateway-approval-reply-fast-path-session-backed-allow-session-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-session-backed-allow-session-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let request = amux_protocol::ManagedCommandRequest {
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        allow_network: true,
+        sandbox_enabled: false,
+        security_level: amux_protocol::SecurityLevel::Moderate,
+        cwd: Some("/tmp".to_string()),
+        language_hint: Some("bash".to_string()),
+        source: amux_protocol::ManagedCommandSource::Agent,
+    };
+
+    let approval = match manager
+        .execute_managed_command(session_id, request.clone())
+        .await
+        .expect("managed command should return approval")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "allow session".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-session-backed-allow-session-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let gateway_request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(gateway_request.platform, "discord");
+    assert_eq!(gateway_request.channel_id, "user:123456789");
+    assert!(gateway_request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved for this session"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: gateway_request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-session-backed-allow-session-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+    assert!(
+        manager
+            .resolve_approval_by_id(
+                &pending.approval_id,
+                amux_protocol::ApprovalDecision::ApproveSession,
+            )
+            .await
+            .is_err(),
+        "session-backed approval should already be resolved"
+    );
+
+    let reused = manager
+        .execute_managed_command(session_id, request)
+        .await
+        .expect("matching session grant should allow queueing");
+    assert!(matches!(
+        reused,
+        amux_protocol::DaemonMessage::ManagedCommandQueued { .. }
+    ));
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::User && message.content == "allow session"
+    }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved for this session")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_real_session_backed_allow_once_alias_and_notifies_channel(
+) {
+    let root = make_test_root("gateway-approval-reply-fast-path-session-backed-allow-once-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-session-backed-allow-once-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let request = amux_protocol::ManagedCommandRequest {
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        allow_network: true,
+        sandbox_enabled: false,
+        security_level: amux_protocol::SecurityLevel::Moderate,
+        cwd: Some("/tmp".to_string()),
+        language_hint: Some("bash".to_string()),
+        source: amux_protocol::ManagedCommandSource::Agent,
+    };
+
+    let approval = match manager
+        .execute_managed_command(session_id, request.clone())
+        .await
+        .expect("managed command should return approval")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "allow once".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-session-backed-allow-once-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let gateway_request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(gateway_request.platform, "discord");
+    assert_eq!(gateway_request.channel_id, "user:123456789");
+    assert!(gateway_request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: gateway_request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-session-backed-allow-once-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+    assert!(
+        manager
+            .resolve_approval_by_id(
+                &pending.approval_id,
+                amux_protocol::ApprovalDecision::ApproveOnce,
+            )
+            .await
+            .is_err(),
+        "session-backed approval should already be resolved"
+    );
+
+    match manager
+        .execute_managed_command(session_id, request)
+        .await
+        .expect("subsequent matching command should require fresh approval after allow-once")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { .. } => {}
+        other => panic!("expected fresh ApprovalRequired after allow-once, got {other:?}"),
+    }
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "allow once" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_real_session_backed_reject_alias_and_notifies_channel(
+) {
+    let root = make_test_root("gateway-approval-reply-fast-path-session-backed-reject-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-session-backed-reject-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let approval = match manager
+        .execute_managed_command(
+            session_id,
+            amux_protocol::ManagedCommandRequest {
+                command: "sudo terraform destroy".to_string(),
+                rationale: "apply risky infra change".to_string(),
+                allow_network: true,
+                sandbox_enabled: false,
+                security_level: amux_protocol::SecurityLevel::Moderate,
+                cwd: Some("/tmp".to_string()),
+                language_hint: Some("bash".to_string()),
+                source: amux_protocol::ManagedCommandSource::Agent,
+            },
+        )
+        .await
+        .expect("managed command should return approval")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "reject".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-session-backed-reject-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway denial confirmation should be emitted")
+        .expect("gateway denial confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.to_ascii_lowercase().contains("denied"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-session-backed-reject-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after denial"
+    );
+    assert!(
+        manager
+            .resolve_approval_by_id(&pending.approval_id, amux_protocol::ApprovalDecision::Deny)
+            .await
+            .is_err(),
+        "session-backed approval should already be resolved"
+    );
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "reject" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("denied")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_real_session_backed_denied_alias_and_notifies_channel(
+) {
+    let root = make_test_root("gateway-approval-reply-fast-path-session-backed-denied-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-session-backed-denied-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let approval = match manager
+        .execute_managed_command(
+            session_id,
+            amux_protocol::ManagedCommandRequest {
+                command: "sudo terraform destroy".to_string(),
+                rationale: "apply risky infra change".to_string(),
+                allow_network: true,
+                sandbox_enabled: false,
+                security_level: amux_protocol::SecurityLevel::Moderate,
+                cwd: Some("/tmp".to_string()),
+                language_hint: Some("bash".to_string()),
+                source: amux_protocol::ManagedCommandSource::Agent,
+            },
+        )
+        .await
+        .expect("managed command should return approval")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "denied".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-session-backed-denied-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway denial confirmation should be emitted")
+        .expect("gateway denial confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.to_ascii_lowercase().contains("denied"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-session-backed-denied-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after denial"
+    );
+    assert!(
+        manager
+            .resolve_approval_by_id(&pending.approval_id, amux_protocol::ApprovalDecision::Deny)
+            .await
+            .is_err(),
+        "session-backed approval should already be resolved"
+    );
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "denied" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("denied")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_denies_real_session_backed_approval_and_notifies_channel()
+{
+    let root = make_test_root("gateway-approval-reply-fast-path-session-backed-deny");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-session-backed-deny-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let approval = match manager
+        .execute_managed_command(
+            session_id,
+            amux_protocol::ManagedCommandRequest {
+                command: "sudo terraform destroy".to_string(),
+                rationale: "apply risky infra change".to_string(),
+                allow_network: true,
+                sandbox_enabled: false,
+                security_level: amux_protocol::SecurityLevel::Moderate,
+                cwd: Some("/tmp".to_string()),
+                language_hint: Some("bash".to_string()),
+                source: amux_protocol::ManagedCommandSource::Agent,
+            },
+        )
+        .await
+        .expect("managed command should return approval")
+    {
+        amux_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "deny".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-session-backed-deny-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway denial confirmation should be emitted")
+        .expect("gateway denial confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.to_ascii_lowercase().contains("denied"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-session-backed-deny-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after denial"
+    );
+    assert!(
+        manager
+            .resolve_approval_by_id(&pending.approval_id, amux_protocol::ApprovalDecision::Deny)
+            .await
+            .is_err(),
+        "session-backed approval should already be resolved"
+    );
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| message.role == MessageRole::User && message.content == "deny"));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("denied")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_resolves_pending_no_task_approval_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-no-task");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.gateway.enabled = true;
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-no-task-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-gateway-critique".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let initial = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance =
+                    crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                &thread_id,
+                None,
+                &manager,
+                None,
+                &engine.event_tx,
+                root.as_path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(
+        !initial.is_error,
+        "first pass should pause for approval, not hard fail"
+    );
+    let pending = initial
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+
+    assert!(
+        engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should exist before gateway approval reply"
+    );
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-once".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-no-task-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = loop {
+        let message = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("gateway approval confirmation should be emitted")
+            .expect("gateway approval confirmation should exist");
+        match message {
+            amux_protocol::DaemonMessage::GatewaySendRequest { request } => break request,
+            amux_protocol::DaemonMessage::GatewayReloadCommand { .. } => continue,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        }
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-no-task-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should be resumed and removed"
+    );
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4");
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| message.role == MessageRole::User && message.content == "approve-once"));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_no_task_approve_once_phrase_and_notifies_channel()
+{
+    let root = make_test_root("gateway-approval-reply-fast-path-no-task-approve-once-phrase");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.gateway.enabled = true;
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-no-task-approve-once-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-gateway-critique-approve-once-phrase".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let initial = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance =
+                    crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                &thread_id,
+                None,
+                &manager,
+                None,
+                &engine.event_tx,
+                root.as_path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(
+        !initial.is_error,
+        "first pass should pause for approval, not hard fail"
+    );
+    let pending = initial
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+
+    assert!(
+        engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should exist before gateway approval reply"
+    );
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve once".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-no-task-approve-once-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = loop {
+        let message = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("gateway approval confirmation should be emitted")
+            .expect("gateway approval confirmation should exist");
+        match message {
+            amux_protocol::DaemonMessage::GatewaySendRequest { request } => break request,
+            amux_protocol::DaemonMessage::GatewayReloadCommand { .. } => continue,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        }
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-no-task-approve-once-phrase-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should be resumed and removed"
+    );
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4");
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "approve once" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_resolves_pending_no_task_session_approval_and_notifies_channel(
+) {
+    let root = make_test_root("gateway-approval-reply-fast-path-no-task-approve-session");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.gateway.enabled = true;
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-no-task-approve-session-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-gateway-critique-approve-session".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let initial = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance =
+                    crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                &thread_id,
+                None,
+                &manager,
+                None,
+                &engine.event_tx,
+                root.as_path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(
+        !initial.is_error,
+        "first pass should pause for approval, not hard fail"
+    );
+    let pending = initial
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+
+    assert!(
+        engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should exist before gateway approval reply"
+    );
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-session".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-no-task-approve-session-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = loop {
+        let message = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("gateway approval confirmation should be emitted")
+            .expect("gateway approval confirmation should exist");
+        match message {
+            amux_protocol::DaemonMessage::GatewaySendRequest { request } => break request,
+            amux_protocol::DaemonMessage::GatewayReloadCommand { .. } => continue,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        }
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved for this session"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-no-task-approve-session-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should be resumed and removed"
+    );
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4");
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::User && message.content == "approve-session"
+    }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved for this session")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_no_task_approve_session_phrase_and_notifies_channel(
+) {
+    let root = make_test_root("gateway-approval-reply-fast-path-no-task-approve-session-phrase");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.gateway.enabled = true;
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-no-task-approve-session-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-gateway-critique-approve-session-phrase".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let initial = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance =
+                    crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                &thread_id,
+                None,
+                &manager,
+                None,
+                &engine.event_tx,
+                root.as_path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(
+        !initial.is_error,
+        "first pass should pause for approval, not hard fail"
+    );
+    let pending = initial
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+
+    assert!(
+        engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should exist before gateway approval reply"
+    );
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve session".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-no-task-approve-session-phrase-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = loop {
+        let message = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("gateway approval confirmation should be emitted")
+            .expect("gateway approval confirmation should exist");
+        match message {
+            amux_protocol::DaemonMessage::GatewaySendRequest { request } => break request,
+            amux_protocol::DaemonMessage::GatewayReloadCommand { .. } => continue,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        }
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved for this session"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-no-task-approve-session-phrase-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should be resumed and removed"
+    );
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4");
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::User && message.content == "approve session"
+    }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved for this session")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_no_task_allow_session_alias_and_notifies_channel()
+{
+    let root = make_test_root("gateway-approval-reply-fast-path-no-task-allow-session-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.gateway.enabled = true;
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-no-task-allow-session-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-gateway-critique-allow-session-alias".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let initial = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance =
+                    crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                &thread_id,
+                None,
+                &manager,
+                None,
+                &engine.event_tx,
+                root.as_path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(
+        !initial.is_error,
+        "first pass should pause for approval, not hard fail"
+    );
+    let pending = initial
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+
+    assert!(
+        engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should exist before gateway approval reply"
+    );
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "allow session".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-no-task-allow-session-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = loop {
+        let message = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("gateway approval confirmation should be emitted")
+            .expect("gateway approval confirmation should exist");
+        match message {
+            amux_protocol::DaemonMessage::GatewaySendRequest { request } => break request,
+            amux_protocol::DaemonMessage::GatewayReloadCommand { .. } => continue,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        }
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved for this session"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-no-task-allow-session-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should be resumed and removed"
+    );
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4");
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::User && message.content == "allow session"
+    }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved for this session")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_no_task_allow_once_alias_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-no-task-allow-once-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.gateway.enabled = true;
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-no-task-allow-once-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-gateway-critique-allow-once-alias".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let initial = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance =
+                    crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                &thread_id,
+                None,
+                &manager,
+                None,
+                &engine.event_tx,
+                root.as_path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(
+        !initial.is_error,
+        "first pass should pause for approval, not hard fail"
+    );
+    let pending = initial
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+
+    assert!(
+        engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should exist before gateway approval reply"
+    );
+    assert!(
+        engine
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .all(|task| task.awaiting_approval_id.as_deref() != Some(pending.approval_id.as_str())),
+        "no task should own this approval id"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "allow once".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-no-task-allow-once-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = loop {
+        let message = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("gateway approval confirmation should be emitted")
+            .expect("gateway approval confirmation should exist");
+        match message {
+            amux_protocol::DaemonMessage::GatewaySendRequest { request } => break request,
+            amux_protocol::DaemonMessage::GatewayReloadCommand { .. } => continue,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        }
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-no-task-allow-once-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should be resumed and removed"
+    );
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after resolution"
+    );
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4");
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "allow once" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_no_task_reject_alias_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-no-task-reject-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.gateway.enabled = true;
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-no-task-reject-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-gateway-critique-reject-alias".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let initial = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance =
+                    crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                &thread_id,
+                None,
+                &manager,
+                None,
+                &engine.event_tx,
+                root.as_path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(
+        !initial.is_error,
+        "first pass should pause for approval, not hard fail"
+    );
+    let pending = initial
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+
+    assert!(
+        engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should exist before gateway denial reply"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "reject".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-no-task-reject-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway denial confirmation should be emitted")
+        .expect("gateway denial confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.to_ascii_lowercase().contains("denied"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-no-task-reject-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should be removed after denial"
+    );
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after denial"
+    );
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4-mini");
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| message.role == MessageRole::User && message.content == "reject"));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("denied")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_accepts_no_task_denied_alias_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-no-task-denied-alias");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.gateway.enabled = true;
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-no-task-denied-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-gateway-critique-denied-alias".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let initial = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance =
+                    crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                &thread_id,
+                None,
+                &manager,
+                None,
+                &engine.event_tx,
+                root.as_path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(
+        !initial.is_error,
+        "first pass should pause for approval, not hard fail"
+    );
+    let pending = initial
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+
+    assert!(
+        engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should exist before gateway denial reply"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "denied".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-no-task-denied-alias-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway denial confirmation should be emitted")
+        .expect("gateway denial confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.to_ascii_lowercase().contains("denied"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-no-task-denied-alias-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should be removed after denial"
+    );
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after denial"
+    );
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4-mini");
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| { message.role == MessageRole::User && message.content == "denied" }));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("denied")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_fast_path_denies_pending_no_task_approval_and_notifies_channel() {
+    let root = make_test_root("gateway-approval-reply-fast-path-no-task-deny");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.gateway.enabled = true;
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    config.extra.insert(
+        "test_force_critique_decision".to_string(),
+        serde_json::Value::String("proceed_with_modifications".to_string()),
+    );
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-no-task-deny-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-switch-model-gateway-critique-deny".to_string(),
+        ToolFunction {
+            name: "switch_model".to_string(),
+            arguments: serde_json::json!({
+                "agent": "svarog",
+                "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4"
+            })
+            .to_string(),
+        },
+    );
+
+    let initial = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async {
+            {
+                let mut model = engine.operator_model.write().await;
+                model.risk_fingerprint.risk_tolerance =
+                    crate::agent::operator_model::RiskTolerance::Moderate;
+                model.operator_satisfaction.label = "strained".to_string();
+                model.operator_satisfaction.score = 0.21;
+            }
+            execute_tool(
+                &tool_call,
+                &engine,
+                &thread_id,
+                None,
+                &manager,
+                None,
+                &engine.event_tx,
+                root.as_path(),
+                &engine.http_client,
+                None,
+            )
+            .await
+        },
+    )
+    .await;
+
+    assert!(
+        !initial.is_error,
+        "first pass should pause for approval, not hard fail"
+    );
+    let pending = initial
+        .pending_approval
+        .clone()
+        .expect("critique confirmation should produce pending approval");
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+
+    assert!(
+        engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should exist before gateway denial reply"
+    );
+
+    let reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "deny".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-approval-no-task-deny-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway denial confirmation should be emitted")
+        .expect("gateway denial confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.to_ascii_lowercase().contains("denied"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-approval-no-task-deny-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        !engine
+            .critique_approval_continuations
+            .lock()
+            .await
+            .contains_key(&pending.approval_id),
+        "continuation should be removed after denial"
+    );
+    assert!(
+        !engine
+            .pending_operator_approvals
+            .read()
+            .await
+            .contains_key(&pending.approval_id),
+        "pending operator approval should be cleared after denial"
+    );
+
+    let stored = engine.get_config().await;
+    assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+    assert_eq!(stored.model, "gpt-5.4-mini");
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| message.role == MessageRole::User && message.content == "deny"));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("denied")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_pending_approval_lookup_finds_critique_continuation_for_thread_without_task_binding(
+) {
+    let root = make_test_root("gateway-pending-approval-lookup-critique-continuation");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-lookup-critique-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "critique-continuation-approval-1".to_string();
+    engine.critique_approval_continuations.lock().await.insert(
+        approval_id.clone(),
+        CritiqueApprovalContinuation {
+            tool_call: ToolCall::with_default_weles_review(
+                "tool-switch-model-lookup-critique".to_string(),
+                ToolFunction {
+                    name: "switch_model".to_string(),
+                    arguments: serde_json::json!({
+                        "agent": "svarog",
+                        "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                        "model": "gpt-5.4"
+                    })
+                    .to_string(),
+                },
+            ),
+            thread_id: thread_id.clone(),
+            agent_data_dir: root.clone(),
+        },
+    );
+
+    let resolved = engine.gateway_pending_approval_for_thread(&thread_id).await;
+    assert_eq!(resolved.as_deref(), Some(approval_id.as_str()));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_pending_approval_lookup_finds_message_history_approval_for_thread_without_task_or_continuation(
+) {
+    let root = make_test_root("gateway-pending-approval-lookup-message-history");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-lookup-history-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let pending = ToolPendingApproval {
+        approval_id: "approval-history-lookup-1".to_string(),
+        execution_id: "exec-history-lookup-1".to_string(),
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        risk_level: "high".to_string(),
+        blast_radius: "workspace".to_string(),
+        reasons: vec!["destructive command".to_string()],
+        session_id: None,
+    };
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let resolved = engine.gateway_pending_approval_for_thread(&thread_id).await;
+    assert_eq!(resolved.as_deref(), Some(pending.approval_id.as_str()));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_pending_approval_lookup_skips_stale_message_history_ids_and_returns_older_pending_one(
+) {
+    let root = make_test_root("gateway-pending-approval-lookup-stale-history-fallback");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-lookup-stale-history-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let valid_pending = ToolPendingApproval {
+        approval_id: "approval-stale-history-valid-1".to_string(),
+        execution_id: "exec-stale-history-valid-1".to_string(),
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        risk_level: "high".to_string(),
+        blast_radius: "workspace".to_string(),
+        reasons: vec!["destructive command".to_string()],
+        session_id: None,
+    };
+    engine
+        .record_operator_approval_requested(&valid_pending)
+        .await
+        .expect("record valid pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                valid_pending.approval_id,
+                valid_pending.risk_level,
+                valid_pending.blast_radius,
+                valid_pending.command,
+                valid_pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    engine
+        .add_assistant_message(
+            &thread_id,
+            "Managed command requires approval before execution. Approval ID: approval-stale-history-stale-1\nRisk: high\nBlast radius: workspace\nCommand: sudo rm -rf /tmp/demo\nReasons:\n- destructive command",
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let resolved = engine.gateway_pending_approval_for_thread(&thread_id).await;
+    assert_eq!(
+        resolved.as_deref(),
+        Some(valid_pending.approval_id.as_str())
+    );
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_pending_approval_lookup_prefers_critique_continuation_over_message_history_for_thread(
+) {
+    let root = make_test_root("gateway-pending-approval-lookup-critique-vs-history");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-lookup-critique-vs-history-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let continuation_approval_id = "approval-critique-vs-history-continuation-1".to_string();
+    engine.critique_approval_continuations.lock().await.insert(
+        continuation_approval_id.clone(),
+        CritiqueApprovalContinuation {
+            tool_call: ToolCall::with_default_weles_review(
+                "tool-switch-model-critique-vs-history".to_string(),
+                ToolFunction {
+                    name: "switch_model".to_string(),
+                    arguments: serde_json::json!({
+                        "agent": "svarog",
+                        "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                        "model": "gpt-5.4"
+                    })
+                    .to_string(),
+                },
+            ),
+            thread_id: thread_id.clone(),
+            agent_data_dir: root.clone(),
+        },
+    );
+
+    let pending = ToolPendingApproval {
+        approval_id: "approval-critique-vs-history-message-1".to_string(),
+        execution_id: "exec-critique-vs-history-message-1".to_string(),
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        risk_level: "high".to_string(),
+        blast_radius: "workspace".to_string(),
+        reasons: vec!["destructive command".to_string()],
+        session_id: None,
+    };
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let resolved = engine.gateway_pending_approval_for_thread(&thread_id).await;
+    assert_eq!(resolved.as_deref(), Some(continuation_approval_id.as_str()));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_pending_approval_lookup_prefers_task_owned_approval_for_thread() {
+    let root = make_test_root("gateway-pending-approval-lookup-task-owned");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-lookup-task-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let task_approval_id = "approval-task-owned-lookup-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-owned-lookup".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 0,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(task_approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let continuation_approval_id = "approval-task-owned-lookup-continuation".to_string();
+    engine.critique_approval_continuations.lock().await.insert(
+        continuation_approval_id,
+        CritiqueApprovalContinuation {
+            tool_call: ToolCall::with_default_weles_review(
+                "tool-switch-model-task-owned-lookup".to_string(),
+                ToolFunction {
+                    name: "switch_model".to_string(),
+                    arguments: serde_json::json!({
+                        "agent": "svarog",
+                        "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                        "model": "gpt-5.4"
+                    })
+                    .to_string(),
+                },
+            ),
+            thread_id: thread_id.clone(),
+            agent_data_dir: root.clone(),
+        },
+    );
+
+    let pending = ToolPendingApproval {
+        approval_id: "approval-task-owned-lookup-history".to_string(),
+        execution_id: "exec-task-owned-lookup-history".to_string(),
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        risk_level: "high".to_string(),
+        blast_radius: "workspace".to_string(),
+        reasons: vec!["destructive command".to_string()],
+        session_id: None,
+    };
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let resolved = engine.gateway_pending_approval_for_thread(&thread_id).await;
+    assert_eq!(resolved.as_deref(), Some(task_approval_id));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn mark_task_awaiting_approval_emits_gateway_prompt_for_same_channel() {
+    let root = make_test_root("gateway-pending-approval-prompt");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-prompt-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-prompt".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::Queued,
+        priority: TaskPriority::Normal,
+        progress: 0,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("rm -rf /tmp/demo".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let pending_approval = ToolPendingApproval {
+        approval_id: "approval-prompt-1".to_string(),
+        execution_id: "exec-prompt-1".to_string(),
+        command: "rm -rf /tmp/demo".to_string(),
+        rationale: "demo risky action".to_string(),
+        risk_level: "high".to_string(),
+        blast_radius: "workspace".to_string(),
+        reasons: vec!["destructive command".to_string()],
+        session_id: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_thread_id = thread_id.clone();
+    let helper_pending = pending_approval.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .mark_task_awaiting_approval("approval-task-prompt", &helper_thread_id, &helper_pending)
+            .await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval prompt should be emitted")
+        .expect("gateway approval prompt should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    assert!(request.content.contains("approval-prompt-1"));
+    assert!(request.content.contains("approve-once"));
+    assert!(request.content.contains("approve-session"));
+    assert!(request.content.contains("deny"));
+    assert!(request.content.contains("rm -rf /tmp/demo"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-prompt-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "approval-task-prompt")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::AwaitingApproval);
+    assert_eq!(
+        task.awaiting_approval_id.as_deref(),
+        Some("approval-prompt-1")
+    );
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn daemon_respawns_gateway_process_when_enabled() {

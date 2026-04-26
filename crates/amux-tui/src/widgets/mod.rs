@@ -40,3 +40,5 @@ pub mod token_format;
 pub mod tool_diff;
 pub mod whatsapp_link;
 pub mod work_context_view;
+pub mod workspace_board;
+pub mod workspace_picker;

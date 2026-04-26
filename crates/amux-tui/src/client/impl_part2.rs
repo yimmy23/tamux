@@ -66,6 +66,53 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse task list: {}", err),
                 }
             }
+            DaemonMessage::AgentWorkspaceSettings { settings } => {
+                let _ = event_tx.send(ClientEvent::WorkspaceSettings(settings)).await;
+            }
+            DaemonMessage::AgentWorkspaceSettingsList { settings } => {
+                let _ = event_tx
+                    .send(ClientEvent::WorkspaceSettingsList(settings))
+                    .await;
+            }
+            DaemonMessage::AgentWorkspaceTaskList {
+                workspace_id,
+                tasks,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::WorkspaceTaskList {
+                        workspace_id,
+                        tasks,
+                    })
+                    .await;
+            }
+            DaemonMessage::AgentWorkspaceTaskUpdated { task } => {
+                let _ = event_tx.send(ClientEvent::WorkspaceTaskUpdated(task)).await;
+            }
+            DaemonMessage::AgentWorkspaceTaskDeleted {
+                task_id,
+                deleted_at,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::WorkspaceTaskDeleted {
+                        task_id,
+                        deleted_at,
+                    })
+                    .await;
+            }
+            DaemonMessage::AgentWorkspaceNoticeList {
+                workspace_id,
+                notices,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::WorkspaceNotices {
+                        workspace_id,
+                        notices,
+                    })
+                    .await;
+            }
+            DaemonMessage::AgentWorkspaceError { message } => {
+                let _ = event_tx.send(ClientEvent::Error(message)).await;
+            }
             DaemonMessage::AgentGoalRunList { goal_runs_json } => {
                 match serde_json::from_str::<Vec<GoalRun>>(&goal_runs_json) {
                     Ok(goal_runs) => {

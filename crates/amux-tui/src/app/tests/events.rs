@@ -6638,6 +6638,25 @@ fn new_subagent_conversation_keeps_header_after_thread_created_without_agent_nam
 }
 
 #[test]
+fn new_subagent_thread_view_ignores_background_parent_stream_delta() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-parent".to_string(),
+        title: "Parent".to_string(),
+    });
+
+    model.start_new_thread_view_for_agent(Some("domowoj"));
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-parent".to_string(),
+        content: "background output".to_string(),
+    });
+
+    assert_eq!(model.chat.active_thread_id(), None);
+    assert_eq!(model.chat.streaming_content(), "");
+}
+
+#[test]
 fn new_subagent_conversation_done_clears_footer_activity_after_thread_creation() {
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;

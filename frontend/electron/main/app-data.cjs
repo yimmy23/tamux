@@ -31,6 +31,53 @@ function ensureTamuxDataDir() {
     return dataDir;
 }
 
+function installBundledGuidelines(options = {}) {
+    const targetRoot = options.targetRoot || ensureTamuxDataDir();
+    const sourceCandidates = Array.isArray(options.sourceCandidates) ? options.sourceCandidates : [];
+    const source = sourceCandidates.find((candidate) => {
+        try {
+            return candidate && fs.existsSync(candidate) && fs.statSync(candidate).isDirectory();
+        } catch {
+            return false;
+        }
+    });
+
+    if (!source) {
+        return { copied: 0, skipped: 0, source: null };
+    }
+
+    const targetDir = path.join(targetRoot, 'guidelines');
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    let copied = 0;
+    let skipped = 0;
+    const copyMissing = (dir) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const sourcePath = path.join(dir, entry.name);
+            const relativePath = path.relative(source, sourcePath);
+            const targetPath = path.join(targetDir, relativePath);
+
+            if (entry.isDirectory()) {
+                copyMissing(sourcePath);
+                continue;
+            }
+
+            if (!entry.isFile()) continue;
+            if (fs.existsSync(targetPath)) {
+                skipped += 1;
+                continue;
+            }
+
+            fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+            fs.copyFileSync(sourcePath, targetPath);
+            copied += 1;
+        }
+    };
+
+    copyMissing(source);
+    return { copied, skipped, source };
+}
+
 function getVisionTempDir() {
     const dir = path.join(ensureTamuxDataDir(), 'tmp', 'vision');
     fs.mkdirSync(dir, { recursive: true });
@@ -314,6 +361,7 @@ module.exports = {
     datedLogFileName,
     deleteDataPath,
     ensureTamuxDataDir,
+    installBundledGuidelines,
     getLegacyAmuxDataDir,
     getTamuxDataDir,
     getVisionTempDir,

@@ -514,6 +514,7 @@ impl TuiModel {
                 true
             }
             MainPaneView::Collaboration
+            | MainPaneView::Workspace
             | MainPaneView::WorkContext
             | MainPaneView::FilePreview(_) => {
                 if let Some(thread_id) = self.mission_control_return_to_thread_id() {

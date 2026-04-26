@@ -39,6 +39,12 @@ impl TuiModel {
         self.file_preview_scrollbar_drag_grab_offset = None;
     }
 
+    pub(in super::super) fn clear_workspace_drag(&mut self) {
+        self.workspace_drag_task = None;
+        self.workspace_drag_status = None;
+        self.workspace_drag_start_target = None;
+    }
+
     pub(in crate::app) fn current_detail_view_max_scroll(&self) -> usize {
         let area = self.pane_layout().chat;
         match &self.main_pane_view {
@@ -688,11 +694,14 @@ impl TuiModel {
                 }
                 modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
+                | modal::ModalKind::WorkspacePicker
+                | modal::ModalKind::WorkspaceActorPicker
                 | modal::ModalKind::QueuedPrompts
                 | modal::ModalKind::ProviderPicker
                 | modal::ModalKind::ModelPicker
                 | modal::ModalKind::RolePicker
                 | modal::ModalKind::OpenAIAuth
+                | modal::ModalKind::WorkspaceTaskHistory
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(-1));
                 }
@@ -733,11 +742,14 @@ impl TuiModel {
                 }
                 modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
+                | modal::ModalKind::WorkspacePicker
+                | modal::ModalKind::WorkspaceActorPicker
                 | modal::ModalKind::QueuedPrompts
                 | modal::ModalKind::ProviderPicker
                 | modal::ModalKind::ModelPicker
                 | modal::ModalKind::RolePicker
                 | modal::ModalKind::OpenAIAuth
+                | modal::ModalKind::WorkspaceTaskHistory
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(1));
                 }
@@ -779,6 +791,12 @@ impl TuiModel {
                         | modal::ModalKind::CommandPalette
                         | modal::ModalKind::ThreadPicker
                         | modal::ModalKind::GoalPicker
+                        | modal::ModalKind::WorkspacePicker
+                        | modal::ModalKind::WorkspaceCreateTask
+                        | modal::ModalKind::WorkspaceEditTask
+                        | modal::ModalKind::WorkspaceTaskDetail
+                        | modal::ModalKind::WorkspaceTaskHistory
+                        | modal::ModalKind::WorkspaceActorPicker
                         | modal::ModalKind::QueuedPrompts
                         | modal::ModalKind::ProviderPicker
                         | modal::ModalKind::ModelPicker
@@ -1133,6 +1151,123 @@ impl TuiModel {
                         );
                         if row_idx < visible_len {
                             self.modal_navigate_to(visible_start + row_idx);
+                            self.handle_modal_enter(kind);
+                        }
+                    }
+                }
+                modal::ModalKind::WorkspacePicker => {
+                    if let Some(widgets::workspace_picker::WorkspacePickerHitTarget::Item(idx)) =
+                        widgets::workspace_picker::hit_test(
+                            overlay_area,
+                            &self.workspace,
+                            &self.modal,
+                            Position::new(mouse.column, mouse.row),
+                        )
+                    {
+                        self.modal_navigate_to(idx);
+                        self.handle_modal_enter(kind);
+                    }
+                }
+                modal::ModalKind::WorkspaceCreateTask => {
+                    let inner = Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Double)
+                        .inner(overlay_area);
+                    let options_start_row = inner.y.saturating_add(2);
+                    if mouse.row >= options_start_row && mouse.row < options_start_row + 9 {
+                        let index = mouse.row.saturating_sub(options_start_row) as usize;
+                        if let Some(form) = self.pending_workspace_create_form.as_mut() {
+                            form.field = match index {
+                                0 => crate::app::workspace_create_modal::WorkspaceCreateTaskField::Title,
+                                1 => crate::app::workspace_create_modal::WorkspaceCreateTaskField::TaskType,
+                                2 => crate::app::workspace_create_modal::WorkspaceCreateTaskField::Description,
+                                3 => crate::app::workspace_create_modal::WorkspaceCreateTaskField::DefinitionOfDone,
+                                4 => crate::app::workspace_create_modal::WorkspaceCreateTaskField::Priority,
+                                5 => crate::app::workspace_create_modal::WorkspaceCreateTaskField::Assignee,
+                                6 => crate::app::workspace_create_modal::WorkspaceCreateTaskField::Reviewer,
+                                7 => crate::app::workspace_create_modal::WorkspaceCreateTaskField::Submit,
+                                _ => crate::app::workspace_create_modal::WorkspaceCreateTaskField::Cancel,
+                            };
+                        }
+                        if index == 1 || index >= 4 {
+                            self.handle_workspace_create_modal_key(
+                                KeyCode::Enter,
+                                KeyModifiers::NONE,
+                            );
+                        }
+                    }
+                }
+                modal::ModalKind::WorkspaceEditTask => {
+                    let inner = Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Double)
+                        .inner(overlay_area);
+                    let options_start_row = inner.y.saturating_add(2);
+                    if mouse.row >= options_start_row && mouse.row < options_start_row + 8 {
+                        let index = mouse.row.saturating_sub(options_start_row) as usize;
+                        if let Some(form) = self.pending_workspace_edit_form.as_mut() {
+                            form.field = match index {
+                                0 => crate::app::workspace_edit_modal::WorkspaceEditField::Title,
+                                1 => crate::app::workspace_edit_modal::WorkspaceEditField::Description,
+                                2 => crate::app::workspace_edit_modal::WorkspaceEditField::DefinitionOfDone,
+                                3 => crate::app::workspace_edit_modal::WorkspaceEditField::Priority,
+                                4 => crate::app::workspace_edit_modal::WorkspaceEditField::Assignee,
+                                5 => crate::app::workspace_edit_modal::WorkspaceEditField::Reviewer,
+                                6 => crate::app::workspace_edit_modal::WorkspaceEditField::Submit,
+                                _ => crate::app::workspace_edit_modal::WorkspaceEditField::Cancel,
+                            };
+                        }
+                        if index >= 3 {
+                            self.handle_workspace_edit_modal_key(
+                                KeyCode::Enter,
+                                KeyModifiers::NONE,
+                            );
+                        }
+                    }
+                }
+                modal::ModalKind::WorkspaceActorPicker => {
+                    let inner = Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Double)
+                        .inner(overlay_area);
+                    let options = self
+                        .pending_workspace_actor_picker
+                        .as_ref()
+                        .map(|pending| {
+                            crate::app::workspace_actor_picker::workspace_actor_picker_options(
+                                pending.mode,
+                                &self.subagents,
+                            )
+                        })
+                        .unwrap_or_default();
+                    let options_start_row = inner.y.saturating_add(3);
+                    if mouse.row >= options_start_row
+                        && mouse.row < options_start_row.saturating_add(options.len() as u16)
+                    {
+                        let index = mouse.row.saturating_sub(options_start_row) as usize;
+                        self.modal_navigate_to(index);
+                        self.handle_modal_enter(kind);
+                    }
+                }
+                modal::ModalKind::WorkspaceTaskHistory => {
+                    let inner = Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Double)
+                        .inner(overlay_area);
+                    let row_start = inner.y.saturating_add(3);
+                    let Some(task_id) = self.pending_workspace_history_task_id.as_deref() else {
+                        return;
+                    };
+                    let Some(task) = self.workspace.task_by_id(task_id) else {
+                        return;
+                    };
+                    let item_count = task.runtime_history.len();
+                    if mouse.row >= row_start
+                        && mouse.row < row_start.saturating_add(item_count.saturating_mul(3) as u16)
+                    {
+                        let index = mouse.row.saturating_sub(row_start) as usize / 3;
+                        if index < item_count {
+                            self.modal_navigate_to(index);
                             self.handle_modal_enter(kind);
                         }
                     }

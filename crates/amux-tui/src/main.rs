@@ -648,6 +648,13 @@ fn start_daemon_bridge(
                                     client.request_agent_status(),
                                 );
                             }
+                            DaemonCommand::CancelTask { task_id } => {
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "cancel task",
+                                    client.cancel_task(task_id),
+                                );
+                            }
                             DaemonCommand::RequestAgentStatistics { window } => {
                                 forward_bridge_command_result(
                                     &daemon_event_tx,
@@ -771,6 +778,54 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::DeleteGoalRun { goal_run_id } => {
                                 let _ = client.delete_goal_run(goal_run_id);
+                            }
+                            DaemonCommand::ListWorkspaceSettings => {
+                                let _ = client.list_workspace_settings();
+                            }
+                            DaemonCommand::GetWorkspaceSettings { workspace_id } => {
+                                let _ = client.get_workspace_settings(workspace_id);
+                            }
+                            DaemonCommand::SetWorkspaceOperator {
+                                workspace_id,
+                                operator,
+                            } => {
+                                let _ = client.set_workspace_operator(workspace_id, operator);
+                            }
+                            DaemonCommand::CreateWorkspaceTask(request) => {
+                                let _ = client.create_workspace_task(request);
+                            }
+                            DaemonCommand::ListWorkspaceTasks {
+                                workspace_id,
+                                include_deleted,
+                            } => {
+                                let _ = client.list_workspace_tasks(workspace_id, include_deleted);
+                            }
+                            DaemonCommand::ListWorkspaceNotices {
+                                workspace_id,
+                                task_id,
+                            } => {
+                                let _ = client.list_workspace_notices(workspace_id, task_id);
+                            }
+                            DaemonCommand::UpdateWorkspaceTask { task_id, update } => {
+                                let _ = client.update_workspace_task(task_id, update);
+                            }
+                            DaemonCommand::RunWorkspaceTask(task_id) => {
+                                let _ = client.run_workspace_task(task_id);
+                            }
+                            DaemonCommand::PauseWorkspaceTask(task_id) => {
+                                let _ = client.pause_workspace_task(task_id);
+                            }
+                            DaemonCommand::StopWorkspaceTask(task_id) => {
+                                let _ = client.stop_workspace_task(task_id);
+                            }
+                            DaemonCommand::MoveWorkspaceTask(request) => {
+                                let _ = client.move_workspace_task(request);
+                            }
+                            DaemonCommand::SubmitWorkspaceReview(review) => {
+                                let _ = client.submit_workspace_review(review);
+                            }
+                            DaemonCommand::DeleteWorkspaceTask(task_id) => {
+                                let _ = client.delete_workspace_task(task_id);
                             }
                             DaemonCommand::ListTaskApprovalRules => {
                                 let _ = client.list_task_approval_rules();

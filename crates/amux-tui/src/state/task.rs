@@ -91,6 +91,17 @@ pub struct GoalAgentAssignment {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct GoalRunModelUsage {
+    pub provider: String,
+    pub model: String,
+    pub request_count: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub estimated_cost_usd: Option<f64>,
+    pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct GoalRun {
     pub id: String,
     pub title: String,
@@ -105,6 +116,10 @@ pub struct GoalRun {
     pub runtime_assignment_list: Vec<GoalAgentAssignment>,
     pub planner_owner_profile: Option<GoalRuntimeOwnerProfile>,
     pub current_step_owner_profile: Option<GoalRuntimeOwnerProfile>,
+    pub total_prompt_tokens: u64,
+    pub total_completion_tokens: u64,
+    pub estimated_cost_usd: Option<f64>,
+    pub model_usage: Vec<GoalRunModelUsage>,
     pub child_task_count: u32,
     pub approval_count: u32,
     pub awaiting_approval_id: Option<String>,
@@ -1194,6 +1209,26 @@ fn merge_goal_run(existing: &mut GoalRun, incoming: GoalRun, preserve_owner_meta
         existing.planner_owner_profile = incoming.planner_owner_profile;
         existing.current_step_owner_profile = incoming.current_step_owner_profile;
     }
+    merge_u64_field(
+        &mut existing.total_prompt_tokens,
+        incoming.total_prompt_tokens,
+        preserve_sparse_fields,
+    );
+    merge_u64_field(
+        &mut existing.total_completion_tokens,
+        incoming.total_completion_tokens,
+        preserve_sparse_fields,
+    );
+    merge_optional_field(
+        &mut existing.estimated_cost_usd,
+        incoming.estimated_cost_usd,
+        preserve_sparse_fields,
+    );
+    merge_vec_field(
+        &mut existing.model_usage,
+        incoming.model_usage,
+        preserve_sparse_fields,
+    );
     merge_u32_field(
         &mut existing.child_task_count,
         incoming.child_task_count,

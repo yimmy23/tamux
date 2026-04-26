@@ -36,6 +36,11 @@ fn emit_workflow_notice_for_tool(
             format!("Agent inspected available tools via {tool_name}."),
             Some(args.to_string()),
         ),
+        "discover_guidelines" | "list_guidelines" | "read_guideline" => (
+            "guideline-consulted",
+            format!("Agent consulted local guidelines via {tool_name}."),
+            Some(args.to_string()),
+        ),
         "discover_skills" | "list_skills" | "read_skill" => (
             "skill-consulted",
             format!("Agent consulted local skills via {tool_name}."),

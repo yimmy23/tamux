@@ -11,6 +11,7 @@ import {
   type GoalRunEvent,
   type TodoItem,
 } from "../../../lib/goalRuns";
+import type { AgentRun } from "../../../lib/agentRuns";
 import { formatTaskTimestamp } from "../../../lib/agentTaskQueue";
 import { detailBodyStyle, detailLabelStyle } from "./styles";
 
@@ -70,6 +71,121 @@ function DetailCard({ label, value }: { label: string; value: string }) {
       <div style={{ fontSize: "var(--text-sm)", color: "var(--text-primary)", marginTop: 2, wordBreak: "break-word" }}>{value}</div>
     </div>
   );
+}
+
+function formatInteger(value?: number | null): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toLocaleString("en-US")
+    : "0";
+}
+
+function formatCost(value?: number | null): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  return value >= 1 ? `$${value.toFixed(2)}` : `$${value.toFixed(4)}`;
+}
+
+function formatModelDuration(durationMs?: number | null): string {
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs <= 0) {
+    return "-";
+  }
+
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
+  if (totalSeconds < 120) {
+    return `${totalSeconds}s`;
+  }
+  return formatGoalRunDuration(durationMs);
+}
+
+function hasGoalUsage(goalRun: GoalRun): boolean {
+  return Boolean(
+    (goalRun.total_prompt_tokens ?? 0) > 0 ||
+    (goalRun.total_completion_tokens ?? 0) > 0 ||
+    typeof goalRun.estimated_cost_usd === "number" ||
+    (goalRun.model_usage?.length ?? 0) > 0,
+  );
+}
+
+interface GoalAgentRow {
+  id: string;
+  label: string;
+  name: string;
+  detail: string;
+}
+
+function profileDetail(provider: string, model: string, reasoningEffort?: string | null): string {
+  return [provider && model ? `${provider}/${model}` : provider || model, reasoningEffort]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function buildGoalAgentRows(goalRun: GoalRun, agentRuns: AgentRun[]): GoalAgentRow[] {
+  const rows: GoalAgentRow[] = [];
+  const seen = new Set<string>();
+
+  const addRow = (row: GoalAgentRow) => {
+    const key = `${row.label}\n${row.name}\n${row.detail}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    rows.push(row);
+  };
+
+  if (goalRun.planner_owner_profile) {
+    addRow({
+      id: `${goalRun.id}-planner`,
+      label: "Planner",
+      name: goalRun.planner_owner_profile.agent_label,
+      detail: profileDetail(
+        goalRun.planner_owner_profile.provider,
+        goalRun.planner_owner_profile.model,
+        goalRun.planner_owner_profile.reasoning_effort,
+      ),
+    });
+  }
+
+  if (goalRun.current_step_owner_profile) {
+    addRow({
+      id: `${goalRun.id}-current`,
+      label: "Current",
+      name: goalRun.current_step_owner_profile.agent_label,
+      detail: profileDetail(
+        goalRun.current_step_owner_profile.provider,
+        goalRun.current_step_owner_profile.model,
+        goalRun.current_step_owner_profile.reasoning_effort,
+      ),
+    });
+  }
+
+  const assignments = (goalRun.runtime_assignment_list?.length
+    ? goalRun.runtime_assignment_list
+    : goalRun.launch_assignment_snapshot) ?? [];
+  for (const assignment of assignments) {
+    addRow({
+      id: `${goalRun.id}-role-${assignment.role_id}`,
+      label: "Role",
+      name: assignment.role_id,
+      detail: [
+        assignment.inherit_from_main
+          ? "inherits main"
+          : profileDetail(assignment.provider, assignment.model, assignment.reasoning_effort),
+        assignment.enabled ? null : "disabled",
+      ].filter(Boolean).join(" · "),
+    });
+  }
+
+  for (const run of agentRuns) {
+    addRow({
+      id: `${goalRun.id}-run-${run.id}`,
+      label: run.kind === "subagent" || run.parent_run_id || run.parent_task_id || run.parent_thread_id ? "Subagent" : "Task",
+      name: run.title,
+      detail: [run.kind, run.status, run.goal_step_title].filter(Boolean).join(" · "),
+    });
+  }
+
+  return rows;
 }
 
 function GoalRunTimelineEvent({ event }: { event: GoalRunEvent }) {
@@ -203,11 +319,13 @@ export function GoalRunCard({
 
 export function GoalRunDetail({
   goalRun,
+  agentRuns = [],
   busy,
   onRetryStep,
   onRerunFromStep,
 }: {
   goalRun: GoalRun;
+  agentRuns?: AgentRun[];
   busy: boolean;
   onRetryStep: (stepIndex: number) => void;
   onRerunFromStep: (stepIndex: number) => void;
@@ -216,6 +334,7 @@ export function GoalRunDetail({
     ? goalRun.steps[goalRun.current_step_index] ?? null
     : null;
   const latestTodos = latestGoalRunTodoSnapshot(goalRun);
+  const agentRows = buildGoalAgentRows(goalRun, agentRuns);
 
   return (
     <div
@@ -252,6 +371,55 @@ export function GoalRunDetail({
         <DetailCard label="Child Tasks" value={String(goalRunChildTaskCount(goalRun))} />
         <DetailCard label="Approvals" value={String(goalRun.approval_count ?? 0)} />
       </div>
+
+      {hasGoalUsage(goalRun) && (
+        <div>
+          <div style={detailLabelStyle}>Usage</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
+            <DetailCard label="Prompt Tokens" value={formatInteger(goalRun.total_prompt_tokens)} />
+            <DetailCard label="Completion Tokens" value={formatInteger(goalRun.total_completion_tokens)} />
+            <DetailCard label="Estimated Cost" value={formatCost(goalRun.estimated_cost_usd)} />
+          </div>
+          {(goalRun.model_usage?.length ?? 0) > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
+              {goalRun.model_usage?.map((usage) => (
+                <div key={`${usage.provider}-${usage.model}`} style={{ ...detailBodyStyle, display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "var(--space-2)", alignItems: "center" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: "var(--text-primary)", overflowWrap: "anywhere" }}>
+                      {usage.provider}
+                    </div>
+                    <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+                      {usage.model}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {usage.request_count} req · {formatInteger(usage.prompt_tokens)} in · {formatInteger(usage.completion_tokens)} out · {formatCost(usage.estimated_cost_usd)} · {formatModelDuration(usage.duration_ms)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {agentRows.length > 0 && (
+        <div>
+          <div style={detailLabelStyle}>Agents</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
+            {agentRows.map((row) => (
+              <div key={row.id} style={detailBodyStyle}>
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>{row.label}</div>
+                <div style={{ color: "var(--text-primary)", marginTop: 2 }}>{row.name}</div>
+                {row.detail && (
+                  <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 2 }}>
+                    {row.detail}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {goalRun.plan_summary && (
         <div>

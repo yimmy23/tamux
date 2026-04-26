@@ -168,6 +168,14 @@ impl TuiModel {
                     self.modal.reduce(modal::ModalAction::SetQuery(query));
                     return;
                 }
+                modal::ModalKind::WorkspaceCreateTask => {
+                    self.paste_into_workspace_create_modal(&text);
+                    return;
+                }
+                modal::ModalKind::WorkspaceEditTask => {
+                    self.paste_into_workspace_edit_modal(&text);
+                    return;
+                }
                 modal::ModalKind::ThreadPicker | modal::ModalKind::GoalPicker => {
                     self.input.reduce(input::InputAction::Clear);
                     for ch in text.chars() {

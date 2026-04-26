@@ -29,6 +29,18 @@
       </section>
 
       <section>
+        <h2>Local webhook listener</h2>
+        <p>Separately from chat-platform gateways, <code>tamux-daemon</code> can expose a local HTTP webhook listener for event-trigger ingestion. This is a daemon-side localhost endpoint, not a Slack/Discord gateway replacement.</p>
+        <ul class="check-list">
+          <li>Enable it with <code>config.json</code> <code>extra.webhook_listener_enabled=true</code></li>
+          <li>Bind address comes from <code>extra.webhook_listener_bind</code> and defaults to <code>127.0.0.1:8787</code></li>
+          <li>Accepted route: <code>POST /webhook/event</code></li>
+          <li>Accepted body fields: <code>event_family</code>, <code>event_kind</code>, optional <code>state</code>, <code>thread_id</code>, and <code>payload</code></li>
+        </ul>
+        <p>When <code>extra.webhook_listener_secret</code> is set, requests must also include <code>x-tamux-timestamp-ms</code> and <code>x-tamux-signature-256</code>. tamux signs <code>&lt;timestamp_ms&gt; + "." + &lt;raw_body&gt;</code> with HMAC-SHA256 and rejects stale timestamps using <code>extra.webhook_listener_max_age_secs</code> (default <code>300</code> seconds).</p>
+      </section>
+
+      <section>
         <h2>MCP access</h2>
         <p><code>tamux-mcp</code> exposes daemon capabilities to MCP-capable agents and toolchains. This lets external agent environments treat tamux as a durable system component rather than reimplementing sessions, tasks, or goal runners on their own.</p>
         <pre><code>{

@@ -991,6 +991,7 @@ mod task_enums;
 mod tasks;
 mod thread_structural_memory;
 mod threads;
+mod workspaces;
 
 use integrity_helpers::*;
 pub use memory_graph::{MemoryEdgeRow, MemoryGraphNeighborRow, MemoryNodeRow};

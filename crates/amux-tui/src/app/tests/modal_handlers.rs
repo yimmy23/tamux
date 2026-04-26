@@ -1785,6 +1785,26 @@ fn command_palette_skills_install_seeds_terminal_command() {
 }
 
 #[test]
+fn command_palette_guidelines_install_seeds_terminal_command() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
+    model
+        .modal
+        .reduce(modal::ModalAction::SetQuery("guidelines install".into()));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::CommandPalette,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.input.buffer(), "tamux guideline install ");
+}
+
+#[test]
 fn stacked_modal_pop_only_cleans_whatsapp_when_top() {
     let (mut model, mut daemon_rx) = make_model();
     model

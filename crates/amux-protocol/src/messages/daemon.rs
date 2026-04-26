@@ -6,7 +6,8 @@ use super::{
     GitInfo, HistorySearchHit, ManagedCommandSource, OperationStatusSnapshot,
     OscNotificationPayload, PluginCommandInfo, PluginInfo, SessionId, SessionInfo,
     SkillVariantPublic, SnapshotInfo, SymbolMatch, TaskApprovalRule, TelemetryLedgerStatus,
-    ToolListResultPublic, ToolSearchResultPublic,
+    ToolListResultPublic, ToolSearchResultPublic, WorkspaceNotice, WorkspaceSettings,
+    WorkspaceTask,
 };
 
 #[rustfmt::skip]
@@ -164,4 +165,14 @@ pub enum DaemonMessage {
     AgentTextToSpeechResult { content: String },
     AgentGenerateImageResult { content: String },
     AgentGatewayConfig { config_json: String },
+    GuidelineDiscoverResult { result_json: String },
+    AgentWorkspaceSettingsList { settings: Vec<WorkspaceSettings> },
+    AgentWorkspaceSettings { settings: WorkspaceSettings },
+    AgentWorkspaceTaskList { workspace_id: String, tasks: Vec<WorkspaceTask> },
+    AgentWorkspaceTaskDetail { task: Option<WorkspaceTask> },
+    AgentWorkspaceTaskUpdated { task: WorkspaceTask },
+    AgentWorkspaceTaskDeleted { task_id: String, deleted_at: Option<u64> },
+    AgentWorkspaceNotice { notice: WorkspaceNotice },
+    AgentWorkspaceNoticeList { workspace_id: String, notices: Vec<WorkspaceNotice> },
+    AgentWorkspaceError { message: String },
 }

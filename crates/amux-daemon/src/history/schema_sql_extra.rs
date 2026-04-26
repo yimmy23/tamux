@@ -818,5 +818,49 @@ pub(super) fn extended_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_op_profile_checkins_scheduled ON operator_profile_checkins(scheduled_at ASC);
             CREATE INDEX IF NOT EXISTS idx_op_profile_checkins_status ON operator_profile_checkins(status, scheduled_at ASC);
+
+            CREATE TABLE IF NOT EXISTS workspace_settings (
+                workspace_id   TEXT PRIMARY KEY,
+                workspace_root TEXT,
+                operator       TEXT NOT NULL,
+                created_at     INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS workspace_tasks (
+                id                 TEXT PRIMARY KEY,
+                workspace_id       TEXT NOT NULL,
+                title              TEXT NOT NULL,
+                task_type          TEXT NOT NULL,
+                description        TEXT NOT NULL,
+                definition_of_done TEXT,
+                priority           TEXT NOT NULL,
+                status             TEXT NOT NULL,
+                sort_order         INTEGER NOT NULL,
+                reporter_json      TEXT NOT NULL,
+                assignee_json      TEXT,
+                reviewer_json      TEXT,
+                thread_id          TEXT,
+                goal_run_id        TEXT,
+                runtime_history_json TEXT NOT NULL DEFAULT '[]',
+                created_at         INTEGER NOT NULL,
+                updated_at         INTEGER NOT NULL,
+                started_at         INTEGER,
+                completed_at       INTEGER,
+                deleted_at         INTEGER,
+                last_notice_id     TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_workspace_tasks_visible ON workspace_tasks(workspace_id, deleted_at, status, sort_order);
+
+            CREATE TABLE IF NOT EXISTS workspace_notices (
+                id           TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                task_id      TEXT NOT NULL,
+                notice_type  TEXT NOT NULL,
+                message      TEXT NOT NULL,
+                actor_json   TEXT,
+                created_at   INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_workspace_notices_task ON workspace_notices(workspace_id, task_id, created_at DESC);
     "#
 }

@@ -133,6 +133,21 @@ pub(super) fn is_gateway_reset_command(trimmed_lower: &str) -> bool {
     matches!(trimmed_lower, "!reset" | "!new")
 }
 
+pub(super) fn parse_gateway_approval_decision(
+    content: &str,
+) -> Option<amux_protocol::ApprovalDecision> {
+    match content.trim().to_ascii_lowercase().as_str() {
+        "approve-once" | "approve_once" | "approve once" | "allow-once" | "allow_once"
+        | "allow once" => Some(amux_protocol::ApprovalDecision::ApproveOnce),
+        "approve-session" | "approve_session" | "approve session" | "allow-session"
+        | "allow_session" | "allow session" => {
+            Some(amux_protocol::ApprovalDecision::ApproveSession)
+        }
+        "deny" | "denied" | "reject" => Some(amux_protocol::ApprovalDecision::Deny),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct GatewayRouteRequest {
     pub(super) mode: gateway::GatewayRouteMode,

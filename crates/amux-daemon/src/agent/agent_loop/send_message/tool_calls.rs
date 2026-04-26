@@ -16,7 +16,13 @@ pub(super) fn inter_tool_call_delay(
 fn skill_gate_exempt_tool(name: &str) -> bool {
     matches!(
         name,
-        "discover_skills" | "list_skills" | "read_skill" | "justify_skill_skip"
+        "discover_guidelines"
+            | "list_guidelines"
+            | "read_guideline"
+            | "discover_skills"
+            | "list_skills"
+            | "read_skill"
+            | "justify_skill_skip"
     )
 }
 
@@ -290,6 +296,7 @@ impl<'a> SendMessageRunner<'a> {
                 output_tokens.unwrap_or(0),
                 &self.config.provider,
                 &self.provider_config.model,
+                None,
             )
             .await;
         self.engine.persist_thread_by_id(&self.tid).await;

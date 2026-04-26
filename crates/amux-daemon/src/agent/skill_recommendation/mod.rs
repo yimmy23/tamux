@@ -56,6 +56,27 @@ pub(crate) async fn discover_local_skills(
     ))
 }
 
+pub(crate) async fn discover_local_guidelines(
+    _history: &HistoryStore,
+    guidelines_root: &Path,
+    query: &str,
+    workspace_tags: &[String],
+    limit: usize,
+    cfg: &SkillRecommendationConfig,
+) -> Result<SkillDiscoveryResult> {
+    let candidates = collect_filesystem_guideline_candidates(guidelines_root)?;
+    let graph_signals = HashMap::new();
+
+    Ok(rank_skill_candidates(
+        candidates,
+        query,
+        workspace_tags,
+        &graph_signals,
+        limit,
+        cfg,
+    ))
+}
+
 const MAX_GRAPH_SIGNAL_HOPS: u8 = 2;
 const MAX_GRAPH_SIGNAL_SEEDS: usize = 8;
 
@@ -325,6 +346,29 @@ fn collect_skill_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+fn collect_guideline_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_guideline_documents(&path, out)?;
+        } else if path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("md"))
+        {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
 fn should_include_skill_document(path: &Path) -> bool {
     should_include_skill_relative_path(&path.to_string_lossy())
 }
@@ -403,6 +447,36 @@ fn collect_filesystem_skill_candidates(skills_root: &Path) -> Result<Vec<SkillCa
     Ok(candidates)
 }
 
+fn collect_filesystem_guideline_candidates(
+    guidelines_root: &Path,
+) -> Result<Vec<SkillCandidateInput>> {
+    let mut files = Vec::new();
+    collect_guideline_documents(guidelines_root, &mut files)?;
+
+    let mut candidates = Vec::new();
+    for path in files {
+        let relative_path = path
+            .strip_prefix(guidelines_root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let content = std::fs::read_to_string(&path).with_context(|| {
+            format!(
+                "failed to read guideline recommendation file {}",
+                path.display()
+            )
+        })?;
+        let derived = derive_skill_metadata(&relative_path, &content);
+        candidates.push(SkillCandidateInput {
+            metadata: extract_skill_metadata(&relative_path, &content),
+            excerpt: excerpt_skill(&content),
+            record: synthetic_guideline_variant_record(&relative_path, &derived),
+        });
+    }
+
+    Ok(candidates)
+}
+
 fn synthetic_skill_variant_record(
     relative_path: &str,
     derived: &crate::history::DerivedSkillMetadata,
@@ -433,6 +507,36 @@ fn synthetic_skill_variant_record(
     }
 }
 
+fn synthetic_guideline_variant_record(
+    relative_path: &str,
+    derived: &crate::history::DerivedSkillMetadata,
+) -> SkillVariantRecord {
+    let normalized = relative_path.replace('\\', "/");
+    let now = crate::history::now_ts();
+
+    SkillVariantRecord {
+        variant_id: format!("guideline:fs:{normalized}"),
+        skill_name: if derived.skill_name.is_empty() {
+            "guideline".to_string()
+        } else {
+            derived.skill_name.clone()
+        },
+        variant_name: derived.variant_name.clone(),
+        relative_path: normalized,
+        parent_variant_id: None,
+        version: "v1.0".to_string(),
+        context_tags: derived.context_tags.clone(),
+        use_count: 0,
+        success_count: 0,
+        failure_count: 0,
+        fitness_score: 0.0,
+        status: "active".to_string(),
+        last_used_at: None,
+        created_at: now,
+        updated_at: now,
+    }
+}
+
 pub(super) fn page_public_discovery_result(
     query: &str,
     normalized_intent: &str,
@@ -441,6 +545,30 @@ pub(super) fn page_public_discovery_result(
     cfg: &SkillRecommendationConfig,
     cursor: Option<&str>,
     limit: usize,
+) -> Result<amux_protocol::SkillDiscoveryResultPublic> {
+    page_public_discovery_result_with_action(
+        query,
+        normalized_intent,
+        context_tags,
+        result,
+        cfg,
+        cursor,
+        limit,
+        "read_skill",
+        None,
+    )
+}
+
+pub(super) fn page_public_discovery_result_with_action(
+    query: &str,
+    normalized_intent: &str,
+    context_tags: &[String],
+    result: &SkillDiscoveryResult,
+    cfg: &SkillRecommendationConfig,
+    cursor: Option<&str>,
+    limit: usize,
+    action_verb: &str,
+    source_kind_override: Option<&str>,
 ) -> Result<amux_protocol::SkillDiscoveryResultPublic> {
     let limit = limit.clamp(1, 100);
     let start_index = decode_page_cursor(cursor)?
@@ -476,7 +604,11 @@ pub(super) fn page_public_discovery_result(
         normalized_intent: normalized_intent.to_string(),
         required: !matches!(result.recommended_action, SkillRecommendationAction::None),
         confidence_tier: confidence_label(result.confidence).to_string(),
-        recommended_action: recommended_action_label(result.recommended_action, top_skill_name),
+        recommended_action: recommended_action_label_with_verb(
+            result.recommended_action,
+            top_skill_name,
+            action_verb,
+        ),
         requires_approval: false,
         mesh_state: "fresh".to_string(),
         rationale: result
@@ -513,14 +645,19 @@ pub(super) fn page_public_discovery_result(
                     } else {
                         "trusted_local".to_string()
                     },
-                    source_kind: if recommendation.record.relative_path.contains("generated/") {
-                        "generated".to_string()
-                    } else {
-                        "builtin".to_string()
-                    },
-                    recommended_action: recommended_action_label(
+                    source_kind: source_kind_override
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| {
+                            if recommendation.record.relative_path.contains("generated/") {
+                                "generated".to_string()
+                            } else {
+                                "builtin".to_string()
+                            }
+                        }),
+                    recommended_action: recommended_action_label_with_verb(
                         result.recommended_action,
                         Some(recommendation.record.skill_name.as_str()),
+                        action_verb,
                     ),
                     use_count: recommendation.record.use_count,
                     success_count: recommendation.record.success_count,
@@ -567,15 +704,22 @@ fn action_label(value: SkillRecommendationAction) -> &'static str {
     }
 }
 
-fn recommended_action_label(
+fn recommended_action_label_with_verb(
     action: SkillRecommendationAction,
     top_skill_name: Option<&str>,
+    action_verb: &str,
 ) -> String {
     match (action, top_skill_name) {
         (SkillRecommendationAction::ReadSkill, Some(skill_name)) => {
-            format!("read_skill {skill_name}")
+            format!("{action_verb} {skill_name}")
         }
-        _ => action_label(action).to_string(),
+        _ => {
+            if matches!(action, SkillRecommendationAction::ReadSkill) {
+                action_verb.to_string()
+            } else {
+                action_label(action).to_string()
+            }
+        }
     }
 }
 

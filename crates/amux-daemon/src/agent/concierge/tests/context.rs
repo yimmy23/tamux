@@ -70,6 +70,7 @@ fn sample_goal_run(
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: crate::agent::AutonomyLevel::Aware,
         authorship_tag: None,
     }

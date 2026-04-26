@@ -71,6 +71,7 @@ fn sample_goal_run_for_welcome(
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: crate::agent::AutonomyLevel::Aware,
         authorship_tag: None,
     }
@@ -139,6 +140,7 @@ fn sample_goal_run_with_kind(
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: crate::agent::AutonomyLevel::Aware,
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),

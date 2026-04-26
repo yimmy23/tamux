@@ -203,6 +203,18 @@ function New-BundleZip([string]$ZipPath, [string[]]$ArtifactNames) {
                 ) | Out-Null
             }
         }
+
+        $guidelinesRoot = Join-Path $ProjectRoot "guidelines"
+        if (Test-Path $guidelinesRoot) {
+            Get-ChildItem $guidelinesRoot -Recurse -File | ForEach-Object {
+                $relative = [System.IO.Path]::GetRelativePath($ProjectRoot.Path, $_.FullName).Replace("\", "/")
+                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $archive,
+                    $_.FullName,
+                    $relative
+                ) | Out-Null
+            }
+        }
     } finally {
         $archive.Dispose()
     }
@@ -386,7 +398,7 @@ if ($bundleArtifacts.Count -gt 0) {
             "",
             "Built on $(Get-Date -AsUTC -Format 'yyyy-MM-dd HH:mm UTC').",
             "",
-            "Bundled built-in skills are included under the archive skills/ tree."
+            "Bundled built-in skills and guidelines are included under the archive skills/ and guidelines/ trees."
         ) | Set-Content -Path $notesFile
     }
 

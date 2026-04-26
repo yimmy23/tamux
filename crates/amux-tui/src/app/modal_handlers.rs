@@ -169,6 +169,26 @@ impl TuiModel {
             return false;
         }
 
+        if kind == modal::ModalKind::WorkspaceCreateTask {
+            return self.handle_workspace_create_modal_key(code, modifiers);
+        }
+
+        if kind == modal::ModalKind::WorkspaceReviewTask {
+            return self.handle_workspace_review_modal_key(code, modifiers);
+        }
+
+        if kind == modal::ModalKind::WorkspaceEditTask {
+            return self.handle_workspace_edit_modal_key(code, modifiers);
+        }
+
+        if kind == modal::ModalKind::WorkspaceTaskDetail {
+            return self.handle_workspace_detail_modal_key(code, modifiers);
+        }
+
+        if kind == modal::ModalKind::WorkspaceTaskHistory {
+            return self.handle_workspace_history_modal_key(code, modifiers);
+        }
+
         if kind == modal::ModalKind::Settings {
             if matches!(
                 code,
@@ -1387,6 +1407,7 @@ impl TuiModel {
             modal::ModalKind::CommandPalette
                 | modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
+                | modal::ModalKind::WorkspacePicker
         );
 
         match code {
@@ -1469,12 +1490,19 @@ impl TuiModel {
                 if matches_shift_char(KeyCode::Char(ch), modifiers, 'r')
                     && matches!(
                         kind,
-                        modal::ModalKind::ThreadPicker | modal::ModalKind::GoalPicker
+                        modal::ModalKind::ThreadPicker
+                            | modal::ModalKind::GoalPicker
+                            | modal::ModalKind::WorkspacePicker
                     ) =>
             {
                 self.send_daemon_command(DaemonCommand::Refresh);
                 self.send_daemon_command(DaemonCommand::RefreshServices);
-                self.status_line = "Refreshing thread and goal lists".to_string();
+                if kind == modal::ModalKind::WorkspacePicker {
+                    self.send_daemon_command(DaemonCommand::ListWorkspaceSettings);
+                    self.status_line = "Refreshing workspaces".to_string();
+                } else {
+                    self.status_line = "Refreshing thread and goal lists".to_string();
+                }
             }
             KeyCode::Down if kind == modal::ModalKind::CommandPalette => self.modal_navigate(1),
             KeyCode::Up if kind == modal::ModalKind::CommandPalette => self.modal_navigate(-1),
@@ -1501,6 +1529,8 @@ impl TuiModel {
                     self.sync_thread_picker_item_count();
                 } else if kind == modal::ModalKind::GoalPicker {
                     self.sync_goal_picker_item_count();
+                } else if kind == modal::ModalKind::WorkspacePicker {
+                    self.sync_workspace_picker_item_count();
                 }
             }
             KeyCode::Char(c)
@@ -1520,6 +1550,8 @@ impl TuiModel {
                         self.sync_thread_picker_item_count();
                     } else if kind == modal::ModalKind::GoalPicker {
                         self.sync_goal_picker_item_count();
+                    } else if kind == modal::ModalKind::WorkspacePicker {
+                        self.sync_workspace_picker_item_count();
                     }
                 }
             }

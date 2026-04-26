@@ -630,10 +630,10 @@ providers:
         let provider =
             get_provider_definition(PROVIDER_ID_GITHUB_COPILOT).expect("copilot provider");
         assert!(!provider.models.is_empty());
-        assert_eq!(provider.default_model, "gpt-5.5");
+        assert_eq!(provider.default_model, "gpt-5.4");
         assert_eq!(
             provider.models.first().map(|model| model.id),
-            Some("gpt-5.5")
+            Some("gpt-5.4")
         );
         assert_eq!(provider.default_transport, ApiTransport::Responses);
         assert!(provider
@@ -904,6 +904,7 @@ providers:
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
             estimated_cost_usd: None,
+            model_usage: Vec::new(),
             autonomy_level: AutonomyLevel::default(),
             authorship_tag: None,
             dossier: Some(GoalRunDossier {

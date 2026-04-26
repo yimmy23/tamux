@@ -56,6 +56,7 @@ impl HistoryStore {
                 serde_json::to_string(&goal_run.runtime_assignment_list).call_err()?;
             let execution_thread_ids_json =
                 serde_json::to_string(&goal_run.execution_thread_ids).call_err()?;
+            let model_usage_json = serde_json::to_string(&goal_run.model_usage).call_err()?;
             let dossier_json = goal_run
                 .dossier
                 .as_ref()
@@ -69,8 +70,8 @@ impl HistoryStore {
 
             transaction.execute(
                 "INSERT OR REPLACE INTO goal_runs \
-                 (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46)",
+                 (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47)",
                 params![
                     &goal_run.id,
                     &goal_run.title,
@@ -112,6 +113,7 @@ impl HistoryStore {
                     goal_run.total_prompt_tokens as i64,
                     goal_run.total_completion_tokens as i64,
                     goal_run.estimated_cost_usd,
+                    model_usage_json,
                     autonomy_level_to_str(goal_run.autonomy_level),
                     authorship_tag,
                     planner_owner_profile_json,
@@ -235,7 +237,7 @@ impl HistoryStore {
         }
 
         let mut stmt = conn.prepare(
-            "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json \
+            "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json \
              FROM goal_runs ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -247,10 +249,11 @@ impl HistoryStore {
             let memory_updates_json: String = row.get(20)?;
             let dossier_json: Option<String> = row.get(36)?;
             let child_task_ids_json: String = row.get(25)?;
-            let planner_owner_profile_json: Option<String> = row.get(42)?;
-            let current_step_owner_profile_json: Option<String> = row.get(43)?;
-            let launch_assignment_snapshot_json: Option<String> = row.get(44)?;
-            let runtime_assignment_list_json: Option<String> = row.get(45)?;
+            let model_usage_json: String = row.get(40)?;
+            let planner_owner_profile_json: Option<String> = row.get(43)?;
+            let current_step_owner_profile_json: Option<String> = row.get(44)?;
+            let launch_assignment_snapshot_json: Option<String> = row.get(45)?;
+            let runtime_assignment_list_json: Option<String> = row.get(46)?;
             let child_task_ids = serde_json::from_str(&child_task_ids_json).unwrap_or_default();
             let root_thread_id = root_thread_id.or_else(|| thread_id.clone());
             let active_thread_id = active_thread_id.or_else(|| thread_id.clone());
@@ -316,9 +319,10 @@ impl HistoryStore {
                 total_prompt_tokens: row.get::<_, i64>(37)? as u64,
                 total_completion_tokens: row.get::<_, i64>(38)? as u64,
                 estimated_cost_usd: row.get(39)?,
-                autonomy_level: parse_autonomy_level(&row.get::<_, String>(40)?),
+                model_usage: serde_json::from_str(&model_usage_json).unwrap_or_default(),
+                autonomy_level: parse_autonomy_level(&row.get::<_, String>(41)?),
                 authorship_tag: row
-                    .get::<_, Option<String>>(41)?
+                    .get::<_, Option<String>>(42)?
                     .map(|value| parse_authorship_tag(&value)),
             })
         })?;

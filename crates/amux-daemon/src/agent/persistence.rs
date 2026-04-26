@@ -649,6 +649,7 @@ impl AgentEngine {
 
         // Seed built-in skill documents into ~/.tamux/skills/
         seed_builtin_skills(&self.data_dir);
+        seed_builtin_guidelines(&self.data_dir);
         self.schedule_builtin_skill_catalog_sync();
 
         // Restore HeuristicStore from persistence (D-10)

@@ -1,6 +1,7 @@
 use super::{
-    discover_community_skills, discover_local_skills, extract_skill_metadata,
-    SkillRecommendationAction, SkillRecommendationConfidence,
+    discover_community_skills, discover_local_guidelines, discover_local_skills,
+    extract_skill_metadata, page_public_discovery_result_with_action, SkillRecommendationAction,
+    SkillRecommendationConfidence,
 };
 use crate::agent::types::SkillRecommendationConfig;
 use crate::agent::{AgentConfig, AgentEngine};
@@ -220,6 +221,88 @@ triggers: [service crash]
             .filter(|item| item.record.skill_name == "debug-rust-build")
             .count(),
         1
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_guidelines_uses_skill_ranking_shape() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let guidelines_root = root.path().join("guidelines");
+    write_markdown(
+        &guidelines_root,
+        "coding-task.md",
+        r#"---
+name: coding-task
+description: Use for implementing features and bug fixes with tests.
+keywords: [coding, testing, implementation]
+triggers: [feature work, bug fix]
+---
+
+# Coding Task
+
+Build a risk and test matrix before implementation.
+"#,
+    )?;
+    write_markdown(
+        &guidelines_root,
+        "research-task.md",
+        r#"---
+name: research-task
+description: Use for source-backed research.
+keywords: [research, citations]
+---
+
+# Research Task
+"#,
+    )?;
+
+    let cfg = SkillRecommendationConfig {
+        strong_match_threshold: 0.35,
+        weak_match_threshold: 0.15,
+        ..SkillRecommendationConfig::default()
+    };
+    let result = discover_local_guidelines(
+        &store,
+        &guidelines_root,
+        "implement feature tests",
+        &["rust".to_string()],
+        3,
+        &cfg,
+    )
+    .await?;
+
+    assert_eq!(result.recommendations[0].record.skill_name, "coding-task");
+    assert_eq!(
+        result.recommendations[0].record.relative_path,
+        "coding-task.md"
+    );
+    assert!(result.recommendations[0]
+        .record
+        .variant_id
+        .starts_with("guideline:fs:"));
+    assert_eq!(
+        result.recommended_action,
+        SkillRecommendationAction::ReadSkill
+    );
+    let public = page_public_discovery_result_with_action(
+        "implement feature tests",
+        "implement feature tests",
+        &[],
+        &result,
+        &cfg,
+        None,
+        3,
+        "read_guideline",
+        Some("guideline"),
+    )?;
+    assert_eq!(public.recommended_action, "read_guideline coding-task");
+    assert_eq!(public.candidates[0].source_kind, "guideline");
+    assert_eq!(
+        public.candidates[0].recommended_action,
+        "read_guideline coding-task"
     );
 
     Ok(())

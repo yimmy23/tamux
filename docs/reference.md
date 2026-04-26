@@ -234,6 +234,95 @@ osc99() {
 }
 ```
 
+## Webhook Event Ingest
+
+The daemon can expose a narrow local HTTP webhook listener that feeds Pack 1 event payloads into the same trigger engine used by internal event ingestion. This is implemented today as a localhost listener inside `tamux-daemon`, not as a separate gateway service.
+
+Implemented behavior:
+
+- Disabled by default
+- Configured through `AgentConfig.extra` keys in `config.json`
+- Binds `127.0.0.1:8787` by default
+- Accepts `POST /webhook/event` only
+- Requires a JSON body matching the `ingest_webhook_event` payload shape
+- When a secret is configured, requires both timestamp and HMAC headers
+
+`config.json` example:
+
+```json
+{
+  "extra": {
+    "webhook_listener_enabled": true,
+    "webhook_listener_bind": "127.0.0.1:8787",
+    "webhook_listener_secret": "replace-me",
+    "webhook_listener_max_age_secs": 300
+  }
+}
+```
+
+Supported `extra` keys:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `webhook_listener_enabled` | boolean | `false` | Start the local HTTP listener when the daemon run loop starts. |
+| `webhook_listener_bind` | string | `127.0.0.1:8787` | Bind address for the listener. |
+| `webhook_listener_secret` | string | unset | Enables signed-request validation when non-empty. |
+| `webhook_listener_max_age_secs` | integer | `300` | Maximum allowed timestamp skew for signed requests. |
+
+Request shape:
+
+```http
+POST /webhook/event
+Content-Type: application/json
+```
+
+Body example:
+
+```json
+{
+  "event_family": "filesystem",
+  "event_kind": "file_changed",
+  "state": "detected",
+  "thread_id": "thread-demo-1",
+  "payload": {
+    "path": "src/lib.rs"
+  }
+}
+```
+
+Accepted top-level fields:
+
+- `event_family` (required)
+- `event_kind` (required)
+- `state` (optional)
+- `thread_id` (optional)
+- `payload` (optional object, forwarded into trigger rendering and event logs)
+
+### Signed webhook requests
+
+If `webhook_listener_secret` is set, requests must include:
+
+- `x-tamux-timestamp-ms`: Unix timestamp in milliseconds
+- `x-tamux-signature-256`: `sha256=<hex-hmac>`
+
+The daemon computes the expected signature over:
+
+```text
+<timestamp_ms> + "." + <raw_request_body>
+```
+
+using HMAC-SHA256 and the configured secret. Requests are rejected when the timestamp is missing, invalid, outside the allowed age window, or the signature does not match.
+
+Response behavior:
+
+- `202 Accepted` for a valid payload accepted into the trigger engine
+- `400 Bad Request` for malformed HTTP or invalid JSON/payload
+- `401 Unauthorized` for missing/invalid timestamp or signature when signing is enabled
+- `404 Not Found` for paths other than `/webhook/event`
+- `405 Method Not Allowed` for non-`POST` requests
+
+This listener routes through the same `ingest_webhook_event_json` foundation used by the internal `ingest_webhook_event` tool, so seeded default triggers such as `filesystem/file_changed` and `system/disk_pressure` can fire without separate manual registration.
+
 ## Configuration
 
 The built-in Settings panel exposes configuration in these sections:

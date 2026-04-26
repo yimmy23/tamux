@@ -165,6 +165,11 @@ function getRuntimeSkillsDir(platform, env) {
   return pathModule.join(getRuntimeTamuxRoot(platform, env), "skills");
 }
 
+function getRuntimeGuidelinesDir(platform, env) {
+  var pathModule = platform === "win32" ? path.win32 : path.posix;
+  return pathModule.join(getRuntimeTamuxRoot(platform, env), "guidelines");
+}
+
 function getRuntimeCustomAuthPath(platform, env) {
   var pathModule = platform === "win32" ? path.win32 : path.posix;
   return pathModule.join(getRuntimeTamuxRoot(platform, env), "custom-auth.yaml");
@@ -213,6 +218,7 @@ function getReleaseAssetInfo(platform, arch, version) {
     bundleChecksumName: "SHA256SUMS.txt",
     requiredBinaries: target.requiredBinaries.slice(),
     skillsArchiveRoot: "skills",
+    guidelinesArchiveRoot: "guidelines",
   };
 }
 
@@ -429,13 +435,13 @@ function extractRequiredBinaries(archiveData, releaseInfo) {
   }
 }
 
-function extractBundledSkills(archiveData, releaseInfo, skillsDir) {
+function extractBundledTree(archiveData, archiveRootName, targetDir, skipExisting) {
   var AdmZip = require("adm-zip");
   var archive = new AdmZip(archiveData);
   var entries = archive.getEntries();
-  var archiveRoot = releaseInfo.skillsArchiveRoot + "/";
+  var archiveRoot = archiveRootName + "/";
 
-  fs.mkdirSync(skillsDir, { recursive: true });
+  fs.mkdirSync(targetDir, { recursive: true });
 
   for (var i = 0; i < entries.length; i++) {
     var entry = entries[i];
@@ -448,10 +454,22 @@ function extractBundledSkills(archiveData, releaseInfo, skillsDir) {
       continue;
     }
 
-    var destinationPath = path.join(skillsDir, relativePath);
+    var destinationPath = path.join(targetDir, relativePath);
+    if (skipExisting && fs.existsSync(destinationPath)) {
+      continue;
+    }
+
     fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
     fs.writeFileSync(destinationPath, entry.getData());
   }
+}
+
+function extractBundledSkills(archiveData, releaseInfo, skillsDir) {
+  extractBundledTree(archiveData, releaseInfo.skillsArchiveRoot, skillsDir, false);
+}
+
+function extractBundledGuidelines(archiveData, releaseInfo, guidelinesDir) {
+  extractBundledTree(archiveData, releaseInfo.guidelinesArchiveRoot, guidelinesDir, true);
 }
 
 async function verifyExtractedBinaries(checksumsData, releaseInfo) {
@@ -525,6 +543,7 @@ async function main() {
   var isGlobalInstall = process.env.npm_config_global === "true";
   var globalBinDir = getGlobalBinDir(process.env.npm_config_prefix, os.platform());
   var runtimeSkillsDir = getRuntimeSkillsDir(os.platform(), process.env);
+  var runtimeGuidelinesDir = getRuntimeGuidelinesDir(os.platform(), process.env);
 
   // 1. Ensure bin directory exists
   fs.mkdirSync(BIN_DIR, { recursive: true });
@@ -554,9 +573,10 @@ async function main() {
         binDir: BIN_DIR,
       },
       async function () {
-        console.log("tamux: extracting binaries and skills...");
+        console.log("tamux: extracting binaries, skills, and guidelines...");
         extractRequiredBinaries(archiveData, releaseInfo);
         extractBundledSkills(archiveData, releaseInfo, runtimeSkillsDir);
+        extractBundledGuidelines(archiveData, releaseInfo, runtimeGuidelinesDir);
         console.log(
           "tamux: custom provider template ready at " +
             ensureCustomAuthTemplate(os.platform(), process.env)
@@ -597,10 +617,12 @@ module.exports.getInstallUsageHint = getInstallUsageHint;
 module.exports.getKillCommand = getKillCommand;
 module.exports.getManagedProcessName = getManagedProcessName;
 module.exports.getProbeCommand = getProbeCommand;
+module.exports.getRuntimeGuidelinesDir = getRuntimeGuidelinesDir;
 module.exports.getRuntimeSkillsDir = getRuntimeSkillsDir;
 module.exports.getRuntimeCustomAuthPath = getRuntimeCustomAuthPath;
 module.exports.getRuntimeTamuxRoot = getRuntimeTamuxRoot;
 module.exports.ensureCustomAuthTemplate = ensureCustomAuthTemplate;
+module.exports.extractBundledGuidelines = extractBundledGuidelines;
 module.exports.isManagedProcessRunning = isManagedProcessRunning;
 module.exports.maybeRefreshDaemonAfterInstall = maybeRefreshDaemonAfterInstall;
 module.exports.parseChecksumFile = parseChecksumFile;

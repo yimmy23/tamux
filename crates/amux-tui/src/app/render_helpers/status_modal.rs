@@ -279,6 +279,41 @@ pub(super) fn render_status_modal(
     frame.render_widget(Paragraph::new(hints), layout[1]);
 }
 
+pub(super) fn render_status_modal_lines(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    body: Vec<Line<'static>>,
+    scroll: usize,
+    show_scroll_hint: bool,
+    theme: &ThemeTokens,
+) {
+    let block = Block::default()
+        .title(format!(" {title} "))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .border_style(theme.accent_secondary);
+
+    let inner = block.inner(area);
+    frame.render_widget(Clear, area);
+    frame.render_widget(block, area);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(body)
+            .wrap(Wrap { trim: false })
+            .scroll((scroll.min(u16::MAX as usize) as u16, 0)),
+        layout[0],
+    );
+
+    let hints = footer_hints(show_scroll_hint, theme);
+    frame.render_widget(Paragraph::new(hints), layout[1]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

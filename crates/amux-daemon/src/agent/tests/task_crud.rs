@@ -64,6 +64,7 @@ fn sample_supervised_goal_run(goal_run_id: &str, task_id: &str, approval_id: &st
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: super::autonomy::AutonomyLevel::Supervised,
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),

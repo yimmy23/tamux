@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guidelines · tamux</title>
+  <meta name="description" content="How tamux guidelines work, where they are installed, and how agents use them before skill discovery." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="../assets/icon.ico" />
+</head>
+<body data-page="guidelines.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <main id="main" class="container page-shell">
+    <article class="page-content">
+      <header class="page-header">
+        <p class="eyebrow">Workflow orchestration</p>
+        <h1>Guidelines</h1>
+        <p class="lead">Guidelines are local Markdown playbooks that sit above skills. They route agents toward the right workflow, checks, and recommended skills for a class of task.</p>
+      </header>
+
+      <section>
+        <h2>How Guidelines Work</h2>
+        <p>A guideline does not replace a skill and does not execute anything by itself. It tells the agent what kind of task it is handling, which skills are likely relevant, what order to follow, and which failure modes to consider before work starts.</p>
+        <p>Agents are prompted to consult guidelines before skill discovery. The normal flow is <code>discover_guidelines</code>, <code>read_guideline</code>, then <code>discover_skills</code> and <code>read_skill</code> when the selected guideline points to a detailed skill workflow.</p>
+      </section>
+
+      <section>
+        <h2>Install Location</h2>
+        <table>
+          <thead><tr><th>Platform</th><th>Guidelines directory</th></tr></thead>
+          <tbody>
+            <tr><td>Linux/macOS</td><td><code>~/.tamux/guidelines</code></td></tr>
+            <tr><td>Windows</td><td><code>%LOCALAPPDATA%\tamux\guidelines</code></td></tr>
+          </tbody>
+        </table>
+        <pre><code>~/.tamux/
+  guidelines/
+  skills/</code></pre>
+        <p>Packaged installation and app startup copy bundled guideline defaults into this directory without overwriting user-created files.</p>
+      </section>
+
+      <section>
+        <h2>CLI Commands</h2>
+        <pre><code># Install a custom guideline
+tamux guideline install ./my-guideline.md
+
+# Install under a different filename
+tamux guideline install ./my-guideline.md --name team-coding.md
+
+# Overwrite an existing guideline
+tamux guideline install ./my-guideline.md --force
+
+# Top-level install form
+tamux install guideline ./my-guideline.md
+
+# List installed guidelines
+tamux guideline list
+tamux guidelines list --json</code></pre>
+        <p>The installer accepts Markdown files only and refuses to overwrite by default.</p>
+      </section>
+
+      <section>
+        <h2>File Format</h2>
+        <pre><code>---
+name: coding-task
+description: Use before implementing a feature, behavior change, or bug fix in code.
+recommended_skills:
+  - test-driven-development
+  - systematic-debugging
+  - verification-before-completion
+---
+
+# Coding Task Guideline
+
+## Workflow
+
+1. Inspect the current implementation.
+2. Build a risk and test matrix.
+3. Use test-driven development unless the user asks for another technique.
+
+## Quality Gate
+
+Do not call the task complete until meaningful verification has run.</code></pre>
+        <table>
+          <thead><tr><th>Field</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>name</code></td><td>Stable lookup name used by <code>read_guideline</code> and discovery output.</td></tr>
+            <tr><td><code>description</code></td><td>One-sentence trigger description used for listing and ranking.</td></tr>
+            <tr><td><code>recommended_skills</code></td><td>Skill names that the guideline may route the agent toward.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Agent And MCP Tools</h2>
+        <table>
+          <thead><tr><th>Tool</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>list_guidelines</code></td><td>Raw catalog view of installed guideline files.</td></tr>
+            <tr><td><code>discover_guidelines</code></td><td>Rank guidelines for a task using daemon-backed discovery.</td></tr>
+            <tr><td><code>read_guideline</code></td><td>Read a guideline by name, stem, or relative path.</td></tr>
+          </tbody>
+        </table>
+        <p>Guideline tools mirror <code>list_skills</code>, <code>discover_skills</code>, and <code>read_skill</code>. Use discovery for task selection and list only when you need the raw catalog.</p>
+      </section>
+
+      <section>
+        <h2>Bundled Starter Catalog</h2>
+        <ul class="check-list">
+          <li>Coding, debugging, refactoring, code review, frontend UI, CI failures, and testing.</li>
+          <li>Research, documentation, communication writing, content transformation, and explanation.</li>
+          <li>Academic literature reviews, citations, evidence quality, scientific databases, research data analysis, hypothesis design, research publication, grants, and clinical research.</li>
+          <li>Planning, project management, decision analysis, product design, and task intake.</li>
+          <li>Business strategy, market research, marketing campaigns, brand strategy, sales outreach, customer research, product marketing, and social media.</li>
+          <li>Creative briefs, visual art, design critique, video/audio production, presentation decks, and media generation.</li>
+          <li>Growth experiments, analytics and measurement, customer success, operations, finance and budgeting, legal/compliance issue spotting, HR/recruiting, education/training, events, and fundraising.</li>
+          <li>Git workflow, terminal operations, file management, environment setup, and configuration.</li>
+          <li>Data analysis, CSV work, automation scripting, database work, and API integration.</li>
+          <li>Security and privacy, incident response, release work, dependency upgrades, plugins, user support, scheduling, media generation, and agent coordination.</li>
+        </ul>
+        <p>The non-technical starter guidelines route to a focused subset of MIT-licensed skills selected from GitHub: <a href="https://github.com/kostja94/marketing-skills"><code>kostja94/marketing-skills</code></a> for marketing, SEO, copywriting, channel, brand, pricing, and creative-content workflows; <a href="https://github.com/shawnpang/startup-founder-skills"><code>shawnpang/startup-founder-skills</code></a> for founder, fundraising, sales, market research, recruiting, operations, customer feedback, events, and legal/compliance drafting support; <a href="https://github.com/coreyhaines31/marketingskills"><code>coreyhaines31/marketingskills</code></a> for CRO, analytics, lifecycle email, RevOps, sales enablement, growth loops, and marketing experimentation; and <a href="https://github.com/AbsolutelySkilled/AbsolutelySkilled"><code>AbsolutelySkilled/AbsolutelySkilled</code></a> for spreadsheets, finance, support operations, customer success, product analytics, project execution, HR, legal operations, video production, and presentation design.</p>
+      </section>
+
+      <section>
+        <h2>When To Create One</h2>
+        <p>Create a new guideline when a class of work needs a repeatable task-level policy broader than a single skill, such as team-specific release rules, support process, security review expectations, data handling policy, or project-specific coding workflow.</p>
+        <p>Do not create a guideline for one-off facts, temporary task notes, or detailed tool instructions that belong in a skill.</p>
+      </section>
+    </article>
+  </main>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

@@ -56,6 +56,24 @@ pub async fn send_skill_discover(
     .await
 }
 
+pub async fn send_guideline_discover(
+    query: &str,
+    session_id: Option<SessionId>,
+    limit: usize,
+    cursor: Option<String>,
+) -> Result<SkillDiscoveryResultPublic> {
+    roundtrip_until(
+        ClientMessage::GuidelineDiscover {
+            query: query.to_string(),
+            session_id,
+            limit,
+            cursor,
+        },
+        parse_guideline_discover_terminal_response,
+    )
+    .await
+}
+
 pub(super) fn parse_skill_discover_terminal_response(
     msg: DaemonMessage,
 ) -> Option<Result<SkillDiscoveryResultPublic>> {
@@ -67,6 +85,25 @@ pub(super) fn parse_skill_discover_terminal_response(
         DaemonMessage::SkillDiscoverResult { result_json } => Some(
             serde_json::from_str(&result_json)
                 .context("invalid skill discovery payload from daemon"),
+        ),
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            Some(Err(anyhow::anyhow!("daemon error: {message}")))
+        }
+        other => Some(Err(anyhow::anyhow!("unexpected response: {other:?}"))),
+    }
+}
+
+pub(super) fn parse_guideline_discover_terminal_response(
+    msg: DaemonMessage,
+) -> Option<Result<SkillDiscoveryResultPublic>> {
+    match msg {
+        DaemonMessage::CwdChanged { .. }
+        | DaemonMessage::Output { .. }
+        | DaemonMessage::CommandStarted { .. }
+        | DaemonMessage::CommandFinished { .. } => None,
+        DaemonMessage::GuidelineDiscoverResult { result_json } => Some(
+            serde_json::from_str(&result_json)
+                .context("invalid guideline discovery payload from daemon"),
         ),
         DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
             Some(Err(anyhow::anyhow!("daemon error: {message}")))

@@ -11,10 +11,10 @@ fn goal_run_status_to_event_kind(status: GoalRunStatus) -> &'static str {
     match status {
         GoalRunStatus::Completed => "completed",
         GoalRunStatus::Failed | GoalRunStatus::Cancelled => "failed",
-        GoalRunStatus::Planning => "planning",
+        GoalRunStatus::Planning | GoalRunStatus::Queued => "planning",
         GoalRunStatus::Running => "step_started",
         GoalRunStatus::AwaitingApproval => "step_started",
-        GoalRunStatus::Queued | GoalRunStatus::Paused => "step_detail",
+        GoalRunStatus::Paused => "paused",
     }
 }
 
@@ -311,6 +311,7 @@ impl AgentEngine {
             goal_step_id: task_goal_step_id
                 .or_else(|| goal_run.steps.get(step_index).map(|step| step.id.clone())),
             current_step_index: step_index,
+            step_status: goal_run.steps.get(step_index).map(|step| step.status),
             authoritative: task.source == "goal_run" && task.parent_task_id.is_none(),
         })
     }
@@ -625,6 +626,11 @@ impl AgentEngine {
 
         self.persist_tasks().await;
         self.emit_task_update(&updated, Some("Task awaiting approval".into()));
+        if let Some(thread_id) = updated.thread_id.as_deref() {
+            let _ = self
+                .maybe_send_gateway_thread_approval_request(thread_id, pending_approval)
+                .await;
+        }
     }
 }
 
@@ -633,6 +639,7 @@ pub(crate) struct GoalTodoContext {
     pub(crate) goal_run_id: String,
     pub(crate) goal_step_id: Option<String>,
     pub(crate) current_step_index: usize,
+    pub(crate) step_status: Option<GoalRunStepStatus>,
     pub(crate) authoritative: bool,
 }
 

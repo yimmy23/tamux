@@ -2,6 +2,97 @@
 
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoverableGoalPauseReason {
+    ProviderCredits,
+    RateLimit,
+    TemporaryProvider,
+    Transport,
+}
+
+impl RecoverableGoalPauseReason {
+    fn notification_kind(self) -> &'static str {
+        match self {
+            Self::ProviderCredits => "goal_provider_credits",
+            Self::RateLimit => "goal_provider_rate_limit",
+            Self::TemporaryProvider => "goal_provider_temporary",
+            Self::Transport => "goal_provider_transport",
+        }
+    }
+
+    fn operator_label(self) -> &'static str {
+        match self {
+            Self::ProviderCredits => "provider credits or billing need attention",
+            Self::RateLimit => "provider rate limit",
+            Self::TemporaryProvider => "temporary provider outage",
+            Self::Transport => "network transport problem",
+        }
+    }
+}
+
+fn recoverable_goal_pause_reason(message: &str) -> Option<RecoverableGoalPauseReason> {
+    if let Some(structured) = crate::agent::llm_client::parse_structured_upstream_failure(message) {
+        let diagnostic_text = structured.diagnostics.to_string().to_ascii_lowercase();
+        let summary = structured.summary.to_ascii_lowercase();
+        let combined = format!("{summary}\n{diagnostic_text}");
+        if mentions_provider_credit_problem(&combined) {
+            return Some(RecoverableGoalPauseReason::ProviderCredits);
+        }
+        return match structured.class.as_str() {
+            "rate_limit" => Some(RecoverableGoalPauseReason::RateLimit),
+            "temporary_upstream" => Some(RecoverableGoalPauseReason::TemporaryProvider),
+            "transient_transport" => Some(RecoverableGoalPauseReason::Transport),
+            "auth_configuration" if mentions_provider_credit_problem(&combined) => {
+                Some(RecoverableGoalPauseReason::ProviderCredits)
+            }
+            _ => None,
+        };
+    }
+
+    let lower = message.to_ascii_lowercase();
+    if mentions_provider_credit_problem(&lower) {
+        return Some(RecoverableGoalPauseReason::ProviderCredits);
+    }
+    if lower.contains("429") || lower.contains("rate limit") || lower.contains("too many requests")
+    {
+        return Some(RecoverableGoalPauseReason::RateLimit);
+    }
+    if lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("transport error")
+        || lower.contains("error sending request")
+        || lower.contains("connection refused")
+        || lower.contains("connection reset")
+        || lower.contains("broken pipe")
+        || lower.contains("unexpected eof")
+        || lower.contains("network")
+    {
+        return Some(RecoverableGoalPauseReason::Transport);
+    }
+    if lower.contains("overloaded")
+        || lower.contains("temporarily unavailable")
+        || lower.contains("try again later")
+        || lower.contains("503")
+        || lower.contains("502")
+    {
+        return Some(RecoverableGoalPauseReason::TemporaryProvider);
+    }
+    None
+}
+
+fn mentions_provider_credit_problem(lower: &str) -> bool {
+    (lower.contains("openrouter")
+        && (lower.contains("credit")
+            || lower.contains("credits")
+            || lower.contains("billing")
+            || lower.contains("payment")))
+        || lower.contains("insufficient credits")
+        || lower.contains("insufficient credit")
+        || lower.contains("quota exceeded")
+        || lower.contains("payment required")
+        || lower.contains("billing hard limit")
+}
+
 impl AgentEngine {
     pub(super) async fn dispatch_goal_runs(self: Arc<Self>) {
         let goal_run_ids = {
@@ -33,13 +124,107 @@ impl AgentEngine {
                 let result = engine.advance_goal_run(&goal_run_id).await;
                 if let Err(error) = result {
                     tracing::error!(goal_run_id = %goal_run_id, error = %error, "goal run advancement failed");
-                    engine
-                        .fail_goal_run(&goal_run_id, &error.to_string(), "goal-run", None)
-                        .await;
+                    if !engine
+                        .pause_goal_run_for_recoverable_provider_error(&goal_run_id, &error)
+                        .await
+                    {
+                        engine
+                            .fail_goal_run(&goal_run_id, &error.to_string(), "goal-run", None)
+                            .await;
+                    }
                 }
                 engine.finish_goal_run_work(&goal_run_id).await;
             });
         }
+    }
+
+    async fn pause_goal_run_for_recoverable_provider_error(
+        &self,
+        goal_run_id: &str,
+        error: &anyhow::Error,
+    ) -> bool {
+        let Some(reason) = recoverable_goal_pause_reason(&error.to_string()) else {
+            return false;
+        };
+
+        let message = format!(
+            "Goal paused after a recoverable provider issue: {}. Resolve it, then resume the goal.",
+            reason.operator_label()
+        );
+        let error_text = error.to_string();
+        let mut notification = None;
+        let updated = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                return false;
+            };
+            if matches!(
+                goal_run.status,
+                GoalRunStatus::Completed | GoalRunStatus::Failed | GoalRunStatus::Cancelled
+            ) {
+                return false;
+            }
+            goal_run.status = GoalRunStatus::Paused;
+            goal_run.updated_at = now_millis();
+            goal_run.completed_at = None;
+            goal_run.last_error = Some(error_text.clone());
+            goal_run.failure_cause = None;
+            goal_run.events.push(make_goal_run_event(
+                "provider_recovery",
+                "goal run paused after recoverable provider issue",
+                Some(message.clone()),
+            ));
+            if let Some(thread_id) = goal_run.thread_id.as_deref() {
+                let now = now_millis() as i64;
+                notification = Some(amux_protocol::InboxNotification {
+                    id: format!("goal-provider-recovery:{goal_run_id}"),
+                    source: "goal_runner".to_string(),
+                    kind: reason.notification_kind().to_string(),
+                    title: "Goal paused".to_string(),
+                    body: format!(
+                        "{}\n\nGoal: {}\n\nAfter fixing the provider or network issue, resume this goal.",
+                        message, goal_run.title
+                    ),
+                    subtitle: Some(reason.operator_label().to_string()),
+                    severity: "warning".to_string(),
+                    created_at: now,
+                    updated_at: now,
+                    read_at: None,
+                    archived_at: None,
+                    deleted_at: None,
+                    actions: vec![crate::notifications::open_thread_action(thread_id)],
+                    metadata_json: Some(
+                        serde_json::json!({
+                            "goal_run_id": goal_run_id,
+                            "reason": reason.notification_kind(),
+                        })
+                        .to_string(),
+                    ),
+                });
+            }
+            goal_run.clone()
+        };
+
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(&updated, Some(message.clone()));
+        if let Some(notification) = notification {
+            if let Err(error) = self.upsert_inbox_notification(notification).await {
+                tracing::warn!(goal_run_id, %error, "failed to upsert goal pause notification");
+            }
+        }
+        let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+            thread_id: updated.thread_id.clone().unwrap_or_default(),
+            kind: reason.notification_kind().to_string(),
+            message,
+            details: Some(
+                serde_json::json!({
+                    "goal_run_id": goal_run_id,
+                    "error": error_text,
+                })
+                .to_string(),
+            ),
+        });
+        true
     }
 
     async fn try_begin_goal_run_work(&self, goal_run_id: &str) -> bool {

@@ -248,6 +248,44 @@ impl AgentEngine {
         )
     }
 
+    pub(crate) async fn discover_guideline_recommendations_public(
+        &self,
+        query: &str,
+        session_id: Option<SessionId>,
+        limit: usize,
+        cursor: Option<&str>,
+    ) -> Result<amux_protocol::SkillDiscoveryResultPublic> {
+        let guidelines_root = super::guidelines_dir(self.history.data_dir());
+        let context_tags = resolve_skill_context_tags(
+            self.workspace_root.as_ref(),
+            &self.session_manager,
+            session_id,
+        )
+        .await;
+        let cfg = self.config.read().await.skill_recommendation.clone();
+        let result = super::skill_recommendation::discover_local_guidelines(
+            &self.history,
+            &guidelines_root,
+            query,
+            &context_tags,
+            512,
+            &cfg,
+        )
+        .await?;
+
+        super::skill_recommendation::page_public_discovery_result_with_action(
+            query,
+            query.trim(),
+            &context_tags,
+            &result,
+            &cfg,
+            cursor,
+            limit,
+            "read_guideline",
+            Some("guideline"),
+        )
+    }
+
     pub(super) async fn build_skill_preflight_context(
         &self,
         thread_id: &str,
@@ -1788,14 +1826,13 @@ mod tests {
     use crate::history::HistoryStore;
     use std::collections::VecDeque;
     use std::fs;
-    use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+    use std::sync::{Arc, Mutex as StdMutex};
     use tempfile::tempdir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
     fn current_dir_test_lock() -> &'static StdMutex<()> {
-        static LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| StdMutex::new(()))
+        crate::test_support::env_test_mutex()
     }
 
     fn write_skill(root: &std::path::Path, skill_dir: &str, content: &str) {

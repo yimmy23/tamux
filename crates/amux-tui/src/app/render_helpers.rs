@@ -27,6 +27,26 @@ pub(super) fn render_status_modal(
     status_modal::render_status_modal(frame, area, title, body, scroll, show_scroll_hint, theme);
 }
 
+pub(super) fn render_status_modal_lines(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    body: Vec<ratatui::text::Line<'static>>,
+    scroll: usize,
+    show_scroll_hint: bool,
+    theme: &ThemeTokens,
+) {
+    status_modal::render_status_modal_lines(
+        frame,
+        area,
+        title,
+        body,
+        scroll,
+        show_scroll_hint,
+        theme,
+    );
+}
+
 pub(super) fn format_status_modal_text(
     snapshot: &crate::client::AgentStatusSnapshotVm,
     diagnostics_json: Option<&str>,

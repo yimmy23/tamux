@@ -156,18 +156,29 @@ fn add_available_tools_part_d(
         },
         "required": ["verdict", "explanation"]
     })));
-    tools.push(tool_def("list_triggers", "List configured event triggers with status, cooldown, and last-fired metadata.", serde_json::json!({
+    tools.push(tool_def("list_triggers", "List configured event triggers with status, cooldown, last-fired metadata, and whether each trigger comes from packaged defaults or a custom entry.", serde_json::json!({
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def("add_trigger", "Create a new runtime event trigger, validate it, and persist it to the trigger registry.", serde_json::json!({
+    tools.push(tool_def("ingest_webhook_event", "Validate a webhook-style event payload and route it through the trigger engine. This is the narrow ingest foundation for Pack 1 webhook/event flows.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "event_family": { "type": "string", "description": "High-level event family, e.g. filesystem or system" },
+            "event_kind": { "type": "string", "description": "Specific event kind within the family, e.g. file_changed or disk_pressure" },
+            "state": { "type": "string", "description": "Optional state filter such as detected or critical" },
+            "thread_id": { "type": "string", "description": "Optional thread scope for the ingested event" },
+            "payload": { "type": "object", "description": "Optional webhook payload forwarded into trigger template rendering and event logging" }
+        },
+        "required": ["event_family", "event_kind"]
+    })));
+    tools.push(tool_def("add_trigger", "Create a new runtime event trigger, validate it, and persist it to the trigger registry. Pack 1 defaults already cover health/weles_health, health/subagent_health, filesystem/file_changed, and system/disk_pressure.", serde_json::json!({
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "Optional explicit trigger id" },
-            "event_family": { "type": "string", "description": "High-level event family, e.g. health or repo" },
-            "event_kind": { "type": "string", "description": "Specific event kind within the family" },
+            "event_family": { "type": "string", "description": "High-level event family, e.g. health, filesystem, or system" },
+            "event_kind": { "type": "string", "description": "Specific event kind within the family, e.g. weles_health, subagent_health, file_changed, or disk_pressure" },
             "agent_id": { "type": "string", "description": "Background agent/subagent that should handle the trigger. Defaults to weles." },
-            "target_state": { "type": "string", "description": "Optional state filter, e.g. degraded or stuck" },
+            "target_state": { "type": "string", "description": "Optional state filter, e.g. degraded, stuck, detected, or critical" },
             "thread_id": { "type": "string", "description": "Optional thread scope filter" },
             "enabled": { "type": "boolean", "description": "Whether the trigger starts enabled (default: true)" },
             "cooldown_secs": { "type": "integer", "description": "Per-trigger cooldown in seconds" },

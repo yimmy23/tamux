@@ -211,6 +211,7 @@ pub(super) fn base_schema_sql() -> &'static str {
                 total_prompt_tokens INTEGER NOT NULL DEFAULT 0,
                 total_completion_tokens INTEGER NOT NULL DEFAULT 0,
                 estimated_cost_usd  REAL,
+                model_usage_json    TEXT NOT NULL DEFAULT '[]',
                 autonomy_level      TEXT NOT NULL DEFAULT 'aware',
                 authorship_tag      TEXT,
                 planner_owner_profile_json TEXT,

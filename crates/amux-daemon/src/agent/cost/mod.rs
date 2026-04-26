@@ -11,7 +11,9 @@ pub mod rate_cards;
 
 pub use rate_cards::{default_rate_cards, lookup_rate, RateCard};
 
+use crate::agent::types::GoalRunModelUsage;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
@@ -72,6 +74,7 @@ pub struct CostSummary {
 #[derive(Debug, Clone)]
 pub struct CostTracker {
     summary: CostSummary,
+    model_usage: BTreeMap<(String, String), GoalRunModelUsage>,
     budget_alerted: bool,
 }
 
@@ -79,6 +82,7 @@ impl CostTracker {
     pub fn new() -> Self {
         Self {
             summary: CostSummary::default(),
+            model_usage: BTreeMap::new(),
             budget_alerted: false,
         }
     }
@@ -94,11 +98,12 @@ impl CostTracker {
         provider: &str,
         model: &str,
         rate_cards: &HashMap<String, RateCard>,
+        duration_ms: Option<u64>,
     ) -> Option<f64> {
         self.summary.total_prompt_tokens += input_tokens;
         self.summary.total_completion_tokens += output_tokens;
 
-        if let Some(rate) = lookup_rate(rate_cards, provider, model) {
+        let cost = if let Some(rate) = lookup_rate(rate_cards, provider, model) {
             let incremental = compute_cost_from_tokens(input_tokens, output_tokens, rate);
             let current = self.summary.estimated_cost_usd.unwrap_or(0.0);
             self.summary.estimated_cost_usd = Some(current + incremental);
@@ -110,12 +115,38 @@ impl CostTracker {
                 "no rate card found for model -- cost estimate unavailable"
             );
             None
+        };
+
+        let entry = self
+            .model_usage
+            .entry((provider.to_string(), model.to_string()))
+            .or_insert_with(|| GoalRunModelUsage {
+                provider: provider.to_string(),
+                model: model.to_string(),
+                ..Default::default()
+            });
+        entry.request_count = entry.request_count.saturating_add(1);
+        entry.prompt_tokens = entry.prompt_tokens.saturating_add(input_tokens);
+        entry.completion_tokens = entry.completion_tokens.saturating_add(output_tokens);
+        if let Some(incremental) = cost {
+            let current = entry.estimated_cost_usd.unwrap_or(0.0);
+            entry.estimated_cost_usd = Some(current + incremental);
         }
+        if let Some(duration_ms) = duration_ms {
+            let current = entry.duration_ms.unwrap_or(0);
+            entry.duration_ms = Some(current.saturating_add(duration_ms));
+        }
+
+        cost
     }
 
     /// Returns a reference to the current cost summary.
     pub fn summary(&self) -> &CostSummary {
         &self.summary
+    }
+
+    pub fn model_usage(&self) -> Vec<GoalRunModelUsage> {
+        self.model_usage.values().cloned().collect()
     }
 
     /// Returns `true` once when cumulative cost crosses the threshold.
@@ -161,7 +192,7 @@ mod tests {
         let mut tracker = CostTracker::new();
         let cards = default_rate_cards();
 
-        let cost = tracker.accumulate(1000, 500, PROVIDER_ID_OPENAI, "gpt-4o", &cards);
+        let cost = tracker.accumulate(1000, 500, PROVIDER_ID_OPENAI, "gpt-4o", &cards, None);
         assert!(cost.is_some());
         let c = cost.unwrap();
         // gpt-4o: 2.50/M input + 10.00/M output
@@ -180,7 +211,7 @@ mod tests {
         let mut tracker = CostTracker::new();
         let cards = default_rate_cards();
 
-        let cost = tracker.accumulate(500, 200, "unknown", "fake-model-9000", &cards);
+        let cost = tracker.accumulate(500, 200, "unknown", "fake-model-9000", &cards, None);
         assert!(cost.is_none());
         // Tokens should still be accumulated
         assert_eq!(tracker.summary().total_prompt_tokens, 500);
@@ -195,11 +226,11 @@ mod tests {
         let threshold = Some(0.001); // very low threshold for testing
 
         // First call: below threshold
-        tracker.accumulate(100, 50, PROVIDER_ID_OPENAI, "gpt-4o", &cards);
+        tracker.accumulate(100, 50, PROVIDER_ID_OPENAI, "gpt-4o", &cards, None);
         assert!(!tracker.budget_alert_needed(threshold));
 
         // Push over threshold
-        tracker.accumulate(100_000, 50_000, PROVIDER_ID_OPENAI, "gpt-4o", &cards);
+        tracker.accumulate(100_000, 50_000, PROVIDER_ID_OPENAI, "gpt-4o", &cards, None);
         assert!(tracker.budget_alert_needed(threshold));
 
         // Second check: should NOT fire again
@@ -210,9 +241,56 @@ mod tests {
     fn cost_tracker_budget_alert_none_threshold() {
         let mut tracker = CostTracker::new();
         let cards = default_rate_cards();
-        tracker.accumulate(1_000_000, 500_000, PROVIDER_ID_OPENAI, "gpt-4o", &cards);
+        tracker.accumulate(
+            1_000_000,
+            500_000,
+            PROVIDER_ID_OPENAI,
+            "gpt-4o",
+            &cards,
+            None,
+        );
         // No threshold set -> never fires
         assert!(!tracker.budget_alert_needed(None));
+    }
+
+    #[test]
+    fn cost_tracker_keeps_per_model_usage_and_duration() {
+        let mut tracker = CostTracker::new();
+        let cards = default_rate_cards();
+
+        tracker.accumulate(1000, 500, PROVIDER_ID_OPENAI, "gpt-4o", &cards, Some(1200));
+        tracker.accumulate(2000, 700, PROVIDER_ID_OPENAI, "gpt-4o", &cards, Some(800));
+        tracker.accumulate(
+            300,
+            100,
+            amux_shared::providers::PROVIDER_ID_OPENROUTER,
+            "anthropic/claude-sonnet-4",
+            &cards,
+            None,
+        );
+
+        let usage = tracker.model_usage();
+        assert_eq!(usage.len(), 2);
+        let gpt = usage
+            .iter()
+            .find(|entry| entry.provider == PROVIDER_ID_OPENAI && entry.model == "gpt-4o")
+            .expect("gpt-4o usage should be grouped");
+        assert_eq!(gpt.request_count, 2);
+        assert_eq!(gpt.prompt_tokens, 3000);
+        assert_eq!(gpt.completion_tokens, 1200);
+        assert_eq!(gpt.duration_ms, Some(2000));
+
+        let openrouter = usage
+            .iter()
+            .find(|entry| {
+                entry.provider == amux_shared::providers::PROVIDER_ID_OPENROUTER
+                    && entry.model == "anthropic/claude-sonnet-4"
+            })
+            .expect("openrouter usage should be tracked separately");
+        assert_eq!(openrouter.request_count, 1);
+        assert_eq!(openrouter.prompt_tokens, 300);
+        assert_eq!(openrouter.completion_tokens, 100);
+        assert_eq!(openrouter.duration_ms, None);
     }
 
     #[test]

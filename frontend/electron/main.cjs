@@ -14,6 +14,7 @@ const {
     configureChromiumRuntimePaths,
     deleteDataPath,
     ensureTamuxDataDir,
+    installBundledGuidelines,
     getTamuxDataDir,
     logToFile,
     openDataPath,
@@ -556,6 +557,14 @@ configureChromiumRuntimePaths({ app, logToFile });
 
 app.whenReady().then(async () => {
     logToFile('info', 'electron app ready');
+    const bundledGuidelines = installBundledGuidelines({
+        sourceCandidates: [
+            path.join(process.resourcesPath, 'guidelines'),
+            path.join(process.resourcesPath, 'app.asar.unpacked', 'guidelines'),
+            path.join(__dirname, '..', '..', 'guidelines'),
+        ],
+    });
+    logToFile('info', 'bundled guidelines checked', bundledGuidelines);
 
     // Allow cross-origin API calls from the renderer (LLM providers, etc.)
     // Desktop apps don't need browser CORS restrictions.

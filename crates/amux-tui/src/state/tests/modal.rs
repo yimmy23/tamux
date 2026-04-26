@@ -103,6 +103,7 @@ fn install_queries_match_predefined_helper_commands() {
         .collect();
     assert!(filtered_commands.contains(&"plugins install"));
     assert!(filtered_commands.contains(&"skills install"));
+    assert!(filtered_commands.contains(&"guidelines install"));
 }
 
 #[test]

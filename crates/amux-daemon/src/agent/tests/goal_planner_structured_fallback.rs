@@ -52,6 +52,7 @@ fn sample_goal_run_for_structured_fallback(goal_run_id: &str) -> GoalRun {
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: AutonomyLevel::Supervised,
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),

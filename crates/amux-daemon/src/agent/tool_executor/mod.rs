@@ -220,6 +220,7 @@ pub fn get_available_tools(
     add_available_tools_part_b(&mut tools, config, agent_data_dir, has_workspace_topology);
     add_available_tools_part_c(&mut tools, config, agent_data_dir, has_workspace_topology);
     add_available_tools_part_d(&mut tools, config, agent_data_dir, has_workspace_topology);
+    add_workspace_task_tools(&mut tools);
     tools
 }
 
@@ -301,6 +302,7 @@ include!("subagents.rs");
 include!("tasks.rs");
 include!("terminal_input.rs");
 include!("gateway_workspace.rs");
+include!("workspace_task_tools.rs");
 
 pub(crate) async fn execute_media_tool_for_ipc(
     tool_name: &str,

@@ -82,6 +82,7 @@ describe("GoalRunPanel", () => {
         historicalGoalRuns={[]}
         completedGoalRuns={[]}
         selectedGoalRun={null}
+        selectedGoalRunAgentRuns={[]}
         selectedGoalRunId={null}
         goalActionId={null}
         onSelectGoalRun={vi.fn()}

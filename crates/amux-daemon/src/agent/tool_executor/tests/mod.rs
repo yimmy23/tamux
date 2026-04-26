@@ -1,5 +1,4 @@
 use super::*;
-use std::sync::OnceLock;
 
 include!("part1.rs");
 include!("part2.rs");
@@ -10,8 +9,8 @@ include!("part6.rs");
 include!("part7.rs");
 include!("part8.rs");
 include!("part9.rs");
+include!("part10.rs");
 
 fn current_dir_test_lock() -> &'static std::sync::Mutex<()> {
-    static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+    crate::test_support::env_test_mutex()
 }

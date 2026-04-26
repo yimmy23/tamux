@@ -310,6 +310,960 @@ fn concierge_mouse_click_executes_visible_action() {
 }
 
 #[test]
+fn workspace_view_does_not_show_concierge_action_bar() {
+    let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "concierge".to_string(),
+        title: "Concierge".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "concierge".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "Welcome".to_string(),
+            actions: vec![chat::MessageAction {
+                label: "Continue: research".to_string(),
+                action_type: "dismiss".to_string(),
+                thread_id: None,
+            }],
+            is_concierge_welcome: true,
+            ..Default::default()
+        },
+    });
+
+    assert!(!model.actions_bar_visible());
+    assert_eq!(model.concierge_banner_height(), 0);
+}
+
+#[test]
+fn workspace_enter_activates_new_task_not_concierge_action() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "concierge".to_string(),
+        title: "Concierge".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "concierge".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "Welcome".to_string(),
+            actions: vec![chat::MessageAction {
+                label: "Dismiss".to_string(),
+                action_type: "dismiss".to_string(),
+                thread_id: None,
+            }],
+            is_concierge_welcome: true,
+            ..Default::default()
+        },
+    });
+
+    let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::WorkspaceCreateTask));
+    assert!(cmd_rx.try_recv().is_err());
+}
+
+#[test]
+fn workspace_command_opens_workspace_picker_and_requests_list() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+
+    model.handle_workspace_command("");
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::WorkspacePicker));
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::ListWorkspaceSettings) => {}
+        other => panic!("expected workspace list request, got {other:?}"),
+    }
+}
+
+#[test]
+fn workspace_picker_enter_switches_workspace_and_loads_board() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.open_workspace_picker();
+    let _ = cmd_rx.try_recv();
+    model.handle_client_event(ClientEvent::WorkspaceSettingsList(vec![
+        amux_protocol::WorkspaceSettings {
+            workspace_id: "alpha".to_string(),
+            workspace_root: None,
+            operator: amux_protocol::WorkspaceOperator::User,
+            created_at: 1,
+            updated_at: 1,
+        },
+        amux_protocol::WorkspaceSettings {
+            workspace_id: "beta".to_string(),
+            workspace_root: None,
+            operator: amux_protocol::WorkspaceOperator::Svarog,
+            created_at: 2,
+            updated_at: 2,
+        },
+    ]));
+    model.modal.reduce(modal::ModalAction::Navigate(2));
+
+    model.submit_workspace_picker();
+
+    assert_eq!(model.modal.top(), None);
+    assert!(matches!(model.main_pane_view, MainPaneView::Workspace));
+    assert_eq!(model.workspace.workspace_id(), "beta");
+    loop {
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => continue,
+            Ok(DaemonCommand::GetWorkspaceSettings { workspace_id }) => {
+                assert_eq!(workspace_id, "beta");
+                break;
+            }
+            other => panic!("expected settings request, got {other:?}"),
+        }
+    }
+    loop {
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => continue,
+            Ok(DaemonCommand::ListWorkspaceTasks {
+                workspace_id,
+                include_deleted,
+            }) => {
+                assert_eq!(workspace_id, "beta");
+                assert!(!include_deleted);
+                break;
+            }
+            other => panic!("expected task list request, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn workspace_picker_click_switches_workspace_and_loads_board() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.open_workspace_picker();
+    let _ = cmd_rx.try_recv();
+    model.handle_client_event(ClientEvent::WorkspaceSettingsList(vec![
+        amux_protocol::WorkspaceSettings {
+            workspace_id: "alpha".to_string(),
+            workspace_root: None,
+            operator: amux_protocol::WorkspaceOperator::User,
+            created_at: 1,
+            updated_at: 1,
+        },
+        amux_protocol::WorkspaceSettings {
+            workspace_id: "beta".to_string(),
+            workspace_root: None,
+            operator: amux_protocol::WorkspaceOperator::Svarog,
+            created_at: 2,
+            updated_at: 2,
+        },
+    ]));
+
+    let (_, overlay_area) = model
+        .current_modal_area()
+        .expect("workspace picker should have an overlay area");
+    let inner = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .inner(overlay_area);
+    let beta_row = inner.y.saturating_add(5);
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: inner.x.saturating_add(2),
+        row: beta_row,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(model.modal.top(), None);
+    assert!(matches!(model.main_pane_view, MainPaneView::Workspace));
+    assert_eq!(model.workspace.workspace_id(), "beta");
+    loop {
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => continue,
+            Ok(DaemonCommand::GetWorkspaceSettings { workspace_id }) => {
+                assert_eq!(workspace_id, "beta");
+                break;
+            }
+            other => panic!("expected settings request, got {other:?}"),
+        }
+    }
+    loop {
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => continue,
+            Ok(DaemonCommand::ListWorkspaceTasks {
+                workspace_id,
+                include_deleted,
+            }) => {
+                assert_eq!(workspace_id, "beta");
+                assert!(!include_deleted);
+                break;
+            }
+            other => panic!("expected task list request, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn workspace_picker_selection_ignores_delayed_concierge_welcome() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "concierge".to_string(),
+        title: "Concierge".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "concierge".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "Welcome".to_string(),
+            actions: vec![chat::MessageAction {
+                label: "Dismiss".to_string(),
+                action_type: "dismiss".to_string(),
+                thread_id: None,
+            }],
+            is_concierge_welcome: true,
+            ..Default::default()
+        },
+    });
+    model
+        .concierge
+        .reduce(crate::state::ConciergeAction::WelcomeReceived {
+            content: "Welcome".to_string(),
+            actions: vec![crate::state::ConciergeActionVm {
+                label: "Dismiss".to_string(),
+                action_type: "dismiss".to_string(),
+                thread_id: None,
+            }],
+        });
+    model.open_workspace_picker();
+    let _ = cmd_rx.try_recv();
+    model.handle_client_event(ClientEvent::WorkspaceSettingsList(vec![
+        amux_protocol::WorkspaceSettings {
+            workspace_id: "alpha".to_string(),
+            workspace_root: None,
+            operator: amux_protocol::WorkspaceOperator::User,
+            created_at: 1,
+            updated_at: 1,
+        },
+        amux_protocol::WorkspaceSettings {
+            workspace_id: "beta".to_string(),
+            workspace_root: None,
+            operator: amux_protocol::WorkspaceOperator::Svarog,
+            created_at: 2,
+            updated_at: 2,
+        },
+    ]));
+    model.modal.reduce(modal::ModalAction::Navigate(2));
+
+    model.submit_workspace_picker();
+    model.handle_concierge_welcome_event(
+        "Late welcome".to_string(),
+        vec![crate::state::ConciergeActionVm {
+            label: "Start new session".to_string(),
+            action_type: "start_new".to_string(),
+            thread_id: None,
+        }],
+    );
+
+    assert!(matches!(model.main_pane_view, MainPaneView::Workspace));
+    assert_eq!(model.workspace.workspace_id(), "beta");
+    assert!(!model.concierge.welcome_visible);
+    assert!(model.chat.active_actions().is_empty());
+    assert!(
+        matches!(cmd_rx.try_recv(), Ok(DaemonCommand::DismissConciergeWelcome)),
+        "workspace navigation should dismiss the active concierge welcome"
+    );
+}
+
+#[test]
+fn workspace_refresh_key_reloads_current_board() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::NONE);
+
+    assert!(!handled);
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::GetWorkspaceSettings { workspace_id }) => {
+            assert_eq!(workspace_id, "main");
+        }
+        other => panic!("expected settings request, got {other:?}"),
+    }
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::ListWorkspaceTasks {
+            workspace_id,
+            include_deleted,
+        }) => {
+            assert_eq!(workspace_id, "main");
+            assert!(!include_deleted);
+        }
+        other => panic!("expected task list request, got {other:?}"),
+    }
+}
+
+#[test]
+fn workspace_arrow_navigation_can_activate_toolbar_refresh() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+
+    model.handle_key(KeyCode::Right, KeyModifiers::NONE);
+    model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert_eq!(
+        model.workspace_board_selection,
+        Some(widgets::workspace_board::WorkspaceBoardHitTarget::Toolbar(
+            widgets::workspace_board::WorkspaceBoardToolbarAction::Refresh
+        ))
+    );
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::GetWorkspaceSettings { workspace_id }) => {
+            assert_eq!(workspace_id, "main");
+        }
+        other => panic!("expected settings request, got {other:?}"),
+    }
+}
+
+#[test]
+fn in_review_run_action_opens_queued_review_task_thread() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    model.workspace.set_tasks(
+        "main".to_string(),
+        vec![amux_protocol::WorkspaceTask {
+            id: "wtask-1".to_string(),
+            workspace_id: "main".to_string(),
+            title: "Review me".to_string(),
+            task_type: amux_protocol::WorkspaceTaskType::Thread,
+            description: "Do it".to_string(),
+            definition_of_done: None,
+            priority: amux_protocol::WorkspacePriority::Low,
+            status: amux_protocol::WorkspaceTaskStatus::InReview,
+            sort_order: 1,
+            reporter: amux_protocol::WorkspaceActor::User,
+            assignee: Some(amux_protocol::WorkspaceActor::Agent("svarog".to_string())),
+            reviewer: Some(amux_protocol::WorkspaceActor::Subagent("qa".to_string())),
+            thread_id: Some("workspace-thread".to_string()),
+            goal_run_id: None,
+            runtime_history: Vec::new(),
+            created_at: 1,
+            updated_at: 1,
+            started_at: None,
+            completed_at: None,
+            deleted_at: None,
+            last_notice_id: None,
+        }],
+    );
+    model.workspace.set_notices(vec![amux_protocol::WorkspaceNotice {
+        id: "notice-1".to_string(),
+        workspace_id: "main".to_string(),
+        task_id: "wtask-1".to_string(),
+        notice_type: "review_requested".to_string(),
+        message: "Workspace task review requested from subagent:qa; queued review task review-task-1"
+            .to_string(),
+        actor: Some(amux_protocol::WorkspaceActor::Subagent("qa".to_string())),
+        created_at: 2,
+    }]);
+    model.tasks.reduce(task::TaskAction::TaskUpdate(task::AgentTask {
+        id: "review-task-1".to_string(),
+        title: "Review".to_string(),
+        thread_id: Some("review-thread-1".to_string()),
+        ..Default::default()
+    }));
+
+    model.activate_workspace_task_action(
+        "wtask-1".to_string(),
+        amux_protocol::WorkspaceTaskStatus::InReview,
+        widgets::workspace_board::WorkspaceBoardAction::Run,
+    );
+
+    loop {
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => continue,
+            Ok(DaemonCommand::RequestThread { thread_id, .. }) => {
+                assert_eq!(thread_id, "review-thread-1");
+                break;
+            }
+            other => panic!("expected review thread request, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn in_review_run_action_uses_runtime_history_reviewer_task_when_notice_is_missing() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    let mut task = workspace_task_for_board(
+        "wtask-1",
+        amux_protocol::WorkspaceTaskStatus::InReview,
+        Some(amux_protocol::WorkspaceActor::Agent("svarog".to_string())),
+    );
+    task.reviewer = Some(amux_protocol::WorkspaceActor::Subagent("qa".to_string()));
+    task.runtime_history = vec![amux_protocol::WorkspaceTaskRuntimeHistoryEntry {
+        task_type: amux_protocol::WorkspaceTaskType::Thread,
+        thread_id: None,
+        goal_run_id: None,
+        agent_task_id: Some("review-task-runtime".to_string()),
+        source: Some("workspace_review".to_string()),
+        title: Some("Review workspace task".to_string()),
+        review_path: None,
+        review_feedback: None,
+        archived_at: 9,
+    }];
+    model.workspace.set_tasks("main".to_string(), vec![task]);
+    model.tasks.reduce(task::TaskAction::TaskUpdate(task::AgentTask {
+        id: "review-task-runtime".to_string(),
+        title: "Review".to_string(),
+        thread_id: Some("review-thread-runtime".to_string()),
+        ..Default::default()
+    }));
+
+    model.activate_workspace_task_action(
+        "wtask-1".to_string(),
+        amux_protocol::WorkspaceTaskStatus::InReview,
+        widgets::workspace_board::WorkspaceBoardAction::Run,
+    );
+
+    loop {
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => continue,
+            Ok(DaemonCommand::RequestThread { thread_id, .. }) => {
+                assert_eq!(thread_id, "review-thread-runtime");
+                break;
+            }
+            other => panic!("expected review thread request, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn workspace_history_action_opens_previous_runtime_newest_first() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.main_pane_view = MainPaneView::Workspace;
+    let mut task = workspace_task_for_board(
+        "wtask-1",
+        amux_protocol::WorkspaceTaskStatus::InProgress,
+        Some(amux_protocol::WorkspaceActor::Agent("svarog".to_string())),
+    );
+    task.thread_id = Some("workspace-thread:active".to_string());
+    task.runtime_history = vec![
+        amux_protocol::WorkspaceTaskRuntimeHistoryEntry {
+            task_type: amux_protocol::WorkspaceTaskType::Thread,
+            thread_id: Some("workspace-thread:old-2".to_string()),
+            goal_run_id: None,
+            agent_task_id: None,
+            source: Some("workspace_runtime".to_string()),
+            title: Some("Older run".to_string()),
+            review_path: Some("task-wtask-1/failed-review.md".to_string()),
+            review_feedback: Some("Second review failed".to_string()),
+            archived_at: 20,
+        },
+        amux_protocol::WorkspaceTaskRuntimeHistoryEntry {
+            task_type: amux_protocol::WorkspaceTaskType::Thread,
+            thread_id: Some("workspace-thread:old-1".to_string()),
+            goal_run_id: None,
+            agent_task_id: None,
+            source: Some("workspace_runtime".to_string()),
+            title: Some("Oldest run".to_string()),
+            review_path: Some("task-wtask-1/failed-review.md".to_string()),
+            review_feedback: Some("First review failed".to_string()),
+            archived_at: 10,
+        },
+    ];
+    model.workspace.set_tasks("main".to_string(), vec![task]);
+
+    model.activate_workspace_task_action(
+        "wtask-1".to_string(),
+        amux_protocol::WorkspaceTaskStatus::InProgress,
+        widgets::workspace_board::WorkspaceBoardAction::History,
+    );
+
+    assert_eq!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::WorkspaceTaskHistory)
+    );
+    let body = model.workspace_history_modal_body();
+    assert!(body.find("active").unwrap() < body.find("old-2").unwrap());
+    assert!(body.find("old-2").unwrap() < body.find("old-1").unwrap());
+
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+    model.submit_workspace_history_modal();
+    loop {
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => continue,
+            Ok(DaemonCommand::RequestThread { thread_id, .. }) => {
+                assert_eq!(thread_id, "workspace-thread:old-2");
+                break;
+            }
+            other => panic!("expected historical thread request, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn workspace_history_button_click_opens_modal() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, _cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.width = 140;
+    model.height = 40;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    let mut task = workspace_task_for_board(
+        "wtask-1",
+        amux_protocol::WorkspaceTaskStatus::InProgress,
+        Some(amux_protocol::WorkspaceActor::Agent("svarog".to_string())),
+    );
+    task.runtime_history = vec![amux_protocol::WorkspaceTaskRuntimeHistoryEntry {
+        task_type: amux_protocol::WorkspaceTaskType::Thread,
+        thread_id: Some("workspace-thread:old".to_string()),
+        goal_run_id: None,
+        agent_task_id: None,
+        source: Some("workspace_runtime".to_string()),
+        title: Some("Old run".to_string()),
+        review_path: Some("task-wtask-1/failed-review.md".to_string()),
+        review_feedback: Some("Needs one more check".to_string()),
+        archived_at: 10,
+    }];
+    model.workspace.set_tasks("main".to_string(), vec![task]);
+    model
+        .workspace_expanded_task_ids
+        .insert("wtask-1".to_string());
+
+    let click = workspace_hit_position(&model, |target| {
+        matches!(
+            target,
+            widgets::workspace_board::WorkspaceBoardHitTarget::Action {
+                task_id,
+                action: widgets::workspace_board::WorkspaceBoardAction::History,
+                ..
+            } if task_id == "wtask-1"
+        )
+    });
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click.x,
+        row: click.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::WorkspaceTaskHistory)
+    );
+    assert!(model.workspace_history_modal_body().contains("workspace-thread:old"));
+}
+
+#[test]
+fn workspace_history_button_opens_empty_state_for_legacy_tasks() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, _cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    let mut task = workspace_task_for_board(
+        "wtask-legacy",
+        amux_protocol::WorkspaceTaskStatus::InProgress,
+        Some(amux_protocol::WorkspaceActor::Agent("svarog".to_string())),
+    );
+    task.thread_id = None;
+    task.goal_run_id = None;
+    model.workspace.set_tasks("main".to_string(), vec![task]);
+
+    model.activate_workspace_task_action(
+        "wtask-legacy".to_string(),
+        amux_protocol::WorkspaceTaskStatus::InProgress,
+        widgets::workspace_board::WorkspaceBoardAction::History,
+    );
+
+    assert_eq!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::WorkspaceTaskHistory)
+    );
+    assert!(model
+        .workspace_history_modal_body()
+        .contains("No previous thread or goal runs"));
+}
+
+#[test]
+fn workspace_history_modal_uses_active_runtime_when_history_missing() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    let mut task = workspace_task_for_board(
+        "wtask-legacy",
+        amux_protocol::WorkspaceTaskStatus::InReview,
+        Some(amux_protocol::WorkspaceActor::Agent("svarog".to_string())),
+    );
+    task.thread_id = Some("workspace-thread:active-legacy".to_string());
+    task.runtime_history.clear();
+    model.workspace.set_tasks("main".to_string(), vec![task]);
+
+    model.open_workspace_history_modal("wtask-legacy".to_string());
+
+    let body = model.workspace_history_modal_body();
+    assert!(body.contains("workspace-thread:active-legacy"), "{body}");
+    model.submit_workspace_history_modal();
+    loop {
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => continue,
+            Ok(DaemonCommand::RequestThread { thread_id, .. }) => {
+                assert_eq!(thread_id, "workspace-thread:active-legacy");
+                break;
+            }
+            other => panic!("expected active runtime thread request, got {other:?}"),
+        }
+    }
+}
+
+fn workspace_settings_for_operator(
+    operator: amux_protocol::WorkspaceOperator,
+) -> amux_protocol::WorkspaceSettings {
+    amux_protocol::WorkspaceSettings {
+        workspace_id: "main".to_string(),
+        workspace_root: None,
+        operator,
+        created_at: 1,
+        updated_at: 1,
+    }
+}
+
+fn workspace_task_for_board(
+    id: &str,
+    status: amux_protocol::WorkspaceTaskStatus,
+    assignee: Option<amux_protocol::WorkspaceActor>,
+) -> amux_protocol::WorkspaceTask {
+    amux_protocol::WorkspaceTask {
+        id: id.to_string(),
+        workspace_id: "main".to_string(),
+        title: id.to_string(),
+        task_type: amux_protocol::WorkspaceTaskType::Thread,
+        description: "Description".to_string(),
+        definition_of_done: None,
+        priority: amux_protocol::WorkspacePriority::Low,
+        status,
+        sort_order: 1,
+        reporter: amux_protocol::WorkspaceActor::User,
+        assignee,
+        reviewer: Some(amux_protocol::WorkspaceActor::User),
+        thread_id: Some(format!("workspace-thread:{id}")),
+        goal_run_id: None,
+        runtime_history: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+        started_at: None,
+        completed_at: None,
+        deleted_at: None,
+        last_notice_id: None,
+    }
+}
+
+fn workspace_hit_position(
+    model: &TuiModel,
+    matches_target: impl Fn(widgets::workspace_board::WorkspaceBoardHitTarget) -> bool,
+) -> Position {
+    let chat_area = model.pane_layout().chat;
+    (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+        .find_map(|row| {
+            (chat_area.x..chat_area.x.saturating_add(chat_area.width)).find_map(|column| {
+                let position = Position::new(column, row);
+                widgets::workspace_board::hit_test(
+                    chat_area,
+                    &model.workspace,
+                    &model.workspace_expanded_task_ids,
+                    position,
+                )
+                    .filter(|target| matches_target(target.clone()))
+                    .map(|_| position)
+            })
+        })
+        .expect("workspace board target should be visible")
+}
+
+#[test]
+fn workspace_operator_switch_updates_projection_before_daemon_echo() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, _cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model
+        .workspace
+        .set_settings(workspace_settings_for_operator(amux_protocol::WorkspaceOperator::Svarog));
+
+    model.switch_workspace_operator_from_ui(amux_protocol::WorkspaceOperator::User);
+
+    assert_eq!(model.workspace.operator(), amux_protocol::WorkspaceOperator::User);
+    assert_eq!(
+        model.workspace.projection().operator,
+        amux_protocol::WorkspaceOperator::User
+    );
+}
+
+#[test]
+fn workspace_drag_todo_to_in_progress_moves_unassigned_task_without_running() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.width = 120;
+    model.height = 40;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    model
+        .workspace
+        .set_settings(workspace_settings_for_operator(amux_protocol::WorkspaceOperator::User));
+    model.workspace.set_tasks(
+        "main".to_string(),
+        vec![workspace_task_for_board(
+            "todo-1",
+            amux_protocol::WorkspaceTaskStatus::Todo,
+            None,
+        )],
+    );
+    let start = workspace_hit_position(&model, |target| {
+        matches!(
+            target,
+            widgets::workspace_board::WorkspaceBoardHitTarget::Task { task_id, status }
+                if task_id == "todo-1" && status == amux_protocol::WorkspaceTaskStatus::Todo
+        )
+    });
+    let drop = workspace_hit_position(&model, |target| {
+        matches!(
+            target,
+            widgets::workspace_board::WorkspaceBoardHitTarget::Column { status }
+                if status == amux_protocol::WorkspaceTaskStatus::InProgress
+        )
+    });
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: start.x,
+        row: start.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: drop.x,
+        row: drop.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::MoveWorkspaceTask(request)) => {
+            assert_eq!(request.task_id, "todo-1");
+            assert_eq!(request.status, amux_protocol::WorkspaceTaskStatus::InProgress);
+        }
+        other => panic!("expected move command, got {other:?}"),
+    }
+    assert!(cmd_rx.try_recv().is_err(), "drag should not auto-run unassigned tasks");
+}
+
+#[test]
+fn workspace_drag_from_collapsed_action_row_moves_task() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.width = 120;
+    model.height = 40;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    model
+        .workspace
+        .set_settings(workspace_settings_for_operator(amux_protocol::WorkspaceOperator::User));
+    model.workspace.set_tasks(
+        "main".to_string(),
+        vec![workspace_task_for_board(
+            "todo-1",
+            amux_protocol::WorkspaceTaskStatus::Todo,
+            None,
+        )],
+    );
+    let chat_area = model.pane_layout().chat;
+    let board_inner = Rect::new(
+        chat_area.x.saturating_add(1),
+        chat_area.y.saturating_add(1),
+        chat_area.width.saturating_sub(2),
+        chat_area.height.saturating_sub(2),
+    );
+    let board_area = Rect::new(
+        board_inner.x,
+        board_inner.y.saturating_add(1),
+        board_inner.width,
+        board_inner.height.saturating_sub(1),
+    );
+    let column_width = board_area.width / 4;
+    let todo_column = Rect::new(board_area.x, board_area.y, column_width, board_area.height);
+    let todo_body = Rect::new(
+        todo_column.x.saturating_add(1),
+        todo_column.y.saturating_add(1),
+        todo_column.width.saturating_sub(2),
+        todo_column.height.saturating_sub(2),
+    );
+    let task_body = Rect::new(
+        todo_body.x.saturating_add(1),
+        todo_body.y.saturating_add(1),
+        todo_body.width.saturating_sub(2),
+        8,
+    );
+    let start = Position::new(task_body.x + 8, task_body.y + 4);
+    let drop = workspace_hit_position(&model, |target| {
+        matches!(
+            target,
+            widgets::workspace_board::WorkspaceBoardHitTarget::Column { status }
+                if status == amux_protocol::WorkspaceTaskStatus::InProgress
+        )
+    });
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: start.x,
+        row: start.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: drop.x,
+        row: drop.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::MoveWorkspaceTask(request)) => {
+            assert_eq!(request.task_id, "todo-1");
+            assert_eq!(request.status, amux_protocol::WorkspaceTaskStatus::InProgress);
+        }
+        other => panic!("expected move command, got {other:?}"),
+    }
+    assert!(cmd_rx.try_recv().is_err(), "drag should not auto-run unassigned tasks");
+}
+
+#[test]
+fn workspace_task_open_thread_renders_return_to_workspace_and_b_restores_board() {
+    let mut model = build_model();
+    model.width = 120;
+    model.height = 40;
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    model
+        .workspace
+        .set_settings(workspace_settings_for_operator(amux_protocol::WorkspaceOperator::User));
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "workspace-thread:thread-task".to_string(),
+        title: "Workspace task thread".to_string(),
+    });
+    model.workspace.set_tasks(
+        "main".to_string(),
+        vec![workspace_task_for_board(
+            "thread-task",
+            amux_protocol::WorkspaceTaskStatus::InProgress,
+            Some(amux_protocol::WorkspaceActor::Agent("svarog".to_string())),
+        )],
+    );
+
+    model.open_workspace_task_runtime("thread-task".to_string());
+
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    let plain = render_chat_plain(&mut model);
+    assert!(plain.contains("Return to workspace"), "{plain}");
+
+    let handled = model.handle_key(KeyCode::Char('b'), KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Workspace));
+}
+
+#[test]
+fn workspace_task_open_goal_renders_return_to_workspace_and_b_restores_board() {
+    let mut model = goal_sidebar_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    model
+        .workspace
+        .set_settings(workspace_settings_for_operator(amux_protocol::WorkspaceOperator::User));
+    let mut workspace_task = workspace_task_for_board(
+        "goal-task",
+        amux_protocol::WorkspaceTaskStatus::InProgress,
+        Some(amux_protocol::WorkspaceActor::Agent("svarog".to_string())),
+    );
+    workspace_task.goal_run_id = Some("goal-1".to_string());
+    model
+        .workspace
+        .set_tasks("main".to_string(), vec![workspace_task]);
+
+    model.open_workspace_task_runtime("goal-task".to_string());
+
+    assert!(matches!(
+        model.main_pane_view,
+        MainPaneView::Task(SidebarItemTarget::GoalRun { ref goal_run_id, .. })
+            if goal_run_id == "goal-1"
+    ));
+    let plain = render_chat_plain(&mut model);
+    assert!(plain.contains("Return to workspace"), "{plain}");
+
+    let button = model
+        .task_return_to_workspace_button_area()
+        .expect("workspace return button should be rendered");
+    let click_column = button.x.saturating_add(1);
+    let click_row = button.y;
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: click_column,
+        row: click_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: click_column,
+        row: click_row,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert!(matches!(model.main_pane_view, MainPaneView::Workspace));
+}
+
+#[test]
 fn dismissing_concierge_welcome_returns_to_local_landing() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();

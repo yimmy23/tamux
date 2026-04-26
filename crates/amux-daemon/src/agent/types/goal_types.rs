@@ -105,6 +105,22 @@ pub struct GoalRuntimeOwnerProfile {
     pub reasoning_effort: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct GoalRunModelUsage {
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub request_count: u64,
+    #[serde(default)]
+    pub prompt_tokens: u64,
+    #[serde(default)]
+    pub completion_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GoalRun {
     pub id: String,
@@ -196,6 +212,9 @@ pub struct GoalRun {
     /// Estimated cost in USD based on provider rate cards (COST-02).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimated_cost_usd: Option<f64>,
+    /// Per-provider/model usage and timing statistics for this goal run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_usage: Vec<GoalRunModelUsage>,
     /// Per-goal autonomy dial: autonomous / aware / supervised (AUTO-01).
     #[serde(default)]
     pub autonomy_level: super::autonomy::AutonomyLevel,

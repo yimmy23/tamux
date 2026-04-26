@@ -121,6 +121,27 @@ cargo run --release --bin tamux -- ping</code></pre>
       </section>
 
       <section>
+        <h2>Webhook event ingest</h2>
+        <p>The daemon can expose a narrow local HTTP webhook listener for Pack 1 event ingestion. It is disabled by default, configured through <code>config.json</code> <code>extra</code> keys, and routes accepted payloads into the same trigger engine used by internal webhook-event ingestion.</p>
+        <p>Current behavior is intentionally narrow:</p>
+        <ul class="check-list">
+          <li>Binds <code>127.0.0.1:8787</code> by default</li>
+          <li>Accepts <code>POST /webhook/event</code> only</li>
+          <li>Requires JSON with <code>event_family</code> and <code>event_kind</code></li>
+          <li>Optionally enforces timestamped HMAC validation when a secret is configured</li>
+        </ul>
+        <pre><code>{
+  "extra": {
+    "webhook_listener_enabled": true,
+    "webhook_listener_bind": "127.0.0.1:8787",
+    "webhook_listener_secret": "replace-me",
+    "webhook_listener_max_age_secs": 300
+  }
+}</code></pre>
+        <p>Signed requests must include <code>x-tamux-timestamp-ms</code> and <code>x-tamux-signature-256</code>. The signature is computed as HMAC-SHA256 over <code>&lt;timestamp_ms&gt; + "." + &lt;raw_request_body&gt;</code>. Valid requests return <code>202 Accepted</code>; stale, missing, or invalid signatures return <code>401 Unauthorized</code>.</p>
+      </section>
+
+      <section>
         <h2>Notifications &amp; voice</h2>
         <p>tamux supports in-app attention notifications via OSC sequences and voice workflows through STT/TTS integrations.</p>
         <pre><code>printf ']9;Claude needs attention'

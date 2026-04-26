@@ -27,6 +27,7 @@ pub(crate) fn should_check_for_updates(command: &Commands) -> bool {
             | Commands::Settings { .. }
             | Commands::Thread { .. }
             | Commands::Goal { .. }
+            | Commands::Workspace { .. }
             | Commands::Dm { .. }
             | Commands::Setup
             | Commands::Ping
@@ -238,6 +239,41 @@ fn format_goal_detail_output(
         "Updated: {}\n",
         format_timestamp(goal.updated_at as i64)
     ));
+    if let Some(duration_ms) = goal.duration_ms {
+        rendered.push_str(&format!("Duration: {} ms\n", duration_ms));
+    }
+    if goal.total_prompt_tokens > 0 || goal.total_completion_tokens > 0 {
+        rendered.push_str(&format!(
+            "Tokens:  {} prompt / {} completion\n",
+            goal.total_prompt_tokens, goal.total_completion_tokens
+        ));
+        if let Some(cost) = goal.estimated_cost_usd {
+            rendered.push_str(&format!("Cost:    ${:.6}\n", cost));
+        }
+    }
+    if !goal.model_usage.is_empty() {
+        rendered.push_str("Model Usage:\n");
+        for usage in &goal.model_usage {
+            let duration = usage
+                .duration_ms
+                .map(|value| format!(", {} ms", value))
+                .unwrap_or_default();
+            let cost = usage
+                .estimated_cost_usd
+                .map(|value| format!(", ${value:.6}"))
+                .unwrap_or_default();
+            rendered.push_str(&format!(
+                "  - {}/{}: {} request(s), {} prompt / {} completion tokens{}{}\n",
+                usage.provider,
+                usage.model,
+                usage.request_count,
+                usage.prompt_tokens,
+                usage.completion_tokens,
+                duration,
+                cost
+            ));
+        }
+    }
     if let Some(step_title) = goal.current_step_title.as_deref() {
         rendered.push_str(&format!("Current: {}\n", step_title));
     }
@@ -751,9 +787,9 @@ mod tests {
     use crate::client::{
         AgentGoalDeliveryUnitRecord, AgentGoalEvidenceRecord, AgentGoalProofCheckRecord,
         AgentGoalResumeDecisionRecord, AgentGoalRunDossierRecord, AgentGoalRunEventRecord,
-        AgentGoalRunRecord, AgentGoalRunReportRecord, AgentGoalRunStepRecord,
-        AgentPromptInspection, AgentPromptInspectionSection, AgentStatusSnapshot,
-        AgentThreadMessageRecord, AgentThreadRecord, DirectMessageResponse,
+        AgentGoalRunModelUsageRecord, AgentGoalRunRecord, AgentGoalRunReportRecord,
+        AgentGoalRunStepRecord, AgentPromptInspection, AgentPromptInspectionSection,
+        AgentStatusSnapshot, AgentThreadMessageRecord, AgentThreadRecord, DirectMessageResponse,
     };
     use crate::setup_wizard::SetupProbe;
 
@@ -1038,6 +1074,19 @@ mod tests {
                 current_step_title: Some("Deploy".to_string()),
                 replan_count: 1,
                 max_replans: 3,
+                duration_ms: Some(2500),
+                total_prompt_tokens: 100,
+                total_completion_tokens: 25,
+                estimated_cost_usd: Some(0.00125),
+                model_usage: vec![AgentGoalRunModelUsageRecord {
+                    provider: "openai".to_string(),
+                    model: "gpt-4o".to_string(),
+                    request_count: 2,
+                    prompt_tokens: 100,
+                    completion_tokens: 25,
+                    estimated_cost_usd: Some(0.00125),
+                    duration_ms: Some(2500),
+                }],
                 steps: vec![AgentGoalRunStepRecord {
                     id: "step-1".to_string(),
                     position: 0,
@@ -1067,6 +1116,10 @@ mod tests {
         assert!(rendered.contains("ID:      goal-1"));
         assert!(rendered.contains("Title:   Deploy release"));
         assert!(rendered.contains("Goal:    Ship v1.2"));
+        assert!(rendered.contains("Duration: 2500 ms"));
+        assert!(rendered.contains("Tokens:  100 prompt / 25 completion"));
+        assert!(rendered.contains("Model Usage:"));
+        assert!(rendered.contains("openai/gpt-4o: 2 request(s)"));
         assert!(rendered.contains("Steps:"));
         assert!(rendered.contains("Deploy"));
         assert!(rendered.contains("Events:"));
@@ -1612,6 +1665,7 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
                 );
             }
         },
+        Commands::Workspace { .. } => unreachable!("workspace commands are handled before core"),
         Commands::Dm {
             thread,
             session,
@@ -1699,6 +1753,19 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
                     installed.format
                 );
             }
+            InstallTarget::Guideline {
+                source,
+                name,
+                force,
+            } => {
+                let installed =
+                    super::guidelines::install_guideline_command(&source, name.as_deref(), force)?;
+                println!("Installed guideline: {}", installed.display());
+                println!(
+                    "Guidelines root: {}",
+                    amux_protocol::tamux_guidelines_dir().display()
+                );
+            }
         },
         Commands::AgentBridge => {
             client::run_agent_bridge().await?;
@@ -1716,7 +1783,10 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
         } => {
             client::run_bridge(session, shell, cwd, workspace, cols, rows).await?;
         }
-        Commands::Skill { .. } | Commands::Plugin { .. } | Commands::Tool { .. } => {
+        Commands::Guideline { .. }
+        | Commands::Skill { .. }
+        | Commands::Plugin { .. }
+        | Commands::Tool { .. } => {
             unreachable!()
         }
     }

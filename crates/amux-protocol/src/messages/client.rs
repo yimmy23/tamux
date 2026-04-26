@@ -4,7 +4,8 @@ use super::{
     AgentStatisticsWindow, ApprovalDecision, AsyncCommandCapability, ClientSurface, GatewayAck,
     GatewayCursorState, GatewayHealthState, GatewayIncomingEvent, GatewayRegistration,
     GatewayRouteModeState, GatewaySendResult, GatewayThreadBindingState, GoalAgentAssignment,
-    ManagedCommandRequest, SessionId, WorkspaceId,
+    ManagedCommandRequest, SessionId, WorkspaceId, WorkspaceOperator, WorkspaceReviewSubmission,
+    WorkspaceTaskCreate, WorkspaceTaskMove, WorkspaceTaskUpdate,
 };
 
 fn default_requires_approval() -> bool {
@@ -213,4 +214,19 @@ pub enum ClientMessage {
     AgentTextToSpeech { args_json: String },
     AgentGenerateImage { args_json: String },
     AgentGetGatewayConfig,
+    GuidelineDiscover { query: String, session_id: Option<SessionId>, limit: usize, #[serde(default)] cursor: Option<String> },
+    AgentListWorkspaceSettings,
+    AgentGetWorkspaceSettings { workspace_id: String },
+    AgentSetWorkspaceOperator { workspace_id: String, operator: WorkspaceOperator },
+    AgentCreateWorkspaceTask { request: WorkspaceTaskCreate },
+    AgentListWorkspaceTasks { workspace_id: String, #[serde(default)] include_deleted: bool },
+    AgentGetWorkspaceTask { task_id: String },
+    AgentUpdateWorkspaceTask { task_id: String, update: WorkspaceTaskUpdate },
+    AgentMoveWorkspaceTask { request: WorkspaceTaskMove },
+    AgentRunWorkspaceTask { task_id: String },
+    AgentPauseWorkspaceTask { task_id: String },
+    AgentStopWorkspaceTask { task_id: String },
+    AgentDeleteWorkspaceTask { task_id: String },
+    AgentSubmitWorkspaceReview { review: WorkspaceReviewSubmission },
+    AgentListWorkspaceNotices { workspace_id: String, #[serde(default)] task_id: Option<String> },
 }

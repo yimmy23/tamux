@@ -5879,6 +5879,7 @@ async fn update_todo_for_goal_owned_main_task_requires_explicit_goal_binding() {
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
             estimated_cost_usd: None,
+            model_usage: Vec::new(),
             autonomy_level: Default::default(),
             authorship_tag: None,
         });
@@ -6051,6 +6052,7 @@ async fn update_todo_for_goal_owned_main_task_pins_items_to_bound_goal_step() {
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
             estimated_cost_usd: None,
+            model_usage: Vec::new(),
             autonomy_level: Default::default(),
             authorship_tag: None,
         });
@@ -6238,6 +6240,7 @@ async fn update_todo_for_goal_owned_main_task_allows_only_status_changes_within_
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
             estimated_cost_usd: None,
+            model_usage: Vec::new(),
             autonomy_level: Default::default(),
             authorship_tag: None,
         });
@@ -6438,7 +6441,7 @@ async fn update_todo_for_goal_owned_main_task_allows_only_status_changes_within_
 }
 
 #[tokio::test]
-async fn update_todo_for_goal_owned_main_task_uses_bound_step_after_goal_advances() {
+async fn update_todo_for_goal_owned_main_task_rejects_updates_after_goal_step_closes() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
@@ -6531,6 +6534,7 @@ async fn update_todo_for_goal_owned_main_task_uses_bound_step_after_goal_advance
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
             estimated_cost_usd: None,
+            model_usage: Vec::new(),
             autonomy_level: Default::default(),
             authorship_tag: None,
         });
@@ -6678,8 +6682,12 @@ async fn update_todo_for_goal_owned_main_task_uses_bound_step_after_goal_advance
     )
     .await;
     assert!(
-        !status_result.is_error,
-        "stale goal-bound task may still update statuses for its bound step: {}",
+        status_result.is_error,
+        "closed goal step must reject even status-only todo updates"
+    );
+    assert!(
+        status_result.content.contains("closed"),
+        "error should explain closed goal-step todos: {}",
         status_result.content
     );
     let status_todos = engine.get_todos(thread_id).await;
@@ -6689,9 +6697,8 @@ async fn update_todo_for_goal_owned_main_task_uses_bound_step_after_goal_advance
         assert_eq!(updated.content, initial.content);
         assert_eq!(updated.position, initial.position);
         assert_eq!(updated.step_index, Some(0));
+        assert_eq!(updated.status, initial.status);
     }
-    assert_eq!(status_todos[0].status, TodoStatus::Completed);
-    assert_eq!(status_todos[1].status, TodoStatus::Completed);
 
     let invalid_update = ToolCall::with_default_weles_review(
         "tool-goal-update-todos-stale-task-rename".to_string(),
@@ -6727,8 +6734,8 @@ async fn update_todo_for_goal_owned_main_task_uses_bound_step_after_goal_advance
         "stale goal-bound task must not rewrite todos after its step was set"
     );
     assert!(
-        invalid_result.content.contains("only update todo statuses"),
-        "error should explain immutable goal-step todos: {}",
+        invalid_result.content.contains("closed"),
+        "error should explain closed goal-step todos: {}",
         invalid_result.content
     );
     let todos_after_invalid_update = engine.get_todos(thread_id).await;
@@ -6820,6 +6827,7 @@ async fn submit_goal_step_verdict_records_structured_verdict_for_current_goal_ve
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
             estimated_cost_usd: None,
+            model_usage: Vec::new(),
             autonomy_level: Default::default(),
             authorship_tag: None,
         });

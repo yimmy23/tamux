@@ -250,6 +250,44 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
+            "name": "list_guidelines",
+            "description": "List reusable local tamux guidelines from the platform-specific ~/.tamux/guidelines directory.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Optional guideline name or path filter" },
+                    "limit": { "type": "integer", "description": "Maximum guidelines to return" },
+                    "cursor": { "type": "string", "description": "Opaque cursor returned by a previous list_guidelines call" }
+                }
+            }
+        },
+        {
+            "name": "discover_guidelines",
+            "description": "Rank installed tamux guidelines for a task using the same daemon discovery pipeline as skills, returning guideline documents to read before choosing skills.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Task or problem description to rank guidelines against"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of ranked guideline candidates to return"
+                    },
+                    "cursor": {
+                        "type": "string",
+                        "description": "Opaque cursor returned by a previous discover_guidelines call for the same query"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional terminal session UUID for workspace-aware ranking"
+                    }
+                },
+                "required": ["query"]
+            }
+        },
+        {
             "name": "ask_questions",
             "description": "Show a blocking multiple-choice question in tamux clients and wait for one compact token answer. Put the full question and answer text in content; keep buttons/options limited to short ordered tokens like A/B/C/D or 1/2/3/4.",
             "inputSchema": {
@@ -276,14 +314,30 @@ pub(super) fn tool_definitions() -> Value {
         },
         {
             "name": "read_skill",
-            "description": "Read a local tamux skill document by name, stem, or relative path under the skills directory.",
+            "description": "Read one or more local tamux skill documents by name, stem, or relative path under the skills directory.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "skill": { "type": "string", "description": "Skill name, file stem, or relative path" },
+                    "skills": {
+                        "type": "array",
+                        "description": "Skill names, file stems, or relative paths to read in one call",
+                        "items": { "type": "string" }
+                    },
+                    "max_lines": { "type": "integer", "description": "Maximum lines to read" }
+                }
+            }
+        },
+        {
+            "name": "read_guideline",
+            "description": "Read a local tamux guideline document by name, stem, or relative path under the guidelines directory.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "guideline": { "type": "string", "description": "Guideline name, file stem, or relative path" },
                     "max_lines": { "type": "integer", "description": "Maximum lines to read" }
                 },
-                "required": ["skill"]
+                "required": ["guideline"]
             }
         },
         {
@@ -718,6 +772,33 @@ mod tests {
     }
 
     #[test]
+    fn tool_definitions_include_guideline_tools() {
+        let defs = tool_definitions();
+        let tools = defs
+            .as_array()
+            .expect("tool definitions should be an array");
+
+        for name in ["list_guidelines", "discover_guidelines", "read_guideline"] {
+            assert!(
+                tools.iter().any(|tool| tool["name"] == name),
+                "{name} tool definition should be present"
+            );
+        }
+
+        let discover_guidelines = tools
+            .iter()
+            .find(|tool| tool["name"] == "discover_guidelines")
+            .expect("discover_guidelines tool definition should be present");
+        assert!(
+            discover_guidelines["description"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("Rank installed tamux guidelines"),
+            "discover_guidelines should describe guideline ranking"
+        );
+    }
+
+    #[test]
     fn tool_definitions_include_ask_questions() {
         let defs = tool_definitions();
         let tools = defs
@@ -778,6 +859,51 @@ mod tests {
                 .is_some_and(|properties| properties.contains_key("thread_id")),
             "search_memory should expose thread_id for thread-scoped lookup"
         );
+    }
+
+    #[test]
+    fn read_skill_definition_accepts_multiple_skills() {
+        let defs = tool_definitions();
+        let tools = defs
+            .as_array()
+            .expect("tool definitions should be an array");
+        let tool = tools
+            .iter()
+            .find(|tool| tool["name"] == "read_skill")
+            .expect("read_skill tool definition should be present");
+        let properties = tool["inputSchema"]["properties"]
+            .as_object()
+            .expect("read_skill should expose an object schema");
+
+        assert!(
+            properties.contains_key("skills"),
+            "read_skill should expose a skills array for multi-read calls"
+        );
+        assert_eq!(
+            properties["skills"]["items"]["type"], "string",
+            "read_skill skills entries should be strings"
+        );
+    }
+
+    #[test]
+    fn read_skill_definition_avoids_top_level_combinators() {
+        let defs = tool_definitions();
+        let tools = defs
+            .as_array()
+            .expect("tool definitions should be an array");
+        let tool = tools
+            .iter()
+            .find(|tool| tool["name"] == "read_skill")
+            .expect("read_skill tool definition should be present");
+        let schema = &tool["inputSchema"];
+
+        assert_eq!(schema["type"], "object");
+        for forbidden in ["oneOf", "anyOf", "allOf", "enum", "not"] {
+            assert!(
+                !schema.get(forbidden).is_some(),
+                "read_skill schema must not expose top-level {forbidden}"
+            );
+        }
     }
 
     #[test]

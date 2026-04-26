@@ -51,6 +51,48 @@ impl AgentEngine {
                 updated_at: now,
                 last_fired_at: None,
             },
+            EventTriggerRow {
+                id: "trigger-filesystem-file-changed".to_string(),
+                event_family: "filesystem".to_string(),
+                event_kind: "file_changed".to_string(),
+                agent_id: Some("weles".to_string()),
+                target_state: Some("detected".to_string()),
+                thread_id: None,
+                enabled: true,
+                cooldown_secs: 300,
+                risk_label: "low".to_string(),
+                notification_kind: "file_changed".to_string(),
+                prompt_template: Some(
+                    "The file at {path} changed. Review whether the operator likely needs follow-up."
+                        .to_string(),
+                ),
+                title_template: "File changed: {path}".to_string(),
+                body_template: "Observed file change for {path}".to_string(),
+                created_at: now,
+                updated_at: now,
+                last_fired_at: None,
+            },
+            EventTriggerRow {
+                id: "trigger-system-disk-pressure".to_string(),
+                event_family: "system".to_string(),
+                event_kind: "disk_pressure".to_string(),
+                agent_id: Some("weles".to_string()),
+                target_state: Some("critical".to_string()),
+                thread_id: None,
+                enabled: true,
+                cooldown_secs: 600,
+                risk_label: "high".to_string(),
+                notification_kind: "disk_pressure".to_string(),
+                prompt_template: Some(
+                    "Disk pressure detected on {mount} at {usage_pct}. Investigate and suggest cleanup actions."
+                        .to_string(),
+                ),
+                title_template: "Disk pressure on {mount}".to_string(),
+                body_template: "Disk usage on {mount} is {usage_pct}".to_string(),
+                created_at: now,
+                updated_at: now,
+                last_fired_at: None,
+            },
         ];
 
         for row in &defaults {
@@ -64,24 +106,34 @@ impl AgentEngine {
         let rows = self.history.list_event_triggers(None, None).await?;
         Ok(serde_json::json!(rows
             .into_iter()
-            .map(|row| serde_json::json!({
-                "id": row.id,
-                "event_family": row.event_family,
-                "event_kind": row.event_kind,
-                "agent_id": row.agent_id,
-                "target_state": row.target_state,
-                "thread_id": row.thread_id,
-                "enabled": row.enabled,
-                "cooldown_secs": row.cooldown_secs,
-                "risk_label": row.risk_label,
-                "notification_kind": row.notification_kind,
-                "prompt_template": row.prompt_template,
-                "title_template": row.title_template,
-                "body_template": row.body_template,
-                "created_at": row.created_at,
-                "updated_at": row.updated_at,
-                "last_fired_at": row.last_fired_at,
-            }))
+            .map(|row| {
+                let source = match row.id.as_str() {
+                    "trigger-health-weles-degraded"
+                    | "trigger-health-subagent-stuck"
+                    | "trigger-filesystem-file-changed"
+                    | "trigger-system-disk-pressure" => "packaged_default",
+                    _ => "custom",
+                };
+                serde_json::json!({
+                    "id": row.id,
+                    "event_family": row.event_family,
+                    "event_kind": row.event_kind,
+                    "agent_id": row.agent_id,
+                    "target_state": row.target_state,
+                    "thread_id": row.thread_id,
+                    "enabled": row.enabled,
+                    "cooldown_secs": row.cooldown_secs,
+                    "risk_label": row.risk_label,
+                    "notification_kind": row.notification_kind,
+                    "prompt_template": row.prompt_template,
+                    "title_template": row.title_template,
+                    "body_template": row.body_template,
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                    "last_fired_at": row.last_fired_at,
+                    "source": source,
+                })
+            })
             .collect::<Vec<_>>()))
     }
 
@@ -206,6 +258,52 @@ impl AgentEngine {
                 "updated_at": row.updated_at,
                 "last_fired_at": row.last_fired_at,
             }
+        }))
+    }
+
+    pub(crate) async fn ingest_webhook_event_json(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let event_family = args
+            .get("event_family")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("missing 'event_family' argument"))?;
+        let event_kind = args
+            .get("event_kind")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("missing 'event_kind' argument"))?;
+        let state = args
+            .get("state")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let thread_id = args
+            .get("thread_id")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let payload = args
+            .get("payload")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+
+        let fired = self
+            .maybe_fire_event_trigger(event_family, event_kind, state, thread_id, payload.clone())
+            .await?;
+
+        Ok(serde_json::json!({
+            "status": "accepted",
+            "event_family": event_family,
+            "event_kind": event_kind,
+            "state": state,
+            "thread_id": thread_id,
+            "fired": fired,
+            "payload": payload,
         }))
     }
 

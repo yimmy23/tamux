@@ -2,6 +2,8 @@ use super::*;
 use crate::history::IntentPredictionRow;
 use crate::session_manager::SessionManager;
 use tempfile::tempdir;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
 
 fn sample_task(id: &str, thread_id: Option<&str>, goal_run_id: Option<&str>) -> AgentTask {
@@ -105,6 +107,7 @@ fn sample_goal_run(id: &str, thread_id: Option<&str>) -> GoalRun {
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: Default::default(),
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),
@@ -1994,7 +1997,7 @@ async fn event_trigger_defaults_can_be_seeded_and_listed() {
         .ensure_default_event_triggers()
         .await
         .expect("default event triggers should seed");
-    assert!(seeded >= 2);
+    assert!(seeded >= 4);
 
     let payload = engine
         .list_event_triggers_json()
@@ -2005,6 +2008,422 @@ async fn event_trigger_defaults_can_be_seeded_and_listed() {
     assert!(rows
         .iter()
         .any(|row| row["event_kind"] == "subagent_health"));
+    assert!(rows.iter().any(|row| row["event_kind"] == "file_changed"));
+    assert!(rows.iter().any(|row| row["event_kind"] == "disk_pressure"));
+    assert!(rows
+        .iter()
+        .any(|row| { row["event_kind"] == "file_changed" && row["source"] == "packaged_default" }));
+    assert!(rows.iter().any(|row| {
+        row["event_kind"] == "disk_pressure" && row["source"] == "packaged_default"
+    }));
+}
+
+#[tokio::test]
+async fn webhook_ingest_foundation_fires_seeded_default_file_changed_trigger() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .ensure_default_event_triggers()
+        .await
+        .expect("default event triggers should seed");
+
+    let payload = engine
+        .ingest_webhook_event_json(&serde_json::json!({
+            "event_family": "filesystem",
+            "event_kind": "file_changed",
+            "state": "detected",
+            "thread_id": "thread-webhook-fs-1",
+            "payload": {
+                "path": "src/lib.rs"
+            }
+        }))
+        .await
+        .expect("webhook ingest should succeed");
+    assert_eq!(payload["status"], "accepted");
+    assert_eq!(payload["fired"], 1);
+
+    let tasks = engine.tasks.lock().await;
+    assert_eq!(tasks.len(), 1);
+    let task = tasks.front().expect("expected event task");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert_eq!(task.thread_id.as_deref(), Some("thread-webhook-fs-1"));
+    assert!(task.description.contains("src/lib.rs"));
+    drop(tasks);
+}
+
+#[tokio::test]
+async fn webhook_ingest_foundation_fires_seeded_default_disk_pressure_trigger() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .ensure_default_event_triggers()
+        .await
+        .expect("default event triggers should seed");
+
+    let payload = engine
+        .ingest_webhook_event_json(&serde_json::json!({
+            "event_family": "system",
+            "event_kind": "disk_pressure",
+            "state": "critical",
+            "thread_id": "thread-webhook-disk-1",
+            "payload": {
+                "mount": "/",
+                "usage_pct": 94
+            }
+        }))
+        .await
+        .expect("webhook ingest should succeed");
+    assert_eq!(payload["status"], "accepted");
+    assert_eq!(payload["fired"], 1);
+
+    let tasks = engine.tasks.lock().await;
+    assert_eq!(tasks.len(), 1);
+    let task = tasks.front().expect("expected approval-gated event task");
+    assert_eq!(task.status, TaskStatus::AwaitingApproval);
+    assert_eq!(task.thread_id.as_deref(), Some("thread-webhook-disk-1"));
+    assert!(task.awaiting_approval_id.is_some());
+    drop(tasks);
+}
+
+async fn post_webhook_event(
+    addr: &str,
+    body: &str,
+    timestamp_ms: Option<u64>,
+    signature: Option<&str>,
+) -> String {
+    let mut stream = TcpStream::connect(addr)
+        .await
+        .expect("connect webhook listener");
+    let mut request = format!(
+        "POST /webhook/event HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    if let Some(timestamp_ms) = timestamp_ms {
+        request.push_str(&format!("x-tamux-timestamp-ms: {timestamp_ms}\r\n"));
+    }
+    if let Some(signature) = signature {
+        request.push_str(&format!("x-tamux-signature-256: {signature}\r\n"));
+    }
+    request.push_str("Connection: close\r\n\r\n");
+    request.push_str(body);
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("write webhook request");
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .await
+        .expect("read webhook response");
+    response
+}
+
+#[tokio::test]
+async fn webhook_listener_accepts_valid_signed_requests_and_fires_trigger() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.extra.insert(
+        "webhook_listener_enabled".to_string(),
+        serde_json::Value::Bool(true),
+    );
+    config.extra.insert(
+        "webhook_listener_bind".to_string(),
+        serde_json::Value::String("127.0.0.1:0".to_string()),
+    );
+    config.extra.insert(
+        "webhook_listener_secret".to_string(),
+        serde_json::Value::String("test-secret".to_string()),
+    );
+    config.extra.insert(
+        "webhook_listener_max_age_secs".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(300u64)),
+    );
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let runner = tokio::spawn(engine.clone().run_loop(shutdown_rx));
+
+    let addr = timeout(Duration::from_secs(1), async {
+        loop {
+            if let Some(addr) = engine.webhook_listener_addr().await {
+                break addr;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("webhook listener should become ready");
+
+    let body = serde_json::json!({
+        "event_family": "filesystem",
+        "event_kind": "file_changed",
+        "state": "detected",
+        "thread_id": "thread-http-webhook-1",
+        "payload": { "path": "src/lib.rs" }
+    })
+    .to_string();
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time should be after epoch")
+        .as_millis() as u64;
+    let signature = crate::agent::webhook_listener::compute_webhook_signature(
+        "test-secret",
+        timestamp_ms,
+        body.as_bytes(),
+    );
+
+    let response = post_webhook_event(&addr, &body, Some(timestamp_ms), Some(&signature)).await;
+    assert!(response.starts_with("HTTP/1.1 202 Accepted"));
+
+    let tasks = engine.tasks.lock().await;
+    assert_eq!(tasks.len(), 1);
+    let task = tasks.front().expect("expected event task");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert_eq!(task.thread_id.as_deref(), Some("thread-http-webhook-1"));
+    assert!(task.description.contains("src/lib.rs"));
+    drop(tasks);
+
+    shutdown_tx.send(true).expect("shutdown signal should send");
+    runner.await.expect("run_loop should exit");
+}
+
+#[tokio::test]
+async fn webhook_listener_rejects_stale_timestamp() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.extra.insert(
+        "webhook_listener_enabled".to_string(),
+        serde_json::Value::Bool(true),
+    );
+    config.extra.insert(
+        "webhook_listener_bind".to_string(),
+        serde_json::Value::String("127.0.0.1:0".to_string()),
+    );
+    config.extra.insert(
+        "webhook_listener_secret".to_string(),
+        serde_json::Value::String("test-secret".to_string()),
+    );
+    config.extra.insert(
+        "webhook_listener_max_age_secs".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(60u64)),
+    );
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let runner = tokio::spawn(engine.clone().run_loop(shutdown_rx));
+
+    let addr = timeout(Duration::from_secs(1), async {
+        loop {
+            if let Some(addr) = engine.webhook_listener_addr().await {
+                break addr;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("webhook listener should become ready");
+
+    let body = serde_json::json!({
+        "event_family": "filesystem",
+        "event_kind": "file_changed",
+        "state": "detected",
+        "thread_id": "thread-http-webhook-stale-1",
+        "payload": { "path": "src/lib.rs" }
+    })
+    .to_string();
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time should be after epoch")
+        .as_millis() as u64
+        - 120_000;
+    let signature = crate::agent::webhook_listener::compute_webhook_signature(
+        "test-secret",
+        timestamp_ms,
+        body.as_bytes(),
+    );
+
+    let response = post_webhook_event(&addr, &body, Some(timestamp_ms), Some(&signature)).await;
+    assert!(response.starts_with("HTTP/1.1 401 Unauthorized"));
+    assert!(engine.tasks.lock().await.is_empty());
+
+    shutdown_tx.send(true).expect("shutdown signal should send");
+    runner.await.expect("run_loop should exit");
+}
+
+#[tokio::test]
+async fn webhook_listener_rejects_invalid_signature() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.extra.insert(
+        "webhook_listener_enabled".to_string(),
+        serde_json::Value::Bool(true),
+    );
+    config.extra.insert(
+        "webhook_listener_bind".to_string(),
+        serde_json::Value::String("127.0.0.1:0".to_string()),
+    );
+    config.extra.insert(
+        "webhook_listener_secret".to_string(),
+        serde_json::Value::String("test-secret".to_string()),
+    );
+    config.extra.insert(
+        "webhook_listener_max_age_secs".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(300u64)),
+    );
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let runner = tokio::spawn(engine.clone().run_loop(shutdown_rx));
+
+    let addr = timeout(Duration::from_secs(1), async {
+        loop {
+            if let Some(addr) = engine.webhook_listener_addr().await {
+                break addr;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("webhook listener should become ready");
+
+    let body = serde_json::json!({
+        "event_family": "filesystem",
+        "event_kind": "file_changed",
+        "state": "detected",
+        "thread_id": "thread-http-webhook-bad-1",
+        "payload": { "path": "src/lib.rs" }
+    })
+    .to_string();
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time should be after epoch")
+        .as_millis() as u64;
+
+    let response =
+        post_webhook_event(&addr, &body, Some(timestamp_ms), Some("sha256=badbadbad")).await;
+    assert!(response.starts_with("HTTP/1.1 401 Unauthorized"));
+    assert!(engine.tasks.lock().await.is_empty());
+
+    shutdown_tx.send(true).expect("shutdown signal should send");
+    runner.await.expect("run_loop should exit");
+}
+
+#[tokio::test]
+async fn seeded_default_file_changed_trigger_enqueues_task_without_manual_registration() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .ensure_default_event_triggers()
+        .await
+        .expect("default event triggers should seed");
+
+    let fired = engine
+        .maybe_fire_event_trigger(
+            "filesystem",
+            "file_changed",
+            Some("detected"),
+            Some("thread-fs-default-1"),
+            serde_json::json!({
+                "path": "src/lib.rs"
+            }),
+        )
+        .await
+        .expect("default file_changed trigger should fire");
+    assert_eq!(fired, 1);
+
+    let tasks = engine.tasks.lock().await;
+    assert_eq!(tasks.len(), 1);
+    let task = tasks.front().expect("expected event task");
+    assert_eq!(task.source, "event_trigger");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert_eq!(task.thread_id.as_deref(), Some("thread-fs-default-1"));
+    assert_eq!(task.sub_agent_def_id.as_deref(), Some("weles_builtin"));
+    assert!(task.description.contains("src/lib.rs"));
+    drop(tasks);
+
+    let event_rows = engine
+        .history
+        .list_event_log(Some("filesystem"), Some("file_changed"), 4)
+        .await
+        .expect("event log query should succeed");
+    assert_eq!(event_rows.len(), 1);
+    assert_eq!(
+        event_rows[0].thread_id.as_deref(),
+        Some("thread-fs-default-1")
+    );
+    assert!(event_rows[0].payload_json.contains("src/lib.rs"));
+}
+
+#[tokio::test]
+async fn seeded_default_disk_pressure_trigger_queues_approval_without_manual_registration() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .ensure_default_event_triggers()
+        .await
+        .expect("default event triggers should seed");
+
+    let fired = engine
+        .maybe_fire_event_trigger(
+            "system",
+            "disk_pressure",
+            Some("critical"),
+            Some("thread-disk-default-1"),
+            serde_json::json!({
+                "mount": "/",
+                "usage_pct": 94
+            }),
+        )
+        .await
+        .expect("default disk_pressure trigger should fire");
+    assert_eq!(fired, 1);
+
+    let tasks = engine.tasks.lock().await;
+    assert_eq!(tasks.len(), 1);
+    let approval_task = tasks.front().expect("expected approval-gated event task");
+    assert_eq!(approval_task.source, "event_trigger");
+    assert_eq!(approval_task.status, TaskStatus::AwaitingApproval);
+    assert_eq!(
+        approval_task.thread_id.as_deref(),
+        Some("thread-disk-default-1")
+    );
+    assert_eq!(
+        approval_task.sub_agent_def_id.as_deref(),
+        Some("weles_builtin")
+    );
+    let approval_id = approval_task
+        .awaiting_approval_id
+        .clone()
+        .expect("approval id should be present");
+    drop(tasks);
+
+    assert_eq!(engine.pending_operator_approvals.read().await.len(), 1);
+
+    let handled = engine
+        .handle_task_approval_resolution(&approval_id, amux_protocol::ApprovalDecision::ApproveOnce)
+        .await;
+    assert!(
+        handled,
+        "approval resolution should resume the seeded default event task"
+    );
+
+    let tasks = engine.tasks.lock().await;
+    let resumed = tasks
+        .front()
+        .expect("task should still exist after approval");
+    assert_eq!(resumed.status, TaskStatus::Queued);
+    assert!(resumed.awaiting_approval_id.is_none());
 }
 
 #[tokio::test]

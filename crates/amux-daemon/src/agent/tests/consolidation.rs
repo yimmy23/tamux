@@ -213,6 +213,7 @@ async fn maybe_run_consolidation_if_idle_blocks_when_goal_run_is_awaiting_approv
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
+        model_usage: Vec::new(),
         autonomy_level: Default::default(),
         authorship_tag: None,
         launch_assignment_snapshot: Vec::new(),
