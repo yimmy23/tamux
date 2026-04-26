@@ -100,6 +100,37 @@ Guideline documents should index:
 
 Guideline search results should recommend `read_guideline <name-or-path>` rather than `read_skill`. Existing `discover_guidelines`, `list_guidelines`, and `read_guideline` protocol behavior should remain intact, but guideline ranking can use Tantivy once parity tests prove it returns the same or better candidates than the current daemon-backed discovery pipeline.
 
+## Expanded Capability Index Candidates
+
+The index should eventually cover every text-bearing surface that can improve agent recall, self-correction, planning, and operator support. These sources should be added in priority order after the initial history/guideline/persona work.
+
+Priority 1: capability multipliers.
+
+- `causal_traces`: selected and rejected options, causal factors, outcomes, decision type, trace family, model. This is the main "why did we do that?" and "what alternatives failed?" corpus.
+- `action_audit`: action type, summary, explanation, confidence band, linked causal trace, raw audit data. This makes provenance and past rationale searchable from agent tools.
+- Failed execution records: `agent_tasks.error`, `agent_tasks.last_error`, `agent_tasks.result`, `agent_task_logs.message/details`, `goal_run_steps.error`, `goal_run_events.message/details`, `execution_traces.outcome/tool_sequence_json/metrics_json`, `subagent_metrics.health_state`. This is the corpus for "find similar failed tool calls" and "avoid repeating that failure".
+- `memory_provenance`, `memory_provenance_relationships`, and `memory_tombstones`: accepted, retracted, replaced, and related facts. This lets agents search memory history without treating stale facts as current truth.
+- `counterfactual_evaluations` and `dream_cycles`: counterfactual descriptions, source tasks, variation type, estimated savings, score, threshold status. This is high-value planning material because it records what Tamux believes would have worked better.
+- Metacognition and adaptation: `cognitive_biases`, `workflow_profiles`, `implicit_signals`, `satisfaction_scores`, `cognitive_resonance_samples`, `behavior_adjustments_log`, `intent_predictions`, `system_outcome_predictions`, `temporal_patterns`, `temporal_predictions`, and `precomputation_log`. These rows should index human-readable trigger patterns, mitigation prompts, workflow names, predicted/actual actions, outcome descriptions, temporal pattern descriptions, and behavior adjustment reasons.
+
+Priority 2: collaborative reasoning and learning.
+
+- Debate and critique records: `debate_sessions`, `debate_arguments`, `debate_verdicts`, `critique_sessions`, `critique_arguments`, `critique_resolutions`. Index claims, evidence, verdicts, resolutions, risk scores, and confidence so agents can reuse previous deliberation.
+- Collaboration and consensus records: `collaboration_sessions`, `collaboration_agent_outcomes`, `consensus_bids`, `role_assignments`, and `consensus_quality_metrics`. Index agent reasoning, role assignments, outcomes, prediction errors, and learned scores.
+- Skill evolution: `skill_variants`, `skill_variant_usage`, `skill_variant_history`, `gene_pool`, `gene_fitness_history`, and `gene_crossbreeds`. Index skill names, variant names, context tags, lifecycle status, outcomes, and parent/offspring relationships.
+- Morphogenesis and soul adaptation: `morphogenesis_affinities`, `affinity_updates_log`, and `soul_adaptations_log`. Index domains, trigger types, adaptation type, and soul snippets so role specialization history is searchable.
+- Emergent protocol learning: `thread_protocol_candidates`, `emergent_protocols`, `protocol_steps`, and `protocol_usage_log`. Index protocol descriptions, normalized patterns, step intents, tool names, success/fallback reasons, and source thread.
+
+Priority 3: operational continuity.
+
+- Goal and task surfaces: `goal_runs`, `goal_run_steps`, `goal_run_events`, `agent_tasks`, `agent_task_logs`, `workspace_tasks`, and `workspace_notices`. Index titles, goals, instructions, success criteria, summaries, notices, blocked reasons, compensation summaries, and failure causes.
+- Context and memory surfaces: `context_archive`, `thread_structural_memory`, `memory_graph_clusters`, `memory_cluster_members`, `memory_nodes`, `offloaded_payloads`, and `memory_distillation_log`. Index summaries, compressed content, graph labels/summaries, offloaded payload summaries, distilled facts, categories, and target memory files.
+- Recovery and liveness: `agent_checkpoints`, `agent_health_log`, `heartbeat_history`, `harness_state_records`, and `forge_pass_log`. Index checkpoint summaries, health interventions, heartbeat digests, harness summaries, and forge pass pattern counts.
+- Operator and profile state: `operator_profile_fields`, `operator_profile_events`, `operator_profile_sessions`, `operator_profile_checkins`, and non-sensitive concierge/profile summaries. Index only consented, non-secret profile content.
+- External workflow surfaces: `plugins`, `event_triggers`, `routine_definitions`, `gateway_health_snapshots`, `external_runtime_profiles`, and `browser_profiles`. Index names, descriptions, manifest summaries, trigger templates, routine descriptions, profile labels, and health summaries.
+
+Do not index secrets or authentication material. Exclude `provider_auth_state`, `plugin_credentials`, secret `plugin_settings`, raw auth JSON, encrypted blobs, and any field marked secret. For large JSON fields, extract short searchable summaries and known text fields rather than dumping entire payloads into Tantivy.
+
 ## Public API Shape
 
 Add daemon-internal types:
