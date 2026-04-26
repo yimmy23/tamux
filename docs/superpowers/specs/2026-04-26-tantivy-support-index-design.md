@@ -12,7 +12,7 @@ Tantivy is a Lucene-style Rust search library with BM25 scoring, phrase queries,
 - Route database-backed full-text searches through Tantivy where the current implementation uses SQLite FTS5 or ad hoc `LIKE`.
 - Keep SQLite as the source of truth and hydrate search results from SQLite records.
 - Index all built-in and configured agent persona records, including the Slavic "god" agents such as `svarog`, `weles`, `rarog`, and any configured subagents.
-- Support cross-source search over history entries, command logs, agent threads/messages, context archives, episodic memories, generated skills, skill variants, memory graph nodes, and persona metadata.
+- Support cross-source search over history entries, command logs, agent threads/messages, context archives, episodic memories, guidelines, generated skills, skill variants, memory graph nodes, and persona metadata.
 - Make the index safely rebuildable from SQLite.
 
 ## Non-Goals
@@ -31,6 +31,7 @@ The daemon currently has several SQLite-backed search paths:
 - `HistoryStore::search_context_archive` queries `context_archive_fts`, then falls back to `LIKE`, in `crates/amux-daemon/src/history/context_archive.rs`.
 - Episodic retrieval queries `episodes_fts` in `crates/amux-daemon/src/agent/episodic/retrieval.rs`.
 - Skill generation and recommendation use selected `LIKE` searches over skill metadata and memory nodes.
+- Guideline discovery is exposed through `discover_guidelines`, `list_guidelines`, and `read_guideline`; guidelines live under the canonical runtime guidelines directory and sit above skills in the agent workflow.
 - The command log currently supports filtering and listing but not ranked text search.
 
 These paths should converge on a daemon search facade instead of each module owning its own text-search behavior.
@@ -53,7 +54,7 @@ Search requests should:
 
 Each indexed document should use common fields:
 
-- `source_kind`: string, fast/stored. Examples: `history_entry`, `command_log`, `agent_message`, `context_archive`, `episode`, `generated_skill`, `skill_variant`, `memory_node`, `persona`.
+- `source_kind`: string, fast/stored. Examples: `history_entry`, `command_log`, `agent_message`, `context_archive`, `episode`, `guideline`, `generated_skill`, `skill_variant`, `memory_node`, `persona`.
 - `source_id`: string, fast/stored. Primary key in the source table or generated persona id.
 - `workspace_id`: optional string, fast/stored.
 - `thread_id`: optional string, fast/stored.
@@ -77,10 +78,27 @@ Index these sources in the first complete pass:
 - `agent_messages`: role, content, provider/model, reasoning, tool call names.
 - `context_archive`: summary, compressed content, original role, metadata.
 - `episodes`: goal text, summary, outcome, root cause, entities, causal chain, solution class.
+- `guidelines`: frontmatter name, title, description, recommended skills, relative path, and Markdown body.
 - `generated_tools` and skill-generation records: name, description, schema, tags, status.
 - `skill_variants`: skill name, variant name, context tags, lifecycle status, evidence summaries.
 - `memory_nodes`: label, summary text, node type, confidence and access metadata.
 - Persona records: built-in handles and configured subagents, including role id, display name, system prompt snippets, descriptions, skills, and governance notes.
+
+## Guideline Indexing
+
+Guidelines are a first-class knowledge surface above skills. They are local Markdown playbooks installed under the canonical runtime guidelines directory, and agents are expected to discover and read guidelines before selecting detailed skill workflows.
+
+The Tantivy index should include guidelines as `source_kind = "guideline"` documents. Guideline documents should be built from files collected through the existing guideline discovery path, including bundled defaults copied into the runtime directory and user-created Markdown files.
+
+Guideline documents should index:
+
+- frontmatter `name`, `title`, `description`, and `recommended_skills`;
+- relative path and file stem for lookup compatibility with `read_guideline`;
+- Markdown headings and body content;
+- tags derived from recommended skills and frontmatter fields;
+- source metadata that preserves whether the guideline came from a bundled default or user file when that is available.
+
+Guideline search results should recommend `read_guideline <name-or-path>` rather than `read_skill`. Existing `discover_guidelines`, `list_guidelines`, and `read_guideline` protocol behavior should remain intact, but guideline ranking can use Tantivy once parity tests prove it returns the same or better candidates than the current daemon-backed discovery pipeline.
 
 ## Public API Shape
 
@@ -158,6 +176,7 @@ Use TDD for implementation:
 - Integration-test rebuilding from an in-memory or temporary SQLite store.
 - Integration-test upsert, delete, and reindex behavior.
 - Regression-test current `search_history`, `search_context_archive`, and episodic retrieval results.
+- Add guideline indexing tests that prove installed Markdown guidelines can be ranked and still resolve through `read_guideline`.
 - Add persona indexing tests that prove built-in and configured agent personas are searchable.
 
 ## Rollout
@@ -165,7 +184,7 @@ Use TDD for implementation:
 1. Add Tantivy dependency and a hidden search-index module with tests.
 2. Implement indexing for `history_entries` and adapt `HistoryStore::search`.
 3. Add context archive and episodic retrieval support.
-4. Add command log, agent message, skills, memory node, and persona indexing.
+4. Add command log, agent message, guideline, skill, memory node, and persona indexing.
 5. Add rebuild and stale-index repair.
 6. Remove obsolete SQLite FTS5 paths only after parity tests pass.
 
