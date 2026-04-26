@@ -519,6 +519,43 @@
                 "show_harness_state should expose {expected}"
             );
         }
+
+        let show_import_report = tools
+            .iter()
+            .find(|tool| tool.function.name == "show_import_report")
+            .expect("show_import_report tool should be available");
+        assert!(show_import_report
+            .function
+            .description
+            .contains("Hermes/OpenClaw"));
+        let import_report_properties = show_import_report
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("show_import_report schema should expose properties object");
+        for expected in ["runtime", "limit"] {
+            assert!(
+                import_report_properties.contains_key(expected),
+                "show_import_report should expose {expected}"
+            );
+        }
+
+        let preview_shadow_run = tools
+            .iter()
+            .find(|tool| tool.function.name == "preview_shadow_run")
+            .expect("preview_shadow_run tool should be available");
+        assert!(preview_shadow_run
+            .function
+            .description
+            .contains("read-only"));
+        let preview_shadow_run_properties = preview_shadow_run
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("preview_shadow_run schema should expose properties object");
+        assert!(preview_shadow_run_properties.contains_key("runtime"));
     }
 
     #[test]

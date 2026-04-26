@@ -1699,7 +1699,9 @@ async fn dispatch_tool_execution(
         "show_dreams" => execute_show_dreams(args, agent).await,
         "show_harness_state" => {
             execute_show_harness_state(args, agent, thread_id, task_id).await
-        }
+        },
+        "show_import_report" => execute_show_import_report(args, agent).await,
+        "preview_shadow_run" => execute_preview_shadow_run(args, agent).await,
         "get_todos" => execute_get_todos(args, agent, task_id).await,
         "cancel_task" => execute_cancel_task(args, agent).await,
         "type_in_terminal" => execute_type_in_terminal(args, session_manager).await,

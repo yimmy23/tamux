@@ -90,7 +90,7 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case "run_snippet":
         return await executeRunSnippet(call.id, name, args.snippet, args.pane || args.pane_id, args.params, args.execute);
       case "open_canvas_browser":
-        return executeOpenCanvasBrowser(call.id, name, args.url, args.name);
+        return executeOpenCanvasBrowser(call.id, name, args.url, args.name, args.profileId);
       case "browser_navigate":
         return await executeBrowserNavigate(call.id, name, args.url, args.pane);
       case "browser_back":

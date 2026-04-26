@@ -89,6 +89,7 @@ export function buildCanvasPanel(opts: {
     status: opts.status ?? opts.persisted?.status ?? "running",
     sessionId: typeof opts.persisted?.sessionId === "string" ? opts.persisted.sessionId : null,
     panelType: opts.persisted?.panelType ?? "terminal",
+    profileId: typeof opts.persisted?.profileId === "string" ? opts.persisted.profileId : null,
     url: opts.persisted?.url ?? null,
     cwd: opts.persisted?.cwd ?? null,
     userRenamed: opts.persisted?.userRenamed ?? false,
@@ -178,6 +179,7 @@ export function normalizeCanvasPanels(surface: Surface): Surface {
       status: existing?.status ?? "running",
       sessionId: existing?.sessionId ?? findLeaf(surface.layout, paneId)?.sessionId ?? null,
       panelType: existing?.panelType ?? base.panelType,
+      profileId: existing?.profileId ?? base.profileId,
       url: existing?.url ?? base.url,
     };
   });

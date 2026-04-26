@@ -351,6 +351,23 @@ pub(super) fn extended_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_operator_profile_sessions_updated ON operator_profile_sessions(updated_at DESC);
 
+            CREATE TABLE IF NOT EXISTS external_runtime_profiles (
+                runtime      TEXT PRIMARY KEY,
+                profile_json TEXT NOT NULL,
+                updated_at   INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_external_runtime_profiles_updated ON external_runtime_profiles(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS browser_profiles (
+                profile_id   TEXT PRIMARY KEY,
+                label        TEXT NOT NULL,
+                profile_dir  TEXT NOT NULL,
+                created_at   INTEGER NOT NULL,
+                updated_at   INTEGER NOT NULL,
+                last_used_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_browser_profiles_updated ON browser_profiles(updated_at DESC);
+
             CREATE TABLE IF NOT EXISTS agent_config_items (
                 key_path   TEXT PRIMARY KEY,
                 value_json TEXT NOT NULL,

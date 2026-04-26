@@ -9,11 +9,13 @@ async fn make_test_store() -> Result<(HistoryStore, PathBuf)> {
 }
 
 mod cognitive_resonance;
+mod browser_profiles;
 mod dream_state;
 mod elastic_context;
 mod emergent_protocol;
 mod event_log;
 mod event_triggers;
+mod external_runtime_profiles;
 mod goal_runs;
 mod governance;
 mod harness;

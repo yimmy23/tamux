@@ -446,3 +446,91 @@ fn autosearch_manifest_validates_through_plugin_loader() {
         .expect("autosearch should have skills");
     assert_eq!(skills.len(), 1);
 }
+
+#[test]
+fn github_manifest_validates_through_plugin_loader() {
+    let root = project_root();
+    let path = root.join("plugins/tamux-plugin-github/github/plugin.json");
+    let raw = std::fs::read(&path).expect("github plugin.json should exist");
+    let validator = make_validator();
+
+    let (manifest, _) =
+        validate_manifest(&raw, &validator).expect("github manifest should pass validation");
+
+    assert_eq!(manifest.name, "github");
+    assert_eq!(manifest.version, "1.0.0");
+    assert_eq!(manifest.schema_version, 1);
+    assert!(manifest.auth.is_none(), "github MVP should not require oauth");
+
+    let settings = manifest
+        .settings
+        .as_ref()
+        .expect("github should have settings");
+    let token_setting = settings
+        .get("token")
+        .expect("github should declare token setting");
+    assert_eq!(token_setting.field_type, "string");
+    assert!(token_setting.required);
+    assert!(token_setting.secret);
+
+    let api = manifest.api.as_ref().expect("github should have api section");
+    assert_eq!(api.base_url.as_deref(), Some("https://api.github.com"));
+    assert_eq!(
+        api.rate_limit
+            .as_ref()
+            .and_then(|limit| limit.requests_per_minute),
+        Some(60)
+    );
+    assert!(api.endpoints.contains_key("get_repo"));
+    assert!(api.endpoints.contains_key("list_issues"));
+    assert!(api.endpoints.contains_key("list_pull_requests"));
+
+    let repo_endpoint = api
+        .endpoints
+        .get("get_repo")
+        .expect("github should declare get_repo endpoint");
+    assert_eq!(repo_endpoint.method, "GET");
+    assert_eq!(repo_endpoint.path, "/repos/{{params.owner}}/{{params.repo}}");
+    assert!(repo_endpoint.headers.is_some());
+    assert!(repo_endpoint.response_template.is_some());
+
+    let issues_endpoint = api
+        .endpoints
+        .get("list_issues")
+        .expect("github should declare list_issues endpoint");
+    assert_eq!(issues_endpoint.method, "GET");
+    assert_eq!(
+        issues_endpoint.path,
+        r#"/repos/{{params.owner}}/{{params.repo}}/issues?state={{default params.state "open"}}&per_page={{default params.per_page "20"}}"#
+    );
+    assert!(issues_endpoint.headers.is_some());
+    assert!(issues_endpoint.response_template.is_some());
+
+    let pulls_endpoint = api
+        .endpoints
+        .get("list_pull_requests")
+        .expect("github should declare list_pull_requests endpoint");
+    assert_eq!(pulls_endpoint.method, "GET");
+    assert_eq!(
+        pulls_endpoint.path,
+        r#"/repos/{{params.owner}}/{{params.repo}}/pulls?state={{default params.state "open"}}&per_page={{default params.per_page "20"}}"#
+    );
+    assert!(pulls_endpoint.headers.is_some());
+    assert!(pulls_endpoint.response_template.is_some());
+
+    let commands = manifest
+        .commands
+        .as_ref()
+        .expect("github should have commands");
+    let repo = commands.get("repo").expect("github should expose repo command");
+    assert_eq!(repo.action.as_deref(), Some("get_repo"));
+    let issues = commands
+        .get("issues")
+        .expect("github should expose issues command");
+    assert_eq!(issues.action.as_deref(), Some("list_issues"));
+    let pulls = commands
+        .get("pulls")
+        .expect("github should expose pulls command");
+    assert_eq!(pulls.action.as_deref(), Some("list_pull_requests"));
+}
+

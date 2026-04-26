@@ -451,6 +451,160 @@ mod tests {
         assert!(req.body.is_some());
     }
 
+    #[tokio::test]
+    async fn render_request_renders_github_repo_auth_and_path() {
+        let reg = create_registry();
+        let api = ApiSection {
+            base_url: Some("https://api.github.com".to_string()),
+            endpoints: HashMap::new(),
+            rate_limit: None,
+        };
+        let endpoint = EndpointDef {
+            method: "GET".to_string(),
+            path: "/repos/{{params.owner}}/{{params.repo}}".to_string(),
+            params: None,
+            headers: Some(HashMap::from([
+                (
+                    "Authorization".to_string(),
+                    "Bearer {{settings.token}}".to_string(),
+                ),
+                (
+                    "Accept".to_string(),
+                    "application/vnd.github+json".to_string(),
+                ),
+                (
+                    "X-GitHub-Api-Version".to_string(),
+                    "2022-11-28".to_string(),
+                ),
+            ])),
+            body: None,
+            response_template: None,
+        };
+        let ctx = build_context(
+            serde_json::json!({"owner": "anthropic", "repo": "cmux-next"}),
+            vec![("token".to_string(), "ghp_test_token".to_string(), true)],
+            None,
+        );
+
+        let req = render_request(&reg, &api, &endpoint, &ctx).await.unwrap();
+        assert_eq!(req.method, "GET");
+        assert_eq!(req.url, "https://api.github.com/repos/anthropic/cmux-next");
+        assert!(req
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Authorization" && v == "Bearer ghp_test_token"));
+        assert!(req
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Accept" && v == "application/vnd.github+json"));
+        assert!(req
+            .headers
+            .iter()
+            .any(|(k, v)| k == "X-GitHub-Api-Version" && v == "2022-11-28"));
+        assert!(req.body.is_none());
+    }
+
+    #[tokio::test]
+    async fn render_request_renders_github_issues_path_with_defaults() {
+        let reg = create_registry();
+        let api = ApiSection {
+            base_url: Some("https://api.github.com".to_string()),
+            endpoints: HashMap::new(),
+            rate_limit: None,
+        };
+        let endpoint = EndpointDef {
+            method: "GET".to_string(),
+            path: r#"/repos/{{params.owner}}/{{params.repo}}/issues?state={{default params.state "open"}}&per_page={{default params.per_page "20"}}"#.to_string(),
+            params: None,
+            headers: Some(HashMap::from([
+                (
+                    "Authorization".to_string(),
+                    "Bearer {{settings.token}}".to_string(),
+                ),
+                (
+                    "Accept".to_string(),
+                    "application/vnd.github+json".to_string(),
+                ),
+                (
+                    "X-GitHub-Api-Version".to_string(),
+                    "2022-11-28".to_string(),
+                ),
+            ])),
+            body: None,
+            response_template: None,
+        };
+        let ctx = build_context(
+            serde_json::json!({"owner": "anthropic", "repo": "cmux-next"}),
+            vec![("token".to_string(), "ghp_test_token".to_string(), true)],
+            None,
+        );
+
+        let req = render_request(&reg, &api, &endpoint, &ctx).await.unwrap();
+        assert_eq!(req.method, "GET");
+        assert_eq!(
+            req.url,
+            "https://api.github.com/repos/anthropic/cmux-next/issues?state=open&per_page=20"
+        );
+        assert!(req
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Authorization" && v == "Bearer ghp_test_token"));
+        assert!(req.body.is_none());
+    }
+
+    #[tokio::test]
+    async fn render_request_renders_github_pulls_path_with_overrides() {
+        let reg = create_registry();
+        let api = ApiSection {
+            base_url: Some("https://api.github.com".to_string()),
+            endpoints: HashMap::new(),
+            rate_limit: None,
+        };
+        let endpoint = EndpointDef {
+            method: "GET".to_string(),
+            path: r#"/repos/{{params.owner}}/{{params.repo}}/pulls?state={{default params.state "open"}}&per_page={{default params.per_page "20"}}"#.to_string(),
+            params: None,
+            headers: Some(HashMap::from([
+                (
+                    "Authorization".to_string(),
+                    "Bearer {{settings.token}}".to_string(),
+                ),
+                (
+                    "Accept".to_string(),
+                    "application/vnd.github+json".to_string(),
+                ),
+                (
+                    "X-GitHub-Api-Version".to_string(),
+                    "2022-11-28".to_string(),
+                ),
+            ])),
+            body: None,
+            response_template: None,
+        };
+        let ctx = build_context(
+            serde_json::json!({
+                "owner": "anthropic",
+                "repo": "cmux-next",
+                "state": "closed",
+                "per_page": "50"
+            }),
+            vec![("token".to_string(), "ghp_test_token".to_string(), true)],
+            None,
+        );
+
+        let req = render_request(&reg, &api, &endpoint, &ctx).await.unwrap();
+        assert_eq!(req.method, "GET");
+        assert_eq!(
+            req.url,
+            "https://api.github.com/repos/anthropic/cmux-next/pulls?state=closed&per_page=50"
+        );
+        assert!(req
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Authorization" && v == "Bearer ghp_test_token"));
+        assert!(req.body.is_none());
+    }
+
     #[test]
     fn render_response_with_template() {
         let reg = create_registry();

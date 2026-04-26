@@ -434,6 +434,23 @@ pub struct ProviderAuthStateRow {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalRuntimeProfileRow {
+    pub runtime: String,
+    pub profile_json: String,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserProfileRow {
+    pub profile_id: String,
+    pub label: String,
+    pub profile_dir: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub last_used_at: Option<u64>,
+}
+
 /// A single learned or answered profile field for the operator.
 #[derive(Debug, Clone)]
 pub struct OperatorProfileFieldRow {
@@ -976,6 +993,7 @@ mod debate;
 mod dream_state;
 mod event_log;
 mod event_triggers;
+mod browser_profiles;
 mod gateway_state;
 mod goal_runs;
 mod governance;
@@ -985,6 +1003,7 @@ mod integrity_helpers;
 mod memory_graph;
 mod metacognition;
 mod offloaded_payloads;
+mod external_runtime_profiles;
 mod operator_profile;
 mod protocol_candidates;
 mod protocol_registry;

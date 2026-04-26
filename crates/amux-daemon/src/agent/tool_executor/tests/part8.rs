@@ -2290,6 +2290,191 @@ async fn ingest_webhook_event_tool_routes_seeded_default_trigger_without_manual_
 }
 
 #[tokio::test]
+async fn show_import_report_tool_returns_persisted_external_runtime_profiles() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let hermes_profile = crate::agent::external_runtime_import::parse_hermes_config_profile(
+        r#"
+provider: openrouter
+model: nousresearch/hermes-4-70b
+terminal:
+  cwd: /workspace/repo
+mcp_servers:
+  tamux:
+    command: tamux-mcp
+"#,
+        "~/.hermes/config.yaml",
+        1_777_200_000_000,
+    )
+    .expect("hermes profile should parse");
+    engine
+        .history
+        .upsert_external_runtime_profile("hermes", &hermes_profile)
+        .await
+        .expect("hermes profile should persist");
+
+    let openclaw_profile = crate::agent::external_runtime_import::parse_openclaw_config_profile(
+        r#"{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.openclaw/workspace",
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-6"
+      }
+    }
+  },
+  "mcp_servers": {
+    "tamux": {
+      "command": "tamux-mcp"
+    }
+  }
+}"#,
+        "~/.openclaw/openclaw.json",
+        1_777_200_000_001,
+    )
+    .expect("openclaw profile should parse");
+    engine
+        .history
+        .upsert_external_runtime_profile("openclaw", &openclaw_profile)
+        .await
+        .expect("openclaw profile should persist");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-show-import-report".to_string(),
+        ToolFunction {
+            name: "show_import_report".to_string(),
+            arguments: serde_json::json!({
+                "limit": 10,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-show-import-report",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "show_import_report should succeed: {}",
+        result.content
+    );
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("show_import_report should return JSON");
+    assert_eq!(payload["summary"]["count"], 2);
+    assert_eq!(payload["summary"]["with_tamux_mcp"], 2);
+    assert_eq!(payload["summary"]["limit"], 10);
+
+    let profiles = payload["profiles"]
+        .as_array()
+        .expect("show_import_report should return profiles array");
+    assert_eq!(profiles.len(), 2);
+    assert!(profiles.iter().any(|profile| {
+        profile["runtime"] == "hermes"
+            && profile["provider"] == "openrouter"
+            && profile["model"] == "nousresearch/hermes-4-70b"
+            && profile["has_tamux_mcp"] == true
+    }));
+    assert!(profiles.iter().any(|profile| {
+        profile["runtime"] == "openclaw"
+            && profile["provider"] == "anthropic"
+            && profile["model"] == "anthropic/claude-sonnet-4-6"
+            && profile["has_tamux_mcp"] == true
+    }));
+}
+
+#[tokio::test]
+async fn preview_shadow_run_tool_returns_isolated_comparison_without_enqueuing_tasks() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.model = "gpt-5.4".to_string();
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let hermes_profile = crate::agent::external_runtime_import::parse_hermes_config_profile(
+        r#"
+provider: openrouter
+model: nousresearch/hermes-4-70b
+terminal:
+  cwd: /workspace/repo
+mcp_servers:
+  tamux:
+    command: tamux-mcp
+"#,
+        "~/.hermes/config.yaml",
+        1_777_200_000_000,
+    )
+    .expect("hermes profile should parse");
+    engine
+        .history
+        .upsert_external_runtime_profile("hermes", &hermes_profile)
+        .await
+        .expect("hermes profile should persist");
+
+    assert_eq!(engine.tasks.lock().await.len(), 0, "task queue should start empty");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-preview-shadow-run".to_string(),
+        ToolFunction {
+            name: "preview_shadow_run".to_string(),
+            arguments: serde_json::json!({
+                "runtime": "hermes"
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-preview-shadow-run",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "preview_shadow_run should succeed: {}",
+        result.content
+    );
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("preview_shadow_run should return JSON");
+    assert_eq!(payload["isolated"], true);
+    assert_eq!(payload["guardrails"]["will_enqueue_tasks"], false);
+    assert_eq!(payload["guardrails"]["will_launch_runner"], false);
+    assert_eq!(payload["guardrails"]["will_spawn_session"], false);
+    assert_eq!(payload["imported"]["runtime"], "hermes");
+    assert_eq!(payload["imported"]["provider"], "openrouter");
+    assert_eq!(payload["current"]["provider"], "openai");
+    assert_eq!(payload["current"]["model"], "gpt-5.4");
+    assert_eq!(payload["comparison"]["provider"]["matches"], false);
+    assert_eq!(payload["comparison"]["has_tamux_mcp"]["matches"], true);
+
+    assert_eq!(engine.tasks.lock().await.len(), 0, "preview_shadow_run must not enqueue tasks");
+}
+
+#[tokio::test]
 async fn tool_search_returns_ranked_matches() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

@@ -94,7 +94,11 @@ export function createCanvasActions(
               height: Number.isFinite(opts?.height) ? Number(opts?.height) : 440,
               icon: paneIcons[split.newPaneId],
               ...(persistedSessionId ? { sessionId: persistedSessionId } : {}),
-              ...(isBrowser ? { panelType: "browser" as const, url: opts?.url ?? DEFAULT_WEB_BROWSER_URL } : {}),
+              ...(isBrowser ? {
+                panelType: "browser" as const,
+                profileId: opts?.profileId ?? null,
+                url: opts?.url ?? DEFAULT_WEB_BROWSER_URL,
+              } : {}),
             },
             status: isBrowser ? "idle" : (persistedSessionId ? "running" : "idle"),
           }),

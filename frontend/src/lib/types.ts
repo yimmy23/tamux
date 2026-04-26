@@ -35,6 +35,7 @@ export interface CanvasPanel {
   id: string;
   paneId: PaneId;
   panelType: CanvasPanelType;
+  profileId?: string | null;
   title: string;
   icon: string;
   x: number;
@@ -402,6 +403,7 @@ export interface PersistedCanvasPanel {
   id: string;
   paneId: PaneId;
   panelType?: CanvasPanelType;
+  profileId?: string | null;
   title: string;
   icon: string;
   x: number;

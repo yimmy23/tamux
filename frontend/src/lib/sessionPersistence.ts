@@ -97,6 +97,7 @@ export function captureSession(): PersistedSession {
                 height: panel.height,
                 status: panel.status,
                 sessionId: panel.sessionId,
+                profileId: panel.profileId,
                 url: panel.url,
                 cwd: panel.cwd,
                 userRenamed: panel.userRenamed || undefined,

@@ -1023,6 +1023,40 @@ async fn execute_show_harness_state(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
+async fn execute_show_import_report(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let runtime = args
+        .get("runtime")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(20);
+
+    let payload = agent.show_import_report_json(runtime, limit).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_preview_shadow_run(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let runtime = args
+        .get("runtime")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'runtime' argument"))?;
+
+    let payload = agent.preview_shadow_run_json(runtime).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
 async fn execute_get_todos(
     args: &serde_json::Value,
     agent: &AgentEngine,

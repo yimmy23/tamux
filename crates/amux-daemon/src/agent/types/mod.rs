@@ -51,6 +51,8 @@ include!("provider_registry.rs");
 include!("config_core.rs");
 include!("config_skill.rs");
 include!("runtime_config.rs");
+include!("runtime_profiles.rs");
+include!("browser_profiles.rs");
 include!("agent_event.rs");
 include!("thread_message_types.rs");
 include!("task_types.rs");

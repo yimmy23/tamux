@@ -11,6 +11,7 @@ export const WEB_BROWSING_TOOLS: ToolDefinition[] = [
         properties: {
           url: { type: "string", description: "Initial URL to load (default: https://google.com)" },
           name: { type: "string", description: "Optional panel name" },
+          profileId: { type: "string", description: "Optional persisted browser profile ID to bind to the new browser panel." },
         },
       },
     },

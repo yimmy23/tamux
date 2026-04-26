@@ -257,7 +257,7 @@ export function executeEqualizeLayout(callId: string, name: string, surfaceRef?:
   return { toolCallId: callId, name, content: `Equalized layout ratios for surface [${surfaceId}].` };
 }
 
-export function executeOpenCanvasBrowser(callId: string, name: string, url?: string, panelName?: string): ToolResult {
+export function executeOpenCanvasBrowser(callId: string, name: string, url?: string, panelName?: string, profileId?: string): ToolResult {
   const store = useWorkspaceStore.getState();
   const surface = store.activeSurface();
   if (!surface || surface.layoutMode !== "canvas") {
@@ -269,14 +269,16 @@ export function executeOpenCanvasBrowser(callId: string, name: string, url?: str
     panelType: "browser",
     paneIcon: "web",
     paneName: panelName?.trim() || "Browser",
+    profileId: profileId?.trim() || null,
     url: normalizedUrl,
   });
   if (!paneId) {
     return { toolCallId: callId, name, content: "Error: Failed to create canvas browser panel." };
   }
+  const profileSuffix = profileId?.trim() ? ` using profile [${profileId.trim()}]` : "";
   return {
     toolCallId: callId,
     name,
-    content: `Created canvas browser panel [${paneId}]${url ? ` loading ${url}` : ""}. Use browser_navigate with pane="${paneId}" to navigate it.`,
+    content: `Created canvas browser panel [${paneId}]${url ? ` loading ${url}` : ""}${profileSuffix}. Use browser_navigate with pane="${paneId}" to navigate it.`,
   };
 }

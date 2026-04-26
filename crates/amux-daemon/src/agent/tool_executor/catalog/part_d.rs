@@ -253,6 +253,20 @@ fn add_available_tools_part_d(
             "limit": { "type": "integer", "description": "Maximum number of recent items per harness section to include" }
         }
     })));
+    tools.push(tool_def("show_import_report", "Show the persisted import report for Hermes/OpenClaw runtime-profile migration data, including imported config summaries and tamux MCP readiness.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "runtime": { "type": "string", "description": "Optional runtime filter such as hermes or openclaw" },
+            "limit": { "type": "integer", "description": "Maximum number of imported runtime profiles to include" }
+        }
+    })));
+    tools.push(tool_def("preview_shadow_run", "Preview an isolated shadow-run comparison for one imported Hermes/OpenClaw runtime profile against current tamux defaults. This is read-only and does not enqueue tasks, launch runners, or spawn sessions.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "runtime": { "type": "string", "description": "Imported runtime to compare, such as hermes or openclaw" }
+        },
+        "required": ["runtime"]
+    })));
     tools.push(tool_def(
         "cancel_task",
         "Cancel a queued, blocked, running, approval-pending, or retrying background task by ID.",
