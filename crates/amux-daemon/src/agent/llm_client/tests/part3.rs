@@ -20,6 +20,7 @@
             &[ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,
@@ -76,6 +77,7 @@
             &[ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,
@@ -132,6 +134,7 @@
                 ApiMessage {
                     role: "tool".to_string(),
                     content: ApiContent::Text("file list".to_string()),
+                    reasoning: None,
                     tool_call_id: Some("call_orphaned".to_string()),
                     name: Some("list_files".to_string()),
                     tool_calls: None,
@@ -139,6 +142,7 @@
                 ApiMessage {
                     role: "user".to_string(),
                     content: ApiContent::Text("continue".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: None,
@@ -189,6 +193,7 @@
                 ApiMessage {
                     role: "user".to_string(),
                     content: ApiContent::Text("first question".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: None,
@@ -196,6 +201,7 @@
                 ApiMessage {
                     role: "assistant".to_string(),
                     content: ApiContent::Text("I'll inspect that".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: Some(vec![ApiToolCall {
@@ -210,6 +216,7 @@
                 ApiMessage {
                     role: "user".to_string(),
                     content: ApiContent::Text("continue".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: None,
@@ -264,6 +271,7 @@
                 ApiMessage {
                     role: "user".to_string(),
                     content: ApiContent::Text("first question".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: None,
@@ -271,6 +279,7 @@
                 ApiMessage {
                     role: "assistant".to_string(),
                     content: ApiContent::Text("I'll inspect that".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: Some(vec![ApiToolCall {
@@ -285,6 +294,7 @@
                 ApiMessage {
                     role: "tool".to_string(),
                     content: ApiContent::Text("file contents".to_string()),
+                    reasoning: None,
                     tool_call_id: Some("call_1".to_string()),
                     name: Some("read_file".to_string()),
                     tool_calls: None,
@@ -292,6 +302,7 @@
                 ApiMessage {
                     role: "user".to_string(),
                     content: ApiContent::Text("continue".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: None,

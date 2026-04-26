@@ -12,7 +12,7 @@ The important boundary is:
 
 - The daemon is the source of truth.
 - The TUI, Electron app, CLI, MCP server, and chat gateway are clients of that daemon.
-- Agent threads, tasks, goal runs, approvals, transcripts, memory, and telemetry live with the daemon, not in the UI.
+- Agent threads, workspace tasks, goal runs, approvals, transcripts, memory, and telemetry live with the daemon, not in the UI.
 
 At a high level:
 
@@ -30,7 +30,8 @@ Operator
            |
            +--> PTY session management
            +--> Agent runtime
-           +--> Task queue
+           +--> Workspace tasks
+           +--> Execution queue
            +--> Goal runners
            +--> Approval flow
            +--> Persistence + telemetry
@@ -45,7 +46,8 @@ The daemon owns:
 - PTY session lifecycle
 - workspace and surface state
 - agent threads and messages
-- background task queue
+- workspace task board state
+- internal execution queue
 - durable goal runs
 - approvals
 - transcript indexing
@@ -83,7 +85,7 @@ The built-in daemon agent is not just a chat wrapper. It is a stateful orchestra
 
 - threaded conversations
 - tool execution
-- background tasks
+- background execution
 - goal planning and replanning
 - sub-agent spawning
 - memory maintenance
@@ -131,24 +133,33 @@ Messages include:
 
 This thread state is written into SQLite and then hydrated back into memory on startup.
 
-## Task Queue and Goal Runners
+## Workspaces, Execution Queue, and Goal Runners
 
 tamux separates short conversational turns from durable execution.
 
-### Tasks
+### Workspace Tasks
 
-Tasks are daemon-owned units of work with fields for:
+Workspace tasks are board-owned units of work with fields for:
 
 - status
 - priority
-- dependencies
-- scheduling
-- retry policy
-- session affinity
-- parent/child relationships
-- approval waiting state
+- task type (`thread` or `goal`)
+- description
+- definition of done
+- assignee
+- reviewer
+- reporter
+- current thread or goal target
+- history
+- soft deletion through `deleted_at`
 
-Tasks can be created by the operator, by the daemon agent, by goal runners, or by external clients.
+Workspace tasks are created in a workspace and move across `Todo`, `In Progress`, `In Review`, and `Done`. They wrap a thread or goal with assignment, review, and board status.
+
+### Execution Queue
+
+The execution queue is lower-level daemon machinery used by goal runners, subagents, and managed commands. Queue entries can carry dependencies, scheduling, retry policy, session affinity, parent/child relationships, and approval waiting state.
+
+Queue entries are not workspace tasks. They are runtime records underneath threads, goals, and workspace task execution.
 
 ### Goal Runs
 
@@ -158,9 +169,9 @@ A goal run typically does this:
 
 1. Accept a high-level objective.
 2. Ask the planning model for a step plan.
-3. Convert steps into child tasks.
-4. Dispatch those tasks through the daemon queue.
-5. Monitor step/task outcomes.
+3. Convert steps into child execution entries.
+4. Dispatch those entries through the daemon queue.
+5. Monitor step and queue outcomes.
 6. Replan if needed.
 7. Reflect on the finished run.
 8. Optionally update memory and generate reusable skills.
@@ -176,7 +187,7 @@ Important tool families:
 - terminal/session tools
 - file and search tools
 - history/recall tools
-- task and goal tools
+- workspace, queue, and goal tools
 - memory tools
 - skill tools
 - semantic environment tools
@@ -229,7 +240,7 @@ At the minimum, that stack includes:
 - `SOUL.md` for durable fire identity
 - `MEMORY.md` for durable facts, conventions, and strategy hints
 - `USER.md` for operator profile memory synchronized from daemon-owned profile state
-- persisted threads, tasks, goals, checkpoints, and telemetry in SQLite
+- persisted threads, workspace tasks, queue entries, goals, checkpoints, and telemetry in SQLite
 - recall systems over history and operational state
 - procedural memory encoded as skills and skill variants
 - provenance-backed durable memory facts
@@ -249,7 +260,8 @@ SQLite is used for structured operational state such as:
 
 - command history
 - agent threads and messages
-- tasks
+- workspace tasks
+- execution queue entries
 - goal runs and events
 - transcript index rows
 - mission events
@@ -362,7 +374,7 @@ That layer tracks things such as:
 
 - where a durable memory fact came from
 - when it was written
-- which thread, task, or goal produced it
+- which thread, workspace task, queue entry, or goal produced it
 - whether it was confirmed or retracted
 - which later operation explicitly invalidated it
 
@@ -379,7 +391,7 @@ Sub-agents can coordinate through explicit collaboration sessions with:
 
 ### M8: Trusted Provenance
 
-Goal/task/tool execution can emit provenance events into a signed or hash-linked audit trail so the system can later verify integrity and export evidence.
+Goal, workspace task, queue, and tool execution can emit provenance events into a signed or hash-linked audit trail so the system can later verify integrity and export evidence.
 
 ### M9: Implicit Feedback Learning
 
@@ -417,7 +429,8 @@ For the full security and governance architecture, see [tamux-security.md](./tam
 On daemon startup, the agent engine hydrates state from disk and SQLite, including:
 
 - threads/messages
-- tasks
+- workspace tasks
+- execution queue entries
 - goal runs
 - work context
 - memory files
@@ -432,7 +445,7 @@ A realistic long-running flow looks like this:
 
 1. The operator opens the desktop UI or TUI and sends a goal.
 2. The daemon persists the goal run and plans it.
-3. Child tasks are created and dispatched.
+3. Child execution entries are created and dispatched.
 4. The built-in agent executes turns, tools, and managed commands.
 5. Risky work pauses in `awaiting_approval`.
 6. Supervisors and anticipatory systems monitor progress.
@@ -447,4 +460,5 @@ A realistic long-running flow looks like this:
 - [tamux-memory.md](./tamux-memory.md): canonical memory architecture
 - [tamux-security.md](./tamux-security.md): canonical security and governance architecture
 - [../skills/operating/memory.md](../skills/operating/memory.md): skill/operator guidance for curated memory usage
+- [workspaces.md](./workspaces.md): workspace task boards over threads and goals
 - [goal-runners.md](./goal-runners.md): goal-runner oriented behavior

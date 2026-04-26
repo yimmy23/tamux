@@ -45,7 +45,7 @@ Top bar (height 1):
 
 Main area (flex 1):
 1. Left pane: chat and command-centric surface (60-70%).
-2. Right pane: context sidebar (tasks/subagents/file context) (30-40%).
+2. Right pane: context sidebar (workspace tasks/subagents/file context) (30-40%).
 3. Split ratio adjustable and persisted as view preference.
 
 Bottom bar (height 2):
@@ -71,13 +71,13 @@ Transcript modes:
 2. tools: tool rows only.
 3. full: full verbose rows for debugging.
 
-### 4.2 Context Sidebar: Tasks and Subagents
+### 4.2 Context Sidebar: Workspace Tasks and Subagents
 
 Tabs:
-1. [Tasks]
+1. [Workspace]
 2. [Subagents]
 
-Tasks view:
+Workspace task view:
 1. Tree structure supports goal -> step -> task relationships.
 2. Status chips: [ ] pending, [~] running, [x] done, [!] failed.
 3. Replan attempts and nested dependencies are visible but collapsible.

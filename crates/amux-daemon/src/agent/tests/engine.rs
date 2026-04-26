@@ -1179,3 +1179,126 @@ async fn task_and_file_tool_paths_populate_cross_thread_memory_graph() {
         edge.relation_type == "file_in_package" && edge.target_node_id == "node:package:cargo:demo"
     }));
 }
+
+#[tokio::test]
+async fn due_task_routine_materializes_enqueued_task_and_advances_next_run_at() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let due_at = now_millis().saturating_sub(1_000);
+
+    engine
+        .history
+        .upsert_routine_definition(&crate::history::RoutineDefinitionRow {
+            id: "routine-daily-brief-materialize".to_string(),
+            title: "Daily brief".to_string(),
+            description: "Send a daily project brief".to_string(),
+            enabled: true,
+            paused_at: None,
+            schedule_expression: "* * * * *".to_string(),
+            target_kind: "task".to_string(),
+            target_payload_json: serde_json::json!({
+                "title": "Prepare daily brief",
+                "description": "Prepare the daily project brief",
+                "priority": "high"
+            })
+            .to_string(),
+            next_run_at: Some(due_at),
+            last_run_at: None,
+            created_at: due_at.saturating_sub(5_000),
+            updated_at: due_at,
+        })
+        .await
+        .expect("store routine definition");
+
+    let materialized_after = now_millis();
+    let created = engine
+        .materialize_due_routines()
+        .await
+        .expect("due routine should materialize into a task");
+    let materialized_before = now_millis();
+
+    assert_eq!(created.len(), 1, "exactly one due routine should materialize");
+    assert_eq!(created[0].title, "Prepare daily brief");
+    assert_eq!(created[0].description, "Prepare the daily project brief");
+    assert_eq!(created[0].priority, TaskPriority::High);
+    assert_eq!(created[0].source, "routine:routine-daily-brief-materialize");
+    assert_eq!(created[0].status, TaskStatus::Queued);
+
+    let tasks = engine.list_tasks().await;
+    let task = tasks
+        .iter()
+        .find(|task| task.source == "routine:routine-daily-brief-materialize")
+        .expect("materialized task should be queued");
+    assert_eq!(task.title, "Prepare daily brief");
+    assert_eq!(task.priority, TaskPriority::High);
+
+    let updated = engine
+        .history
+        .get_routine_definition("routine-daily-brief-materialize")
+        .await
+        .expect("load updated routine")
+        .expect("updated routine should still exist");
+    let last_run_at = updated.last_run_at.expect("last_run_at should be recorded");
+    let next_run_at = updated.next_run_at.expect("next_run_at should advance");
+    assert!(last_run_at >= materialized_after);
+    assert!(last_run_at <= materialized_before);
+    assert!(next_run_at > last_run_at);
+}
+
+#[tokio::test]
+async fn paused_due_routine_does_not_materialize_until_resumed() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let due_at = now_millis().saturating_sub(1_000);
+
+    engine
+        .history
+        .upsert_routine_definition(&crate::history::RoutineDefinitionRow {
+            id: "routine-paused-materialize".to_string(),
+            title: "Paused brief".to_string(),
+            description: "Paused routine should not execute".to_string(),
+            enabled: true,
+            paused_at: None,
+            schedule_expression: "* * * * *".to_string(),
+            target_kind: "task".to_string(),
+            target_payload_json: serde_json::json!({
+                "title": "Prepare paused brief",
+                "description": "This should wait until resume",
+                "priority": "normal"
+            })
+            .to_string(),
+            next_run_at: Some(due_at),
+            last_run_at: None,
+            created_at: due_at.saturating_sub(5_000),
+            updated_at: due_at,
+        })
+        .await
+        .expect("store paused routine definition");
+
+    let paused = engine
+        .pause_routine_json("routine-paused-materialize")
+        .await
+        .expect("pause should succeed");
+    assert!(paused["routine"]["paused_at"].as_u64().is_some());
+
+    let paused_created = engine
+        .materialize_due_routines()
+        .await
+        .expect("paused routine check should succeed");
+    assert!(paused_created.is_empty(), "paused due routine should not materialize");
+    assert!(
+        engine.list_tasks().await.is_empty(),
+        "no task should be enqueued while paused"
+    );
+
+    let resumed = engine
+        .resume_routine_json("routine-paused-materialize")
+        .await
+        .expect("resume should succeed");
+    assert!(resumed["routine"]["paused_at"].is_null());
+
+    let resumed_created = engine
+        .materialize_due_routines()
+        .await
+        .expect("resumed routine should materialize");
+    assert_eq!(resumed_created.len(), 1);
+    assert_eq!(resumed_created[0].source, "routine:routine-paused-materialize");
+}

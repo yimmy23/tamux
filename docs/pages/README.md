@@ -9,8 +9,9 @@ This folder contains a static HTML documentation site for tamux.
 - `architecture.html` — daemon/runtime/agent deep dive
 - `why-tamux.html` — product-positioning explanation of what makes tamux different
 - `mission-control.html` — launch/orchestration cockpit for goal runs
+- `workspaces.html` — Jira-style workspace task boards over threads and goals
 - `goal-runners.html` — durable goal orchestration model
-- `task-queue-subagents.html` — task queue, bounded subagents, and collaboration
+- `task-queue-subagents.html` — daemon execution queue, bounded subagents, and collaboration
 - `tui.html` — keyboard-first terminal control plane deep dive
 - `gateway-mcp.html` — chat-platform gateways and MCP integration story
 - `semantic-learning.html` — semantic environment model, skills, learning, and generated tools

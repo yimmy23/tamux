@@ -33,7 +33,7 @@
           <li>Use the CLI and MCP server for automation and external-agent integration.</li>
         </ul>
         <div class="callout warning">
-          <strong>Common failure mode:</strong> Treating tamux like a disposable prompt window. The whole point is durable state, threads, tasks, and goals.
+          <strong>Common failure mode:</strong> Treating tamux like a disposable prompt window. The whole point is durable state, threads, workspace tasks, and goals.
         </div>
       </section>
 
@@ -153,7 +153,7 @@ locally.</code></pre>
 
       <section>
         <h2>Run goal work as goal work</h2>
-        <p>If a task is long-running, multi-step, or likely to survive client restarts, use goal runners instead of manually babysitting a chat thread.</p>
+        <p>If work is long-running, multi-step, or likely to survive client restarts, use goal runners or a workspace task instead of manually babysitting a chat thread.</p>
         
         <p><strong>Good goal-run candidates:</strong></p>
         <ul class="check-list">
@@ -164,7 +164,7 @@ locally.</code></pre>
           <li>Repeated operational workflows you want to capture as skills</li>
         </ul>
         
-        <p>Goals are the right layer when you want planning, task queues, approvals, persistence, and reflection — not a one-shot answer.</p>
+        <p>Goals are the right layer when you want planning, execution queues, approvals, persistence, and reflection. Workspaces are the right layer when you also want assignment, board status, and review.</p>
         
         <div class="callout info">
           <strong>Example:</strong> Instead of "help me refactor this codebase" in chat, launch a goal: "Refactor the auth module to use the new service pattern, update all call sites, and verify tests pass."

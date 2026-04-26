@@ -4323,6 +4323,17 @@ fn thread_picker_left_right_cycles_all_sources() {
     assert!(!quit);
     assert_eq!(
         model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Workspace
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.modal.thread_picker_tab(),
         modal::ThreadPickerTab::Playgrounds
     );
 

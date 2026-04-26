@@ -15,13 +15,13 @@ platform.
 
 Official website: [https://tamux.app](https://tamux.app)
 
-tamux keeps the terminal, the agent, and the runtime in one place. Sessions, threads, tasks, approvals, and goal runs live in the daemon, so work can keep moving even when the UI closes.
+tamux keeps the terminal, the agent, and the runtime in one place. Sessions, threads, workspace tasks, approvals, and goal runs live in the daemon, so work can keep moving even when the UI closes.
 
 In practice that means:
 
 - Electron, the TUI, the CLI, MCP clients, and chat gateways all reconnect to the same daemon state
 - the built-in runtime can plan work, run tools, spawn bounded sub-agents, pause for approval, and learn over time
-- memory, queue state, and operational history stay durable instead of vanishing with a single terminal tab
+- memory, workspace boards, execution queue state, and operational history stay durable instead of vanishing with a single terminal tab
 
 ## Best Practices
 
@@ -87,7 +87,7 @@ If you want to test the core loop fast, start a goal run and give Swarog a concr
 
 ## What It Feels Like
 
-tamux is for operators who want a terminal that remembers, an agent that can stay with a task, and a control surface that makes long-running work visible instead of mysterious.
+tamux is for operators who want a terminal that remembers, an agent that can stay with durable work, and a control surface that makes long-running work visible instead of mysterious.
 
 It is still a real terminal multiplexer. It just has a daemon beneath it, durable autonomy above it, and enough structure to let automation run without turning into fog.
 
@@ -95,7 +95,7 @@ It is still a real terminal multiplexer. It just has a daemon beneath it, durabl
 
 The TUI is a keyboard-first control room for the daemon with mouse support.
 
-- inspect sessions, threads, tasks, approvals, and goal runs without leaving the terminal
+- inspect sessions, threads, workspace tasks, approvals, and goal runs without leaving the terminal
 - move between operator control and agent execution from the same live state used by Electron and the CLI
 - keep working over SSH, inside tmux, or anywhere a browser UI is the wrong tool
 
@@ -198,6 +198,7 @@ Tamux supports voice workflows in both TUI and desktop app.
 - [Custom Providers](docs/pages/custom-providers.html)
 - [How tamux Works](docs/how-tamux-works.md)
 - [Thread Participants](docs/operating/thread-participants.md)
+- [Workspaces](docs/workspaces.md)
 - [Speech to Text / Text to Speech](docs/speech-to-text-and-text-to-speech.md)
 - [Goal Runners](docs/goal-runners.md)
 - [Self-Orchestrating Agent Architecture](docs/self-orchestrating-agent.md)

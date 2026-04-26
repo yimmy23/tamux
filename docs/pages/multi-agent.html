@@ -34,7 +34,7 @@
       <section>
         <h2>Shared substrate, distinct personas</h2>
         <div class="card-grid two-up">
-          <article class="card"><h3>Shared across all personas</h3><p>Threads, tasks, goal runs, approvals, task queue, provenance, memory files, operator model, and persistent daemon state.</p></article>
+          <article class="card"><h3>Shared across all personas</h3><p>Threads, workspace tasks, goal runs, approvals, execution queue, provenance, memory files, operator model, and persistent daemon state.</p></article>
           <article class="card"><h3>Distinct per persona</h3><p>SOUL identity, role emphasis, response style, and how the persona is used in visible threads, hidden coordination, or governance review.</p></article>
         </div>
         <p>This split matters because it allows tamux to have real specialization without losing continuity when work moves between agents.</p>
@@ -78,7 +78,7 @@
             <tr><td>Visible participants</td><td><code>@agent ...</code> on the current thread</td><td>Lets specialists watch and contribute without changing ownership</td></tr>
             <tr><td>Hidden coordination</td><td><code>!agent ...</code> internal delegation</td><td>Keeps behind-the-scenes checks out of the visible thread when needed</td></tr>
             <tr><td>Handoff</td><td>Explicit ownership change to another persona</td><td>Makes thread control honest when another agent should lead</td></tr>
-            <tr><td>Subagents</td><td>Bounded child work with budget and tool filtering</td><td>Splits large tasks without collapsing into unbounded delegation</td></tr>
+            <tr><td>Subagents</td><td>Bounded child work with budget and tool filtering</td><td>Splits large work without collapsing into unbounded delegation</td></tr>
             <tr><td>Collaboration protocol</td><td>Shared state, contributions, disagreements, and voting</td><td>Turns multi-agent work into inspectable coordination</td></tr>
           </tbody>
         </table>
@@ -91,7 +91,7 @@
           <li>Personas are explicit and role-shaped.</li>
           <li>Visible and hidden coordination are separate mechanisms.</li>
           <li>Thread ownership is explicit rather than ambiguous.</li>
-          <li>Goals, tasks, approvals, and provenance remain common infrastructure.</li>
+          <li>Goals, workspace tasks, approvals, and provenance remain common infrastructure.</li>
           <li>Memory and learning loops let work compound instead of reset.</li>
         </ul>
       </section>

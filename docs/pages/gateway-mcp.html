@@ -42,7 +42,7 @@
 
       <section>
         <h2>MCP access</h2>
-        <p><code>tamux-mcp</code> exposes daemon capabilities to MCP-capable agents and toolchains. This lets external agent environments treat tamux as a durable system component rather than reimplementing sessions, tasks, or goal runners on their own.</p>
+        <p><code>tamux-mcp</code> exposes daemon capabilities to MCP-capable agents and toolchains. This lets external agent environments treat tamux as a durable system component rather than reimplementing sessions, workspace tasks, execution queues, or goal runners on their own.</p>
         <pre><code>{
   "mcpServers": {
     "tamux": {
@@ -54,7 +54,7 @@
 
       <section>
         <h2>One runtime</h2>
-        <p>Whether a request comes from Electron, the TUI, the CLI, an MCP client, or a chat gateway, it still lands in the same runtime. That means goals, approvals, tasks, threads, and memory remain coherent across all of those entry points.</p>
+        <p>Whether a request comes from Electron, the TUI, the CLI, an MCP client, or a chat gateway, it still lands in the same runtime. That means goals, approvals, workspace tasks, threads, and memory remain coherent across all of those entry points.</p>
       </section>
 
       <section>
@@ -71,4 +71,3 @@
   <script src="assets/site.js"></script>
 </body>
 </html>
-

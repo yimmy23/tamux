@@ -72,6 +72,7 @@ async fn anthropic_create_message_batch_posts_requests_and_parses_batch() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,

@@ -28,13 +28,13 @@
         <ol class="numbered-list">
           <li>Accepts a high-level objective from the UI or tool layer.</li>
           <li>Uses the built-in daemon agent to generate a structured plan.</li>
-          <li>Converts executable steps into child tasks on the daemon queue.</li>
+          <li>Converts executable steps into child execution entries on the daemon queue.</li>
           <li>Monitors retries, failures, approvals, and completion.</li>
           <li>Reflects on the final trajectory.</li>
           <li>May write durable memory and generate a reusable skill.</li>
         </ol>
         <div class="callout info">
-          <strong>Important:</strong> goal runners sit above the task queue. They orchestrate durable work; they do not replace the queue machinery underneath.
+          <strong>Important:</strong> goal runners sit above the daemon execution queue. They orchestrate durable work; they do not replace the queue machinery underneath.
         </div>
       </section>
 
@@ -45,8 +45,8 @@
           <tbody>
             <tr><td><code>queued</code></td><td>The daemon accepted the goal but planning has not started.</td></tr>
             <tr><td><code>planning</code></td><td>The runtime is building the initial structured plan.</td></tr>
-            <tr><td><code>running</code></td><td>Execution is active or waiting on child-task progress.</td></tr>
-            <tr><td><code>awaiting_approval</code></td><td>A child task hit an approval boundary.</td></tr>
+            <tr><td><code>running</code></td><td>Execution is active or waiting on child execution progress.</td></tr>
+            <tr><td><code>awaiting_approval</code></td><td>A child execution entry hit an approval boundary.</td></tr>
             <tr><td><code>paused</code></td><td>Orchestration is paused by the operator.</td></tr>
             <tr><td><code>completed</code></td><td>Steps finished and the final reflection was recorded.</td></tr>
             <tr><td><code>failed</code></td><td>The run exhausted replanning or failed irrecoverably.</td></tr>
@@ -80,7 +80,7 @@
 
       <section>
         <h2>Queue integration</h2>
-        <p>Each executable plan step becomes a child task. Those tasks inherit the normal daemon machinery:</p>
+        <p>Each executable plan step becomes a child execution entry. Those entries inherit the normal daemon machinery:</p>
         <ul class="check-list">
           <li>lane scheduling</li>
           <li>session affinity</li>
@@ -94,10 +94,10 @@
 
       <section>
         <h2>Approvals and replanning</h2>
-        <p>When a child task hits an approval gate, the task enters <code>awaiting_approval</code> and the goal run surfaces the same blocked state. Once the operator resolves the approval request, work resumes.</p>
-        <p>When a child task fails, the goal runner records the failure and decides whether to replan. If replanning budget remains, the daemon asks for revised remaining steps. If not, the run becomes <code>failed</code>.</p>
+        <p>When a child execution entry hits an approval gate, it enters <code>awaiting_approval</code> and the goal run surfaces the same blocked state. Once the operator resolves the approval request, work resumes.</p>
+        <p>When a child execution entry fails, the goal runner records the failure and decides whether to replan. If replanning budget remains, the daemon asks for revised remaining steps. If not, the run becomes <code>failed</code>.</p>
         <div class="callout warning">
-          <strong>Operational nuance:</strong> pausing a goal run stops future orchestration but does not forcibly kill a child task that is already running.
+          <strong>Operational nuance:</strong> pausing a goal run stops future orchestration but does not forcibly kill a child execution entry that is already running.
         </div>
       </section>
 
@@ -114,8 +114,8 @@
       <section>
         <h2>When to use goals</h2>
         <ul class="check-list">
-          <li>The task will take multiple steps.</li>
-          <li>You want approvals and child-task visibility.</li>
+          <li>The work will take multiple steps.</li>
+          <li>You want approvals and child execution visibility.</li>
           <li>You want work to survive closing a client UI.</li>
           <li>You want reflection, reusable skills, or durable memory from the result.</li>
         </ul>

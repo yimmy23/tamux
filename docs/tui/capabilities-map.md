@@ -17,7 +17,8 @@ The cmux-next TUI will expose the following major capability domains:
 | Session Management | P0 | Medium | Terminal session lifecycle (spawn, attach, clone, kill) |
 | Command Execution | P0 | High | Managed commands with approval gates, queuing |
 | Goal Runners | P1 | High | Multi-step autonomous goal execution with planning |
-| Task Queue | P1 | Medium | Background task scheduling, dependencies, priorities |
+| Workspace Tasks | P1 | Medium | Board-owned tasks over threads and goals |
+| Execution Queue | P1 | Medium | Background execution scheduling, dependencies, priorities |
 | Agent Threads | P1 | Medium | Conversation threads with LLM, tool calls, history |
 | Memory Management | P2 | Low | Persistent memory (SOUL.md, MEMORY.md, USER.md) |
 | Skill Workflows | P2 | Medium | Reusable procedural documents, generation |
@@ -143,7 +144,7 @@ struct GoalRunStep {
     title: String,
     status: GoalRunStepStatus,
     kind: GoalRunStepKind,
-    task_id: Option<String>,
+    execution_id: Option<String>,
     error: Option<String>,
 }
 ```
@@ -153,29 +154,31 @@ struct GoalRunStep {
 - **Goal Run List**: Table with goal, status, progress, duration
 - **Goal Run Detail**: Steps list with status indicators, current step highlight
 - **Goal Run Controls**: Pause/Resume/Cancel/Rerun buttons
-- **Step Inspector**: Expand step to see child task, tool calls, output
+- **Step Inspector**: Expand step to see child execution entry, tool calls, output
 
 ---
 
-## 4. Task Queue
+## 4. Workspace Tasks And Execution Queue
+
+Workspace tasks are operator-facing board cards whose targets are threads or goals. The daemon execution queue is lower-level runtime machinery. Some protocol names below may still use the legacy `AgentTask` term for queue records; docs should treat those as execution entries, not workspace tasks.
 
 ### 4.1 Operations
 
 | Operation | ClientMessage | Description |
 |-----------|---------------|-------------|
-| Add Task | `AgentAddTask` | Queue background task |
-| List Tasks | `AgentListTasks` | Show all tasks |
-| Cancel Task | `AgentCancelTask` | Remove from queue |
+| Add Queue Entry | `AgentAddTask` | Queue background execution |
+| List Queue Entries | `AgentListTasks` | Show execution queue entries |
+| Cancel Queue Entry | `AgentCancelTask` | Remove from queue |
 
-### 4.2 Task Structure
+### 4.2 Queue Entry Structure
 
 ```rust
 struct AgentTask {
     id: String,
     title: String,
     description: String,
-    status: TaskStatus,
-    priority: TaskPriority,
+    status: TaskStatus,     // legacy protocol name for queue-entry status
+    priority: TaskPriority, // legacy protocol name for queue-entry priority
     command: Option<String>,
     session_id: Option<String>,
     scheduled_at: Option<u64>,
@@ -208,9 +211,10 @@ enum TaskPriority {
 
 ### 4.3 TUI Views
 
-- **Task Queue Panel**: Priority-sorted list with status icons
-- **Task Detail**: Full description, dependencies, logs
-- **Task Scheduler**: Calendar/clock view for scheduled tasks
+- **Workspace Board**: Todo, In Progress, In Review, Done columns for workspace-owned tasks
+- **Execution Queue Panel**: Priority-sorted queue entries with status icons
+- **Queue Entry Detail**: Full description, dependencies, logs
+- **Queue Scheduler**: Calendar/clock view for scheduled queue entries
 
 ---
 
@@ -519,7 +523,7 @@ struct TranscriptIndexEntry {
 │ │                                 │ │                             │ │
 │ └─────────────────────────────────┘ └─────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────────┤
-│ GOAL: fix-tests                    │ TASKS                  │QUEUE │
+│ GOAL: fix-tests                    │ WORKSPACE              │QUEUE │
 │ ─────────────────────────────────  │ ─────────────────────  │────── │
 │ [✓] Investigate failures           │ • analyze-logs (run)   │ 3    │
 │ [▶] Fix the root cause             │ • run-tests (queued)   │      │
@@ -536,7 +540,7 @@ struct TranscriptIndexEntry {
 | Header Bar | Workspaces, surfaces, active goal | `Tab`/`Shift+Tab` |
 | Main Pane | Terminal output or agent thread | Focus follows surface |
 | Goal Panel | Active goal steps | `g` to focus |
-| Task Panel | Task queue | `t` to focus |
+| Workspace Panel | Workspace tasks and execution queue | `t` to focus |
 | Command Bar | Command input, approvals | `:` or `i` |
 
 ---
@@ -568,10 +572,10 @@ Goal:
   r         Resume goal
   x         Cancel goal
   
-Tasks:
-  j/k       Navigate tasks
+Workspace:
+  j/k       Navigate workspace tasks
   Enter     View task detail
-  d         Delete task
+  d         Soft-delete workspace task
 ```
 
 ### Command Palette
@@ -580,7 +584,9 @@ Tasks:
 :help                  Show help
 :sessions              List sessions
 :goals                 List goal runs
-:tasks                 List tasks
+:workspace             List workspace boards
+:workspace-tasks       List workspace tasks
+:queue                 List execution queue entries
 :threads               List agent threads
 :memory                Open memory editor
 :skills                Browse skills
@@ -615,9 +621,10 @@ Tasks:
    - Message rendering with roles
    - Streaming delta handling
 
-2. **Task Queue**
-   - Task list with status
-   - Task scheduling
+2. **Workspace Tasks And Execution Queue**
+   - Workspace board list with status
+   - Execution queue list with status
+   - Queue scheduling
    - Dependency visualization
 
 3. **Goal Runners**
@@ -675,7 +682,8 @@ TUI State
 ├── Session State (sessions, active_id)
 ├── Agent State (threads, active_thread_id)
 ├── Goal State (goal_runs, active_goal_id)
-├── Task State (tasks, filters)
+├── Workspace Task State (workspace tasks, filters)
+├── Execution Queue State (queue entries, filters)
 └── UI State (focus, layout, theme)
 ```
 

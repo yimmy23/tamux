@@ -83,13 +83,13 @@ npm install</code></pre>
 
       <section>
         <h2>First goal</h2>
-        <p>Run a bounded, concrete objective to see planning, child tasks, approvals, and reflection in action.</p>
+        <p>Run a bounded, concrete objective to see planning, child execution entries, approvals, and reflection in action.</p>
         <pre><code>Investigate why the nightly Rust build is failing, identify the root cause,
 propose the smallest safe fix, and capture any reusable workflow as a skill.</code></pre>
         <h3>What to expect</h3>
         <ul class="check-list">
           <li>Run enters <code>queued</code>, then <code>planning</code></li>
-          <li>Daemon generates plan and child tasks</li>
+          <li>Daemon generates plan and child execution entries</li>
           <li>Risky operations pause for approval</li>
           <li>Run ends with reflection, memory update, or skill</li>
         </ul>
@@ -103,7 +103,7 @@ propose the smallest safe fix, and capture any reusable workflow as a skill.</co
           </thead>
           <tbody>
             <tr><td>Electron</td><td>Desktop overview</td><td>Goals, settings, plugin UI, multi-pane</td></tr>
-            <tr><td>TUI</td><td>Keyboard-first, SSH</td><td>Inspect sessions, goals, tasks, approvals</td></tr>
+            <tr><td>TUI</td><td>Keyboard-first, SSH</td><td>Inspect sessions, goals, workspace tasks, approvals</td></tr>
             <tr><td>CLI</td><td>Scripting</td><td>Automation, session management, health</td></tr>
             <tr><td>MCP</td><td>External integration</td><td>Expose tamux to outside tools</td></tr>
             <tr><td>Gateway</td><td>Chat platforms</td><td>Discord, Slack, Telegram, WhatsApp</td></tr>
@@ -121,7 +121,7 @@ propose the smallest safe fix, and capture any reusable workflow as a skill.</co
           </article>
           <article class="card">
             <h3>Goal runners for real work</h3>
-            <p>Multi-step, long-running, or approval-heavy tasks benefit from goals over chat threads.</p>
+            <p>Multi-step, long-running, or approval-heavy work benefits from goals over chat threads.</p>
           </article>
           <article class="card">
             <h3>Explicit success criteria</h3>
@@ -170,7 +170,7 @@ propose the smallest safe fix, and capture any reusable workflow as a skill.</co
 
       <section>
         <h2>When not to use</h2>
-        <p>Use simple chat for short, disposable tasks without queueing, goals, approvals, or durable artifacts. tamux shines when continuity matters.</p>
+        <p>Use simple chat for short, disposable work without queueing, goals, approvals, or durable artifacts. tamux shines when continuity matters.</p>
       </section>
     </article>
   </main>

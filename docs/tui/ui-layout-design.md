@@ -41,7 +41,7 @@ This document defines the visual layout, interaction patterns, and component hie
 │ ├──────────────────────┤ ├──────────────────────┤ ├─────────────────────┤│
 │ │ ✓ Step 1             │ │ ● task-abc (run)     │ │ Sessions: 3         ││
 │ │ ▶ Step 2             │ │ ○ task-def (queue)   │ │ Approvals: 1        ││
-│ │ ○ Step 3             │ │ ○ task-ghi (queue)   │ │ Tasks: 5            ││
+│ │ ○ Step 3             │ │ ○ task-ghi (queue)   │ │ Workspace: 5        ││
 │ └──────────────────────┘ └──────────────────────┘ └─────────────────────┘│
 ├──────────────────────────────────────────────────────────────────────────┤
 │ :________________________________________________________________ [APPR] │
@@ -256,7 +256,7 @@ This document defines the visual layout, interaction patterns, and component hie
 ├─────────────────────────────────────────────────────────────────────────┤
 │ :sessions                     List active sessions                      │
 │ :goals                        List goal runs                            │
-│ :tasks                        List background tasks                     │
+│ :workspace-tasks              List workspace tasks                      │
 │ :threads                      List agent threads                        │
 │ :memory                       Open memory editor                        │
 │ :skills                       Browse skill documents                    │
@@ -369,7 +369,7 @@ App
 
 ### Phase 2: Agent Integration (P1)
 - Agent thread view with streaming
-- Task queue panel
+- Workspace task and execution queue panels
 - Goal runner detail view
 - Approval modal
 

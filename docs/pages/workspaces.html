@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Workspaces · tamux</title>
+  <meta name="description" content="How tamux workspaces organize threads and goals into Jira-style task boards with assignment, review, persistence, and local mirrors." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="../assets/icon.ico" />
+</head>
+<body data-page="workspaces.html">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <main id="main" class="container page-shell">
+
+    <article class="page-content">
+      <header class="page-header">
+        <p class="eyebrow">Board-level execution</p>
+        <h1>Workspaces</h1>
+        <p class="lead">A Jira-style control layer for turning threads and goals into assigned, reviewable, durable work.</p>
+      </header>
+
+      <section>
+        <h2>The model</h2>
+        <p>Workspaces sit above threads and goals. A workspace task is the board card: it owns status, priority, assignment, review, history, and deletion state. The task target is either a thread or a goal.</p>
+        <div class="card-grid two-up">
+          <article class="card"><h3>Thread</h3><p>A persisted conversation and tool-use surface.</p></article>
+          <article class="card"><h3>Goal</h3><p>A durable autonomous run with planning, execution, replanning, and reflection.</p></article>
+          <article class="card"><h3>Workspace task</h3><p>A board-owned item whose implementation target is a thread or goal.</p></article>
+          <article class="card"><h3>Queue entry</h3><p>Lower-level daemon execution machinery, not an operator-facing workspace task.</p></article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Board flow</h2>
+        <pre class="diagram"><code>Todo
+  |
+  v
+In Progress
+  |
+  v
+In Review
+  |
+  +-- pass --&gt; Done
+  |
+  +-- fail --&gt; In Progress + failed-review.md + new target</code></pre>
+        <p>New tasks land at the bottom of <code>Todo</code>. Running a task starts its reserved thread or goal and moves the card to <code>In Progress</code>. Completion moves it to review or done depending on reviewer settings.</p>
+      </section>
+
+      <section>
+        <h2>Task fields</h2>
+        <table>
+          <thead><tr><th>Field</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td>Title</td><td>Required board label and target title.</td></tr>
+            <tr><td>Task type</td><td><code>thread</code> or <code>goal</code>, selected at creation.</td></tr>
+            <tr><td>Description</td><td>Required work request passed to the assignee.</td></tr>
+            <tr><td>Definition of done</td><td>Optional acceptance criteria for completion and review.</td></tr>
+            <tr><td>Priority</td><td>Defaults to <code>low</code>.</td></tr>
+            <tr><td>Assignee</td><td>User, Svarog, or a configured agent/subagent. Required before run.</td></tr>
+            <tr><td>Reviewer</td><td>User or agent/subagent that validates completion.</td></tr>
+            <tr><td>Reporter</td><td>Automatically set to the user or Svarog.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Run and review</h2>
+        <p>Task creation reserves a <code>thread_id</code> or <code>goal_id</code> immediately, but the target is not executed until the task is run, dragged into <code>In Progress</code>, or picked up by the workspace operator.</p>
+        <ul class="check-list">
+          <li>Assignees receive the title, description, definition of done, workspace id, task id, and completion instructions.</li>
+          <li>Agent reviewers receive a review-specific target, not another run of the original task.</li>
+          <li>User reviewers move the card through explicit review actions.</li>
+          <li>Failed review writes <code>task-&lt;id&gt;/failed-review.md</code>, reopens work, and preserves older targets in history.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Operator mode</h2>
+        <p>Each workspace has one operator setting. <strong>User</strong> mode makes runs and transitions explicit. <strong>Svarog</strong> mode lets the daemon operate eligible board work automatically.</p>
+        <div class="callout info">
+          <strong>Why it matters:</strong> the same board can start as a user-controlled planning surface and later become an automatic Svarog-operated backlog without changing the task model.
+        </div>
+      </section>
+
+      <section>
+        <h2>Persistence</h2>
+        <p>Workspace state lives in SQLite and is mirrored into the tamux install directory:</p>
+        <pre><code>&lt;tamux install dir&gt;/workspaces/workspace-&lt;id&gt;/
+  workspace.json
+  task-&lt;id&gt;/
+    failed-review.md</code></pre>
+        <p>The database is the authoritative structured store. The file mirror gives operators and external apps a readable local copy of board metadata, task state, history, and review artifacts.</p>
+      </section>
+
+      <section>
+        <h2>Benefits</h2>
+        <ul class="check-list">
+          <li>Threads and goals become deliverables instead of scattered conversations.</li>
+          <li>Review and retry loops are explicit and auditable.</li>
+          <li>Svarog can operate a board when the operator switches to auto mode.</li>
+          <li>External tools can watch <code>workspace.json</code>.</li>
+          <li>History keeps old thread and goal attempts available without hiding the active target.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Where it fits</h2>
+        <p>Use a standalone thread for conversational work. Use a standalone goal for durable autonomy. Use a workspace when you need board ownership, assignment, review, status, and a local task mirror around those threads and goals.</p>
+      </section>
+    </article>
+  </main>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

@@ -1687,6 +1687,12 @@ async fn dispatch_tool_execution(
         "submit_goal_step_verdict" => {
             execute_submit_goal_step_verdict(args, agent, task_id).await
         }
+        "create_routine" => execute_create_routine(args, agent).await,
+        "list_routines" => execute_list_routines(args, agent).await,
+        "get_routine" => execute_get_routine(args, agent).await,
+        "pause_routine" => execute_pause_routine(args, agent).await,
+        "resume_routine" => execute_resume_routine(args, agent).await,
+        "delete_routine" => execute_delete_routine(args, agent).await,
         "list_triggers" => execute_list_triggers(args, agent).await,
         "ingest_webhook_event" => execute_ingest_webhook_event(args, agent).await,
         "add_trigger" => execute_add_trigger(args, agent).await,

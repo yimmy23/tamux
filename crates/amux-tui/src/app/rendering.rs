@@ -1906,13 +1906,14 @@ impl TuiModel {
                     widgets::command_palette::render(frame, overlay_area, &self.modal, &self.theme);
                 }
                 modal::ModalKind::ThreadPicker => {
-                    widgets::thread_picker::render_for_tasks(
+                    widgets::thread_picker::render_for_workspace(
                         frame,
                         overlay_area,
                         &self.chat,
                         &self.modal,
                         &self.subagents,
                         &self.tasks,
+                        &self.workspace,
                         &self.theme,
                     );
                 }

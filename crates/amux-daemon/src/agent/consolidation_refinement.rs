@@ -67,6 +67,7 @@ impl AgentEngine {
         let messages = vec![ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text(user_prompt.to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,

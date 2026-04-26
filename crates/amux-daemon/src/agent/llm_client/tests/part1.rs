@@ -245,6 +245,7 @@
             ApiMessage {
                 role: "assistant".to_string(),
                 content: ApiContent::Text("Checking both".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: Some(vec![
@@ -269,6 +270,7 @@
             ApiMessage {
                 role: "tool".to_string(),
                 content: ApiContent::Text("file list".to_string()),
+                reasoning: None,
                 tool_call_id: Some("call_1".to_string()),
                 name: Some("list_files".to_string()),
                 tool_calls: None,
@@ -276,6 +278,7 @@
             ApiMessage {
                 role: "tool".to_string(),
                 content: ApiContent::Text("readme contents".to_string()),
+                reasoning: None,
                 tool_call_id: Some("call_2".to_string()),
                 name: Some("read_file".to_string()),
                 tool_calls: None,
@@ -356,6 +359,7 @@
                 &[ApiMessage {
                     role: "user".to_string(),
                     content: ApiContent::Text("hello".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: None,
@@ -374,6 +378,7 @@
             ApiMessage {
                 role: "assistant".to_string(),
                 content: ApiContent::Text("Checking both".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: Some(vec![
@@ -398,6 +403,7 @@
             ApiMessage {
                 role: "tool".to_string(),
                 content: ApiContent::Text("file list".to_string()),
+                reasoning: None,
                 tool_call_id: Some("call_1".to_string()),
                 name: Some("list_files".to_string()),
                 tool_calls: None,
@@ -405,6 +411,7 @@
             ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("Continue".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,

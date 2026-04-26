@@ -46,6 +46,7 @@ mod external_messaging;
 mod forge;
 mod gateway_health;
 mod gateway_loop;
+mod routines;
 pub(crate) mod gene_pool;
 pub(crate) mod goal_dossier;
 mod goal_llm;

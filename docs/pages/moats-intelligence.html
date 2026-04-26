@@ -26,7 +26,7 @@
       <section>
         <h2>The core thesis</h2>
         <p>Most “AI terminal” products are still fundamentally prompt wrappers. They may have a shell, a chat box, and a few tools, but the intelligence layer is shallow: little durable state, weak continuity, minimal auditability, and almost no real system memory beyond the current context window.</p>
-        <p>tamux is different because the daemon owns the runtime. Terminal sessions, threads, tasks, goals, memory, provenance, collaboration state, and learning loops all live in one durable substrate. That matters because the highest-value moats in agent systems are not just model quality. They are <strong>system moats</strong>: what the runtime can remember, explain, verify, recover, and improve over time.</p>
+        <p>tamux is different because the daemon owns the runtime. Terminal sessions, threads, workspace tasks, goals, memory, provenance, collaboration state, and learning loops all live in one durable substrate. That matters because the highest-value moats in agent systems are not just model quality. They are <strong>system moats</strong>: what the runtime can remember, explain, verify, recover, and improve over time.</p>
         <div class="callout info">
           <strong>Short version:</strong> the moat is not “we call a strong model.” The moat is “the runtime compounds intelligence across work, time, tools, and operators.”
         </div>
@@ -46,7 +46,7 @@
           </article>
           <article class="card">
             <h3>Daemon-first pattern</h3>
-            <p>The runtime stays alive independently of any one client. Threads, goals, memory, approvals, provenance, and task execution survive reconnects, handoffs, and long-running work.</p>
+            <p>The runtime stays alive independently of any one client. Threads, workspace tasks, goals, memory, approvals, provenance, and execution queue state survive reconnects, handoffs, and long-running work.</p>
           </article>
         </div>
         <p>That separation is what makes the rest of the intelligence stack viable. Without durable runtime ownership, “memory,” “learning,” and “governance” are usually just partial summaries or UI tricks. With daemon ownership, they become first-class system properties.</p>

@@ -34,7 +34,7 @@
   <div class="card-grid">
     <article class="card">
       <h3>SQLite state</h3>
-      <p>Threads, tasks, goals, checkpoints, provenance, telemetry, operator model, and collaboration records.</p>
+      <p>Threads, workspace tasks, execution queue entries, goals, checkpoints, provenance, telemetry, operator model, and collaboration records.</p>
     </article>
     <article class="card">
       <h3>Memory files</h3>
@@ -55,7 +55,7 @@
   <h2>The persistence split</h2>
   <p>tamux deliberately uses a persistence split:</p>
   <ul class="check-list">
-    <li><strong>Structured state:</strong> SQLite for threads, tasks, goals, provenance, telemetry, and runtime records.</li>
+    <li><strong>Structured state:</strong> SQLite for threads, workspace tasks, execution queue entries, goals, provenance, telemetry, and runtime records.</li>
     <li><strong>Editable artifacts:</strong> markdown memory, skills, ledgers, and selected on-disk outputs.</li>
   </ul>
   <p>This keeps the system both durable and operator-auditable. Not everything should be a text file, and not everything should be hidden in a database.</p>

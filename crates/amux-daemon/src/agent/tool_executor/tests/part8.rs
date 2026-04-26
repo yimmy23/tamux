@@ -2012,6 +2012,179 @@ async fn list_tools_tool_returns_paginated_catalog() {
 }
 
 #[tokio::test]
+async fn routine_tools_round_trip_create_list_get() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let create_call = ToolCall::with_default_weles_review(
+        "tool-create-routine".to_string(),
+        ToolFunction {
+            name: "create_routine".to_string(),
+            arguments: serde_json::json!({
+                "id": "routine-daily-brief-tool",
+                "title": "Daily brief",
+                "description": "Send a daily project brief",
+                "schedule_expression": "0 9 * * *",
+                "target_kind": "task",
+                "target_payload": {
+                    "description": "Prepare daily brief",
+                    "priority": "normal"
+                },
+                "next_run_at": 1800
+            })
+            .to_string(),
+        },
+    );
+
+    let create_result = execute_tool(
+        &create_call,
+        &engine,
+        "thread-routine-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !create_result.is_error,
+        "create_routine should succeed: {}",
+        create_result.content
+    );
+    let created: serde_json::Value =
+        serde_json::from_str(&create_result.content).expect("create_routine should return JSON");
+    assert_eq!(created["status"], "created");
+    assert_eq!(created["routine"]["id"], "routine-daily-brief-tool");
+    assert_eq!(created["routine"]["target_kind"], "task");
+
+    let list_call = ToolCall::with_default_weles_review(
+        "tool-list-routines".to_string(),
+        ToolFunction {
+            name: "list_routines".to_string(),
+            arguments: serde_json::json!({}).to_string(),
+        },
+    );
+
+    let list_result = execute_tool(
+        &list_call,
+        &engine,
+        "thread-routine-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !list_result.is_error,
+        "list_routines should succeed: {}",
+        list_result.content
+    );
+    let listed: serde_json::Value =
+        serde_json::from_str(&list_result.content).expect("list_routines should return JSON");
+    let rows = listed.as_array().expect("list_routines should return array payload");
+    assert!(rows.iter().any(|row| row["id"] == "routine-daily-brief-tool"));
+
+    let get_call = ToolCall::with_default_weles_review(
+        "tool-get-routine".to_string(),
+        ToolFunction {
+            name: "get_routine".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-daily-brief-tool"
+            })
+            .to_string(),
+        },
+    );
+
+    let get_result = execute_tool(
+        &get_call,
+        &engine,
+        "thread-routine-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !get_result.is_error,
+        "get_routine should succeed: {}",
+        get_result.content
+    );
+    let loaded: serde_json::Value =
+        serde_json::from_str(&get_result.content).expect("get_routine should return JSON");
+    assert_eq!(loaded["id"], "routine-daily-brief-tool");
+    assert_eq!(loaded["title"], "Daily brief");
+    assert_eq!(loaded["schedule_expression"], "0 9 * * *");
+    assert_eq!(loaded["target_kind"], "task");
+}
+
+#[tokio::test]
+async fn add_trigger_tool_returns_custom_source_label() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-add-trigger-custom-source".to_string(),
+        ToolFunction {
+            name: "add_trigger".to_string(),
+            arguments: serde_json::json!({
+                "id": "trigger-custom-source-test",
+                "event_family": "filesystem",
+                "event_kind": "file_changed",
+                "notification_kind": "file_changed",
+                "title_template": "File changed: {path}",
+                "body_template": "Observed file change for {path}",
+                "agent_id": "weles",
+                "risk_label": "low"
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-add-trigger-custom-source",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "add_trigger should succeed: {}",
+        result.content
+    );
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("add_trigger should return JSON");
+    assert_eq!(payload["status"], "created");
+    assert_eq!(payload["trigger"]["id"], "trigger-custom-source-test");
+    assert_eq!(payload["trigger"]["source"], "custom");
+}
+
+#[tokio::test]
 async fn list_triggers_tool_surfaces_packaged_defaults_without_manual_seeding() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -6234,4 +6407,182 @@ fn apply_critique_modifications_uses_typed_directive_for_sensitive_file_narrowin
 
     assert_eq!(adjusted["path"].as_str(), Some(".env"));
     assert!(changes.iter().any(|item| item == "file:narrow_path:path"));
+}
+
+#[tokio::test]
+async fn routine_tools_pause_resume_delete_round_trip() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let create_call = ToolCall::with_default_weles_review(
+        "tool-create-routine-control".to_string(),
+        ToolFunction {
+            name: "create_routine".to_string(),
+            arguments: serde_json::json!({
+                "id": "routine-control-tool",
+                "title": "Control routine",
+                "description": "Verify pause resume delete",
+                "schedule_expression": "* * * * *",
+                "target_kind": "task",
+                "target_payload": {
+                    "title": "Run controlled routine",
+                    "description": "Exercise routine controls",
+                    "priority": "normal"
+                },
+                "next_run_at": 1800
+            })
+            .to_string(),
+        },
+    );
+    let create_result = execute_tool(
+        &create_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !create_result.is_error,
+        "create_routine should succeed: {}",
+        create_result.content
+    );
+
+    let pause_call = ToolCall::with_default_weles_review(
+        "tool-pause-routine".to_string(),
+        ToolFunction {
+            name: "pause_routine".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-control-tool"
+            })
+            .to_string(),
+        },
+    );
+    let pause_result = execute_tool(
+        &pause_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !pause_result.is_error,
+        "pause_routine should succeed: {}",
+        pause_result.content
+    );
+    let paused: serde_json::Value =
+        serde_json::from_str(&pause_result.content).expect("pause_routine should return JSON");
+    assert_eq!(paused["status"], "paused");
+    assert_eq!(paused["routine"]["id"], "routine-control-tool");
+    assert!(paused["routine"]["paused_at"].as_u64().is_some());
+
+    let resume_call = ToolCall::with_default_weles_review(
+        "tool-resume-routine".to_string(),
+        ToolFunction {
+            name: "resume_routine".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-control-tool"
+            })
+            .to_string(),
+        },
+    );
+    let resume_result = execute_tool(
+        &resume_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !resume_result.is_error,
+        "resume_routine should succeed: {}",
+        resume_result.content
+    );
+    let resumed: serde_json::Value =
+        serde_json::from_str(&resume_result.content).expect("resume_routine should return JSON");
+    assert_eq!(resumed["status"], "resumed");
+    assert_eq!(resumed["routine"]["id"], "routine-control-tool");
+    assert!(resumed["routine"]["paused_at"].is_null());
+
+    let delete_call = ToolCall::with_default_weles_review(
+        "tool-delete-routine".to_string(),
+        ToolFunction {
+            name: "delete_routine".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-control-tool"
+            })
+            .to_string(),
+        },
+    );
+    let delete_result = execute_tool(
+        &delete_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !delete_result.is_error,
+        "delete_routine should succeed: {}",
+        delete_result.content
+    );
+    let deleted: serde_json::Value = serde_json::from_str(&delete_result.content)
+        .expect("delete_routine should return JSON");
+    assert_eq!(deleted["status"], "deleted");
+    assert_eq!(deleted["routine_id"], "routine-control-tool");
+
+    let list_call = ToolCall::with_default_weles_review(
+        "tool-list-routines-after-delete".to_string(),
+        ToolFunction {
+            name: "list_routines".to_string(),
+            arguments: serde_json::json!({}).to_string(),
+        },
+    );
+    let list_result = execute_tool(
+        &list_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !list_result.is_error,
+        "list_routines should succeed after delete: {}",
+        list_result.content
+    );
+    let listed: serde_json::Value =
+        serde_json::from_str(&list_result.content).expect("list_routines should return JSON");
+    let rows = listed.as_array().expect("list_routines should return array payload");
+    assert!(!rows.iter().any(|row| row["id"] == "routine-control-tool"));
 }

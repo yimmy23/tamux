@@ -203,6 +203,7 @@ fn api_message_token_estimate_uses_token_units_not_raw_chars() {
     let message = ApiMessage {
         role: "user".to_string(),
         content: ApiContent::Text("x".repeat(APPROX_CHARS_PER_TOKEN * 100)),
+        reasoning: None,
         tool_call_id: None,
         name: None,
         tool_calls: None,

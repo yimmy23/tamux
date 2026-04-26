@@ -415,7 +415,7 @@ For deeper plugin details, see [plugin-development.md](plugin-development.md). F
 | Crate | Role |
 |---|---|
 | `tamux-protocol` | Shared message types, length-prefixed bincode codec, and configuration |
-| `tamux-daemon` | Background daemon: PTY management, task queue, snapshots, policy engine, credential scrubbing, telemetry, and history |
+| `tamux-daemon` | Background daemon: PTY management, workspace tasks, execution queue, snapshots, policy engine, credential scrubbing, telemetry, and history |
 | `tamux-cli` | Command-line client that builds the `tamux` binary |
 | `tamux-gateway` | Chat platform bridge crate |
 | `tamux-mcp` | MCP server crate |

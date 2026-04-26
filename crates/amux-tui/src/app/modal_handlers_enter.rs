@@ -166,6 +166,11 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     model.status_line = "Goal threads are created automatically".to_string();
                     return;
                 }
+                if thread_picker_tab == modal::ThreadPickerTab::Workspace {
+                    model.status_line =
+                        "Workspace threads are created from workspace tasks".to_string();
+                    return;
+                }
                 if thread_picker_tab == modal::ThreadPickerTab::Playgrounds {
                     model.status_line = "Playgrounds are created automatically".to_string();
                     return;
@@ -179,19 +184,26 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 let target_agent_id = TuiModel::thread_picker_target_agent_id(thread_picker_tab);
                 model.start_new_thread_view_for_agent(target_agent_id.as_deref());
                 model.status_line = "New conversation".to_string();
-            } else if let Some((tid, title)) = widgets::thread_picker::filtered_threads_for_tasks(
-                &model.chat,
-                &model.modal,
-                &model.subagents,
-                &model.tasks,
-            )
-            .get(cursor - 1)
-            .map(|thread| {
-                (
-                    thread.id.clone(),
-                    widgets::thread_picker::thread_display_title_for_tasks(thread, &model.tasks),
+            } else if let Some((tid, title)) =
+                widgets::thread_picker::filtered_threads_for_workspace(
+                    &model.chat,
+                    &model.modal,
+                    &model.subagents,
+                    &model.tasks,
+                    &model.workspace,
                 )
-            }) {
+                .get(cursor - 1)
+                .map(|thread| {
+                    (
+                        thread.id.clone(),
+                        widgets::thread_picker::thread_display_title_for_workspace(
+                            thread,
+                            &model.tasks,
+                            &model.workspace,
+                        ),
+                    )
+                })
+            {
                 model.close_top_modal();
                 model.input.reduce(input::InputAction::Clear);
                 model.open_thread_conversation(tid);

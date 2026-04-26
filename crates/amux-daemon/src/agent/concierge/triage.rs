@@ -49,6 +49,7 @@ impl ConciergeEngine {
         let messages = vec![ApiMessage {
             role: "user".into(),
             content: ApiContent::Text(user_prompt),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -134,6 +135,7 @@ impl ConciergeEngine {
                 messages.push(ApiMessage {
                     role: "assistant".into(),
                     content: ApiContent::Text(assistant_content),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: Some(api_tool_calls_from_tool_calls(&tool_calls)),
@@ -169,6 +171,7 @@ impl ConciergeEngine {
                     messages.push(ApiMessage {
                         role: "tool".into(),
                         content: ApiContent::Text(result.content),
+                        reasoning: None,
                         tool_call_id: Some(result.tool_call_id),
                         name: Some(result.name),
                         tool_calls: None,

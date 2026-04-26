@@ -156,11 +156,59 @@ fn add_available_tools_part_d(
         },
         "required": ["verdict", "explanation"]
     })));
-    tools.push(tool_def("list_triggers", "List configured event triggers with status, cooldown, last-fired metadata, and whether each trigger comes from packaged defaults or a custom entry.", serde_json::json!({
+    tools.push(tool_def("create_routine", "Create a durable routine definition with a schedule expression and target payload. This only defines the routine object; it does not execute it immediately.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "Optional explicit routine id" },
+            "title": { "type": "string", "description": "Routine title" },
+            "description": { "type": "string", "description": "What the routine is for" },
+            "enabled": { "type": "boolean", "description": "Whether the routine starts enabled (default: true)" },
+            "paused_at": { "type": "integer", "description": "Optional paused timestamp in Unix ms" },
+            "schedule_expression": { "type": "string", "description": "Cron-like schedule expression for the routine" },
+            "target_kind": { "type": "string", "enum": ["task", "goal", "tool"], "description": "What the routine should materialize into when executed" },
+            "target_payload": { "type": "object", "description": "JSON payload describing the target work to materialize later" },
+            "next_run_at": { "type": "integer", "description": "Optional next scheduled run in Unix ms" },
+            "last_run_at": { "type": "integer", "description": "Optional last completed run in Unix ms" }
+        },
+        "required": ["title", "description", "schedule_expression", "target_kind", "target_payload"]
+    })));
+    tools.push(tool_def("list_routines", "List durable routine definitions and their stored scheduling state. This surface lists routine objects only; it does not execute them.", serde_json::json!({
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def("ingest_webhook_event", "Validate a webhook-style event payload and route it through the trigger engine. This is the narrow ingest foundation for Pack 1 webhook/event flows.", serde_json::json!({
+    tools.push(tool_def("get_routine", "Fetch one durable routine definition by id.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "routine_id": { "type": "string", "description": "Routine definition id" }
+        },
+        "required": ["routine_id"]
+    })));
+    tools.push(tool_def("pause_routine", "Pause one durable routine definition by id so due checks stop materializing it until resumed.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "routine_id": { "type": "string", "description": "Routine definition id" }
+        },
+        "required": ["routine_id"]
+    })));
+    tools.push(tool_def("resume_routine", "Resume one paused durable routine definition by id so due checks can materialize it again.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "routine_id": { "type": "string", "description": "Routine definition id" }
+        },
+        "required": ["routine_id"]
+    })));
+    tools.push(tool_def("delete_routine", "Delete one durable routine definition by id.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "routine_id": { "type": "string", "description": "Routine definition id" }
+        },
+        "required": ["routine_id"]
+    })));
+    tools.push(tool_def("list_triggers", "List configured event triggers with status, cooldown, last-fired metadata, and whether each trigger comes from packaged defaults or a custom entry. On a fresh engine, packaged defaults are seeded automatically before listing.", serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })));
+    tools.push(tool_def("ingest_webhook_event", "Validate a webhook-style event payload and route it through the trigger engine. This is the narrow ingest foundation for Pack 1 webhook/event flows. On a fresh engine, packaged defaults are seeded automatically before routing.", serde_json::json!({
         "type": "object",
         "properties": {
             "event_family": { "type": "string", "description": "High-level event family, e.g. filesystem or system" },
@@ -171,7 +219,7 @@ fn add_available_tools_part_d(
         },
         "required": ["event_family", "event_kind"]
     })));
-    tools.push(tool_def("add_trigger", "Create a new runtime event trigger, validate it, and persist it to the trigger registry. Pack 1 defaults already cover health/weles_health, health/subagent_health, filesystem/file_changed, and system/disk_pressure.", serde_json::json!({
+    tools.push(tool_def("add_trigger", "Create a new runtime event trigger, validate it, and persist it to the trigger registry. Pack 1 defaults already cover health/weles_health, health/subagent_health, filesystem/file_changed, and system/disk_pressure. Successful creations return trigger metadata with source: custom.", serde_json::json!({
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "Optional explicit trigger id" },

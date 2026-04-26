@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tasks · tamux</title>
-  <meta name="description" content="Task queue, child tasks, bounded subagents, collaboration sessions, disagreement handling, and execution decomposition in tamux." />
+  <title>Execution Queue · tamux</title>
+  <meta name="description" content="Daemon execution queue entries, bounded subagents, collaboration sessions, disagreement handling, and execution decomposition in tamux." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -19,22 +19,23 @@
     <article class="page-content">
       <header class="page-header">
         <p class="eyebrow">Execution decomposition</p>
-        <h1>Tasks &amp; subagents</h1>
+        <h1>Execution queue &amp; subagents</h1>
         <p class="lead">tamux separates durable objectives from executable work and keeps delegation bounded, inspectable, and governable.</p>
       </header>
 
       <section>
-        <h2>Task queue fundamentals</h2>
-        <p>Tasks are daemon-owned work records with status, priority, dependencies, scheduling, session affinity, retry policy, parent/child relationships, and approval-waiting state.</p>
-        <p>This means work can be queued, resumed, cancelled, scheduled, or inspected independently of the current chat surface.</p>
+        <h2>Execution queue fundamentals</h2>
+        <p>The daemon execution queue stores lower-level work records with status, priority, dependencies, scheduling, session affinity, retry policy, parent/child relationships, and approval-waiting state.</p>
+        <p>These records are not workspace tasks. Workspace tasks are board cards; queue entries are runtime machinery that lets work be queued, resumed, cancelled, scheduled, or inspected independently of the current chat surface.</p>
       </section>
 
       <section>
-        <h2>Goals above tasks</h2>
-        <p>Goal runners convert executable plan steps into child tasks. That keeps planning and queue execution separate:</p>
+        <h2>Goals above queue entries</h2>
+        <p>Goal runners convert executable plan steps into child execution entries. That keeps planning and queue execution separate:</p>
         <ul class="check-list">
           <li>Goals own objective, planning, replanning, and reflection.</li>
-          <li>Tasks own dispatch, retries, session execution, and approval waits.</li>
+          <li>Queue entries own dispatch, retries, session execution, and approval waits.</li>
+          <li>Workspace tasks own board status, assignment, review, and history.</li>
         </ul>
       </section>
 

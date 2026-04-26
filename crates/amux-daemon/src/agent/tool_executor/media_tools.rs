@@ -1380,6 +1380,7 @@ async fn execute_multimodal_speech_to_text(
     let messages = vec![ApiMessage {
         role: "user".to_string(),
         content: ApiContent::Blocks(blocks),
+        reasoning: None,
         tool_call_id: None,
         name: None,
         tool_calls: None,
@@ -1729,6 +1730,7 @@ async fn execute_analyze_image(
     let messages = vec![ApiMessage {
         role: "user".to_string(),
         content: ApiContent::Blocks(blocks),
+        reasoning: None,
         tool_call_id: None,
         name: None,
         tool_calls: None,

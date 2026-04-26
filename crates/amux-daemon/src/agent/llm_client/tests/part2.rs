@@ -94,10 +94,33 @@ use amux_shared::providers::{
     }
 
     #[test]
+    fn messages_to_api_format_preserves_assistant_reasoning() {
+        let mut message = AgentMessage::user("", 42);
+        message.role = MessageRole::Assistant;
+        message.reasoning = Some("checked the workspace before choosing a tool".to_string());
+        message.tool_calls = Some(vec![ToolCall {
+            id: "call_1".to_string(),
+            function: ToolFunction {
+                name: "list_sessions".to_string(),
+                arguments: "{}".to_string(),
+            },
+            weles_review: None,
+        }]);
+
+        let api_messages = messages_to_api_format(&[message]);
+
+        assert_eq!(
+            api_messages[0].reasoning.as_deref(),
+            Some("checked the workspace before choosing a tool")
+        );
+    }
+
+    #[test]
     fn chat_completion_messages_null_assistant_content_for_tool_calls() {
         let messages = vec![ApiMessage {
             role: "assistant".to_string(),
             content: ApiContent::Text("I'll inspect that now".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: Some(vec![ApiToolCall {
@@ -116,6 +139,67 @@ use amux_shared::providers::{
         assert_eq!(serialized[1]["role"], "assistant");
         assert!(serialized[1]["content"].is_null());
         assert_eq!(serialized[1]["tool_calls"][0]["id"], "call_1");
+    }
+
+    #[test]
+    fn openrouter_chat_completion_messages_preserve_reasoning_content_for_tool_calls() {
+        let messages = vec![ApiMessage {
+            role: "assistant".to_string(),
+            content: ApiContent::Text("I'll inspect that now".to_string()),
+            reasoning: Some("Need the directory listing before answering.".to_string()),
+            tool_call_id: None,
+            name: None,
+            tool_calls: Some(vec![ApiToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: ApiToolCallFunction {
+                    name: "list_sessions".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+        }];
+
+        let serialized = build_chat_completion_messages_with_options(
+            "system prompt",
+            &messages,
+            true,
+            false,
+        )
+        .expect("serialize");
+
+        assert_eq!(
+            serialized[1]["reasoning_content"],
+            "Need the directory listing before answering."
+        );
+    }
+
+    #[test]
+    fn openrouter_chat_completion_messages_add_legacy_tool_reasoning_placeholder() {
+        let messages = vec![ApiMessage {
+            role: "assistant".to_string(),
+            content: ApiContent::Text(String::new()),
+            reasoning: None,
+            tool_call_id: None,
+            name: None,
+            tool_calls: Some(vec![ApiToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: ApiToolCallFunction {
+                    name: "list_sessions".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+        }];
+
+        let serialized = build_chat_completion_messages_with_options(
+            "system prompt",
+            &messages,
+            true,
+            true,
+        )
+        .expect("serialize");
+
+        assert_eq!(serialized[1]["reasoning_content"], " ");
     }
 
     #[test]
@@ -469,6 +553,7 @@ use amux_shared::providers::{
             &[ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,
@@ -515,6 +600,7 @@ use amux_shared::providers::{
             &[ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,
@@ -580,6 +666,7 @@ use amux_shared::providers::{
                 ApiMessage {
                     role: "user".to_string(),
                     content: ApiContent::Text("first question".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: None,
@@ -587,6 +674,7 @@ use amux_shared::providers::{
                 ApiMessage {
                     role: "assistant".to_string(),
                     content: ApiContent::Text("I'll inspect that".to_string()),
+                    reasoning: None,
                     tool_call_id: None,
                     name: None,
                     tool_calls: Some(vec![ApiToolCall {
@@ -601,6 +689,7 @@ use amux_shared::providers::{
                 ApiMessage {
                     role: "tool".to_string(),
                     content: ApiContent::Text("file contents".to_string()),
+                    reasoning: None,
                     tool_call_id: Some("call_1".to_string()),
                     name: Some("read_file".to_string()),
                     tool_calls: None,
@@ -687,6 +776,7 @@ use amux_shared::providers::{
             &[ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,
@@ -726,6 +816,7 @@ use amux_shared::providers::{
             &[ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,
@@ -774,6 +865,7 @@ use amux_shared::providers::{
             &[ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,
@@ -820,6 +912,7 @@ use amux_shared::providers::{
             &[ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,
@@ -888,6 +981,7 @@ use amux_shared::providers::{
             &[ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,

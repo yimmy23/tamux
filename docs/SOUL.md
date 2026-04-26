@@ -22,7 +22,7 @@ Operator
            |
            +--> PTY session management
            +--> Multi-agent runtime (8 personas, threads, tools, memory, goals)
-           +--> Task queue + Goal runners
+           +--> Workspace tasks + Execution queue + Goal runners
            +--> Approval flow + Safety controls
            +--> Persistence (SQLite + files)
            +--> Telemetry + Provenance + Audit
@@ -31,7 +31,8 @@ Operator
 The daemon owns:
 - PTY session lifecycle (creation, I/O, history, transcripts)
 - Agent threads with persisted messages and tool metadata
-- Background task queue with dependencies, scheduling, retry, approval waiting
+- Workspace task boards with assignment, review, status, and history
+- Background execution queue with dependencies, scheduling, retry, approval waiting
 - Durable goal runners that plan, dispatch, monitor, replan, and reflect
 - Three curated markdown memory files (SOUL.md, MEMORY.md, USER.md)
 - Operator model, collaboration sessions, skill variants, provenance records
@@ -77,18 +78,18 @@ Autonomous execution passes through operator-visible controls:
 
 Mixed storage by design:
 
-- **SQLite**: Structured operational state (threads, messages, tasks, goals, transcripts, operator profiles, provenance records, collaboration sessions, skill variants).
+- **SQLite**: Structured operational state (threads, messages, workspace tasks, execution queue entries, goals, transcripts, operator profiles, provenance records, collaboration sessions, skill variants).
 - **Files**: Editable markdown memory, generated skills, transcript bodies, telemetry JSONL ledgers, WORM ledger files, sidecar state.
 
 ## Startup and Hydration
 
-On startup, the agent engine hydrates from disk and SQLite: threads, messages, task queue, goal runs, work context, memory files, operator model, collaboration sessions. The runtime resumes from prior durable state — it does not start fresh on every boot.
+On startup, the agent engine hydrates from disk and SQLite: threads, messages, workspace tasks, execution queue entries, goal runs, work context, memory files, operator model, collaboration sessions. The runtime resumes from prior durable state — it does not start fresh on every boot.
 
 ## First-Run Truth
 
 1. **The daemon is the source of truth.** Everything flows through it. Start it first, then connect any client.
 2. **Memory is curated, not dumped.** The three markdown files have enforced size limits (SOUL.md ≤1500 chars, MEMORY.md ≤2200 chars, USER.md ≤1375 chars). They store durable signal, not transient run output.
-3. **Goal runners are the autonomy layer.** Give a high-level objective, and the system plans, dispatches tasks, pauses for approval on risky work, monitors, replans, and reflects.
+3. **Goal runners are the autonomy layer.** Give a high-level objective, and the system plans, dispatches execution entries, pauses for approval on risky work, monitors, replans, and reflects.
 4. **Safety is visible, not invisible.** Approvals, risk labels, and provenance trails are operator-first. Nothing happens behind your back without a trace.
 5. **This is a Rust codebase.** Build with `cargo`, run preflight with `./scripts/setup.sh --check --profile source`, and consult `docs/how-tamux-works.md` for the full system description.
 
@@ -98,6 +99,6 @@ If you're new to tamux, here's what you need to know straight away:
 
 1. **The daemon is the source of truth.** Everything flows through it. Start it first, then connect any client.
 2. **Memory is curated, not dumped.** The three markdown files have enforced size limits (SOUL.md ≤1500 chars, MEMORY.md ≤2200 chars, USER.md ≤1375 chars). They store durable signal, not transient run output.
-3. **Goal runners are the autonomy layer.** Give a high-level objective, and the system plans, dispatches tasks, pauses for approval on risky work, monitors, replans, and reflects.
+3. **Goal runners are the autonomy layer.** Give a high-level objective, and the system plans, dispatches execution entries, pauses for approval on risky work, monitors, replans, and reflects.
 4. **Safety is visible, not invisible.** Approvals, risk labels, and provenance trails are operator-first. Nothing happens behind your back without a trace.
 5. **This is a Rust codebase.** Build with `cargo`, run preflight with `./scripts/setup.sh --check --profile source`, and consult `docs/how-tamux-works.md` for the full system description.

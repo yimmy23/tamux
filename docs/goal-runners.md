@@ -10,7 +10,7 @@ For the currently landed additive state-transition substrate that goal work can 
 
 1. Accepts a long-running objective from the UI.
 2. Uses the built-in daemon agent to generate a structured plan.
-3. Converts plan steps into child tasks on the daemon task queue.
+3. Converts plan steps into child execution entries on the daemon execution queue.
 4. Watches approvals, retries, failures, and completion.
 5. Reflects on the final trajectory.
 6. Optionally writes durable memory and generates a reusable skill document.
@@ -49,8 +49,8 @@ Goal runs move through these top-level states:
 
 - `queued`: accepted by the daemon but not planned yet
 - `planning`: the daemon is building the initial structured plan
-- `running`: the goal is executing or waiting on child-task progress
-- `awaiting_approval`: a child task hit a managed-command approval gate
+- `running`: the goal is executing or waiting on child execution progress
+- `awaiting_approval`: a child execution entry hit a managed-command approval gate
 - `paused`: orchestration is paused by the operator
 - `completed`: all steps finished and the daemon recorded the final reflection
 - `failed`: the run exhausted replanning or failed irrecoverably
@@ -97,14 +97,14 @@ When Mission Control is focused, the header no longer borrows whatever conversat
 
 If the live thread is missing, the header still keeps the fallback context window visible so the operator can see which model budget is in effect even before thread hydration completes.
 
-## How Goal Runs Use The Task Queue
+## How Goal Runs Use The Execution Queue
 
-Goal runners do not replace the daemon task queue. They sit above it.
+Goal runners do not replace the daemon execution queue. They sit above it.
 
 - A goal run owns the long-lived objective and plan.
-- Each executable step becomes a child task.
-- Child tasks run through the existing queue, lane, approval, and retry machinery.
-- The goal runner watches those child tasks and decides whether to continue, replan, or fail.
+- Each executable step becomes a child execution entry.
+- Child execution entries run through the existing queue, lane, approval, and retry machinery.
+- The goal runner watches those entries and decides whether to continue, replan, or fail.
 
 This means goal runners inherit the same safety controls as the rest of tamux:
 
@@ -116,13 +116,13 @@ This means goal runners inherit the same safety controls as the rest of tamux:
 
 ## Approvals And Replanning
 
-When a child task hits an approval boundary:
+When a child execution entry hits an approval boundary:
 
-- the task enters `awaiting_approval`
+- the entry enters `awaiting_approval`
 - the goal run surfaces `awaiting_approval`
 - execution resumes only after the operator resolves the approval request
 
-When a child task fails:
+When a child execution entry fails:
 
 - the goal runner records the failure
 - if replanning budget remains, it asks the daemon agent for revised remaining steps
@@ -140,7 +140,7 @@ The structured run history stays in SQLite. The editable memory and skill artifa
 ## Current Limits
 
 - Goal runners currently require the built-in `daemon` backend.
-- `pause` stops future orchestration but does not forcibly terminate a child task that is already running.
+- `pause` stops future orchestration but does not forcibly terminate a child execution entry that is already running.
 - Reflection-driven memory updates are intentionally conservative and should capture durable knowledge, not temporary run output.
 - Runtime agent edits in the current implementation are a TUI-side operator control. They update the live Mission Control roster and confirmation flow, but they do not yet imply a new daemon-side orchestration protocol beyond the existing goal metadata.
 
@@ -148,8 +148,8 @@ The structured run history stays in SQLite. The editable memory and skill artifa
 
 Use goal runners when:
 
-- the task will take multiple steps
-- you want child task visibility and approvals
+- the work will take multiple steps
+- you want child execution visibility and approvals
 - you want the daemon to survive UI disconnects
 - the result may be reusable as durable memory or a procedural skill
 
@@ -157,4 +157,4 @@ Use a normal chat turn when:
 
 - you only need reasoning or a quick answer
 - no durable execution loop is required
-- the task does not need queueing, replanning, or operator checkpoints
+- the work does not need queueing, replanning, or operator checkpoints

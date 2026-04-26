@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Architecture · tamux</title>
-  <meta name="description" content="Technical deep dive into the tamux daemon, clients, agent runtime, task queue, goal runners, and self-orchestration layers." />
+  <meta name="description" content="Technical deep dive into the tamux daemon, clients, agent runtime, workspace tasks, execution queue, goal runners, and self-orchestration layers." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -25,7 +25,7 @@
 
       <section>
         <h2>System boundary</h2>
-        <p>The daemon owns state; UIs are clients. Sessions, goal runs, tasks, threads, approvals, memory, transcripts, and telemetry do not belong to any browser window or terminal tab.</p>
+        <p>The daemon owns state; UIs are clients. Sessions, goal runs, workspace tasks, threads, approvals, memory, transcripts, and telemetry do not belong to any browser window or terminal tab.</p>
         <pre class="diagram"><code>Operator
   +-- Electron / React UI
   +-- TUI
@@ -44,7 +44,7 @@
         <div class="card-grid">
           <article class="card">
             <h3>Daemon</h3>
-            <p>Owns PTY sessions, workspace state, agent threads, task queue, goal runs, approvals, persistence, telemetry, memory.</p>
+            <p>Owns PTY sessions, workspace state, agent threads, workspace tasks, execution queue entries, goal runs, approvals, persistence, telemetry, memory.</p>
           </article>
           <article class="card">
             <h3>Clients</h3>
@@ -56,21 +56,22 @@
           </article>
           <article class="card">
             <h3>Agent runtime</h3>
-            <p>Threaded conversations, tool execution, background tasks, goal planning, memory maintenance, health supervision, learning loops.</p>
+            <p>Threaded conversations, tool execution, background execution, goal planning, memory maintenance, health supervision, learning loops.</p>
           </article>
         </div>
       </section>
 
       <section>
-        <h2>Thread, task, and goal relationships</h2>
+        <h2>Thread, workspace task, and goal relationships</h2>
         <p>tamux separates conversational turns from durable execution:</p>
         <ul class="check-list">
           <li><strong>Threads:</strong> persisted conversations and tool messages</li>
-          <li><strong>Tasks:</strong> daemon-owned units with status, priority, dependencies, retries, session affinity</li>
+          <li><strong>Workspace tasks:</strong> board-owned cards with status, priority, assignee, reviewer, and a target thread or goal</li>
           <li><strong>Goal runs:</strong> durable autonomy layer that plans, dispatches, monitors, replans, reflects</li>
+          <li><strong>Execution queue entries:</strong> lower-level daemon work records used by goals, subagents, and managed commands</li>
         </ul>
         <div class="callout info">
-          <strong>Rule:</strong> goal runs sit above the queue. They use it, not replace it.
+          <strong>Rule:</strong> workspace tasks are the operator-facing tasks. Goal runners and agents may create execution queue entries underneath them.
         </div>
       </section>
 
@@ -100,7 +101,7 @@ Layer 0: Execution
         <div class="card-grid two-up">
           <article class="card">
             <h3>Layer 0 — Execution</h3>
-            <p>LLM streaming, tool calls, child-task dispatch, goal-step progression, direct runtime work.</p>
+            <p>LLM streaming, tool calls, child execution dispatch, goal-step progression, direct runtime work.</p>
           </article>
           <article class="card">
             <h3>Layer 1 — Liveness</h3>
@@ -137,7 +138,7 @@ Layer 0: Execution
         <ul class="check-list">
           <li>Long-running work survives UI disconnects</li>
           <li>Multiple clients attach to same execution state</li>
-          <li>Memory and tasks stay coherent across surfaces</li>
+          <li>Memory, workspace tasks, and queue state stay coherent across surfaces</li>
           <li>Approvals, audit trails, run history stay central</li>
           <li>Plugins and gateways extend the same runtime</li>
         </ul>
@@ -146,7 +147,7 @@ Layer 0: Execution
 
       <section>
         <h2>Next steps</h2>
-        <p>For implementation, read <a href="goal-runners.html">Goal Runners</a>, <a href="memory.html">Memory</a>, <a href="security.html">Security</a>, and <a href="plugins.html">Plugins</a>. These explain how the execution substrate surfaces to operators and extension authors.</p>
+        <p>For implementation, read <a href="workspaces.html">Workspaces</a>, <a href="goal-runners.html">Goal Runners</a>, <a href="memory.html">Memory</a>, <a href="security.html">Security</a>, and <a href="plugins.html">Plugins</a>. These explain how the execution substrate surfaces to operators and extension authors.</p>
       </section>
     </article>
   </main>

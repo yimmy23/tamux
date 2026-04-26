@@ -87,6 +87,7 @@ impl ConciergeEngine {
         let messages = vec![ApiMessage {
             role: "user".into(),
             content: ApiContent::Text(user_prompt),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,

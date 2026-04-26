@@ -98,6 +98,9 @@ impl AgentEngine {
         loop {
             tokio::select! {
                 _ = task_tick.tick() => {
+                    if let Err(error) = self.materialize_due_routines().await {
+                        tracing::error!("agent routine materialization error: {error}");
+                    }
                     self.clone().dispatch_goal_runs().await;
                     if let Err(error) = self.clone().dispatch_ready_tasks().await {
                         tracing::error!("agent task error: {error}");

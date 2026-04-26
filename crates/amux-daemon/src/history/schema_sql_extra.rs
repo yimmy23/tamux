@@ -806,6 +806,22 @@ pub(super) fn extended_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_event_triggers_family_kind_enabled ON event_triggers(event_family, event_kind, enabled, updated_at DESC);
 
+            CREATE TABLE IF NOT EXISTS routine_definitions (
+                id                  TEXT PRIMARY KEY,
+                title               TEXT NOT NULL,
+                description         TEXT NOT NULL,
+                enabled             INTEGER NOT NULL DEFAULT 1,
+                paused_at           INTEGER,
+                schedule_expression TEXT NOT NULL,
+                target_kind         TEXT NOT NULL,
+                target_payload_json TEXT NOT NULL,
+                next_run_at         INTEGER,
+                last_run_at         INTEGER,
+                created_at          INTEGER NOT NULL,
+                updated_at          INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_routine_definitions_enabled_next_run ON routine_definitions(enabled, next_run_at, updated_at DESC);
+
             CREATE TABLE IF NOT EXISTS operator_profile_checkins (
                 id            TEXT PRIMARY KEY,
                 kind          TEXT NOT NULL,

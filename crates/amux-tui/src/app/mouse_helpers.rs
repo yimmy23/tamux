@@ -1106,12 +1106,13 @@ impl TuiModel {
                     }
                 }
                 modal::ModalKind::ThreadPicker => {
-                    match widgets::thread_picker::hit_test_for_tasks(
+                    match widgets::thread_picker::hit_test_for_workspace(
                         overlay_area,
                         &self.chat,
                         &self.modal,
                         &self.subagents,
                         &self.tasks,
+                        &self.workspace,
                         Position::new(mouse.column, mouse.row),
                     ) {
                         Some(widgets::thread_picker::ThreadPickerHitTarget::Tab(tab)) => {

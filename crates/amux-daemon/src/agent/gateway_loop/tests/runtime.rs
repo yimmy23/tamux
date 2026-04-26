@@ -490,6 +490,344 @@ async fn gateway_approval_reply_fast_path_resolves_pending_task_and_notifies_cha
 }
 
 #[tokio::test]
+async fn slack_gateway_approval_reply_fast_path_resolves_pending_task_and_notifies_channel() {
+    let root = make_test_root("slack-gateway-approval-reply-fast-path");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Slack".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "C123".to_string(),
+        message_id: Some("slack-seed-approval-1".to_string()),
+        thread_context: Some(gateway::ThreadContext {
+            slack_thread_ts: Some("1712345678.000100".to_string()),
+            ..Default::default()
+        }),
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Slack:C123", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "slack-approval-fast-path-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "slack-approval-task-fast-path".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Slack".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-once".to_string(),
+        channel: "C123".to_string(),
+        message_id: Some("slack-approval-reply-1".to_string()),
+        thread_context: Some(gateway::ThreadContext {
+            slack_thread_ts: Some("1712345678.000100".to_string()),
+            ..Default::default()
+        }),
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "slack");
+    assert_eq!(request.channel_id, "C123");
+    assert_eq!(request.thread_id.as_deref(), Some("1712345678.000100"));
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "slack".to_string(),
+            channel_id: "C123".to_string(),
+            requested_channel_id: Some("C123".to_string()),
+            delivery_id: Some("slack-delivery-approval-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "slack-approval-task-fast-path")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| message.role == MessageRole::User && message.content == "approve-once"));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn telegram_gateway_approval_reply_fast_path_resolves_pending_task_and_notifies_channel() {
+    let root = make_test_root("telegram-gateway-approval-reply-fast-path");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Telegram".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "123456".to_string(),
+        message_id: Some("telegram-seed-approval-1".to_string()),
+        thread_context: Some(gateway::ThreadContext {
+            telegram_message_id: Some(777),
+            ..Default::default()
+        }),
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Telegram:123456", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let approval_id = "telegram-approval-fast-path-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "telegram-approval-task-fast-path".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Telegram".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-once".to_string(),
+        channel: "123456".to_string(),
+        message_id: Some("telegram-approval-reply-1".to_string()),
+        thread_context: Some(gateway::ThreadContext {
+            telegram_message_id: Some(777),
+            ..Default::default()
+        }),
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway approval confirmation should be emitted")
+        .expect("gateway approval confirmation should exist")
+    {
+        amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "telegram");
+    assert_eq!(request.channel_id, "123456");
+    assert_eq!(request.thread_id.as_deref(), Some("777"));
+    assert!(request
+        .content
+        .to_ascii_lowercase()
+        .contains("approved once"));
+
+    engine
+        .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "telegram".to_string(),
+            channel_id: "123456".to_string(),
+            requested_channel_id: Some("123456".to_string()),
+            delivery_id: Some("telegram-delivery-approval-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == "telegram-approval-task-fast-path")
+        .cloned()
+        .expect("task should exist");
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .any(|message| message.role == MessageRole::User && message.content == "approve-once"));
+    assert!(thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message
+                .content
+                .to_ascii_lowercase()
+                .contains("approved once")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
 async fn gateway_approval_reply_fast_path_accepts_approve_once_phrase_and_notifies_channel() {
     let root = make_test_root("gateway-approval-reply-fast-path-approve-once-phrase");
     let manager = SessionManager::new_test(&root).await;

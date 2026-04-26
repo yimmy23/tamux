@@ -4,11 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>tamux · Daemon-first AI Environment</title>
-  <meta name="description" content="tamux is a daemon-first terminal multiplexer with durable agent runtime, goal runners, and governed execution." />
+  <meta name="description" content="tamux is a daemon-first terminal multiplexer with durable agent runtime, workspace task boards, goal runners, and governed execution." />
   
   <!-- Open Graph -->
   <meta property="og:title" content="tamux · Daemon-first AI Environment">
-  <meta property="og:description" content="A terminal multiplexer where the daemon owns all state. Sessions, goals, and memory persist beyond any client connection.">
+  <meta property="og:description" content="A terminal multiplexer where the daemon owns all state. Sessions, workspace tasks, goals, and memory persist beyond any client connection.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://docs.tamux.app">
   <meta property="og:image" content="https://docs.tamux.app/assets/og_image.jpg">
@@ -16,7 +16,7 @@
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="tamux · Daemon-first AI Environment">
-  <meta name="twitter:description" content="A terminal multiplexer where the daemon owns all state. Sessions, goals, and memory persist beyond any client connection.">
+  <meta name="twitter:description" content="A terminal multiplexer where the daemon owns all state. Sessions, workspace tasks, goals, and memory persist beyond any client connection.">
   <meta name="twitter:image" content="https://docs.tamux.app/assets/og_image.jpg">
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -34,13 +34,14 @@
       <section class="hero">
         <p class="eyebrow">Agentic Terminal Runtime</p>
         <h1>Daemon-first AI environment</h1>
-        <p class="lead">A terminal multiplexer where the daemon owns all state. Sessions, goals, and memory persist beyond any client connection.</p>
+        <p class="lead">A terminal multiplexer where the daemon owns all state. Sessions, workspace tasks, goals, and memory persist beyond any client connection.</p>
         <div class="hero-actions">
           <a class="button primary" href="pages/guides.html">Get started</a>
           <a class="button" href="pages/architecture.html">Architecture</a>
         </div>
         <div class="hero-grid">
           <div class="stat-card"><strong>Daemon-first</strong><span>State lives in the daemon, not the UI.</span></div>
+          <div class="stat-card"><strong>Workspaces</strong><span>Jira-style task boards over threads and goals.</span></div>
           <div class="stat-card"><strong>Goal runners</strong><span>Durable autonomy for multi-step work.</span></div>
           <div class="stat-card"><strong>Governed execution</strong><span>Approvals and provenance built in.</span></div>
         </div>
@@ -48,7 +49,7 @@
 
       <section>
         <h2>What it is</h2>
-        <p>tamux is a shared execution environment where the daemon owns terminal sessions, agent threads, task queue state, goal-run state, approvals, memory, and telemetry. Electron, the TUI, the CLI, MCP clients, and chat gateways all reconnect to the same durable runtime.</p>
+        <p>tamux is a shared execution environment where the daemon owns terminal sessions, agent threads, workspace tasks, execution queue state, goal-run state, approvals, memory, and telemetry. Electron, the TUI, the CLI, MCP clients, and chat gateways all reconnect to the same durable runtime.</p>
         <div class="callout info">
           <strong>Mental model:</strong> an autonomous operating environment with terminal surfaces, not a disposable prompt window.
         </div>
@@ -59,11 +60,15 @@
         <div class="card-grid feature-grid">
           <article class="card">
             <h3>Daemon as source of truth</h3>
-            <p>The daemon owns sessions, threads, tasks, approvals, goal runs, transcripts, memory, and operational state. Clients are views into that state.</p>
+            <p>The daemon owns sessions, threads, workspace tasks, approvals, goal runs, transcripts, memory, and operational state. Clients are views into that state.</p>
+          </article>
+          <article class="card">
+            <h3>Workspace task boards</h3>
+            <p>Workspaces organize threads and goals into Todo, In Progress, In Review, and Done with assignees, reviewers, history, and local mirrors.</p>
           </article>
           <article class="card">
             <h3>Durable goal runners</h3>
-            <p>Goal runs accept long-running objectives, create plans, dispatch child tasks, survive disconnects, and record reflections and reusable skills.</p>
+            <p>Goal runs accept long-running objectives, create plans, dispatch child execution items, survive disconnects, and record reflections and reusable skills.</p>
           </article>
           <article class="card">
             <h3>PTY and workspace control</h3>
@@ -113,7 +118,8 @@
          |
          +--&gt; PTY session management
          +--&gt; Agent runtime
-         +--&gt; Task queue
+         +--&gt; Workspace tasks
+         +--&gt; Execution queue
          +--&gt; Goal runners
          +--&gt; Approval flow
          +--&gt; Persistence + telemetry</code></pre>
@@ -133,7 +139,11 @@
           </a>
           <a class="doc-card" href="pages/architecture.html">
             <h3>Technical deep dive</h3>
-            <p>Daemon ownership, task queue, self-orchestration layers, and component breakdowns.</p>
+            <p>Daemon ownership, workspace tasks, execution queue, self-orchestration layers, and component breakdowns.</p>
+          </a>
+          <a class="doc-card" href="pages/workspaces.html">
+            <h3>Workspaces</h3>
+            <p>How board-owned tasks wrap threads and goals with assignment, review, history, and local JSON mirrors.</p>
           </a>
           <a class="doc-card" href="pages/goal-runners.html">
             <h3>Goal runners</h3>
@@ -163,7 +173,7 @@
         <ul class="check-list">
           <li>Developers who want long-running AI work to survive closing the UI.</li>
           <li>Operators who need a visible, governed control plane rather than invisible automation.</li>
-          <li>Teams exploring multi-agent workflows, plugins, background tasks, and domain-specific mission layers.</li>
+          <li>Teams exploring multi-agent workflows, plugins, workspace boards, execution queues, and domain-specific mission layers.</li>
           <li>People who want terminal-native workspaces but do not want to give up modern orchestration and memory.</li>
         </ul>
       </section>

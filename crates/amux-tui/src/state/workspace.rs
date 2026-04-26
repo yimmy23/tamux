@@ -200,6 +200,36 @@ impl WorkspaceState {
             .is_some_and(|task| task.assignee.is_none())
     }
 
+    pub fn all_runtime_thread_ids(&self) -> Vec<String> {
+        let mut thread_ids = Vec::new();
+        for task in self.tasks.iter().filter(|task| task.deleted_at.is_none()) {
+            if let Some(thread_id) = task.thread_id.as_deref() {
+                push_unique_id(&mut thread_ids, thread_id);
+            }
+            for entry in &task.runtime_history {
+                if let Some(thread_id) = entry.thread_id.as_deref() {
+                    push_unique_id(&mut thread_ids, thread_id);
+                }
+            }
+        }
+        thread_ids
+    }
+
+    pub fn all_runtime_goal_run_ids(&self) -> Vec<String> {
+        let mut goal_run_ids = Vec::new();
+        for task in self.tasks.iter().filter(|task| task.deleted_at.is_none()) {
+            if let Some(goal_run_id) = task.goal_run_id.as_deref() {
+                push_unique_id(&mut goal_run_ids, goal_run_id);
+            }
+            for entry in &task.runtime_history {
+                if let Some(goal_run_id) = entry.goal_run_id.as_deref() {
+                    push_unique_id(&mut goal_run_ids, goal_run_id);
+                }
+            }
+        }
+        goal_run_ids
+    }
+
     pub fn set_settings(&mut self, settings: WorkspaceSettings) {
         self.workspace_id = settings.workspace_id.clone();
         upsert_settings(&mut self.settings_list, settings.clone());
@@ -444,6 +474,12 @@ fn upsert_settings(settings: &mut Vec<WorkspaceSettings>, next: WorkspaceSetting
     } else {
         settings.push(next);
         settings.sort_by(|left, right| left.workspace_id.cmp(&right.workspace_id));
+    }
+}
+
+fn push_unique_id(ids: &mut Vec<String>, id: &str) {
+    if !id.is_empty() && !ids.iter().any(|candidate| candidate == id) {
+        ids.push(id.to_string());
     }
 }
 

@@ -14,7 +14,7 @@ tamux works best when you treat it as a daemon-backed operating environment, not
 - Use the CLI and MCP server when you want automation, scripting, or external-agent integration.
 - Let the daemon own state. Closing the UI should not mean losing the work.
 
-The main failure mode for new users is treating tamux like a disposable prompt window. The whole point is durable state, durable threads, durable tasks, and durable goals.
+The main failure mode for new users is treating tamux like a disposable prompt window. The whole point is durable state, durable threads, durable workspace tasks, and durable goals.
 
 ## Choose Strong Model Roles
 
@@ -122,7 +122,7 @@ LLM-based compaction is especially useful when:
 
 Heuristic compaction is still reasonable when:
 
-- the task is short
+- the work is short
 - the context is mostly recent and disposable
 - cost matters more than continuity
 - you are using tamux for quick utility work
@@ -229,7 +229,7 @@ Bad Weles usage is adding it everywhere with no purpose. Good Weles usage is app
 
 ## Run Goal Work As Goal Work
 
-If the task is long-running, multi-step, or likely to survive UI restarts, use goal runners instead of trying to manually babysit a chat thread.
+If work is long-running, multi-step, or likely to survive UI restarts, use goal runners or a workspace task instead of trying to manually babysit a chat thread.
 
 Good goal-run candidates:
 
@@ -240,7 +240,7 @@ Good goal-run candidates:
 - documentation sweeps
 - repeated operational workflows
 
-Goal runs are the right layer when you want planning, task queues, approvals, persistence, and reflection instead of a one-shot answer.
+Goal runs are the right layer when you want planning, execution queues, approvals, persistence, and reflection instead of a one-shot answer. Workspaces are the right layer when you also want assignment, board status, review, and task history.
 
 See [goal-runners.md](goal-runners.md) for the goal-runner model.
 
@@ -298,7 +298,7 @@ Avoid this:
 
 ## Match Client To Situation
 
-Use the client that gives the right control surface for the task.
+Use the client that gives the right control surface for the work.
 
 - desktop app: best for settings, visibility, chat, and broad operational control
 - TUI: best for keyboard-first work, remote sessions, and daemon inspection in the terminal
@@ -309,7 +309,7 @@ There is no single correct frontend. The daemon is the product; clients are view
 
 ## Prefer Real Histories Over Re-Explaining Everything
 
-When tamux already has the thread, task, or goal history, use that continuity instead of restating the whole situation from zero every time. This is one of the main reasons to use tamux in the first place.
+When tamux already has the thread, workspace task, or goal history, use that continuity instead of restating the whole situation from zero every time. This is one of the main reasons to use tamux in the first place.
 
 That means:
 
@@ -336,5 +336,6 @@ That baseline is usually enough to get tamux feeling substantially better than a
 - [Getting Started](getting-started.md)
 - [Reference](reference.md)
 - [How tamux Works](how-tamux-works.md)
+- [Workspaces](workspaces.md)
 - [Goal Runners](goal-runners.md)
 - [Thread Participants](operating/thread-participants.md)

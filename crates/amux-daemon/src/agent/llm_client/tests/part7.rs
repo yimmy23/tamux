@@ -32,6 +32,7 @@ fn anthropic_request_defaults_to_top_level_ephemeral_cache_control() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -83,6 +84,7 @@ fn anthropic_request_includes_sampling_and_stop_sequence_fields_when_configured(
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -138,6 +140,7 @@ fn anthropic_request_includes_metadata_and_routing_fields_when_configured() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -194,6 +197,7 @@ fn anthropic_request_includes_top_level_cache_control_when_configured() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -245,6 +249,7 @@ fn anthropic_request_uses_configured_max_tokens() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -298,6 +303,7 @@ fn anthropic_request_uses_configured_tool_choice_override() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -362,6 +368,7 @@ fn anthropic_request_includes_output_effort_when_configured() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -413,6 +420,7 @@ fn anthropic_request_includes_output_effort_without_schema() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,

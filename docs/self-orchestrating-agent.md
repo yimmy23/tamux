@@ -48,7 +48,7 @@ The system is organized into four layers, each observing the one below it:
 | `engine_runtime.rs` | ~200 | Stream cancellation, repo watchers, memory cache |
 | `agent_loop.rs` | ~810 | Core LLM+tool execution loop (`send_message_inner`) |
 | `messaging.rs` | ~240 | Public message API, thread creation, session routing |
-| `dispatcher.rs` | ~410 | Background task and goal run dispatch scheduling |
+| `dispatcher.rs` | ~410 | Background execution and goal run dispatch scheduling |
 | `task_crud.rs` | ~555 | Task/goal run CRUD operations (create, list, cancel, control) |
 | `goal_planner.rs` | ~535 | Goal planning, step lifecycle, auto-checkpointing |
 | `goal_llm.rs` | ~435 | Goal-specific LLM calls (plan, replan, reflect) |
@@ -117,10 +117,10 @@ The system is organized into four layers, each observing the one below it:
 
 ### Sub-Agent Management
 
-When a task is too large for a single agent turn, the system spawns **sub-agents** — bounded child tasks with fine-grained control:
+When work is too large for a single agent turn, the system spawns **sub-agents** — bounded child execution entries with fine-grained control:
 
 ```
-Parent Task: "Refactor the auth module"
+Parent Work Item: "Refactor the auth module"
 ├── Sub-agent 1: "Extract middleware" [tool_whitelist: read_file, replace_in_file]
 ├── Sub-agent 2: "Write tests"        [context_budget: 20000 tokens]
 └── Sub-agent 3: "Update docs"        [termination: timeout(300)]
@@ -159,7 +159,7 @@ Goal runs are automatically checkpointed:
 
 Each checkpoint captures 4 layers of state:
 1. **Goal State** — the GoalRun struct (plan, steps, status)
-2. **Execution State** — active tasks related to this goal
+2. **Execution State** — active execution entries related to this goal
 3. **Context State** — thread summaries and token counts
 4. **Runtime State** — work context, TODOs, memory updates
 
@@ -224,7 +224,7 @@ When the assessment indicates problems, one of 6 strategies is selected:
 2. **SpawnExpert** — spawn specialized sub-agent (expertise inferred from step title)
 3. **UserGuidance** — request human input via approval workflow
 4. **AlternativeTools** — disable the most-used tool to force a different approach
-5. **Parallelize** — decompose stuck step into parallel sub-tasks
+5. **Parallelize** — decompose stuck step into parallel sub-work
 6. **GoalRevision** — trigger a full goal re-plan
 
 Selection is based on the stuck reason, attempt count, error rate, and available resources.
@@ -234,8 +234,8 @@ Selection is based on the stuck reason, attempt count, error rate, and available
 The resource pool manages concurrent sub-agent execution:
 
 - **Slot management** — configurable max concurrent sub-agents (default: 3)
-- **Token budgets** — allocated proportional to task complexity (Simple: 5K, Moderate: 15K, Complex: 30K, Research: 50K)
-- **Priority preemption** — Urgent tasks can preempt Low-priority slots
+- **Token budgets** — allocated proportional to work complexity (Simple: 5K, Moderate: 15K, Complex: 30K, Research: 50K)
+- **Priority preemption** — urgent execution entries can preempt low-priority slots
 - **Pressure monitoring** — alerts when utilization exceeds 80%
 
 ### Context Self-Management
@@ -334,7 +334,7 @@ Sub-agent features are configured per-task via `AgentTask` fields:
 }
 ```
 
-All fields are optional with `#[serde(default)]` — existing tasks work unchanged.
+All fields are optional with `#[serde(default)]` — existing execution records work unchanged.
 
 ---
 

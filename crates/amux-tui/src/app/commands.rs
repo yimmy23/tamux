@@ -1734,11 +1734,12 @@ impl TuiModel {
         if cursor == 0 {
             return None;
         }
-        widgets::thread_picker::filtered_threads_for_tasks(
+        widgets::thread_picker::filtered_threads_for_workspace(
             &self.chat,
             &self.modal,
             &self.subagents,
             &self.tasks,
+            &self.workspace,
         )
         .get(cursor - 1)
         .copied()
@@ -1771,7 +1772,11 @@ impl TuiModel {
 
     pub(super) fn selected_thread_picker_confirm_action(&self) -> Option<PendingConfirmAction> {
         let thread = self.selected_thread_picker_thread()?;
-        let title = widgets::thread_picker::thread_display_title_for_tasks(thread, &self.tasks);
+        let title = widgets::thread_picker::thread_display_title_for_workspace(
+            thread,
+            &self.tasks,
+            &self.workspace,
+        );
         if self.can_stop_selected_thread() {
             Some(PendingConfirmAction::StopThread {
                 thread_id: thread.id.clone(),
@@ -2425,11 +2430,12 @@ impl TuiModel {
     }
 
     pub(super) fn sync_thread_picker_item_count(&mut self) {
-        let thread_count = widgets::thread_picker::filtered_threads_for_tasks(
+        let thread_count = widgets::thread_picker::filtered_threads_for_workspace(
             &self.chat,
             &self.modal,
             &self.subagents,
             &self.tasks,
+            &self.workspace,
         )
         .len();
         self.modal.set_picker_item_count(thread_count + 1);

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>TUI · tamux docs</title>
-  <meta name="description" content="The tamux TUI as a keyboard-first daemon control plane for sessions, commands, goals, tasks, approvals, and voice workflows." />
+  <meta name="description" content="The tamux TUI as a keyboard-first daemon control plane for sessions, commands, workspace tasks, goals, approvals, and voice workflows." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -20,7 +20,7 @@
       <header class="page-header">
         <p class="eyebrow">Terminal surface</p>
         <h1>TUI</h1>
-        <p class="lead">A keyboard-first control plane for sessions, commands, goals, tasks, approvals, and voice workflows.</p>
+        <p class="lead">A keyboard-first control plane for sessions, commands, workspace tasks, goals, approvals, and voice workflows.</p>
       </header>
 
 <section>
@@ -30,7 +30,7 @@
     <li>session management</li>
     <li>managed command execution and approvals</li>
     <li>goal runners</li>
-    <li>task queue inspection</li>
+    <li>workspace task and execution queue inspection</li>
     <li>agent threads</li>
     <li>workspace and pane layout</li>
     <li>history and search</li>
@@ -56,7 +56,7 @@
     </article>
     <article class="card">
       <h3>Fast inspection</h3>
-      <p>Inspect sessions, goals, tasks, approvals, threads, and errors without leaving the terminal.</p>
+      <p>Inspect sessions, goals, workspace tasks, approvals, threads, and errors without leaving the terminal.</p>
     </article>
     <article class="card">
       <h3>Keyboard-first control</h3>
@@ -79,7 +79,7 @@
       <tr><td>Sessions</td><td>Spawn, attach, resize, clone, kill, and inspect PTY sessions</td></tr>
       <tr><td>Commands</td><td>Queue managed commands and resolve approvals</td></tr>
       <tr><td>Goal runners</td><td>Start, inspect, pause, resume, cancel, and review runs</td></tr>
-      <tr><td>Tasks</td><td>Inspect background work and scheduled tasks</td></tr>
+      <tr><td>Workspace tasks</td><td>Inspect board-owned work and its thread or goal targets</td></tr>
       <tr><td>Voice</td><td>Record/transcribe and speak assistant messages</td></tr>
     </tbody>
   </table>
@@ -95,4 +95,3 @@
   <script src="assets/site.js"></script>
 </body>
 </html>
-

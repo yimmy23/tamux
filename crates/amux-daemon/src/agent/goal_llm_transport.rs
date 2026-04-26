@@ -115,6 +115,7 @@ impl AgentEngine {
         let messages = vec![ApiMessage {
             role: "user".into(),
             content: ApiContent::Text(prompt.to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -272,6 +273,7 @@ impl AgentEngine {
         let messages = vec![ApiMessage {
             role: "user".into(),
             content: ApiContent::Text(prompt.to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,

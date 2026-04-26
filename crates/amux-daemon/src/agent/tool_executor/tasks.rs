@@ -874,6 +874,60 @@ async fn execute_list_triggers(_args: &serde_json::Value, agent: &AgentEngine) -
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
+async fn execute_create_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let payload = agent.create_routine_from_args(args).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_list_routines(_args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let payload = agent.list_routines_json().await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_get_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let routine_id = args
+        .get("routine_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'routine_id' argument"))?;
+    let payload = agent.get_routine_json(routine_id).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_pause_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let routine_id = args
+        .get("routine_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'routine_id' argument"))?;
+    let payload = agent.pause_routine_json(routine_id).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_resume_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let routine_id = args
+        .get("routine_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'routine_id' argument"))?;
+    let payload = agent.resume_routine_json(routine_id).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_delete_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let routine_id = args
+        .get("routine_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'routine_id' argument"))?;
+    let payload = agent.delete_routine_json(routine_id).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
 async fn execute_ingest_webhook_event(
     args: &serde_json::Value,
     agent: &AgentEngine,

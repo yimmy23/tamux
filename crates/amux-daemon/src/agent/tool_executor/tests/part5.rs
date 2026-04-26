@@ -342,6 +342,65 @@
     }
 
     #[test]
+    fn routine_tools_are_exposed_with_expected_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+
+        let create_routine = tools
+            .iter()
+            .find(|tool| tool.function.name == "create_routine")
+            .expect("create_routine tool should be available");
+        let create_properties = create_routine
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("create_routine schema should expose properties object");
+        for required_property in [
+            "title",
+            "description",
+            "schedule_expression",
+            "target_kind",
+            "target_payload",
+        ] {
+            assert!(
+                create_properties.contains_key(required_property),
+                "create_routine should expose {required_property}"
+            );
+        }
+
+        let list_routines = tools
+            .iter()
+            .find(|tool| tool.function.name == "list_routines")
+            .expect("list_routines tool should be available");
+        let list_properties = list_routines
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("list_routines schema should expose properties object");
+        assert!(list_properties.is_empty());
+
+        for tool_name in ["get_routine", "pause_routine", "resume_routine", "delete_routine"] {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.function.name == tool_name)
+                .unwrap_or_else(|| panic!("{tool_name} tool should be available"));
+            let properties = tool
+                .function
+                .parameters
+                .get("properties")
+                .and_then(|value| value.as_object())
+                .unwrap_or_else(|| panic!("{tool_name} schema should expose properties object"));
+            assert!(
+                properties.contains_key("routine_id"),
+                "{tool_name} should expose routine_id"
+            );
+        }
+    }
+
+    #[test]
     fn event_trigger_tools_are_exposed_with_expected_schema() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();
@@ -355,6 +414,10 @@
             .function
             .description
             .contains("packaged defaults"));
+        assert!(list_triggers
+            .function
+            .description
+            .contains("fresh engine"));
         let list_triggers_properties = list_triggers
             .function
             .parameters
@@ -371,6 +434,10 @@
             .function
             .description
             .contains("Pack 1 defaults"));
+        assert!(add_trigger
+            .function
+            .description
+            .contains("source: custom"));
         let properties = add_trigger
             .function
             .parameters
@@ -404,6 +471,14 @@
             .iter()
             .find(|tool| tool.function.name == "ingest_webhook_event")
             .expect("ingest_webhook_event tool should be available");
+        assert!(ingest_webhook
+            .function
+            .description
+            .contains("fresh engine"));
+        assert!(ingest_webhook
+            .function
+            .description
+            .contains("packaged defaults"));
         let ingest_properties = ingest_webhook
             .function
             .parameters

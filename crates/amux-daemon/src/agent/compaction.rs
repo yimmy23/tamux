@@ -384,6 +384,7 @@ fn inject_reused_user_message_if_missing(
     messages.push(ApiMessage {
         role: "user".to_string(),
         content: ApiContent::Text(reused_user_message.to_string()),
+        reasoning: None,
         tool_call_id: None,
         name: None,
         tool_calls: None,
@@ -480,6 +481,7 @@ fn continuation_api_messages(
                     MessageRole::Tool => "tool".into(),
                 },
                 content: ApiContent::Text(message.content.clone()),
+                reasoning: None,
                 tool_call_id: normalized_tool_call_id,
                 name: message.tool_name.clone(),
                 tool_calls: normalized_tool_calls.or_else(|| {
@@ -1761,6 +1763,7 @@ fn build_llm_compaction_messages(
                         target_tokens.saturating_mul(2),
                     )
                 )),
+                reasoning: None,
                 tool_call_id: None,
                 name: None,
                 tool_calls: None,
@@ -1778,6 +1781,7 @@ fn build_llm_compaction_messages(
                 COMPACTION_CHECKPOINT_SCHEMA
             ),
         ),
+        reasoning: None,
         tool_call_id: None,
         name: None,
         tool_calls: None,

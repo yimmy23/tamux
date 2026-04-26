@@ -10,16 +10,17 @@
 
 ## Core Architecture Facts
 - **Daemon-First Design**: The daemon owns all state. TUI, Electron app, CLI, MCP server, and chat gateway are clients.
-- **Multi-Agent Runtime**: 8 specialized agents operate concurrently or via handoff, each with isolated SOUL identities but shared access to the common memory model, task queue, and safety controls.
-- **Persistence Split**: SQLite for structured state (threads, tasks, goals, provenance); Files for markdown memory, skills, ledgers, transcripts.
+- **Multi-Agent Runtime**: 8 specialized agents operate concurrently or via handoff, each with isolated SOUL identities but shared access to the common memory model, workspace task boards, execution queue, and safety controls.
+- **Persistence Split**: SQLite for structured state (threads, workspace tasks, execution queue entries, goals, provenance); Files for markdown memory, skills, ledgers, transcripts.
 - **Startup Hydration**: Resumes from prior durable state on boot — threads, memory, operator model, collaboration, goals.
 - **Memory Files**: SOUL.md (identity/principles), MEMORY.md (durable facts/conventions), USER.md (operator profile from SQLite). All have enforced size limits and contradiction checking.
 - **Provenance Model**: Every memory write tracked in SQLite with target, mode, source, fact keys, timestamps, and optional confirm/retract status. Desktop Session Vault exposes full provenance UI; TUI controls are pending.
 
 ## Validated Implementation Depth
 - **Heartbeat/Governance**: Deep implementation for agent health monitoring, lifecycle management, and execution policy enforcement.
-- **Goal Runners**: Durable autonomy layer — accepts objectives, plans steps, creates child tasks, dispatches, monitors, replans on failure, reflects on completion, optionally updates memory/skills.
-- **Task Queue**: Supports dependencies, scheduling, retry policy, session affinity, parent/child relationships, approval waiting.
+- **Goal Runners**: Durable autonomy layer — accepts objectives, plans steps, creates child execution entries, dispatches, monitors, replans on failure, reflects on completion, optionally updates memory/skills.
+- **Workspace Tasks**: Board-owned work items that wrap a thread or goal with status, assignee, reviewer, history, and local workspace mirror state.
+- **Execution Queue**: Lower-level runtime records with dependencies, scheduling, retry policy, session affinity, parent/child relationships, and approval waiting.
 - **Tool Execution**: Bounded loop with persisted tool messages, execution traces, causal traces, provenance events, operator feedback learning.
 - **Skill System**: Procedural memory with variant metadata, usage tracking, success/failure settlement, promotion/deprecation, automatic branching, merge/convergence.
 - **Collaboration Protocol**: Sub-agents coordinate via explicit sessions with contributions, disagreement records, voting, persisted shared state.

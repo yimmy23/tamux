@@ -1430,22 +1430,24 @@ impl TuiModel {
                 }
             }
             KeyCode::Left if kind == modal::ModalKind::ThreadPicker => {
-                let previous = widgets::thread_picker::adjacent_thread_picker_tab_for_tasks(
+                let previous = widgets::thread_picker::adjacent_thread_picker_tab_for_workspace(
                     &self.modal.thread_picker_tab(),
                     &self.chat,
                     &self.subagents,
                     &self.tasks,
+                    &self.workspace,
                     -1,
                 );
                 self.modal.set_thread_picker_tab(previous);
                 self.sync_thread_picker_item_count();
             }
             KeyCode::Right if kind == modal::ModalKind::ThreadPicker => {
-                let next = widgets::thread_picker::adjacent_thread_picker_tab_for_tasks(
+                let next = widgets::thread_picker::adjacent_thread_picker_tab_for_workspace(
                     &self.modal.thread_picker_tab(),
                     &self.chat,
                     &self.subagents,
                     &self.tasks,
+                    &self.workspace,
                     1,
                 );
                 self.modal.set_thread_picker_tab(next);
@@ -1455,9 +1457,10 @@ impl TuiModel {
                 if let Some(thread) = self.selected_thread_picker_thread() {
                     self.open_pending_action_confirm(PendingConfirmAction::DeleteThread {
                         thread_id: thread.id.clone(),
-                        title: widgets::thread_picker::thread_display_title_for_tasks(
+                        title: widgets::thread_picker::thread_display_title_for_workspace(
                             thread,
                             &self.tasks,
+                            &self.workspace,
                         ),
                     });
                 }

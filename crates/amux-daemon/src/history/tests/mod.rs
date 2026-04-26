@@ -21,6 +21,7 @@ mod metacognition;
 mod misc;
 mod notifications;
 mod provider_auth;
+mod routine_definitions;
 mod skill_variants;
 mod sqlite_audit;
 mod statistics;

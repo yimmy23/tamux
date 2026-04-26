@@ -1,6 +1,6 @@
 # tamux Memory Architecture
 
-tamux memory is not a single file, a vector store, or a convenience summary pasted into the next prompt. It is a layered daemon-owned memory system that combines identity, durable facts, operator profile, task and thread state, procedural memory, recall systems, provenance, and higher-order learning loops.
+tamux memory is not a single file, a vector store, or a convenience summary pasted into the next prompt. It is a layered daemon-owned memory system that combines identity, durable facts, operator profile, workspace task and thread state, procedural memory, recall systems, provenance, and higher-order learning loops.
 
 The shortest correct description is:
 
@@ -15,14 +15,14 @@ For the broader runtime architecture, see [how-tamux-works.md](./how-tamux-works
 
 ## What Memory Means In tamux
 
-In tamux, memory is the full persistence and recall substrate that lets work survive across turns, clients, agents, tasks, and time.
+In tamux, memory is the full persistence and recall substrate that lets work survive across turns, clients, agents, workspace tasks, and time.
 
 That includes:
 
 - stable persona identity
 - durable project and environment facts
 - operator profile and preference state
-- persisted thread, task, and goal history
+- persisted thread, workspace task, execution queue, and goal history
 - retrieval over history and telemetry
 - procedural memory encoded as skills
 - structural and semantic workspace memory
@@ -106,7 +106,7 @@ Not all memory should become a markdown artifact. A large amount of memory lives
 This includes:
 
 - agent threads and messages
-- task queue state
+- workspace task and execution queue state
 - goal runs, steps, and reflections
 - checkpoints
 - work context
@@ -173,7 +173,7 @@ tamux already tracks memory provenance so the system can answer:
 
 - where a durable fact came from
 - when it was written
-- which thread, task, or goal produced it
+- which thread, workspace task, execution queue entry, or goal produced it
 - whether it has been confirmed or retracted
 - which later operation explicitly invalidated or removed it
 
@@ -187,7 +187,7 @@ Today, the most important memory surfaces are:
 - `MEMORY.md`
 - `USER.md`
 - persisted threads and messages
-- task and goal state
+- workspace task, execution queue, and goal state
 - structural workspace memory
 - semantic environment state
 - skill artifacts and skill metadata
@@ -201,7 +201,7 @@ tamux memory writes are curated.
 
 At a high level, a durable write path looks like this:
 
-1. A fact, preference, strategy hint, or other durable candidate emerges from a thread, task, goal reflection, operator profile change, or background learning pass.
+1. A fact, preference, strategy hint, or other durable candidate emerges from a thread, workspace task, execution queue entry, goal reflection, operator profile change, or background learning pass.
 2. The system decides which layer it belongs to.
 3. The write is bounded and normalized instead of dumping raw history.
 4. Contradiction or replacement rules are applied where relevant.
@@ -245,7 +245,7 @@ The provenance-backed layer tracks:
 - target file
 - write mode
 - source kind
-- source scope such as thread, task, or goal when available
+- source scope such as thread, workspace task, queue entry, or goal when available
 - extracted fact keys
 - timestamps
 - confirmation state
@@ -312,7 +312,7 @@ This is the “what would have gone better if I had done X instead?” loop.
 
 Dream-state memory is meant to:
 
-- replay recent tasks
+- replay recent workspace tasks and execution entries
 - evaluate counterfactual variations
 - turn strong counterfactual wins into durable hints
 - keep those hints auditable and removable
@@ -320,7 +320,7 @@ Dream-state memory is meant to:
 It is explicitly designed to run only when:
 
 - there are no active sessions
-- there are no pending tasks
+- there are no pending workspace tasks or execution entries
 - there are no active goal runs
 
 ### Implicit Feedback Learning

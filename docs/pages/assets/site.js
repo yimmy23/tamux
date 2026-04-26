@@ -36,8 +36,9 @@
         <ul class="side-links">
           <li><a href="${pageHref('architecture.html')}" data-nav="architecture.html">Architecture</a></li>
           <li><a href="${pageHref('mission-control.html')}" data-nav="mission-control.html">Mission Control</a></li>
+          <li><a href="${pageHref('workspaces.html')}" data-nav="workspaces.html">Workspaces</a></li>
           <li><a href="${pageHref('goal-runners.html')}" data-nav="goal-runners.html">Goal Runners</a></li>
-          <li><a href="${pageHref('task-queue-subagents.html')}" data-nav="task-queue-subagents.html">Tasks & Subagents</a></li>
+          <li><a href="${pageHref('task-queue-subagents.html')}" data-nav="task-queue-subagents.html">Execution Queue</a></li>
           <li><a href="${pageHref('multi-agent.html')}" data-nav="multi-agent.html">Multi-Agent</a></li>
           <li><a href="${pageHref('threads-handoffs.html')}" data-nav="threads-handoffs.html">Threads & Handoffs</a></li>
         </ul>
@@ -103,6 +104,7 @@
         <h3>Core</h3>
         <ul>
           <li>Daemon as source of truth</li>
+          <li>Workspace tasks</li>
           <li>Durable goals</li>
           <li>Memory &amp; governance</li>
         </ul>
@@ -111,6 +113,7 @@
         <h3>Navigate</h3>
         <ul>
           <li><a href="${pageHref('guides.html')}">Guides</a></li>
+          <li><a href="${pageHref('workspaces.html')}">Workspaces</a></li>
           <li><a href="${pageHref('architecture.html')}">Architecture</a></li>
           <li><a href="${pageHref('plugins.html')}">Plugins</a></li>
         </ul>

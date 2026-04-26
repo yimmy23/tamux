@@ -465,6 +465,23 @@ pub(super) fn apply_schema_migrations(
     ensure_column(connection, "event_triggers", "agent_id", "TEXT")?;
     ensure_column(connection, "event_triggers", "prompt_template", "TEXT")?;
     connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS routine_definitions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            paused_at INTEGER,
+            schedule_expression TEXT NOT NULL,
+            target_kind TEXT NOT NULL,
+            target_payload_json TEXT NOT NULL,
+            next_run_at INTEGER,
+            last_run_at INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_routine_definitions_enabled_next_run ON routine_definitions(enabled, next_run_at, updated_at DESC);",
+    )?;
+    connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS event_log (
             id TEXT PRIMARY KEY,
             event_family TEXT NOT NULL,

@@ -251,6 +251,22 @@ pub struct EventTriggerRow {
 }
 
 #[derive(Debug, Clone)]
+pub struct RoutineDefinitionRow {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub enabled: bool,
+    pub paused_at: Option<u64>,
+    pub schedule_expression: String,
+    pub target_kind: String,
+    pub target_payload_json: String,
+    pub next_run_at: Option<u64>,
+    pub last_run_at: Option<u64>,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct EventLogRow {
     pub id: String,
     pub event_family: String,
@@ -974,6 +990,7 @@ mod protocol_candidates;
 mod protocol_registry;
 mod provenance;
 mod row_mapping;
+mod routines;
 mod schema;
 mod schema_helpers;
 mod schema_migrations;

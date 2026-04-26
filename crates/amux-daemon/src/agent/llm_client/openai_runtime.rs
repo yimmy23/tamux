@@ -74,7 +74,16 @@ async fn run_openai_chat_completions(
 ) -> Result<()> {
     let url = build_chat_completion_url(&config.base_url);
 
-    let all_messages = build_chat_completion_messages(system_prompt, messages)?;
+    let include_openrouter_reasoning_content =
+        provider == amux_shared::providers::PROVIDER_ID_OPENROUTER;
+    let synthesize_missing_tool_reasoning_content = include_openrouter_reasoning_content
+        && normalize_reasoning_effort(&config.reasoning_effort).is_some();
+    let all_messages = build_chat_completion_messages_with_options(
+        system_prompt,
+        messages,
+        include_openrouter_reasoning_content,
+        synthesize_missing_tool_reasoning_content,
+    )?;
 
     let mut body = serde_json::json!({
         "model": config.model,

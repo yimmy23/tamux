@@ -44,6 +44,7 @@ fn minimax_anthropic_requests_keep_connection_close_without_extra_transport_head
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -110,6 +111,7 @@ fn anthropic_request_sets_tool_choice_auto_when_tools_are_present() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -171,6 +173,7 @@ fn anthropic_request_fingerprint_is_stable_for_identical_requests() {
     let messages = vec![ApiMessage {
         role: "user".to_string(),
         content: ApiContent::Text("hello".to_string()),
+        reasoning: None,
         tool_call_id: None,
         name: None,
         tool_calls: None,
@@ -249,6 +252,7 @@ fn anthropic_request_fingerprint_changes_when_payload_changes() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -265,6 +269,7 @@ fn anthropic_request_fingerprint_changes_when_payload_changes() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello again".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -416,6 +421,7 @@ async fn minimax_anthropic_retry_recovers_after_malformed_http_response() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -542,6 +548,7 @@ async fn minimax_send_path_never_falls_back_to_chat_completions() {
         &[ApiMessage {
             role: "user".to_string(),
             content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,

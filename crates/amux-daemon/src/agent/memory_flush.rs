@@ -259,6 +259,7 @@ fn build_memory_flush_messages(messages: &[AgentMessage], target_tokens: usize) 
                 "This older context is about to be compacted:\n\n{}",
                 build_compaction_summary(messages, target_tokens)
             )),
+            reasoning: None,
             tool_call_id: None,
             name: None,
             tool_calls: None,
@@ -271,6 +272,7 @@ fn build_memory_flush_messages(messages: &[AgentMessage], target_tokens: usize) 
             "Persist durable memory only if it genuinely belongs in SOUL.md, MEMORY.md, or USER.md. Otherwise reply NO_MEMORY_UPDATE."
                 .to_string(),
         ),
+        reasoning: None,
         tool_call_id: None,
         name: None,
         tool_calls: None,
