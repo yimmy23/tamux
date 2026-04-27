@@ -36,4 +36,13 @@ describe("Zorai feature surfaces", () => {
     expect(shellCss).toMatch(/\.zorai-main\s*{[^}]*overflow:\s*hidden/s);
     expect(surfaceCss).toMatch(/\.zorai-settings-surface\s*{[^}]*overflow:\s*auto/s);
   });
+
+  it("keeps Tools navigation in the rail and actions in the main surface", () => {
+    const source = readFeature("./tools/ToolsView.tsx");
+
+    expect(source).not.toContain("zorai-tool-picker");
+    expect(source).toContain("New terminal surface");
+    expect(source).toContain("Split right");
+    expect(source).toContain("New infinite canvas");
+  });
 });

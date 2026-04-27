@@ -5,6 +5,11 @@ export const zoraiTools = [
     description: "Open managed terminal sessions as a secondary operator surface.",
   },
   {
+    id: "canvas",
+    title: "Infinite Canvas",
+    description: "Arrange terminals and browser panels on a freeform operator canvas.",
+  },
+  {
     id: "files",
     title: "Files",
     description: "Inspect and move workspace files without leaving orchestration.",
@@ -36,4 +41,3 @@ export type ZoraiToolId = (typeof zoraiTools)[number]["id"];
 export function getDefaultZoraiTool(): ZoraiToolId {
   return "terminal";
 }
-

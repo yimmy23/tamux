@@ -9,6 +9,7 @@ describe("Zorai tools", () => {
   it("exposes runtime-backed tool destinations", () => {
     expect(zoraiTools.map((tool) => tool.id)).toEqual([
       "terminal",
+      "canvas",
       "files",
       "browser",
       "history",
@@ -24,4 +25,3 @@ describe("Zorai tools", () => {
     }
   });
 });
-
