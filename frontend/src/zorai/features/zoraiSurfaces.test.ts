@@ -127,9 +127,12 @@ describe("Zorai feature surfaces", () => {
   it("keeps thread context aligned with TUI tabs and daemon token context windows", () => {
     const shellSource = readFeature("../shell/ZoraiShell.tsx");
     const contextSource = readFeature("./threads/ThreadsContextPanel.tsx");
+    const spawnedSource = readFeature("./threads/ThreadsSpawnedContext.tsx");
 
     expect(shellSource).toContain("ThreadsContext");
     expect(contextSource).toContain("fetchThreadWorkContext");
+    expect(contextSource).toContain("fetchGitDiff");
+    expect(contextSource).toContain("fetchFilePreview");
     expect(contextSource).toContain("activeThread.daemonThreadId");
     expect(contextSource).toContain("Todos");
     expect(contextSource).toContain("Files");
@@ -137,6 +140,9 @@ describe("Zorai feature surfaces", () => {
     expect(contextSource).toContain("profileContextWindowTokens");
     expect(contextSource).toContain("activeContextWindowTokens");
     expect(contextSource).toContain("tokens");
+    expect(contextSource).not.toContain("SpawnedAgentsPanel");
+    expect(spawnedSource).toContain("zorai-spawned-card");
+    expect(spawnedSource).not.toContain("ActionButton");
   });
 
   it("fetches latest thread pages on selection and older pages on scroll-up", () => {

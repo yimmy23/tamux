@@ -487,6 +487,161 @@
   word-break: break-word;
 }
 
+.zorai-file-context {
+  display: grid;
+  gap: 10px;
+}
+
+.zorai-file-context__list,
+.zorai-spawned-context__list {
+  display: grid;
+  gap: 7px;
+}
+
+.zorai-file-context__item {
+  border: 1px solid var(--zorai-border);
+  border-radius: 7px;
+  background: #0d131d;
+  color: var(--zorai-text);
+  padding: 9px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.zorai-file-context__item--active {
+  border-color: var(--zorai-accent);
+  background: var(--zorai-bg-active);
+}
+
+.zorai-file-context__item span,
+.zorai-file-context__item small,
+.zorai-spawned-context__header span,
+.zorai-spawned-card span {
+  color: var(--zorai-muted);
+  font-size: 12px;
+}
+
+.zorai-file-context__item strong {
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.zorai-file-preview,
+.zorai-spawned-context {
+  border: 1px solid var(--zorai-border);
+  border-radius: 7px;
+  background: #0d131d;
+}
+
+.zorai-file-preview {
+  display: grid;
+  gap: 9px;
+  min-height: 180px;
+  overflow: hidden;
+}
+
+.zorai-file-preview__header,
+.zorai-spawned-context__header {
+  border-bottom: 1px solid var(--zorai-border);
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.zorai-file-preview__header strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.zorai-file-preview__pre {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px;
+  color: var(--zorai-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.zorai-diff-line {
+  display: block;
+}
+
+.zorai-diff-line--added {
+  color: var(--success);
+}
+
+.zorai-diff-line--removed {
+  color: var(--danger);
+}
+
+.zorai-diff-line--hunk {
+  color: var(--zorai-accent);
+}
+
+.zorai-spawned-context {
+  padding-bottom: 8px;
+}
+
+.zorai-spawned-context__header {
+  align-items: center;
+}
+
+.zorai-spawned-context__list {
+  padding: 8px;
+}
+
+.zorai-spawned-node {
+  display: grid;
+  gap: 7px;
+}
+
+.zorai-spawned-card {
+  border: 1px solid var(--zorai-border);
+  border-radius: 7px;
+  background: #0b1018;
+  padding: 9px;
+  display: grid;
+  gap: 8px;
+}
+
+.zorai-spawned-card--active {
+  border-color: var(--zorai-accent);
+  background: var(--zorai-bg-active);
+}
+
+.zorai-spawned-card > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.zorai-spawned-card strong {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.zorai-spawned-card__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.zorai-empty--danger {
+  color: var(--danger);
+}
+
 .zorai-pinned-context,
 .zorai-pinned-message {
   border: 1px solid var(--zorai-border);
