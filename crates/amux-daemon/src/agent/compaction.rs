@@ -102,8 +102,10 @@ struct RuleBasedCompactionPayload {
 }
 
 pub(super) fn message_is_compaction_summary(message: &AgentMessage) -> bool {
+    let content = message.content.trim_start();
     message.message_kind == AgentMessageKind::CompactionArtifact
-        || message.content.starts_with("[Compacted earlier context]")
+        || content.starts_with("[Compacted earlier context]")
+        || content.starts_with("Pre-compaction context:")
 }
 
 fn latest_compaction_artifact_index(messages: &[AgentMessage]) -> Option<usize> {

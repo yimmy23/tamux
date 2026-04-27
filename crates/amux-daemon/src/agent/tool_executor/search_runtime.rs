@@ -9,6 +9,10 @@ fn build_search_files_rg_args(request: &SearchFilesRequest) -> Vec<String> {
         cmd_args.push(format!("--glob={file_pattern}"));
     }
 
+    if !request.regex {
+        cmd_args.push("--fixed-strings".to_string());
+    }
+
     cmd_args.push("--".to_string());
     cmd_args.push(request.pattern.clone());
     cmd_args.push(request.path.clone());

@@ -8,8 +8,8 @@ async fn make_test_store() -> Result<(HistoryStore, PathBuf)> {
     Ok((store, root))
 }
 
-mod cognitive_resonance;
 mod browser_profiles;
+mod cognitive_resonance;
 mod dream_state;
 mod elastic_context;
 mod emergent_protocol;

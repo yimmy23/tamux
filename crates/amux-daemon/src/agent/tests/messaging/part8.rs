@@ -500,7 +500,8 @@ async fn participant_post_resumes_main_agent_with_participant_aware_continuation
         .cloned()
         .expect("continuation request body should be recorded");
     assert!(
-        continuation_request.contains("A thread participant (Weles) just posted a visible message."),
+        continuation_request
+            .contains("A thread participant (Weles) just posted a visible message."),
         "main-agent continuation should explicitly identify the participant contribution as the latest actionable context"
     );
     assert!(

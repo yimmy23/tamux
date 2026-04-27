@@ -454,6 +454,12 @@ pub(crate) enum GuidelineAction {
         #[arg(long)]
         force: bool,
     },
+    /// Download the latest default guidelines from the tamux repository.
+    Sync {
+        /// Overwrite existing local guidelines with upstream versions.
+        #[arg(long)]
+        force: bool,
+    },
     /// List installed guidelines from the tamux guidelines directory.
     #[command(alias = "ls")]
     List {
@@ -869,6 +875,18 @@ mod tests {
             Some(Commands::Guideline {
                 action: GuidelineAction::List { json },
             }) => assert!(json),
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn guideline_sync_subcommand_parses_force_flag() {
+        let cli = Cli::try_parse_from(["tamux", "guidelines", "sync", "--force"])
+            .expect("guidelines sync should parse");
+        match cli.command {
+            Some(Commands::Guideline {
+                action: GuidelineAction::Sync { force },
+            }) => assert!(force),
             other => panic!("parsed unexpected command: {other:?}"),
         }
     }

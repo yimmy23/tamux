@@ -93,7 +93,193 @@ fn mentions_provider_credit_problem(lower: &str) -> bool {
         || lower.contains("billing hard limit")
 }
 
+fn terminal_task_notification_excerpt(value: Option<&str>) -> Option<String> {
+    let raw = value?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+
+    let mut excerpt = collapsed.chars().take(240).collect::<String>();
+    if collapsed.chars().count() > 240 {
+        excerpt.push('…');
+    }
+    Some(excerpt)
+}
+
 impl AgentEngine {
+    pub(crate) async fn notify_task_terminal_state(&self, task: &AgentTask) {
+        if !task.notify_on_complete {
+            return;
+        }
+
+        let (kind, title, subtitle, severity, detail_line) = match task.status {
+            TaskStatus::Completed => (
+                "task_completed",
+                format!("Task completed: {}", task.title),
+                "completed",
+                NotificationSeverity::Info,
+                terminal_task_notification_excerpt(task.result.as_deref())
+                    .map(|result| format!("Result: {result}")),
+            ),
+            TaskStatus::Failed => (
+                "task_failed",
+                format!("Task failed: {}", task.title),
+                "failed",
+                NotificationSeverity::Error,
+                terminal_task_notification_excerpt(
+                    task.last_error.as_deref().or(task.error.as_deref()),
+                )
+                .map(|error| format!("Error: {error}"))
+                .or_else(|| {
+                    terminal_task_notification_excerpt(task.blocked_reason.as_deref())
+                        .map(|reason| format!("Reason: {reason}"))
+                }),
+            ),
+            TaskStatus::BudgetExceeded => (
+                "task_budget_exceeded",
+                format!("Task budget exceeded: {}", task.title),
+                "budget exceeded",
+                NotificationSeverity::Warning,
+                terminal_task_notification_excerpt(
+                    task.blocked_reason
+                        .as_deref()
+                        .or(task.last_error.as_deref()),
+                )
+                .map(|reason| format!("Reason: {reason}")),
+            ),
+            _ => return,
+        };
+
+        let mut seen_channels = HashSet::new();
+        let mut channels = task
+            .notify_channels
+            .iter()
+            .map(|channel| channel.trim().to_ascii_lowercase())
+            .filter(|channel| !channel.is_empty())
+            .filter(|channel| seen_channels.insert(channel.clone()))
+            .collect::<Vec<_>>();
+        if channels.is_empty() {
+            channels.push("in-app".to_string());
+        }
+
+        let mut body_lines = vec![
+            format!("Task: {}", task.title),
+            format!("Status: {subtitle}"),
+            format!("Task ID: {}", task.id),
+            format!("Source: {}", task.source),
+            format!("Runtime: {}", task.runtime),
+        ];
+        if let Some(goal_run_title) = task.goal_run_title.as_deref() {
+            body_lines.push(format!("Goal: {goal_run_title}"));
+        }
+        if let Some(goal_step_title) = task.goal_step_title.as_deref() {
+            body_lines.push(format!("Goal step: {goal_step_title}"));
+        }
+        if let Some(thread_id) = task.thread_id.as_deref() {
+            body_lines.push(format!("Thread: {thread_id}"));
+        }
+        if let Some(detail_line) = detail_line {
+            body_lines.push(detail_line);
+        }
+        let body = body_lines.join("\n");
+
+        let _ = self.event_tx.send(AgentEvent::Notification {
+            title: title.clone(),
+            body: body.clone(),
+            severity,
+            channels: channels.clone(),
+        });
+
+        let now = now_millis() as i64;
+        let actions = task
+            .thread_id
+            .as_deref()
+            .map(crate::notifications::open_thread_action)
+            .into_iter()
+            .collect::<Vec<_>>();
+        let notification = amux_protocol::InboxNotification {
+            id: format!("task-terminal:{}:{kind}", task.id),
+            source: "task".to_string(),
+            kind: kind.to_string(),
+            title: title.clone(),
+            body: body.clone(),
+            subtitle: Some(subtitle.to_string()),
+            severity: match severity {
+                NotificationSeverity::Info => "info",
+                NotificationSeverity::Warning => "warning",
+                NotificationSeverity::Alert => "alert",
+                NotificationSeverity::Error => "error",
+            }
+            .to_string(),
+            created_at: now,
+            updated_at: now,
+            read_at: None,
+            archived_at: None,
+            deleted_at: None,
+            actions,
+            metadata_json: Some(
+                serde_json::json!({
+                    "task_id": task.id.clone(),
+                    "status": subtitle,
+                    "source": task.source.clone(),
+                    "thread_id": task.thread_id.clone(),
+                    "goal_run_id": task.goal_run_id.clone(),
+                    "goal_step_id": task.goal_step_id.clone(),
+                    "notify_channels": channels,
+                })
+                .to_string(),
+            ),
+        };
+        if let Err(error) = self.upsert_inbox_notification(notification).await {
+            tracing::warn!(task_id = %task.id, %error, "failed to upsert task terminal notification");
+        }
+
+        let outbound_message = format!("{title}\n\n{body}");
+        let mut sent_gateway_channels = HashSet::new();
+        for channel in task
+            .notify_channels
+            .iter()
+            .map(|channel| channel.trim().to_ascii_lowercase())
+            .filter(|channel| !channel.is_empty() && channel != "in-app")
+            .filter(|channel| sent_gateway_channels.insert(channel.clone()))
+        {
+            let tool_name = match channel.as_str() {
+                "slack" => Some("send_slack_message"),
+                "discord" => Some("send_discord_message"),
+                "telegram" => Some("send_telegram_message"),
+                "whatsapp" => Some("send_whatsapp_message"),
+                other => {
+                    tracing::warn!(task_id = %task.id, channel = %other, "unknown task notification channel");
+                    None
+                }
+            };
+            let Some(tool_name) = tool_name else {
+                continue;
+            };
+
+            if let Err(error) = crate::agent::tool_executor::execute_gateway_message(
+                tool_name,
+                &serde_json::json!({ "message": outbound_message }),
+                self,
+                &self.http_client,
+            )
+            .await
+            {
+                tracing::warn!(
+                    task_id = %task.id,
+                    channel = %channel,
+                    %error,
+                    "failed to deliver task terminal notification"
+                );
+            }
+        }
+    }
+
     pub(super) async fn dispatch_goal_runs(self: Arc<Self>) {
         let goal_run_ids = {
             let goal_runs = self.goal_runs.lock().await;
@@ -588,6 +774,7 @@ impl AgentEngine {
                             )
                             .await;
                         }
+                        self.notify_task_terminal_state(&updated).await;
                     }
                     TaskStatus::BudgetExceeded => {
                         self.handle_budget_exceeded_task_terminal_state(&updated)
@@ -614,6 +801,7 @@ impl AgentEngine {
                             )
                             .await;
                         }
+                        self.notify_task_terminal_state(&updated).await;
                     }
                     _ => {}
                 }
@@ -713,6 +901,9 @@ impl AgentEngine {
                         updated.last_error.clone(),
                     )
                     .await;
+                }
+                if updated.status == TaskStatus::Failed {
+                    self.notify_task_terminal_state(&updated).await;
                 }
                 Ok(())
             }
@@ -884,6 +1075,7 @@ impl AgentEngine {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    use tokio::time::{timeout, Duration};
 
     #[tokio::test]
     async fn budget_exceeded_subagent_notifies_child_and_parent_threads() {
@@ -1087,5 +1279,280 @@ mod tests {
                     .content
                     .contains("respawn from the last completed point")
         }));
+    }
+
+    fn terminal_notification_test_task(
+        id: &str,
+        title: &str,
+        status: TaskStatus,
+        notify_channels: Vec<String>,
+    ) -> AgentTask {
+        AgentTask {
+            id: id.to_string(),
+            title: title.to_string(),
+            description: "deliver a terminal notification".to_string(),
+            status,
+            priority: TaskPriority::Normal,
+            progress: 100,
+            created_at: 1,
+            started_at: Some(2),
+            completed_at: Some(3),
+            error: None,
+            result: None,
+            thread_id: Some("thread-terminal-notify".to_string()),
+            source: "user".to_string(),
+            notify_on_complete: true,
+            notify_channels,
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            sub_agent_def_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_task_notification_persists_inbox_and_routes_gateway_channels() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.gateway.slack_channel_filter = "C123".to_string();
+        config.gateway.discord_channel_filter = "D456".to_string();
+        config.gateway.telegram_allowed_chats = "T789".to_string();
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        engine.set_gateway_ipc_sender(Some(tx)).await;
+        let mut events = engine.event_tx.subscribe();
+
+        let mut task = terminal_notification_test_task(
+            "task-terminal-completed",
+            "Ship release",
+            TaskStatus::Completed,
+            vec![
+                "in-app".to_string(),
+                "slack".to_string(),
+                "discord".to_string(),
+                "telegram".to_string(),
+            ],
+        );
+        task.result = Some("release artifacts published successfully".to_string());
+
+        let engine_for_task = engine.clone();
+        let notify_task = tokio::spawn(async move {
+            engine_for_task.notify_task_terminal_state(&task).await;
+        });
+
+        let event = timeout(Duration::from_secs(2), events.recv())
+            .await
+            .expect("notification event should arrive")
+            .expect("notification event should exist");
+        match event {
+            AgentEvent::Notification {
+                title,
+                body,
+                severity,
+                channels,
+            } => {
+                assert_eq!(title, "Task completed: Ship release");
+                assert_eq!(severity, NotificationSeverity::Info);
+                assert_eq!(channels, vec!["in-app", "slack", "discord", "telegram"]);
+                assert!(body.contains("Status: completed"));
+                assert!(body.contains("Result: release artifacts published successfully"));
+            }
+            other => panic!("expected notification event, got {other:?}"),
+        }
+
+        let event = timeout(Duration::from_secs(2), events.recv())
+            .await
+            .expect("notification inbox event should arrive")
+            .expect("notification inbox event should exist");
+        match event {
+            AgentEvent::NotificationInboxUpsert { notification } => {
+                assert_eq!(
+                    notification.id,
+                    "task-terminal:task-terminal-completed:task_completed"
+                );
+                assert_eq!(notification.kind, "task_completed");
+                assert_eq!(notification.severity, "info");
+                assert_eq!(notification.subtitle.as_deref(), Some("completed"));
+            }
+            other => panic!("expected notification inbox upsert, got {other:?}"),
+        }
+
+        for (platform, channel_id) in [("slack", "C123"), ("discord", "D456"), ("telegram", "T789")]
+        {
+            let request = match timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .expect("gateway send request should be emitted")
+                .expect("gateway send request should exist")
+            {
+                amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+                other => panic!("expected GatewaySendRequest, got {other:?}"),
+            };
+            assert_eq!(request.platform, platform);
+            assert_eq!(request.channel_id, channel_id);
+            assert!(request.content.contains("Task completed: Ship release"));
+
+            engine
+                .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+                    correlation_id: request.correlation_id.clone(),
+                    platform: platform.to_string(),
+                    channel_id: channel_id.to_string(),
+                    requested_channel_id: Some(channel_id.to_string()),
+                    delivery_id: Some(format!("delivery-{platform}")),
+                    ok: true,
+                    error: None,
+                    completed_at_ms: now_millis(),
+                })
+                .await;
+        }
+
+        notify_task.await.expect("notification task should finish");
+
+        let notifications = engine
+            .history
+            .list_notifications(false, Some(10))
+            .await
+            .expect("list notifications should succeed");
+        let notification = notifications
+            .iter()
+            .find(|entry| entry.id == "task-terminal:task-terminal-completed:task_completed")
+            .expect("persisted completed task notification should exist");
+        assert!(notification.body.contains("Task: Ship release"));
+        assert!(notification.body.contains("Thread: thread-terminal-notify"));
+    }
+
+    #[tokio::test]
+    async fn failed_task_notification_uses_error_severity_and_persists_inbox() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.gateway.slack_channel_filter = "C123".to_string();
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        engine.set_gateway_ipc_sender(Some(tx)).await;
+        let mut events = engine.event_tx.subscribe();
+
+        let mut task = terminal_notification_test_task(
+            "task-terminal-failed",
+            "Ship release",
+            TaskStatus::Failed,
+            vec!["slack".to_string()],
+        );
+        task.last_error = Some("provider request timed out after 30s".to_string());
+        task.error = task.last_error.clone();
+        task.retry_count = 4;
+
+        let engine_for_task = engine.clone();
+        let notify_task = tokio::spawn(async move {
+            engine_for_task.notify_task_terminal_state(&task).await;
+        });
+
+        let event = timeout(Duration::from_secs(2), events.recv())
+            .await
+            .expect("notification event should arrive")
+            .expect("notification event should exist");
+        match event {
+            AgentEvent::Notification {
+                title,
+                body,
+                severity,
+                channels,
+            } => {
+                assert_eq!(title, "Task failed: Ship release");
+                assert_eq!(severity, NotificationSeverity::Error);
+                assert_eq!(channels, vec!["slack"]);
+                assert!(body.contains("Status: failed"));
+                assert!(body.contains("Error: provider request timed out after 30s"));
+            }
+            other => panic!("expected notification event, got {other:?}"),
+        }
+
+        let event = timeout(Duration::from_secs(2), events.recv())
+            .await
+            .expect("notification inbox event should arrive")
+            .expect("notification inbox event should exist");
+        match event {
+            AgentEvent::NotificationInboxUpsert { notification } => {
+                assert_eq!(notification.kind, "task_failed");
+                assert_eq!(notification.severity, "error");
+                assert!(notification
+                    .body
+                    .contains("Error: provider request timed out after 30s"));
+            }
+            other => panic!("expected notification inbox upsert, got {other:?}"),
+        }
+
+        let request = match timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("gateway send request should be emitted")
+            .expect("gateway send request should exist")
+        {
+            amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        };
+        assert_eq!(request.platform, "slack");
+        assert_eq!(request.channel_id, "C123");
+        assert!(request.content.contains("Task failed: Ship release"));
+
+        engine
+            .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+                correlation_id: request.correlation_id.clone(),
+                platform: "slack".to_string(),
+                channel_id: "C123".to_string(),
+                requested_channel_id: Some("C123".to_string()),
+                delivery_id: Some("delivery-slack".to_string()),
+                ok: true,
+                error: None,
+                completed_at_ms: now_millis(),
+            })
+            .await;
+
+        notify_task.await.expect("notification task should finish");
+
+        let notifications = engine
+            .history
+            .list_notifications(false, Some(10))
+            .await
+            .expect("list notifications should succeed");
+        let notification = notifications
+            .iter()
+            .find(|entry| entry.id == "task-terminal:task-terminal-failed:task_failed")
+            .expect("persisted failed task notification should exist");
+        assert_eq!(notification.severity, "error");
+        assert_eq!(notification.subtitle.as_deref(), Some("failed"));
     }
 }

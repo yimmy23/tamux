@@ -153,6 +153,12 @@ pub struct AgentThread {
     #[serde(default)]
     pub loaded_message_end: usize,
     #[serde(default)]
+    pub active_context_window_start: Option<usize>,
+    #[serde(default)]
+    pub active_context_window_end: Option<usize>,
+    #[serde(default)]
+    pub active_context_window_tokens: Option<u64>,
+    #[serde(default)]
     pub pinned_messages: Vec<PinnedThreadMessage>,
 
     #[serde(default)]

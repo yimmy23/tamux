@@ -535,6 +535,101 @@ async fn collect_stalled_turn_observations_detects_idle_active_reasoning_stream(
 }
 
 #[tokio::test]
+async fn collect_stalled_turn_observations_skips_stream_awaiting_operator_question() {
+    let engine = build_test_engine("Acknowledged.").await;
+    let now = super::now_millis();
+    let thread_id = "thread-awaiting-operator-question";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(CONCIERGE_AGENT_NAME.to_string()),
+                title: "Awaiting operator question".to_string(),
+                messages: vec![AgentMessage::user(
+                    "Ask me if you need a decision",
+                    now.saturating_sub(61_000),
+                )],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: now,
+                updated_at: now,
+            },
+        );
+    }
+
+    let (generation, _, _) = engine.begin_stream_cancellation(thread_id).await;
+    engine
+        .note_stream_progress(
+            thread_id,
+            generation,
+            StreamProgressKind::ToolCalls,
+            "ask_questions",
+        )
+        .await;
+    {
+        let mut streams = engine.stream_cancellations.lock().await;
+        let entry = streams
+            .get_mut(thread_id)
+            .expect("active stream entry should exist");
+        entry.last_progress_at = now.saturating_sub(31_000);
+    }
+
+    let mut operator_events = engine.event_tx.subscribe();
+    let question_engine = engine.clone();
+    let question_thread_id = thread_id.to_string();
+    let question_task = tokio::spawn(async move {
+        question_engine
+            .ask_operator_question(
+                "Choose:\nA. Continue\nB. Stop",
+                vec!["A".to_string(), "B".to_string()],
+                Some("session-1".to_string()),
+                Some(question_thread_id),
+            )
+            .await
+    });
+    let question_id =
+        match tokio::time::timeout(std::time::Duration::from_secs(2), operator_events.recv())
+            .await
+            .expect("operator question event should arrive promptly")
+            .expect("operator question event")
+        {
+            crate::agent::AgentEvent::OperatorQuestion {
+                question_id,
+                thread_id: event_thread_id,
+                ..
+            } => {
+                assert_eq!(event_thread_id.as_deref(), Some(thread_id));
+                question_id
+            }
+            other => panic!("expected operator question event, got {other:?}"),
+        };
+
+    let observations = engine.collect_stalled_turn_observations().await;
+    assert!(
+        observations.is_empty(),
+        "pending operator questions should keep the stream out of stalled-turn recovery"
+    );
+
+    engine
+        .answer_operator_question(&question_id, "A")
+        .await
+        .expect("operator answer should unblock the question");
+    question_task
+        .await
+        .expect("question task should join")
+        .expect("question task should succeed");
+}
+
+#[tokio::test]
 async fn supervise_stalled_turns_recovers_idle_reasoning_stream_via_internal_dm() {
     let engine = build_test_engine("Recovered.").await;
     let now = super::now_millis();

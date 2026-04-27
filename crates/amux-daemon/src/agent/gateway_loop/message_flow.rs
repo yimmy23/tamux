@@ -20,7 +20,7 @@ impl AgentEngine {
             }
         }
 
-        let channel_key = format!("{}:{}", msg.platform, msg.channel);
+        let channel_key = gateway::gateway_channel_key(&msg.platform, &msg.channel);
         {
             let mut inflight = self.gateway_inflight_channels.lock().await;
             if inflight.contains(&channel_key) {
@@ -151,7 +151,7 @@ impl AgentEngine {
             }
 
             for msg in &incoming {
-                let key = format!("{}:{}", msg.platform, msg.channel);
+                let key = gateway::gateway_channel_key(&msg.platform, &msg.channel);
                 gw.last_incoming_at.insert(key.clone(), now_ms);
                 if let Some(ref tc) = msg.thread_context {
                     gw.reply_contexts.insert(key, tc.clone());

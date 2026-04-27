@@ -1,0 +1,20 @@
+{
+  "name": "tamux-plugin-jira",
+  "version": "1.0.0",
+  "description": "Jira integration for tamux",
+  "author": "tamux",
+  "license": "MIT",
+  "keywords": [
+    "tamux",
+    "plugin",
+    "jira"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/anthropic/cmux-next"
+  },
+  "files": [
+    "jira/",
+    "README.md"
+  ]
+}

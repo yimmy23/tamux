@@ -210,9 +210,11 @@ async fn managed_command_governance_persists_causal_trace_and_audit_for_risky_tr
     assert!(factors
         .iter()
         .any(|factor| factor.description.contains("triggered constraints")));
-    assert!(factors.iter().any(|factor| factor
-        .description
-        .contains("provenance completeness: complete")));
+    assert!(factors.iter().any(|factor| {
+        factor
+            .description
+            .contains("provenance completeness: complete")
+    }));
 
     let outcome: crate::agent::learning::traces::CausalTraceOutcome =
         serde_json::from_str(&records[0].outcome_json).expect("deserialize outcome");
@@ -243,9 +245,11 @@ async fn managed_command_governance_persists_causal_trace_and_audit_for_risky_tr
     assert!(raw_json["policy_fingerprint"]
         .as_str()
         .is_some_and(|fingerprint| fingerprint.len() > 8));
-    assert!(raw_json["constraints"].as_array().is_some_and(|items| items
-        .iter()
-        .any(|value| value.as_str() == Some("sandbox_required"))));
+    assert!(raw_json["constraints"].as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|value| value.as_str() == Some("sandbox_required"))
+    }));
 }
 
 #[cfg(unix)]

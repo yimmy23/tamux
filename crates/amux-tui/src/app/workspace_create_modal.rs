@@ -237,10 +237,12 @@ fn next_actor_selection(
         .and_then(|option| option.actor.clone())
 }
 
+#[cfg(test)]
 pub(super) fn workspace_create_modal_body(form: &WorkspaceCreateTaskForm) -> String {
     workspace_create_modal_body_with_subagents(form, &crate::state::SubAgentsState::new())
 }
 
+#[cfg(test)]
 pub(super) fn workspace_create_modal_body_with_subagents(
     form: &WorkspaceCreateTaskForm,
     subagents: &crate::state::SubAgentsState,

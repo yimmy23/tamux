@@ -1,5 +1,6 @@
 pub(crate) mod common;
 mod core;
+mod guideline_sync;
 mod guidelines;
 mod plugins;
 mod skills;

@@ -34,6 +34,9 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         loaded_message_start: derived_loaded_message_start,
         loaded_message_end: derived_loaded_message_end,
         active_compaction_window_start: None,
+        active_context_window_start: t.active_context_window_start,
+        active_context_window_end: t.active_context_window_end,
+        active_context_window_tokens: t.active_context_window_tokens,
         pinned_messages: t
             .pinned_messages
             .into_iter()

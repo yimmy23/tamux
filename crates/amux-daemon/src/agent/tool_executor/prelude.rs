@@ -61,6 +61,7 @@ struct SearchFilesRequest {
     pattern: String,
     path: String,
     file_pattern: Option<String>,
+    regex: bool,
     max_results: u64,
     timeout_seconds: u64,
 }
@@ -291,6 +292,10 @@ fn search_files_request(args: &serde_json::Value) -> Result<SearchFilesRequest> 
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string),
+        regex: args
+            .get("regex")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         max_results,
         timeout_seconds: daemon_tool_timeout_seconds("search_files", args),
     })

@@ -293,6 +293,83 @@ async fn persisted_weles_internal_task_keeps_runtime_path_without_serializing_hi
     );
 }
 
+#[tokio::test]
+async fn untrusted_weles_task_without_runtime_payload_does_not_persist_empty_context() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let config = AgentConfig::default();
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let task_id = "task-weles-without-runtime-payload";
+
+    {
+        let mut tasks = engine.tasks.lock().await;
+        tasks.push_back(crate::agent::types::AgentTask {
+            id: task_id.to_string(),
+            title: "WELES governance review".to_string(),
+            description: "No daemon runtime payload".to_string(),
+            status: crate::agent::types::TaskStatus::Queued,
+            priority: crate::agent::types::TaskPriority::High,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some("thread-weles-empty-context".to_string()),
+            source: "subagent".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 1,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: Some("openai".to_string()),
+            override_model: Some("gpt-4o-mini".to_string()),
+            override_system_prompt: Some(crate::agent::agent_identity::build_weles_persona_prompt(
+                "governance",
+            )),
+            sub_agent_def_id: Some("weles_builtin".to_string()),
+        });
+    }
+
+    engine.persist_tasks().await;
+
+    let stored = engine
+        .history
+        .get_consolidation_state(&format!("weles_runtime_context:{task_id}"))
+        .await
+        .expect("context lookup should succeed");
+    assert_eq!(stored, None);
+}
+
 #[test]
 fn weles_classifier_guards_suspicious_shell_file_and_delegation_calls() {
     let low_risk_shell_python = crate::agent::weles_governance::classify_tool_call(

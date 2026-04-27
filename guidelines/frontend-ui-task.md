@@ -6,6 +6,8 @@ recommended_skills:
   - test-driven-development
   - playwright
   - verification-before-completion
+recommended_guidelines:
+  - general-programming
 ---
 
 # Frontend UI Task Guideline

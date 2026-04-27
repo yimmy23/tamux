@@ -124,7 +124,7 @@ impl HistoryStore {
                             crate::agent::harness::HarnessRecordKind::EffectContract
                         }
                         other => {
-                            return Err(anyhow::anyhow!("unknown harness record kind: {other}"))
+                            return Err(anyhow::anyhow!("unknown harness record kind: {other}"));
                         }
                     },
                     status: row.status,

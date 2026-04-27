@@ -26,6 +26,17 @@ pub struct ThreadContext {
     pub telegram_message_id: Option<i64>,
 }
 
+pub fn gateway_channel_key(platform: &str, channel_id: &str) -> String {
+    let label = match platform.trim().to_ascii_lowercase().as_str() {
+        "slack" => "Slack",
+        "discord" => "Discord",
+        "telegram" => "Telegram",
+        "whatsapp" => "WhatsApp",
+        _ => platform.trim(),
+    };
+    format!("{label}:{channel_id}")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GatewayRouteMode {
     #[default]

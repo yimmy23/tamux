@@ -53,6 +53,9 @@ async fn restore_weles_runtime_context(engine: &AgentEngine, task: &mut AgentTas
     let Ok(Some(raw_context)) = engine.history.get_consolidation_state(&key).await else {
         return;
     };
+    if raw_context.trim().is_empty() {
+        return;
+    }
     let Ok(inspection_context) = serde_json::from_str::<serde_json::Value>(&raw_context) else {
         tracing::warn!(task_id = %task.id, "failed to parse persisted WELES runtime context");
         return;

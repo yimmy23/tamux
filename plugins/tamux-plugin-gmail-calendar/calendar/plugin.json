@@ -45,6 +45,12 @@
         "headers": { "Authorization": "Bearer {{auth.access_token}}" },
         "response_template": "## Calendar Events\n\n{{#each items}}Event: {{summary}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\nStatus: {{default status \"confirmed\"}}\nID: {{id}}\n\n{{/each}}"
       },
+      "list_calendar_events": {
+        "method": "GET",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events?singleEvents=true&orderBy=startTime&timeMin={{params.time_min}}&timeMax={{params.time_max}}&maxResults={{default params.max_results \"20\"}}",
+        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "response_template": "## Calendar Events\n\n{{#each items}}Event: {{summary}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\nStatus: {{default status \"confirmed\"}}\nID: {{id}}\n\n{{/each}}"
+      },
       "get_event": {
         "method": "GET",
         "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
@@ -103,11 +109,11 @@
   "commands": {
     "today": {
       "description": "Show today's calendar events",
-      "action": "list_events"
+      "action": "list_calendar_events"
     },
     "week": {
       "description": "Show this week's calendar events",
-      "action": "list_events"
+      "action": "list_calendar_events"
     },
     "create": {
       "description": "Create a new calendar event",

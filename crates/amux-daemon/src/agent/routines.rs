@@ -29,7 +29,62 @@ fn routine_row_json(row: &crate::history::RoutineDefinitionRow) -> serde_json::V
     })
 }
 
+fn parse_routine_notify_channels(payload: &serde_json::Value) -> Option<Vec<String>> {
+    let values = payload.get("notify_channels")?.as_array()?;
+    let mut seen = std::collections::HashSet::new();
+    Some(
+        values
+            .iter()
+            .filter_map(|value| value.as_str())
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| !value.is_empty())
+            .filter(|value| seen.insert(value.clone()))
+            .collect(),
+    )
+}
+
 impl AgentEngine {
+    async fn apply_materialized_task_notification_preferences(
+        &self,
+        task_id: &str,
+        notify_on_complete: Option<bool>,
+        notify_channels: Option<Vec<String>>,
+    ) -> Option<AgentTask> {
+        if notify_on_complete.is_none() && notify_channels.is_none() {
+            return None;
+        }
+
+        let updated = {
+            let mut tasks = self.tasks.lock().await;
+            let task = tasks.iter_mut().find(|task| task.id == task_id)?;
+            let mut changed = false;
+
+            if let Some(notify_on_complete) = notify_on_complete {
+                if task.notify_on_complete != notify_on_complete {
+                    task.notify_on_complete = notify_on_complete;
+                    changed = true;
+                }
+            }
+
+            if let Some(notify_channels) = notify_channels {
+                if task.notify_channels != notify_channels {
+                    task.notify_channels = notify_channels;
+                    changed = true;
+                }
+            }
+
+            changed.then(|| task.clone())
+        };
+
+        if let Some(updated) = updated {
+            self.persist_tasks().await;
+            self.emit_task_update(&updated, Some(status_message(&updated).into()));
+            Some(updated)
+        } else {
+            None
+        }
+    }
+
     pub(crate) async fn list_routines_json(&self) -> Result<serde_json::Value> {
         let rows = self.history.list_routine_definitions().await?;
         Ok(serde_json::json!(rows
@@ -102,6 +157,10 @@ impl AgentEngine {
                 .get("runtime")
                 .and_then(|value| value.as_str())
                 .map(ToOwned::to_owned);
+            let notify_on_complete = payload
+                .get("notify_on_complete")
+                .and_then(|value| value.as_bool());
+            let notify_channels = parse_routine_notify_channels(&payload);
             let source = format!("routine:{}", row.id);
 
             let task = self
@@ -120,6 +179,14 @@ impl AgentEngine {
                     runtime,
                 )
                 .await;
+            let task = self
+                .apply_materialized_task_notification_preferences(
+                    &task.id,
+                    notify_on_complete,
+                    notify_channels,
+                )
+                .await
+                .unwrap_or(task);
             created.push(task);
 
             row.last_run_at = Some(now);

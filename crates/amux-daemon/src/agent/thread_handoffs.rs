@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub(super) const THREAD_HANDOFF_SYSTEM_MARKER: &str = "[[handoff_event]]";
 pub(super) const INTERNAL_HANDOFF_THREAD_PREFIX: &str = "handoff:";
-const PARTICIPANT_HANDOFF_RETURN_INSTRUCTION: &str =
-    "Remain attached to this thread so ownership can be handed back when your skills are needed again.";
+const PARTICIPANT_HANDOFF_RETURN_INSTRUCTION: &str = "Remain attached to this thread so ownership can be handed back when your skills are needed again.";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

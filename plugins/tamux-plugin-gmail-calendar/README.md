@@ -127,16 +127,22 @@ You can combine queries: `from:alice subject:meeting after:2026/03/01`
 
 ## Scopes
 
-This plugin requests **read-only** access:
+This plugin requests OAuth scopes that match the shipped capabilities:
 
 | Scope | Access |
 |-------|--------|
-| `gmail.readonly` | Read messages and metadata (restricted scope) |
-| `calendar.readonly` | Read calendar events |
+| `https://www.googleapis.com/auth/gmail.modify` | Read and modify Gmail messages and labels |
+| `https://www.googleapis.com/auth/gmail.send` | Send Gmail messages |
+| `https://www.googleapis.com/auth/calendar` | Read and modify calendar events |
 
-No write access is requested -- the plugin cannot send emails, modify messages, or create calendar events.
+This means the shipped manifests can:
+- read inbox/search Gmail
+- send email
+- archive, trash, star, and mark mail read/unread
+- read calendar events
+- create, update, and delete calendar events
 
-The `gmail.readonly` scope is classified as **restricted** by Google. This means:
+The Gmail scopes remain Google restricted scopes, so:
 - In **Testing** mode, up to 100 test users can authorize the app
 - For broader distribution, you must complete Google's [OAuth verification review](https://support.google.com/cloud/answer/9110914)
 - The review process requires a privacy policy and may take several weeks

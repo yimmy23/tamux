@@ -2957,6 +2957,7 @@ impl TuiModel {
         self.return_to_goal_from_mission_control()
     }
 
+    #[cfg(test)]
     pub(super) fn start_goal_run_from_prompt(&mut self, goal: String) {
         self.goal_mission_control.set_prompt_text(goal);
         self.start_goal_run_from_mission_control();

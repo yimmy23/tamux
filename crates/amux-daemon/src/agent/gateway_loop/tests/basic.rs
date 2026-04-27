@@ -153,6 +153,20 @@ fn gateway_high_reasoning_timeout_budgets_are_extended() {
 }
 
 #[test]
+fn gateway_channel_key_normalizes_platform_label_casing() {
+    assert_eq!(gateway::gateway_channel_key("Slack", "C123"), "Slack:C123");
+    assert_eq!(gateway::gateway_channel_key("slack", "C123"), "Slack:C123");
+    assert_eq!(
+        gateway::gateway_channel_key("DISCORD", "user:123"),
+        "Discord:user:123"
+    );
+    assert_eq!(
+        gateway::gateway_channel_key("telegram", "123456"),
+        "Telegram:123456"
+    );
+}
+
+#[test]
 fn gateway_auto_send_ignores_historic_send_tools_from_prior_turns() {
     let messages = vec![
         AgentMessage {

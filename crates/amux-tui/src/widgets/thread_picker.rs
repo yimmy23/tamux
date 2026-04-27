@@ -245,10 +245,12 @@ fn tab_specs_inner(
     specs
 }
 
+#[cfg(test)]
 pub(crate) fn tab_specs(chat: &ChatState, subagents: &SubAgentsState) -> Vec<ThreadPickerTabSpec> {
     tab_specs_inner(chat, subagents, None, None)
 }
 
+#[cfg(test)]
 pub(crate) fn tab_specs_for_tasks(
     chat: &ChatState,
     subagents: &SubAgentsState,
@@ -258,6 +260,7 @@ pub(crate) fn tab_specs_for_tasks(
     tab_specs_inner(chat, subagents, Some(&goal_index), None)
 }
 
+#[cfg(test)]
 pub(crate) fn tab_specs_for_workspace(
     chat: &ChatState,
     subagents: &SubAgentsState,
@@ -507,10 +510,12 @@ fn is_svarog_thread(thread: &AgentThread, subagents: &SubAgentsState) -> bool {
     })
 }
 
+#[cfg(test)]
 pub(crate) fn thread_display_title(thread: &AgentThread) -> String {
     thread_display_title_inner(thread, None, None)
 }
 
+#[cfg(test)]
 pub(crate) fn thread_display_title_for_tasks(thread: &AgentThread, tasks: &TaskState) -> String {
     let goal_index = GoalThreadIndex::from_tasks(tasks);
     thread_display_title_inner(thread, Some(&goal_index), None)
@@ -554,6 +559,7 @@ fn thread_display_title_inner(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn filtered_threads<'a>(
     chat: &'a ChatState,
     modal: &ModalState,
@@ -562,6 +568,7 @@ pub(crate) fn filtered_threads<'a>(
     filtered_threads_inner(chat, modal, subagents, None, None)
 }
 
+#[cfg(test)]
 pub(crate) fn filtered_threads_for_tasks<'a>(
     chat: &'a ChatState,
     modal: &ModalState,
@@ -630,6 +637,7 @@ fn filtered_threads_inner<'a>(
         .collect()
 }
 
+#[cfg(test)]
 fn tab_cells(chat: &ChatState, subagents: &SubAgentsState) -> Vec<ThreadPickerTabCell> {
     tab_cells_inner(chat, subagents, None, None)
 }
@@ -953,6 +961,7 @@ pub fn render_for_workspace(
     frame.render_widget(Paragraph::new(hints), hints_row);
 }
 
+#[cfg(test)]
 pub fn hit_test(
     area: Rect,
     chat: &ChatState,

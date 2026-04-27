@@ -785,8 +785,6 @@ impl TuiModel {
         if result.error.as_deref() == Some("pinned_budget_exceeded") {
             if let Some(candidate_pinned_chars) = result.candidate_pinned_chars {
                 self.open_pinned_budget_exceeded_modal(PendingPinnedBudgetExceeded {
-                    thread_id: result.thread_id,
-                    message_id: result.message_id,
                     current_pinned_chars: result.current_pinned_chars,
                     pinned_budget_chars: result.pinned_budget_chars,
                     candidate_pinned_chars,

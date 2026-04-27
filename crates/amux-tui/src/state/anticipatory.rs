@@ -2,6 +2,7 @@ use crate::wire::AnticipatoryItem;
 
 #[derive(Debug, Clone)]
 pub enum AnticipatoryAction {
+    #[allow(dead_code)]
     Replace(Vec<AnticipatoryItem>),
     Clear,
 }

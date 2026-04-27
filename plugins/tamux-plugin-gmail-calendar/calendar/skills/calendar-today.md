@@ -12,6 +12,7 @@ You have access to the **Calendar plugin** with these endpoints:
 | Endpoint | Method | What it does |
 |----------|--------|-------------|
 | `list_events` | GET | List events in a time range (requires time_min, time_max) |
+| `list_calendar_events` | GET | Alias for listing events with Pack 1 naming |
 | `get_event` | GET | Get full event details including attendees |
 | `create_event` | POST | Create a new event |
 | `update_event` | PUT | Update an existing event |
@@ -27,8 +28,10 @@ You have access to the **Calendar plugin** with these endpoints:
 For a full week, set time_max 7 days ahead.
 
 ```json
-{"plugin_name": "calendar", "endpoint_name": "list_events", "params": {"time_min": "2026-03-25T00:00:00Z", "time_max": "2026-03-26T00:00:00Z"}}
+{"plugin_name": "calendar", "endpoint_name": "list_calendar_events", "params": {"time_min": "2026-03-25T00:00:00Z", "time_max": "2026-03-26T00:00:00Z"}}
 ```
+
+`list_events` remains supported as an equivalent alias.
 
 Present as numbered list: **10:00-11:00** — Event Title / Location: ...
 

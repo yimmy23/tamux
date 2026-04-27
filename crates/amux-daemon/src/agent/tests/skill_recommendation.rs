@@ -309,6 +309,125 @@ keywords: [research, citations]
 }
 
 #[tokio::test]
+async fn discover_local_guidelines_returns_best_fit_for_compact_research_queries() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let guidelines_root = root.path().join("guidelines");
+    write_markdown(
+        &guidelines_root,
+        "customer-research-task.md",
+        r#"---
+name: customer-research-task
+description: Use for customer discovery and user research synthesis.
+keywords: [customer-research, ux-research]
+triggers: [user research synthesis, interview analysis]
+---
+
+# Customer Research Task
+
+Reduce uncertainty from customer interviews and product feedback.
+"#,
+    )?;
+    write_markdown(
+        &guidelines_root,
+        "communication-writing-task.md",
+        r#"---
+name: communication-writing-task
+description: Use for emails, summaries, status updates, and user-facing text.
+keywords: [writing, summary]
+---
+
+# Communication Writing Task
+"#,
+    )?;
+
+    let result = discover_local_guidelines(
+        &store,
+        &guidelines_root,
+        "user research summary",
+        &[],
+        3,
+        &SkillRecommendationConfig::default(),
+    )
+    .await?;
+
+    assert_eq!(result.confidence, SkillRecommendationConfidence::Weak);
+    assert_eq!(
+        result.recommended_action,
+        SkillRecommendationAction::ReadSkill
+    );
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("customer-research-task")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_skills_returns_best_fit_for_compact_research_queries() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+
+    write_skill(
+        &skills_root,
+        "user-research-synthesis",
+        r#"---
+name: user-research-synthesis
+description: Synthesize user research findings from interviews.
+keywords: [research, interviews, synthesis]
+triggers: [user research analysis, customer interview synthesis]
+---
+
+# User Research Synthesis
+
+Turn qualitative product research into themes and decisions.
+"#,
+    )?;
+    write_skill(
+        &skills_root,
+        "status-summary",
+        r#"---
+name: status-summary
+description: Write concise progress summaries.
+keywords: [summary, status, writing]
+---
+
+# Status Summary
+"#,
+    )?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "user research summary",
+        &[],
+        3,
+        &SkillRecommendationConfig::default(),
+    )
+    .await?;
+
+    assert_eq!(result.confidence, SkillRecommendationConfidence::Weak);
+    assert_eq!(
+        result.recommended_action,
+        SkillRecommendationAction::ReadSkill
+    );
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("user-research-synthesis")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn discover_local_guidelines_indexes_guideline_documents_for_tantivy_search() -> Result<()> {
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;
@@ -2083,8 +2202,18 @@ keywords: [rust, cargo, build]
     )
     .await?;
 
-    assert_eq!(result.confidence, SkillRecommendationConfidence::None);
-    assert!(result.recommendations.is_empty());
+    assert_eq!(result.confidence, SkillRecommendationConfidence::Weak);
+    let recommendation = result
+        .recommendations
+        .first()
+        .expect("clear textual match should still be discoverable");
+    assert_eq!(recommendation.record.skill_name, "debug-rust-build");
+    assert_eq!(recommendation.record.use_count, 0);
+    assert_eq!(recommendation.record.last_used_at, None);
+    assert!(
+        recommendation.score < SkillRecommendationConfig::default().strong_match_threshold,
+        "never-used catalog sync entries should not be boosted into strong matches"
+    );
 
     Ok(())
 }

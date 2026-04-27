@@ -9,7 +9,7 @@ fn clear_message_pin_state(message: &mut AgentMessage) {
     message.pinned_for_compaction = false;
 }
 
-fn agent_message_from_db(msg: amux_protocol::AgentDbMessage) -> Option<AgentMessage> {
+pub(super) fn agent_message_from_db(msg: amux_protocol::AgentDbMessage) -> Option<AgentMessage> {
     let role = match msg.role.as_str() {
         "user" => MessageRole::User,
         "assistant" => MessageRole::Assistant,

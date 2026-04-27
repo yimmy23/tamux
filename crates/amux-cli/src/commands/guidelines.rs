@@ -6,6 +6,10 @@ use std::path::{Path, PathBuf};
 use crate::cli::GuidelineAction;
 use crate::client;
 
+#[cfg(test)]
+use super::guideline_sync::RemoteGuidelineDocument;
+use super::guideline_sync::{fetch_remote_guideline_documents, sync_guideline_documents};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct GuidelineEntry {
     name: String,
@@ -45,6 +49,18 @@ pub(crate) async fn run(action: GuidelineAction) -> Result<()> {
             let installed = install_guideline_command(&source, name.as_deref(), force)?;
             println!("Installed guideline: {}", installed.display());
             println!("Guidelines root: {}", root.display());
+        }
+        GuidelineAction::Sync { force } => {
+            let documents = fetch_remote_guideline_documents().await?;
+            let summary = sync_guideline_documents(&root, &documents, force)?;
+            println!(
+                "Synced guidelines from https://github.com/mkurman/tamux/tree/main/guidelines"
+            );
+            println!("Guidelines root: {}", root.display());
+            println!(
+                "Installed: {} | Overwritten: {} | Skipped existing: {}",
+                summary.installed, summary.overwritten, summary.skipped_existing
+            );
         }
         GuidelineAction::List { json } => {
             let entries = list_guideline_files(&root)?;
@@ -452,6 +468,62 @@ mod tests {
         assert_eq!(
             by_relative.0.description.as_deref(),
             Some("Research synthesis")
+        );
+    }
+
+    #[test]
+    fn sync_guidelines_skips_existing_files_without_force() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("guidelines");
+        std::fs::create_dir_all(&root).expect("create root");
+        std::fs::write(root.join("coding-task.md"), "# Local Coding\n").expect("write local");
+
+        let documents = vec![
+            RemoteGuidelineDocument {
+                relative_path: "coding-task.md".to_string(),
+                content: "# Upstream Coding\n".to_string(),
+            },
+            RemoteGuidelineDocument {
+                relative_path: "research/research-task.md".to_string(),
+                content: "# Upstream Research\n".to_string(),
+            },
+        ];
+
+        let summary = sync_guideline_documents(&root, &documents, false).expect("sync guidelines");
+
+        assert_eq!(summary.installed, 1);
+        assert_eq!(summary.skipped_existing, 1);
+        assert_eq!(summary.overwritten, 0);
+        assert_eq!(
+            std::fs::read_to_string(root.join("coding-task.md")).expect("read coding"),
+            "# Local Coding\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("research/research-task.md")).expect("read research"),
+            "# Upstream Research\n"
+        );
+    }
+
+    #[test]
+    fn sync_guidelines_force_overwrites_existing_files() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("guidelines");
+        std::fs::create_dir_all(&root).expect("create root");
+        std::fs::write(root.join("coding-task.md"), "# Local Coding\n").expect("write local");
+
+        let documents = vec![RemoteGuidelineDocument {
+            relative_path: "coding-task.md".to_string(),
+            content: "# Upstream Coding\n".to_string(),
+        }];
+
+        let summary = sync_guideline_documents(&root, &documents, true).expect("sync guidelines");
+
+        assert_eq!(summary.installed, 0);
+        assert_eq!(summary.skipped_existing, 0);
+        assert_eq!(summary.overwritten, 1);
+        assert_eq!(
+            std::fs::read_to_string(root.join("coding-task.md")).expect("read coding"),
+            "# Upstream Coding\n"
         );
     }
 }

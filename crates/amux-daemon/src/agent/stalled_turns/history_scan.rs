@@ -24,17 +24,23 @@ impl AgentEngine {
         let goal_runs = self.goal_runs.lock().await.clone();
         let tasks = self.tasks.lock().await.clone();
         let subagent_runtime = self.subagent_runtime.read().await.clone();
+        let pending_operator_question_thread_ids =
+            self.pending_operator_question_thread_ids().await;
         let now = now_millis();
         let recent_cutoff = now.saturating_sub(RECENT_THREAD_ACTIVITY_WINDOW_MS);
 
         let mut observations = threads
             .values()
             .filter(|thread| !active_stream_ids.contains(&thread.id))
+            .filter(|thread| !pending_operator_question_thread_ids.contains(&thread.id))
             .filter(|thread| latest_thread_activity_at(thread) >= recent_cutoff)
             .filter_map(|thread| latest_stalled_turn_observation(thread, &tasks, &goal_runs))
             .collect::<Vec<_>>();
 
         observations.extend(active_streams.into_iter().filter_map(|(thread_id, entry)| {
+            if pending_operator_question_thread_ids.contains(&thread_id) {
+                return None;
+            }
             if now.saturating_sub(entry.last_progress_at) < super::runtime::INITIAL_GRACE_DELAY_MS
                 || matches!(entry.last_progress_kind, StreamProgressKind::Started)
             {
@@ -59,6 +65,7 @@ impl AgentEngine {
                 &subagent_runtime,
                 now,
                 &observed_ids,
+                &pending_operator_question_thread_ids,
             )
             .await,
         );
@@ -74,6 +81,7 @@ impl AgentEngine {
         subagent_runtime: &HashMap<String, SubagentRuntimeStats>,
         now_ms: u64,
         observed_ids: &HashSet<String>,
+        pending_operator_question_thread_ids: &HashSet<String>,
     ) -> Vec<ThreadStallObservation> {
         let mut observations = Vec::new();
         let mut seen_thread_ids = observed_ids.clone();
@@ -92,6 +100,9 @@ impl AgentEngine {
             };
             let thread_id = thread_id.trim();
             if thread_id.is_empty() || seen_thread_ids.contains(thread_id) {
+                continue;
+            }
+            if pending_operator_question_thread_ids.contains(thread_id) {
                 continue;
             }
 

@@ -50,6 +50,7 @@ impl TuiModel {
         processed
     }
 
+    #[cfg(test)]
     pub fn pump_daemon_events(&mut self) {
         let _ = self.pump_daemon_events_budgeted(usize::MAX);
     }

@@ -2185,6 +2185,196 @@ async fn add_trigger_tool_returns_custom_source_label() {
 }
 
 #[tokio::test]
+async fn whatsapp_link_control_tools_start_stop_reset_and_status() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let status_call = ToolCall::with_default_weles_review(
+        "tool-whatsapp-link-status".to_string(),
+        ToolFunction {
+            name: "whatsapp_link_status".to_string(),
+            arguments: serde_json::json!({}).to_string(),
+        },
+    );
+    let status_result = execute_tool(
+        &status_call,
+        &engine,
+        "thread-whatsapp-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !status_result.is_error,
+        "whatsapp_link_status should succeed: {}",
+        status_result.content
+    );
+    let status_payload: serde_json::Value =
+        serde_json::from_str(&status_result.content).expect("status payload should be JSON");
+    assert_eq!(status_payload["state"], "disconnected");
+
+    let start_call = ToolCall::with_default_weles_review(
+        "tool-whatsapp-link-start".to_string(),
+        ToolFunction {
+            name: "whatsapp_link_start".to_string(),
+            arguments: serde_json::json!({}).to_string(),
+        },
+    );
+    let start_result = execute_tool(
+        &start_call,
+        &engine,
+        "thread-whatsapp-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !start_result.is_error,
+        "whatsapp_link_start should succeed: {}",
+        start_result.content
+    );
+    let start_payload: serde_json::Value =
+        serde_json::from_str(&start_result.content).expect("start payload should be JSON");
+    assert_eq!(start_payload["ok"], true);
+    assert_eq!(start_payload["started"], true);
+    assert_eq!(start_payload["state"], "starting");
+
+    let repeated_start_result = execute_tool(
+        &start_call,
+        &engine,
+        "thread-whatsapp-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !repeated_start_result.is_error,
+        "repeated whatsapp_link_start should succeed: {}",
+        repeated_start_result.content
+    );
+    let repeated_start_payload: serde_json::Value = serde_json::from_str(&repeated_start_result.content)
+        .expect("repeated start payload should be JSON");
+    assert_eq!(repeated_start_payload["started"], false);
+    assert_eq!(repeated_start_payload["state"], "starting");
+
+    let stop_call = ToolCall::with_default_weles_review(
+        "tool-whatsapp-link-stop".to_string(),
+        ToolFunction {
+            name: "whatsapp_link_stop".to_string(),
+            arguments: serde_json::json!({}).to_string(),
+        },
+    );
+    let stop_result = execute_tool(
+        &stop_call,
+        &engine,
+        "thread-whatsapp-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !stop_result.is_error,
+        "whatsapp_link_stop should succeed: {}",
+        stop_result.content
+    );
+    let stop_payload: serde_json::Value =
+        serde_json::from_str(&stop_result.content).expect("stop payload should be JSON");
+    assert_eq!(stop_payload["ok"], true);
+    assert_eq!(stop_payload["state"], "disconnected");
+
+    engine
+        .whatsapp_link
+        .start_if_idle()
+        .await
+        .expect("direct runtime start should succeed");
+    crate::agent::save_persisted_provider_state(
+        &engine.history,
+        crate::agent::WHATSAPP_LINK_PROVIDER_ID,
+        crate::agent::whatsapp_link::transport::PersistedState {
+            linked_phone: Some("+15550000077".to_string()),
+            auth_json: Some("{\"session\":true}".to_string()),
+            metadata_json: Some("{\"device\":true}".to_string()),
+            last_reset_at: None,
+            last_linked_at: Some(77),
+            updated_at: 78,
+        },
+    )
+    .await
+    .expect("persist whatsapp provider state");
+    let native_store_path = crate::agent::whatsapp_native_store_path(&engine.data_dir);
+    tokio::fs::write(&native_store_path, "native-state")
+        .await
+        .expect("write native store should succeed");
+
+    let reset_call = ToolCall::with_default_weles_review(
+        "tool-whatsapp-link-reset".to_string(),
+        ToolFunction {
+            name: "whatsapp_link_reset".to_string(),
+            arguments: serde_json::json!({}).to_string(),
+        },
+    );
+    let reset_result = execute_tool(
+        &reset_call,
+        &engine,
+        "thread-whatsapp-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !reset_result.is_error,
+        "whatsapp_link_reset should succeed: {}",
+        reset_result.content
+    );
+    let reset_payload: serde_json::Value =
+        serde_json::from_str(&reset_result.content).expect("reset payload should be JSON");
+    assert_eq!(reset_payload["ok"], true);
+    assert_eq!(reset_payload["state"], "disconnected");
+    assert_eq!(reset_payload["message"], "reset");
+    assert!(
+        crate::agent::load_persisted_provider_state(
+            &engine.history,
+            crate::agent::WHATSAPP_LINK_PROVIDER_ID,
+        )
+        .await
+        .expect("load persisted whatsapp state should succeed")
+        .is_none(),
+        "reset should clear persisted provider state"
+    );
+    assert!(
+        !native_store_path.exists(),
+        "reset should remove native whatsapp store"
+    );
+}
+
+#[tokio::test]
 async fn list_triggers_tool_surfaces_packaged_defaults_without_manual_seeding() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

@@ -28,6 +28,9 @@ pub(crate) struct ThreadDetailResult {
     pub total_message_count: usize,
     pub loaded_message_start: usize,
     pub loaded_message_end: usize,
+    pub active_context_window_start: usize,
+    pub active_context_window_end: usize,
+    pub active_context_window_tokens: u64,
     #[serde(default)]
     pub pinned_messages: Vec<PinnedThreadMessageSummary>,
 }
@@ -51,6 +54,39 @@ fn pinned_message_summaries(thread: &AgentThread) -> Vec<PinnedThreadMessageSumm
             absolute_index,
             role: message.role,
             content: message.content.clone(),
+        })
+        .collect()
+}
+
+fn thread_context_window_summary(messages: &[AgentMessage]) -> (usize, usize, u64) {
+    let (start, active_messages) = active_compaction_window(messages);
+    (
+        start,
+        messages.len(),
+        estimate_message_tokens(active_messages) as u64,
+    )
+}
+
+async fn persisted_pinned_message_summaries(
+    engine: &AgentEngine,
+    thread_id: &str,
+) -> Vec<PinnedThreadMessageSummary> {
+    let Ok(rows) = engine
+        .history
+        .list_pinned_messages_for_compaction(thread_id)
+        .await
+    else {
+        return Vec::new();
+    };
+
+    rows.into_iter()
+        .filter_map(|(absolute_index, row)| {
+            super::messaging::agent_message_from_db(row).map(|message| PinnedThreadMessageSummary {
+                message_id: message.id,
+                absolute_index,
+                role: message.role,
+                content: message.content,
+            })
         })
         .collect()
 }
@@ -407,12 +443,28 @@ impl AgentEngine {
         message_limit: Option<usize>,
         message_offset: usize,
     ) -> Option<ThreadDetailResult> {
+        if let Some(limit) = message_limit {
+            if let Some(detail) = self
+                .get_lazy_persisted_thread_window(
+                    thread_id,
+                    include_internal,
+                    limit,
+                    message_offset,
+                )
+                .await
+            {
+                return Some(detail);
+            }
+        }
+
         self.ensure_thread_messages_loaded(thread_id).await;
         let mut thread = self.threads.read().await.get(thread_id).cloned()?;
         if !thread_is_query_visible(&thread, include_internal) {
             return None;
         }
         let pinned_messages = pinned_message_summaries(&thread);
+        let (active_context_window_start, active_context_window_end, active_context_window_tokens) =
+            thread_context_window_summary(&thread.messages);
 
         let total_messages = thread.messages.len();
         let end = total_messages.saturating_sub(message_offset);
@@ -436,6 +488,77 @@ impl AgentEngine {
             total_message_count: total_messages,
             loaded_message_start: start,
             loaded_message_end: end,
+            active_context_window_start,
+            active_context_window_end,
+            active_context_window_tokens,
+            pinned_messages,
+        })
+    }
+
+    async fn get_lazy_persisted_thread_window(
+        &self,
+        thread_id: &str,
+        include_internal: bool,
+        message_limit: usize,
+        message_offset: usize,
+    ) -> Option<ThreadDetailResult> {
+        if !self
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id)
+        {
+            return None;
+        }
+
+        let _guard = self.thread_message_hydration_lock.lock().await;
+        if !self
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id)
+        {
+            return None;
+        }
+
+        let mut thread = self.threads.read().await.get(thread_id).cloned()?;
+        if !thread_is_query_visible(&thread, include_internal) {
+            return None;
+        }
+
+        let (db_messages, total_message_count, loaded_message_start, loaded_message_end) = self
+            .history
+            .list_message_window(thread_id, message_limit, message_offset)
+            .await
+            .ok()?;
+        thread.messages = db_messages
+            .into_iter()
+            .filter_map(super::messaging::agent_message_from_db)
+            .collect();
+
+        let pinned_messages = persisted_pinned_message_summaries(self, thread_id).await;
+        let (active_context_window_start, active_context_window_end, active_context_window_tokens) =
+            match self.history.list_messages(thread_id, None).await {
+                Ok(rows) => {
+                    let messages = rows
+                        .into_iter()
+                        .filter_map(super::messaging::agent_message_from_db)
+                        .collect::<Vec<_>>();
+                    thread_context_window_summary(&messages)
+                }
+                Err(_) => thread_context_window_summary(&thread.messages),
+            };
+
+        Some(ThreadDetailResult {
+            thread,
+            messages_truncated: loaded_message_start > 0
+                || loaded_message_end < total_message_count,
+            total_message_count,
+            loaded_message_start,
+            loaded_message_end,
+            active_context_window_start,
+            active_context_window_end,
+            active_context_window_tokens,
             pinned_messages,
         })
     }
@@ -475,6 +598,9 @@ impl AgentEngine {
             total_message_count: detail.total_message_count,
             loaded_message_start: detail.loaded_message_start + low,
             loaded_message_end: detail.loaded_message_end,
+            active_context_window_start: detail.active_context_window_start,
+            active_context_window_end: detail.active_context_window_end,
+            active_context_window_tokens: detail.active_context_window_tokens,
             pinned_messages: detail.pinned_messages,
         })
     }

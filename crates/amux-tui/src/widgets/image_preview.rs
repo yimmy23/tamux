@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
+#[cfg(not(test))]
 use std::thread;
 
 use image::imageops::FilterType;
@@ -107,6 +108,7 @@ impl PreviewRuntime {
         }
     }
 
+    #[cfg(not(test))]
     fn spawn_worker(&self) {
         let inner = self.inner.clone();
         let _ = thread::Builder::new()

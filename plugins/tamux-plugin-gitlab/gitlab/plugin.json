@@ -1,0 +1,67 @@
+{
+  "name": "gitlab",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "GitLab integration — fetch project details, issues, and merge requests through the plugin API proxy",
+  "author": "tamux",
+  "license": "MIT",
+  "tamux_version": ">=2.0.0",
+  "settings": {
+    "token": {
+      "type": "string",
+      "label": "GitLab Personal Access Token",
+      "required": true,
+      "secret": true,
+      "description": "GitLab token used for authenticated API requests"
+    }
+  },
+  "api": {
+    "base_url": "https://gitlab.com",
+    "endpoints": {
+      "get_repo": {
+        "method": "GET",
+        "path": "/api/v4/projects/{{urlencode params.project}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "## {{name_with_namespace}}\n\n{{description}}\n\n- Visibility: {{visibility}}\n- Default branch: {{default_branch}}\n- Stars: {{star_count}}\n- Forks: {{forks_count}}\n- Open issues: {{open_issues_count}}\n- URL: {{web_url}}"
+      },
+      "list_issues": {
+        "method": "GET",
+        "path": "/api/v4/projects/{{urlencode params.project}}/issues?state={{default params.state \"opened\"}}&per_page={{default params.per_page \"20\"}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "## Issues\n\n{{#each this}}- #{{iid}} {{title}} ({{state}}) — {{web_url}}\n{{/each}}"
+      },
+      "list_merge_requests": {
+        "method": "GET",
+        "path": "/api/v4/projects/{{urlencode params.project}}/merge_requests?state={{default params.state \"opened\"}}&per_page={{default params.per_page \"20\"}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "## Merge Requests\n\n{{#each this}}- !{{iid}} {{title}} ({{state}}) — {{web_url}}\n{{/each}}"
+      }
+    },
+    "rate_limit": {
+      "requests_per_minute": 60
+    }
+  },
+  "commands": {
+    "repo": {
+      "description": "Fetch GitLab project details",
+      "action": "get_repo"
+    },
+    "issues": {
+      "description": "List GitLab issues for a project",
+      "action": "list_issues"
+    },
+    "mrs": {
+      "description": "List GitLab merge requests for a project",
+      "action": "list_merge_requests"
+    }
+  },
+  "skills": [
+    "skills/gitlab.md"
+  ]
+}

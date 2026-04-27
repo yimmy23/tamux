@@ -1635,6 +1635,75 @@ async fn send_telegram_message_emits_gateway_ipc_request() {
     assert_eq!(result, "Telegram message sent to 777");
 }
 
+#[tokio::test]
+async fn send_telegram_message_uses_auto_injected_reply_context_for_chat() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    engine.init_gateway().await;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    {
+        let mut gw_guard = engine.gateway_state.lock().await;
+        let gw = gw_guard.as_mut().expect("gateway state should exist");
+        gw.reply_contexts.insert(
+            "Telegram:777".to_string(),
+            crate::agent::gateway::ThreadContext {
+                telegram_message_id: Some(42),
+                ..Default::default()
+            },
+        );
+    }
+
+    let send_engine = engine.clone();
+    let send_task = tokio::spawn(async move {
+        execute_gateway_message(
+            "send_telegram_message",
+            &serde_json::json!({
+                "chat_id": "777",
+                "message": "telegram reply"
+            }),
+            &send_engine,
+            &reqwest::Client::new(),
+        )
+        .await
+    });
+
+    let request = match timeout(Duration::from_millis(250), rx.recv())
+        .await
+        .expect("gateway send request should be emitted")
+        .expect("gateway send request should exist")
+    {
+        DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "telegram");
+    assert_eq!(request.channel_id, "777");
+    assert_eq!(request.thread_id.as_deref(), Some("42"));
+
+    engine
+        .complete_gateway_send_result(GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "telegram".to_string(),
+            channel_id: "777".to_string(),
+            requested_channel_id: Some("777".to_string()),
+            delivery_id: Some("99".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: 1,
+        })
+        .await;
+
+    let result = send_task
+        .await
+        .expect("send task should join")
+        .expect("send should succeed");
+    assert_eq!(result, "Telegram message sent to 777");
+}
+
 // -----------------------------------------------------------------------
 // Source authority classification tests (UNCR-03)
 // -----------------------------------------------------------------------

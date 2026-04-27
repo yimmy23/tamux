@@ -405,6 +405,7 @@ fn task_notice_is_failed(summary: &str) -> bool {
         || summary.starts_with("review_failed:")
 }
 
+#[cfg(test)]
 fn task_lines(
     task: &amux_protocol::WorkspaceTask,
     notice_summaries: &std::collections::HashMap<String, String>,

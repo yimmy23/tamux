@@ -262,20 +262,20 @@ async fn visible_thread_participant_send_records_message_author_and_updates_part
                 )
             } else {
                 match request_counter_task.fetch_add(1, Ordering::SeqCst) {
-                0 => concat!(
-                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible\"}}\n\n",
-                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"I checked that claim and it is inaccurate.\"}\n\n",
-                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":8},\"error\":null}}\n\n"
-                ),
-                1 => concat!(
-                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible_follow_up\"}}\n\n",
-                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Swarozyc acknowledged the verification.\"}\n\n",
-                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible_follow_up\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":9,\"output_tokens\":5},\"error\":null}}\n\n"
-                ),
-                _ => concat!(
-                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible_tail\"}}\n\n",
-                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible_tail\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0},\"error\":null}}\n\n"
-                ),
+                    0 => concat!(
+                        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible\"}}\n\n",
+                        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"I checked that claim and it is inaccurate.\"}\n\n",
+                        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":8},\"error\":null}}\n\n"
+                    ),
+                    1 => concat!(
+                        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible_follow_up\"}}\n\n",
+                        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Swarozyc acknowledged the verification.\"}\n\n",
+                        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible_follow_up\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":9,\"output_tokens\":5},\"error\":null}}\n\n"
+                    ),
+                    _ => concat!(
+                        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_participant_visible_tail\"}}\n\n",
+                        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_participant_visible_tail\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0},\"error\":null}}\n\n"
+                    ),
                 }
             };
             let response = format!(

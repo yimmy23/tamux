@@ -56,7 +56,10 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub async fn list_due_routine_definitions(&self, now_ms: u64) -> Result<Vec<RoutineDefinitionRow>> {
+    pub async fn list_due_routine_definitions(
+        &self,
+        now_ms: u64,
+    ) -> Result<Vec<RoutineDefinitionRow>> {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
@@ -119,10 +122,8 @@ impl HistoryStore {
         let id = id.to_string();
         self.conn
             .call(move |conn| {
-                let deleted = conn.execute(
-                    "DELETE FROM routine_definitions WHERE id = ?1",
-                    params![id],
-                )?;
+                let deleted =
+                    conn.execute("DELETE FROM routine_definitions WHERE id = ?1", params![id])?;
                 Ok(deleted > 0)
             })
             .await

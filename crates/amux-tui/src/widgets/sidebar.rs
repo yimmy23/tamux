@@ -939,6 +939,7 @@ fn agent_status_line(
     Line::from(spans)
 }
 
+#[cfg(test)]
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -1158,6 +1159,7 @@ pub fn hit_test_cached(
     snapshot.row_target(row_idx)
 }
 
+#[cfg(test)]
 pub fn hit_test(
     area: Rect,
     chat: &ChatState,

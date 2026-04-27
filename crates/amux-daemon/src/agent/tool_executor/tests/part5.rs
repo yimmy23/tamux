@@ -401,6 +401,36 @@
     }
 
     #[test]
+    fn whatsapp_control_tools_are_exposed_with_expected_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+
+        for tool_name in [
+            "whatsapp_link_start",
+            "whatsapp_link_stop",
+            "whatsapp_link_reset",
+            "whatsapp_link_status",
+        ] {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.function.name == tool_name)
+                .unwrap_or_else(|| panic!("{tool_name} tool should be available"));
+            let properties = tool
+                .function
+                .parameters
+                .get("properties")
+                .and_then(|value| value.as_object())
+                .unwrap_or_else(|| panic!("{tool_name} schema should expose properties object"));
+            assert!(
+                properties.is_empty(),
+                "{tool_name} should not require arguments"
+            );
+            assert!(tool.function.parameters.get("required").is_none());
+        }
+    }
+
+    #[test]
     fn event_trigger_tools_are_exposed_with_expected_schema() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();
@@ -1629,6 +1659,75 @@ fn apply_patch_tool_uses_top_level_object_schema() {
         assert_eq!(request.channel_id, "C123");
         assert_eq!(request.thread_id.as_deref(), Some("1712345678.000100"));
         assert_eq!(request.content, "hello from daemon");
+
+        engine
+            .complete_gateway_send_result(GatewaySendResult {
+                correlation_id: request.correlation_id.clone(),
+                platform: "slack".to_string(),
+                channel_id: "C123".to_string(),
+                requested_channel_id: Some("C123".to_string()),
+                delivery_id: Some("1712345678.000200".to_string()),
+                ok: true,
+                error: None,
+                completed_at_ms: 1,
+            })
+            .await;
+
+        let result = send_task
+            .await
+            .expect("send task should join")
+            .expect("send should succeed");
+        assert_eq!(result, "Slack message sent to #C123");
+    }
+
+    #[tokio::test]
+    async fn send_slack_message_uses_auto_injected_reply_context_for_channel() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        engine.init_gateway().await;
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        engine.set_gateway_ipc_sender(Some(tx)).await;
+
+        {
+            let mut gw_guard = engine.gateway_state.lock().await;
+            let gw = gw_guard.as_mut().expect("gateway state should exist");
+            gw.reply_contexts.insert(
+                "Slack:C123".to_string(),
+                crate::agent::gateway::ThreadContext {
+                    slack_thread_ts: Some("1712345678.000100".to_string()),
+                    ..Default::default()
+                },
+            );
+        }
+
+        let send_engine = engine.clone();
+        let send_task = tokio::spawn(async move {
+            execute_gateway_message(
+                "send_slack_message",
+                &serde_json::json!({
+                    "channel": "C123",
+                    "message": "hello from daemon"
+                }),
+                &send_engine,
+                &reqwest::Client::new(),
+            )
+            .await
+        });
+
+        let request = match timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .expect("gateway send request should be emitted")
+            .expect("gateway send request should exist")
+        {
+            DaemonMessage::GatewaySendRequest { request } => request,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        };
+        assert_eq!(request.platform, "slack");
+        assert_eq!(request.channel_id, "C123");
+        assert_eq!(request.thread_id.as_deref(), Some("1712345678.000100"));
 
         engine
             .complete_gateway_send_result(GatewaySendResult {

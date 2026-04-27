@@ -14,6 +14,9 @@ pub struct AgentThread {
     pub loaded_message_start: usize,
     pub loaded_message_end: usize,
     pub active_compaction_window_start: Option<usize>,
+    pub active_context_window_start: Option<usize>,
+    pub active_context_window_end: Option<usize>,
+    pub active_context_window_tokens: Option<u64>,
     pub pinned_messages: Vec<PinnedThreadMessage>,
     pub older_page_pending: bool,
     pub older_page_request_cooldown_until_tick: Option<u64>,
@@ -309,6 +312,9 @@ pub enum ChatAction {
     },
     ThreadListReceived(Vec<AgentThread>),
     ThreadDetailReceived(AgentThread),
+    InvalidateContextWindow {
+        thread_id: String,
+    },
     ThreadCreated {
         thread_id: String,
         title: String,

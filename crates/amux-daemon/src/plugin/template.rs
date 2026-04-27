@@ -472,10 +472,7 @@ mod tests {
                     "Accept".to_string(),
                     "application/vnd.github+json".to_string(),
                 ),
-                (
-                    "X-GitHub-Api-Version".to_string(),
-                    "2022-11-28".to_string(),
-                ),
+                ("X-GitHub-Api-Version".to_string(), "2022-11-28".to_string()),
             ])),
             body: None,
             response_template: None,

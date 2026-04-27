@@ -279,6 +279,9 @@ fn trim_thread_to_latest_page(thread: &mut AgentThread, page_size: usize) -> usi
 fn append_message_to_thread(thread: &mut AgentThread, message: AgentMessage, page_size: usize) {
     normalize_thread_window(thread);
     thread.messages.push(message);
+    thread.active_context_window_start = None;
+    thread.active_context_window_end = None;
+    thread.active_context_window_tokens = None;
     thread.total_message_count = thread.total_message_count.saturating_add(1);
     thread.loaded_message_end = thread.total_message_count;
     thread.loaded_message_start = thread
@@ -754,6 +757,9 @@ impl ChatState {
                     Some(start) if absolute_index == start => None,
                     other => other,
                 };
+                thread.active_context_window_start = None;
+                thread.active_context_window_end = None;
+                thread.active_context_window_tokens = None;
                 normalize_thread_window(thread);
                 removed = true;
             }
@@ -1249,6 +1255,12 @@ impl ChatState {
                                 incoming.loaded_message_end = existing.loaded_message_end;
                                 incoming.active_compaction_window_start =
                                     existing.active_compaction_window_start;
+                                incoming.active_context_window_start =
+                                    existing.active_context_window_start;
+                                incoming.active_context_window_end =
+                                    existing.active_context_window_end;
+                                incoming.active_context_window_tokens =
+                                    existing.active_context_window_tokens;
                                 incoming.older_page_pending = existing.older_page_pending;
                                 incoming.older_page_request_cooldown_until_tick =
                                     existing.older_page_request_cooldown_until_tick;
@@ -1304,6 +1316,9 @@ impl ChatState {
                     };
                     existing.loaded_message_start = merged_start;
                     existing.loaded_message_end = merged_end.max(existing.total_message_count);
+                    existing.active_context_window_start = incoming.active_context_window_start;
+                    existing.active_context_window_end = incoming.active_context_window_end;
+                    existing.active_context_window_tokens = incoming.active_context_window_tokens;
                     existing.older_page_pending = false;
                     existing.older_page_request_cooldown_until_tick = existing
                         .older_page_request_cooldown_until_tick
@@ -1352,6 +1367,15 @@ impl ChatState {
                     incoming.history_window_expanded =
                         incoming.messages.len() > self.history_page_size;
                     self.threads.push(incoming);
+                }
+            }
+
+            ChatAction::InvalidateContextWindow { thread_id } => {
+                if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                    thread.active_context_window_start = None;
+                    thread.active_context_window_end = None;
+                    thread.active_context_window_tokens = None;
+                    normalize_thread_window(thread);
                 }
             }
 
@@ -1441,6 +1465,9 @@ impl ChatState {
                     thread.loaded_message_start = 0;
                     thread.loaded_message_end = 0;
                     thread.active_compaction_window_start = None;
+                    thread.active_context_window_start = None;
+                    thread.active_context_window_end = None;
+                    thread.active_context_window_tokens = None;
                     thread.older_page_pending = false;
                     thread.older_page_request_cooldown_until_tick = None;
                     thread.history_window_expanded = false;

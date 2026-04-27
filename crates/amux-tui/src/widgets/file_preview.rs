@@ -4,6 +4,7 @@ use crate::terminal_graphics::{active_protocol, TerminalImageOverlaySpec, Termin
 use crate::theme::ThemeTokens;
 use crate::widgets::image_preview;
 use crate::widgets::message::{render_markdown_pub, wrap_text};
+use crate::widgets::tool_diff::render_unified_diff;
 use ratatui::prelude::*;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -122,6 +123,8 @@ struct FilePreviewThemeKey {
     fg_dim: Style,
     fg_active: Style,
     accent_primary: Style,
+    accent_secondary: Style,
+    accent_success: Style,
     accent_danger: Style,
 }
 
@@ -131,6 +134,8 @@ impl From<&ThemeTokens> for FilePreviewThemeKey {
             fg_dim: theme.fg_dim,
             fg_active: theme.fg_active,
             accent_primary: theme.accent_primary,
+            accent_secondary: theme.accent_secondary,
+            accent_success: theme.accent_success,
             accent_danger: theme.accent_danger,
         }
     }
@@ -331,7 +336,7 @@ fn build_lines(
                     width,
                 );
             } else {
-                push_wrapped(&mut lines, diff, theme.fg_dim, width);
+                lines.extend(render_unified_diff(diff, theme, width));
             }
             return lines;
         }
@@ -908,5 +913,45 @@ mod tests {
         assert_eq!(spec.rows, 24);
 
         crate::terminal_graphics::set_active_protocol_for_tests(TerminalImageProtocol::None);
+    }
+
+    #[test]
+    fn git_diff_preview_colors_added_and_removed_lines() {
+        let mut tasks = TaskState::default();
+        tasks.reduce(crate::state::task::TaskAction::GitDiffReceived {
+            repo_path: "/repo".to_string(),
+            file_path: Some("src/demo.rs".to_string()),
+            diff: [
+                "diff --git a/src/demo.rs b/src/demo.rs",
+                "index 1111111..2222222 100644",
+                "--- a/src/demo.rs",
+                "+++ b/src/demo.rs",
+                "@@ -1,2 +1,2 @@",
+                "-let before = 1;",
+                "+let after = 2;",
+            ]
+            .join("\n"),
+        });
+        let target = ChatFilePreviewTarget {
+            path: "/repo/src/demo.rs".to_string(),
+            repo_root: Some("/repo".to_string()),
+            repo_relative_path: Some("src/demo.rs".to_string()),
+        };
+        let theme = ThemeTokens::default();
+        let lines = build_lines(Rect::new(0, 0, 80, 20), &tasks, &target, &theme, 0);
+
+        let removed = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .find(|span| span.content.as_ref() == "-let before = 1;")
+            .expect("removed line should render as its own styled span");
+        let added = lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .find(|span| span.content.as_ref() == "+let after = 2;")
+            .expect("added line should render as its own styled span");
+
+        assert_eq!(removed.style, theme.accent_danger);
+        assert_eq!(added.style, theme.accent_success);
     }
 }

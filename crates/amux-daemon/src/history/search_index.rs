@@ -1,13 +1,22 @@
-use anyhow::{Context, Result};
-use std::path::Path;
+use anyhow::{anyhow, Context, Result};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, OnceLock, Weak},
+    time::{Duration, Instant},
+};
 use tantivy::collector::TopDocs;
+use tantivy::directory::error::LockError;
 use tantivy::query::QueryParser;
-use tantivy::schema::{FAST, Field, STORED, STRING, Schema, TEXT, TantivyDocument, Value};
+use tantivy::schema::{Field, Schema, TantivyDocument, Value, FAST, STORED, STRING, TEXT};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::{Index, Term};
+use tantivy::{Index, IndexWriter, TantivyError, Term};
 
 const INDEX_WRITER_HEAP_BYTES: usize = 50_000_000;
+const INDEX_WRITER_LOCK_WAIT: Duration = Duration::from_millis(200);
+const INDEX_WRITER_LOCK_RETRY_DELAY: Duration = Duration::from_millis(10);
 const SOURCE_KEY_SEPARATOR: &str = ":";
+static TANTIVY_WRITER_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SearchSourceKind {
@@ -88,6 +97,7 @@ pub(crate) struct SearchHitRef {
 pub(crate) struct SearchIndex {
     index: Index,
     fields: SearchFields,
+    writer_lock: Arc<Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -116,21 +126,50 @@ impl SearchIndex {
                 .with_context(|| format!("create tantivy index {}", path.display()))?,
         };
         let fields = SearchFields::from_schema(index.schema())?;
-        Ok(Self { index, fields })
+        let writer_lock = writer_lock_for_path(path)?;
+        Ok(Self {
+            index,
+            fields,
+            writer_lock,
+        })
     }
 
     pub(crate) fn upsert(&self, document: SearchDocument) -> Result<()> {
-        let mut writer = self
-            .index
-            .writer(INDEX_WRITER_HEAP_BYTES)
-            .context("open tantivy index writer")?;
-        writer.delete_term(Term::from_field_text(
-            self.fields.source_key,
-            &source_key(document.source_kind, &document.source_id),
-        ));
-        writer.add_document(self.to_tantivy_document(document))?;
-        writer.commit().context("commit tantivy document upsert")?;
+        self.upsert_many(vec![document])
+    }
+
+    pub(crate) fn upsert_many(&self, documents: Vec<SearchDocument>) -> Result<()> {
+        if documents.is_empty() {
+            return Ok(());
+        }
+
+        let deadline = Instant::now() + INDEX_WRITER_LOCK_WAIT;
+        let _writer_guard = self
+            .writer_lock
+            .lock()
+            .map_err(|_| anyhow!("tantivy index writer lock poisoned"))?;
+        let mut writer = self.open_writer_with_retry(deadline)?;
+        for document in documents {
+            writer.delete_term(Term::from_field_text(
+                self.fields.source_key,
+                &source_key(document.source_kind, &document.source_id),
+            ));
+            writer.add_document(self.to_tantivy_document(document))?;
+        }
+        writer.commit().context("commit tantivy document upserts")?;
         Ok(())
+    }
+
+    fn open_writer_with_retry(&self, deadline: Instant) -> Result<IndexWriter<TantivyDocument>> {
+        loop {
+            match self.index.writer(INDEX_WRITER_HEAP_BYTES) {
+                Ok(writer) => return Ok(writer),
+                Err(error) if is_writer_lock_busy(&error) && !writer_deadline_elapsed(deadline) => {
+                    std::thread::sleep(INDEX_WRITER_LOCK_RETRY_DELAY);
+                }
+                Err(error) => return Err(error).context("open tantivy index writer"),
+            }
+        }
     }
 
     pub(crate) fn search(&self, request: SearchRequest) -> Result<Vec<SearchHitRef>> {
@@ -248,11 +287,57 @@ impl super::HistoryStore {
         let source_kind = document.source_kind.as_str();
         let source_id = document.source_id.clone();
         if let Err(error) = index.upsert(document) {
+            if error_contains_writer_lock_busy(&error) {
+                tracing::debug!(
+                    error = %error,
+                    source_kind,
+                    source_id,
+                    "tantivy writer busy; skipping search index upsert"
+                );
+            } else {
+                tracing::warn!(
+                    error = %error,
+                    source_kind,
+                    source_id,
+                    "failed to upsert document into tantivy search index"
+                );
+            }
+        }
+    }
+
+    pub(crate) fn upsert_search_documents_background(&self, documents: Vec<SearchDocument>) {
+        if documents.is_empty() {
+            return;
+        }
+        let Some(index) = &self.search_index else {
+            return;
+        };
+        let index = index.clone();
+        let document_count = documents.len();
+        let spawn_result = std::thread::Builder::new()
+            .name("tamux-search-index".to_string())
+            .spawn(move || {
+                if let Err(error) = index.upsert_many(documents) {
+                    if error_contains_writer_lock_busy(&error) {
+                        tracing::debug!(
+                            error = %error,
+                            document_count,
+                            "tantivy writer busy; skipping search index batch upsert"
+                        );
+                    } else {
+                        tracing::warn!(
+                            error = %error,
+                            document_count,
+                            "failed to upsert document batch into tantivy search index"
+                        );
+                    }
+                }
+            });
+        if let Err(error) = spawn_result {
             tracing::warn!(
                 error = %error,
-                source_kind,
-                source_id,
-                "failed to upsert document into tantivy search index"
+                document_count,
+                "failed to spawn tantivy search index batch worker"
             );
         }
     }
@@ -314,6 +399,37 @@ fn matches_optional_filter(
         Some(expected) => get_text(document, field) == Some(expected),
         None => true,
     }
+}
+
+fn is_writer_lock_busy(error: &TantivyError) -> bool {
+    matches!(error, TantivyError::LockFailure(LockError::LockBusy, _))
+}
+
+fn writer_lock_for_path(path: &Path) -> Result<Arc<Mutex<()>>> {
+    let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let registry = TANTIVY_WRITER_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut registry = registry
+        .lock()
+        .map_err(|_| anyhow!("tantivy index writer lock registry poisoned"))?;
+    if let Some(existing) = registry.get(&key).and_then(Weak::upgrade) {
+        return Ok(existing);
+    }
+
+    let lock = Arc::new(Mutex::new(()));
+    registry.insert(key, Arc::downgrade(&lock));
+    Ok(lock)
+}
+
+fn writer_deadline_elapsed(deadline: Instant) -> bool {
+    Instant::now() >= deadline
+}
+
+fn error_contains_writer_lock_busy(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<TantivyError>()
+            .is_some_and(is_writer_lock_busy)
+    })
 }
 
 fn escape_query_terms(query: &str) -> String {

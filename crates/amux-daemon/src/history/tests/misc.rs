@@ -24,6 +24,10 @@ async fn consolidation_state_set_get_round_trips() -> Result<()> {
     let val = store.get_consolidation_state("last_watermark").await?;
     assert_eq!(val.as_deref(), Some("99999"));
 
+    store.delete_consolidation_state("last_watermark").await?;
+    let val = store.get_consolidation_state("last_watermark").await?;
+    assert!(val.is_none());
+
     fs::remove_dir_all(root)?;
     Ok(())
 }

@@ -29,8 +29,82 @@ fn agent_message_search_document(message: &AgentDbMessage) -> super::search_inde
 }
 
 fn index_agent_messages(store: &HistoryStore, messages: &[AgentDbMessage]) {
-    for message in messages {
-        store.upsert_search_document(agent_message_search_document(message));
+    let documents = messages
+        .iter()
+        .map(agent_message_search_document)
+        .collect::<Vec<_>>();
+    store.upsert_search_documents_background(documents);
+}
+
+fn agent_message_needs_upsert(existing: &AgentDbMessage, incoming: &AgentDbMessage) -> bool {
+    existing.thread_id != incoming.thread_id
+        || existing.created_at != incoming.created_at
+        || existing.role != incoming.role
+        || existing.content != incoming.content
+        || existing.provider != incoming.provider
+        || existing.model != incoming.model
+        || existing.input_tokens != incoming.input_tokens
+        || existing.output_tokens != incoming.output_tokens
+        || existing.total_tokens != incoming.total_tokens
+        || existing.cost_usd != incoming.cost_usd
+        || existing.reasoning != incoming.reasoning
+        || existing.tool_calls_json != incoming.tool_calls_json
+        || existing.metadata_json != incoming.metadata_json
+}
+
+fn messages_requiring_search_reindex(
+    existing_messages: &std::collections::HashMap<String, AgentDbMessage>,
+    messages: &[AgentDbMessage],
+) -> Vec<AgentDbMessage> {
+    messages
+        .iter()
+        .filter(|message| {
+            existing_messages
+                .get(&message.id)
+                .map(|existing| agent_message_needs_upsert(existing, message))
+                .unwrap_or(true)
+        })
+        .cloned()
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(id: &str, content: &str) -> AgentDbMessage {
+        AgentDbMessage {
+            id: id.to_string(),
+            thread_id: "thread-1".to_string(),
+            created_at: 100,
+            role: "user".to_string(),
+            content: content.to_string(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        }
+    }
+
+    #[test]
+    fn messages_requiring_search_reindex_ignores_unchanged_messages() {
+        let existing = [message("m1", "unchanged")]
+            .into_iter()
+            .map(|message| (message.id.clone(), message))
+            .collect::<std::collections::HashMap<_, _>>();
+        let incoming = vec![message("m1", "unchanged"), message("m2", "new")];
+
+        let changed_ids = messages_requiring_search_reindex(&existing, &incoming)
+            .into_iter()
+            .map(|message| message.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(changed_ids, vec!["m2"]);
     }
 }
 
@@ -42,7 +116,6 @@ impl HistoryStore {
     ) -> Result<()> {
         let thread = thread.clone();
         let messages = messages.to_vec();
-        let messages_for_index = messages.clone();
         self.conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
@@ -97,7 +170,7 @@ impl HistoryStore {
                             incoming_latest_created_at,
                             "skipping stale thread snapshot persistence"
                         );
-                        return Ok(false);
+                        return Ok(Vec::new());
                     }
                 }
 
@@ -151,29 +224,9 @@ impl HistoryStore {
                     .map(|message| message.id.clone())
                     .collect::<std::collections::HashSet<_>>();
 
-                for message in &messages {
-                    let needs_upsert = existing_messages
-                        .get(&message.id)
-                        .map(|existing| {
-                            existing.thread_id != message.thread_id
-                                || existing.created_at != message.created_at
-                                || existing.role != message.role
-                                || existing.content != message.content
-                                || existing.provider != message.provider
-                                || existing.model != message.model
-                                || existing.input_tokens != message.input_tokens
-                                || existing.output_tokens != message.output_tokens
-                                || existing.total_tokens != message.total_tokens
-                                || existing.cost_usd != message.cost_usd
-                                || existing.reasoning != message.reasoning
-                                || existing.tool_calls_json != message.tool_calls_json
-                                || existing.metadata_json != message.metadata_json
-                        })
-                        .unwrap_or(true);
-                    if !needs_upsert {
-                        continue;
-                    }
-
+                let changed_messages =
+                    messages_requiring_search_reindex(&existing_messages, &messages);
+                for message in &changed_messages {
                     transaction.execute(
                         "INSERT OR REPLACE INTO agent_messages \
                          (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json) \
@@ -234,14 +287,12 @@ impl HistoryStore {
                 }
 
                 transaction.commit()?;
-                Ok(true)
+                Ok(changed_messages)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
-            .map(|persisted| {
-                if persisted {
-                    index_agent_messages(self, &messages_for_index);
-                }
+            .map(|changed_messages| {
+                index_agent_messages(self, &changed_messages);
             })
     }
 
@@ -605,6 +656,96 @@ impl HistoryStore {
             };
             Ok(messages)
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_message_window(
+        &self,
+        thread_id: &str,
+        limit: usize,
+        offset_from_end: usize,
+    ) -> Result<(Vec<AgentDbMessage>, usize, usize, usize)> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let total_count = conn.query_row(
+                    "SELECT COUNT(*) FROM agent_messages WHERE thread_id = ?1",
+                    params![&thread_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                let total_count = total_count.max(0) as usize;
+                let end = total_count.saturating_sub(offset_from_end);
+                let start = end.saturating_sub(limit);
+                if start == end {
+                    return Ok((Vec::new(), total_count, start, end));
+                }
+
+                let mut stmt = conn.prepare(
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
+                     FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at ASC, rowid ASC LIMIT ?2 OFFSET ?3",
+                )?;
+                let rows = stmt.query_map(
+                    params![&thread_id, end.saturating_sub(start) as i64, start as i64],
+                    map_agent_message,
+                )?;
+                Ok((
+                    rows.filter_map(|row| row.ok()).collect(),
+                    total_count,
+                    start,
+                    end,
+                ))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_pinned_messages_for_compaction(
+        &self,
+        thread_id: &str,
+    ) -> Result<Vec<(usize, AgentDbMessage)>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT absolute_index, id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
+                     FROM (
+                        SELECT ROW_NUMBER() OVER (ORDER BY created_at ASC, rowid ASC) - 1 AS absolute_index,
+                               id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json
+                        FROM agent_messages
+                        WHERE thread_id = ?1
+                     )
+                     WHERE metadata_json IS NOT NULL
+                       AND json_valid(metadata_json)
+                       AND (
+                         json_extract(metadata_json, '$.pinned_for_compaction') = 1
+                         OR json_extract(metadata_json, '$.pinnedForCompaction') = 1
+                       )
+                     ORDER BY absolute_index ASC",
+                )?;
+                let rows = stmt.query_map(params![&thread_id], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?.max(0) as usize,
+                        AgentDbMessage {
+                            id: row.get(1)?,
+                            thread_id: row.get(2)?,
+                            created_at: row.get(3)?,
+                            role: row.get(4)?,
+                            content: row.get(5)?,
+                            provider: row.get(6)?,
+                            model: row.get(7)?,
+                            input_tokens: row.get(8)?,
+                            output_tokens: row.get(9)?,
+                            total_tokens: row.get(10)?,
+                            cost_usd: row.get(11)?,
+                            reasoning: row.get(12)?,
+                            tool_calls_json: row.get(13)?,
+                            metadata_json: row.get(14)?,
+                        },
+                    ))
+                })?;
+                Ok(rows.filter_map(|row| row.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn list_recent_messages(

@@ -25,30 +25,6 @@ enum ConversationAgentKind {
     Weles,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct ResponderIdentity {
-    agent_id: Option<String>,
-    agent_name: Option<String>,
-    source: ResponderIdentitySource,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum ResponderIdentitySource {
-    #[default]
-    ThreadAgent,
-    Explicit,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct HandoffResponderEvent {
-    #[serde(default)]
-    to_agent_id: Option<String>,
-    #[serde(default)]
-    to_agent_name: Option<String>,
-}
-
-const THREAD_HANDOFF_SYSTEM_MARKER: &str = "[[handoff_event]]";
-
 fn render_runtime_effort_picker(
     frame: &mut Frame,
     area: Rect,
@@ -152,16 +128,24 @@ impl TuiModel {
 
     fn active_compaction_window_start(thread: &chat::AgentThread) -> usize {
         thread
-            .active_compaction_window_start
+            .active_context_window_start
+            .or(thread.active_compaction_window_start)
             .map(|absolute_start| absolute_start.saturating_sub(thread.loaded_message_start))
             .unwrap_or_else(|| {
                 thread
                     .messages
                     .iter()
-                    .rposition(|message| message.message_kind == "compaction_artifact")
+                    .rposition(Self::is_header_compaction_boundary)
                     .unwrap_or(0)
             })
             .min(thread.messages.len())
+    }
+
+    fn is_header_compaction_boundary(message: &chat::AgentMessage) -> bool {
+        let content = message.content.trim_start();
+        message.message_kind == "compaction_artifact"
+            || content.starts_with("[Compacted earlier context]")
+            || content.starts_with("Pre-compaction context:")
     }
 
     fn effective_primary_context_window_tokens(&self) -> u32 {
@@ -434,75 +418,6 @@ impl TuiModel {
         }
     }
 
-    fn parse_handoff_responder_event(content: &str) -> Option<HandoffResponderEvent> {
-        let payload = content.strip_prefix(THREAD_HANDOFF_SYSTEM_MARKER)?;
-        let json = payload.lines().next()?.trim();
-        serde_json::from_str(json).ok()
-    }
-
-    fn active_thread_responder_identity(&self) -> Option<ResponderIdentity> {
-        let thread = self.chat.active_thread()?;
-        let mut responder = ResponderIdentity {
-            agent_id: None,
-            agent_name: thread
-                .agent_name
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string),
-            source: ResponderIdentitySource::ThreadAgent,
-        };
-
-        for message in &thread.messages {
-            if message.role == chat::MessageRole::System {
-                if let Some(event) = Self::parse_handoff_responder_event(&message.content) {
-                    let agent_id = event
-                        .to_agent_id
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(str::to_string);
-                    let agent_name = event
-                        .to_agent_name
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(str::to_string);
-                    if agent_id.is_some() || agent_name.is_some() {
-                        responder = ResponderIdentity {
-                            agent_id,
-                            agent_name,
-                            source: ResponderIdentitySource::Explicit,
-                        };
-                    }
-                }
-                continue;
-            }
-
-            if message.role == chat::MessageRole::Assistant
-                && (message.author_agent_id.is_some() || message.author_agent_name.is_some())
-            {
-                responder = ResponderIdentity {
-                    agent_id: message
-                        .author_agent_id
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(str::to_string),
-                    agent_name: message
-                        .author_agent_name
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(str::to_string),
-                    source: ResponderIdentitySource::Explicit,
-                };
-            }
-        }
-
-        Some(responder)
-    }
-
     fn identity_matches_alias(
         alias: &str,
         agent_id: Option<&str>,
@@ -566,7 +481,38 @@ impl TuiModel {
     }
 
     fn active_thread_profile(&self) -> Option<ConversationAgentProfile> {
-        self.chat.active_thread().and_then(Self::thread_profile)
+        self.chat
+            .active_thread()
+            .and_then(|thread| self.thread_owner_profile(thread))
+    }
+
+    fn thread_owner_profile(&self, thread: &chat::AgentThread) -> Option<ConversationAgentProfile> {
+        if let Some(profile) = Self::thread_profile(thread) {
+            return Some(profile);
+        }
+
+        let agent_name = thread
+            .agent_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let agent_name = agent_name?;
+
+        if Self::identity_matches_alias(amux_protocol::AGENT_NAME_RAROG, None, Some(agent_name))
+            || Self::identity_matches_alias(amux_protocol::AGENT_ID_RAROG, None, Some(agent_name))
+        {
+            return Some(self.rarog_profile());
+        }
+
+        if Self::identity_matches_alias("weles", None, Some(agent_name)) {
+            return Some(self.weles_profile());
+        }
+
+        if let Some(profile) = self.subagent_profile_for_identity(None, Some(agent_name)) {
+            return Some(profile);
+        }
+
+        Some(self.svarog_profile())
     }
 
     fn svarog_profile(&self) -> ConversationAgentProfile {
@@ -618,24 +564,6 @@ impl TuiModel {
                 context_window_tokens: Some(self.effective_primary_context_window_tokens()),
             }
         }
-    }
-
-    fn active_thread_responder_profile(&self) -> Option<ConversationAgentProfile> {
-        let responder = self.active_thread_responder_identity()?;
-        let agent_id = responder.agent_id.as_deref();
-        let agent_name = responder.agent_name.as_deref();
-
-        if Self::identity_matches_alias(amux_protocol::AGENT_NAME_RAROG, agent_id, agent_name)
-            || Self::identity_matches_alias(amux_protocol::AGENT_ID_RAROG, agent_id, agent_name)
-        {
-            return Some(self.rarog_profile());
-        }
-
-        if Self::identity_matches_alias("weles", agent_id, agent_name) {
-            return Some(self.weles_profile());
-        }
-
-        self.subagent_profile_for_identity(agent_id, agent_name)
     }
 
     fn weles_profile(&self) -> ConversationAgentProfile {
@@ -713,9 +641,6 @@ impl TuiModel {
 
     pub(crate) fn current_conversation_agent_profile(&self) -> ConversationAgentProfile {
         if let Some(profile) = self.active_thread_profile() {
-            return profile;
-        }
-        if let Some(profile) = self.active_thread_responder_profile() {
             return profile;
         }
         if let Some(agent_id) = self.pending_new_thread_target_agent.as_deref() {
@@ -831,9 +756,9 @@ impl TuiModel {
 
     fn goal_run_header_thread(&self, run: &task::GoalRun) -> Option<&chat::AgentThread> {
         [
-            run.active_thread_id.as_deref(),
             run.root_thread_id.as_deref(),
             run.thread_id.as_deref(),
+            run.active_thread_id.as_deref(),
         ]
         .into_iter()
         .flatten()
@@ -925,28 +850,6 @@ impl TuiModel {
         }
 
         let fallback = self.current_conversation_agent_profile();
-        if let Some(responder) = self.active_thread_responder_identity() {
-            let agent_id = responder.agent_id.as_deref();
-            let agent_name = responder.agent_name.as_deref();
-            let responder_is_rarog =
-                Self::identity_matches_alias(amux_protocol::AGENT_NAME_RAROG, agent_id, agent_name)
-                    || Self::identity_matches_alias(
-                        amux_protocol::AGENT_ID_RAROG,
-                        agent_id,
-                        agent_name,
-                    );
-            let responder_uses_dedicated_profile =
-                Self::identity_matches_alias("weles", agent_id, agent_name)
-                    || self
-                        .subagent_profile_for_identity(agent_id, agent_name)
-                        .is_some();
-            if responder.source == ResponderIdentitySource::Explicit
-                && responder_uses_dedicated_profile
-                && !responder_is_rarog
-            {
-                return fallback;
-            }
-        }
         if let Some(runtime) = self.chat.active_thread_runtime_metadata() {
             let provider = runtime.provider.unwrap_or(fallback.provider);
             let model = runtime.model.unwrap_or(fallback.model);
@@ -987,6 +890,7 @@ impl TuiModel {
         HeaderContextVm { profile, usage }
     }
 
+    #[cfg(test)]
     pub(crate) fn current_header_agent_profile(&self) -> ConversationAgentProfile {
         self.current_header_profile_for_active_pane()
     }
@@ -1027,10 +931,12 @@ impl TuiModel {
 
         let start = Self::active_compaction_window_start(thread);
         let total_thread_tokens = thread.total_input_tokens + thread.total_output_tokens;
-        let current_tokens = thread.messages[start..]
-            .iter()
-            .map(Self::estimate_header_message_tokens)
-            .sum::<u64>();
+        let current_tokens = thread.active_context_window_tokens.unwrap_or_else(|| {
+            thread.messages[start..]
+                .iter()
+                .map(Self::estimate_header_message_tokens)
+                .sum::<u64>()
+        });
         let total_cost_usd = thread
             .messages
             .iter()
@@ -1053,6 +959,7 @@ impl TuiModel {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn current_header_usage_summary(&self) -> widgets::header::HeaderUsageDisplay {
         self.current_header_context_vm().usage
     }

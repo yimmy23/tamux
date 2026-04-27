@@ -541,24 +541,50 @@ impl TuiModel {
         {
             return;
         }
-        if self.chat.active_thread_id() != Some(thread_id.as_str()) {
+        let is_active_thread = self.chat.active_thread_id() == Some(thread_id.as_str());
+        let is_header_thread = self.thread_drives_current_header(&thread_id);
+        if !is_active_thread && !is_header_thread {
             return;
         }
-        let has_live_text_stream = !self.chat.streaming_content().is_empty()
-            || !self.chat.streaming_reasoning().is_empty();
-        if !has_live_text_stream {
-            self.chat.reduce(chat::ChatAction::ResetStreaming);
+        self.chat.reduce(chat::ChatAction::InvalidateContextWindow {
+            thread_id: thread_id.clone(),
+        });
+        if is_active_thread {
+            let has_live_text_stream = !self.chat.streaming_content().is_empty()
+                || !self.chat.streaming_reasoning().is_empty();
+            if !has_live_text_stream {
+                self.chat.reduce(chat::ChatAction::ResetStreaming);
+            }
+            if !has_live_text_stream
+                && !self.should_preserve_pending_thinking_activity_on_reload(thread_id.as_str())
+            {
+                self.clear_agent_activity_for(Some(thread_id.as_str()));
+            }
+            self.clear_pending_stop();
         }
-        if !has_live_text_stream
-            && !self.should_preserve_pending_thinking_activity_on_reload(thread_id.as_str())
-        {
-            self.clear_agent_activity_for(Some(thread_id.as_str()));
-        }
-        self.clear_pending_stop();
         self.request_authoritative_thread_refresh(thread_id.clone(), true);
         self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));
         self.status_line = "Thread reloaded from daemon".to_string();
+    }
+
+    fn thread_drives_current_header(&self, thread_id: &str) -> bool {
+        let MainPaneView::Task(SidebarItemTarget::GoalRun { goal_run_id, .. }) =
+            &self.main_pane_view
+        else {
+            return false;
+        };
+        let Some(run) = self.tasks.goal_run_by_id(goal_run_id) else {
+            return false;
+        };
+        [
+            run.active_thread_id.as_deref(),
+            run.root_thread_id.as_deref(),
+            run.thread_id.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|candidate| candidate == thread_id)
     }
 
     pub(in crate::app) fn handle_task_list_event(&mut self, tasks: Vec<crate::wire::AgentTask>) {

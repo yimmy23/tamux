@@ -460,7 +460,10 @@ fn github_manifest_validates_through_plugin_loader() {
     assert_eq!(manifest.name, "github");
     assert_eq!(manifest.version, "1.0.0");
     assert_eq!(manifest.schema_version, 1);
-    assert!(manifest.auth.is_none(), "github MVP should not require oauth");
+    assert!(
+        manifest.auth.is_none(),
+        "github MVP should not require oauth"
+    );
 
     let settings = manifest
         .settings
@@ -473,7 +476,10 @@ fn github_manifest_validates_through_plugin_loader() {
     assert!(token_setting.required);
     assert!(token_setting.secret);
 
-    let api = manifest.api.as_ref().expect("github should have api section");
+    let api = manifest
+        .api
+        .as_ref()
+        .expect("github should have api section");
     assert_eq!(api.base_url.as_deref(), Some("https://api.github.com"));
     assert_eq!(
         api.rate_limit
@@ -490,7 +496,10 @@ fn github_manifest_validates_through_plugin_loader() {
         .get("get_repo")
         .expect("github should declare get_repo endpoint");
     assert_eq!(repo_endpoint.method, "GET");
-    assert_eq!(repo_endpoint.path, "/repos/{{params.owner}}/{{params.repo}}");
+    assert_eq!(
+        repo_endpoint.path,
+        "/repos/{{params.owner}}/{{params.repo}}"
+    );
     assert!(repo_endpoint.headers.is_some());
     assert!(repo_endpoint.response_template.is_some());
 
@@ -522,7 +531,9 @@ fn github_manifest_validates_through_plugin_loader() {
         .commands
         .as_ref()
         .expect("github should have commands");
-    let repo = commands.get("repo").expect("github should expose repo command");
+    let repo = commands
+        .get("repo")
+        .expect("github should expose repo command");
     assert_eq!(repo.action.as_deref(), Some("get_repo"));
     let issues = commands
         .get("issues")
@@ -533,4 +544,3 @@ fn github_manifest_validates_through_plugin_loader() {
         .expect("github should expose pulls command");
     assert_eq!(pulls.action.as_deref(), Some("list_pull_requests"));
 }
-

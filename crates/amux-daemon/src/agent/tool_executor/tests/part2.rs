@@ -132,7 +132,7 @@
     #[tokio::test]
     async fn search_files_reports_invalid_regex() {
         let error = execute_search_files_with_runner(
-            &serde_json::json!({ "pattern": "[" }),
+            &serde_json::json!({ "pattern": "[", "regex": true }),
             |_| async move {
                 Ok::<super::SearchFilesCommandOutput, anyhow::Error>(
                     super::SearchFilesCommandOutput {
@@ -224,17 +224,43 @@
         assert!(!result.contains("top.rs"));
     }
 
+    #[tokio::test]
+    async fn search_files_subprocess_supports_literal_function_call_pattern() {
+        let root = tempdir().expect("tempdir should succeed");
+        fs::write(
+            root.path().join("gateway.rs"),
+            "client.request_gateway_send(request).await?;\n",
+        )
+        .expect("rust source file should be written");
+
+        let result = execute_search_files_with_runner(
+            &serde_json::json!({
+                "pattern": "request_gateway_send(",
+                "path": root.path().to_string_lossy(),
+                "file_pattern": "*.rs",
+            }),
+            super::run_search_files_subprocess,
+        )
+        .await
+        .expect("literal function-call search should succeed");
+
+        assert!(result.contains("gateway.rs:1:"));
+        assert!(result.contains("request_gateway_send("));
+    }
+
     #[test]
     fn search_files_builds_rg_args_with_file_pattern_and_root_path() {
         let args = super::build_search_files_rg_args(&super::SearchFilesRequest {
             pattern: "needle".to_string(),
             path: "/tmp/workspace".to_string(),
             file_pattern: Some("*.rs".to_string()),
+            regex: false,
             max_results: 17,
             timeout_seconds: 120,
         });
 
         assert!(args.contains(&"--glob=*.rs".to_string()));
+        assert!(args.contains(&"--fixed-strings".to_string()));
         assert!(args.contains(&"/tmp/workspace".to_string()));
         assert!(args.contains(&"--".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("/tmp/workspace"));
@@ -246,6 +272,7 @@
             pattern: "--type-add=bad".to_string(),
             path: "-definitely-a-path".to_string(),
             file_pattern: None,
+            regex: false,
             max_results: 5,
             timeout_seconds: 120,
         });
@@ -411,4 +438,3 @@
         assert!(error.to_string().contains("web search timed out"));
         assert!(error.to_string().contains("0"));
     }
-

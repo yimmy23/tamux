@@ -864,7 +864,9 @@ async fn status_diagnostics_snapshot_exposes_cached_prewarm_for_intent_predictio
     );
     assert_eq!(
         intent["cached_prewarm_summary"].as_str(),
-        Some("branch main; dirty=true; modified 1; staged 0; untracked 0; ahead 0; behind 0; context entries 1")
+        Some(
+            "branch main; dirty=true; modified 1; staged 0; untracked 0; ahead 0; behind 0; context entries 1"
+        )
     );
 }
 

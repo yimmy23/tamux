@@ -58,6 +58,48 @@ pub(crate) fn render_tool_edit_diff(
     Some(rendered)
 }
 
+pub(crate) fn render_unified_diff(
+    diff: &str,
+    theme: &ThemeTokens,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let mut rendered = Vec::new();
+    for raw_line in diff.replace("\r\n", "\n").replace('\r', "\n").lines() {
+        let kind = classify_unified_diff_line(raw_line);
+        for wrapped in wrap_preserving_whitespace(raw_line, width.max(1)) {
+            rendered.push(Line::from(Span::styled(
+                wrapped,
+                style_for_kind(kind, theme),
+            )));
+        }
+    }
+    rendered
+}
+
+fn classify_unified_diff_line(line: &str) -> ToolDiffLineKind {
+    if line.starts_with("diff --git ")
+        || line.starts_with("index ")
+        || line.starts_with("new file mode ")
+        || line.starts_with("deleted file mode ")
+        || line.starts_with("similarity index ")
+        || line.starts_with("rename from ")
+        || line.starts_with("rename to ")
+        || line.starts_with("\\ ")
+    {
+        ToolDiffLineKind::Meta
+    } else if line.starts_with("--- ") || line.starts_with("+++ ") {
+        ToolDiffLineKind::File
+    } else if line.starts_with("@@") {
+        ToolDiffLineKind::Hunk
+    } else if line.starts_with('+') {
+        ToolDiffLineKind::Add
+    } else if line.starts_with('-') {
+        ToolDiffLineKind::Remove
+    } else {
+        ToolDiffLineKind::Context
+    }
+}
+
 fn build_tool_diff_sections(tool_name: &str, tool_arguments: &str) -> Option<Vec<ToolDiffSection>> {
     let args: Value = serde_json::from_str(tool_arguments).ok()?;
     match tool_name {

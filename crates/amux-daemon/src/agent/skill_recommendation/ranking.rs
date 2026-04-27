@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 const MAX_USE_SCORE: f64 = 8.0;
 const RECENCY_DAY_SECS: u64 = 86_400;
 const MAX_LEXICAL_QUERY_TOKENS: usize = 8;
+const MIN_PARTIAL_EVIDENCE_TERMS: usize = 2;
 const PROCESS_INTENT_TOKENS: &[&str] = &[
     "architect",
     "behavior",
@@ -171,7 +172,7 @@ fn score_candidate(
     } else {
         0.0
     };
-    let score = (lexical_overlap * 0.62)
+    let raw_score = (lexical_overlap * 0.62)
         + (workspace_overlap * 0.16)
         + (history_score * 0.20)
         + (recency_score * 0.06)
@@ -180,6 +181,13 @@ fn score_candidate(
         + lifecycle_bonus
         + process_bonus
         + built_in_bonus;
+    let score = apply_partial_evidence_floor(
+        raw_score,
+        matched_terms.len(),
+        matched_workspace_tags.len(),
+        graph_score,
+        cfg,
+    );
 
     CandidateScore {
         recommendation: SkillRecommendation {
@@ -198,6 +206,23 @@ fn score_candidate(
             record: candidate.record,
         },
         graph_score,
+    }
+}
+
+fn apply_partial_evidence_floor(
+    score: f64,
+    matched_term_count: usize,
+    matched_workspace_tag_count: usize,
+    graph_score: f64,
+    cfg: &SkillRecommendationConfig,
+) -> f64 {
+    let has_clear_partial_text_match = matched_term_count >= MIN_PARTIAL_EVIDENCE_TERMS;
+    let has_contextual_match = matched_term_count > 0 && matched_workspace_tag_count > 0;
+    let has_graph_match = graph_score > 0.0;
+    if has_clear_partial_text_match || has_contextual_match || has_graph_match {
+        score.max(cfg.weak_match_threshold)
+    } else {
+        score
     }
 }
 

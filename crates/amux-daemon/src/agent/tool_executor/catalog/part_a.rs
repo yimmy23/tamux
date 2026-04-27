@@ -175,9 +175,10 @@ fn add_available_tools_part_a(
             serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "pattern": { "type": "string", "description": "Regex pattern to search for" },
+                    "pattern": { "type": "string", "description": "Literal text to search for by default; set regex=true to use a regex" },
                     "path": { "type": "string", "description": "Directory to search in (default: current directory)" },
                     "file_pattern": { "type": "string", "description": "Glob pattern to filter files (e.g. '*.rs', '*.ts')" },
+                    "regex": { "type": "boolean", "description": "Treat pattern as a regex instead of literal text (default: false)" },
                     "max_results": { "type": "integer", "description": "Max results to return (default: 50, max: 200)" },
                     "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 120, max: 600)" }
                 },

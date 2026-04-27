@@ -928,6 +928,78 @@ async fn execute_delete_routine(args: &serde_json::Value, agent: &AgentEngine) -
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
+async fn execute_whatsapp_link_start(
+    _args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let started = agent.whatsapp_link.start_if_idle().await?;
+    let snapshot = agent.whatsapp_link.status_snapshot().await;
+    Ok(serde_json::json!({
+        "ok": true,
+        "started": started,
+        "state": snapshot.state,
+        "phone": snapshot.phone,
+        "last_error": snapshot.last_error,
+    })
+    .to_string())
+}
+
+async fn execute_whatsapp_link_stop(
+    _args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    agent
+        .whatsapp_link
+        .stop(Some("operator_cancelled".to_string()))
+        .await?;
+    let snapshot = agent.whatsapp_link.status_snapshot().await;
+    Ok(serde_json::json!({
+        "ok": true,
+        "state": snapshot.state,
+        "phone": snapshot.phone,
+        "last_error": snapshot.last_error,
+    })
+    .to_string())
+}
+
+async fn execute_whatsapp_link_reset(
+    _args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    agent.whatsapp_link.reset().await?;
+    crate::agent::clear_persisted_provider_state(
+        &agent.history,
+        crate::agent::WHATSAPP_LINK_PROVIDER_ID,
+    )
+    .await?;
+    let native_store_path = crate::agent::whatsapp_native_store_path(&agent.data_dir);
+    if native_store_path.exists() {
+        tokio::fs::remove_file(&native_store_path).await?;
+    }
+    let snapshot = agent.whatsapp_link.status_snapshot().await;
+    Ok(serde_json::json!({
+        "ok": true,
+        "state": snapshot.state,
+        "phone": snapshot.phone,
+        "last_error": snapshot.last_error,
+        "message": "reset",
+    })
+    .to_string())
+}
+
+async fn execute_whatsapp_link_status(
+    _args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let snapshot = agent.whatsapp_link.status_snapshot().await;
+    Ok(serde_json::json!({
+        "state": snapshot.state,
+        "phone": snapshot.phone,
+        "last_error": snapshot.last_error,
+    })
+    .to_string())
+}
+
 async fn execute_ingest_webhook_event(
     args: &serde_json::Value,
     agent: &AgentEngine,

@@ -1337,7 +1337,8 @@ async fn intent_prediction_updates_active_prediction_instead_of_duplicating_when
         .collect::<Vec<_>>();
 
     assert_eq!(
-        unresolved.len(), 1,
+        unresolved.len(),
+        1,
         "confidence changes for the same unresolved intent prediction should update the active prediction instead of duplicating it"
     );
     assert!(
@@ -1524,7 +1525,8 @@ async fn system_outcome_foresight_updates_active_prediction_instead_of_duplicati
         .collect::<Vec<_>>();
 
     assert_eq!(
-        unresolved.len(), 1,
+        unresolved.len(),
+        1,
         "confidence changes for the same unresolved foresight should update the active prediction instead of duplicating it"
     );
     assert!(

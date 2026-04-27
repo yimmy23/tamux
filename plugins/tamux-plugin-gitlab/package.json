@@ -1,0 +1,20 @@
+{
+  "name": "tamux-plugin-gitlab",
+  "version": "1.0.0",
+  "description": "GitLab integration for tamux",
+  "author": "tamux",
+  "license": "MIT",
+  "keywords": [
+    "tamux",
+    "plugin",
+    "gitlab"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/anthropic/cmux-next"
+  },
+  "files": [
+    "gitlab/",
+    "README.md"
+  ]
+}

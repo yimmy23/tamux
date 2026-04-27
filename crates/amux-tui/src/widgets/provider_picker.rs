@@ -43,10 +43,6 @@ pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
     providers
 }
 
-pub fn available_provider_entries(auth: &AuthState) -> Vec<&'static ProviderDef> {
-    available_provider_defs(auth)
-}
-
 pub fn available_audio_provider_defs(
     auth: &AuthState,
     audio_tool_kind: AudioToolKind,
@@ -204,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn available_provider_entries_include_unauthenticated_custom_catalog_providers() {
+    fn available_provider_defs_include_unauthenticated_custom_catalog_providers() {
         let mut auth = AuthState::new();
         auth.entries = vec![
             ProviderAuthEntry {
@@ -223,7 +219,7 @@ mod tests {
             },
         ];
 
-        let entries = available_provider_entries(&auth);
+        let entries = available_provider_defs(&auth);
         assert!(entries
             .iter()
             .any(|provider| provider.id == "local-openai"

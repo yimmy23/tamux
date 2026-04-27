@@ -67,8 +67,7 @@ pub(crate) fn parse_hermes_config_profile(
     source_config_path: &str,
     imported_at_ms: u64,
 ) -> anyhow::Result<ExternalRuntimeProfile> {
-    let parsed: HermesConfigDoc =
-        serde_yaml::from_str(raw).context("parse Hermes config.yaml")?;
+    let parsed: HermesConfigDoc = serde_yaml::from_str(raw).context("parse Hermes config.yaml")?;
 
     let model = parsed
         .model
@@ -85,12 +84,15 @@ pub(crate) fn parse_hermes_config_profile(
         .map(ToOwned::to_owned)
         .or_else(|| {
             model.as_deref().and_then(|model_id| {
-                parsed.providers.iter().find_map(|(provider_id, provider_cfg)| {
-                    provider_cfg
-                        .models
-                        .contains_key(model_id)
-                        .then(|| provider_id.clone())
-                })
+                parsed
+                    .providers
+                    .iter()
+                    .find_map(|(provider_id, provider_cfg)| {
+                        provider_cfg
+                            .models
+                            .contains_key(model_id)
+                            .then(|| provider_id.clone())
+                    })
             })
         });
 
@@ -133,9 +135,11 @@ pub(crate) fn parse_openclaw_config_profile(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
 
-    let provider = model
-        .as_deref()
-        .and_then(|model_id| model_id.split_once('/').map(|(provider, _)| provider.to_string()));
+    let provider = model.as_deref().and_then(|model_id| {
+        model_id
+            .split_once('/')
+            .map(|(provider, _)| provider.to_string())
+    });
 
     let cwd = parsed
         .agents
@@ -231,7 +235,10 @@ mcp_servers:
         assert_eq!(profile.runtime, "openclaw");
         assert_eq!(profile.source_config_path, "~/.openclaw/openclaw.json");
         assert_eq!(profile.provider.as_deref(), Some("anthropic"));
-        assert_eq!(profile.model.as_deref(), Some("anthropic/claude-sonnet-4-6"));
+        assert_eq!(
+            profile.model.as_deref(),
+            Some("anthropic/claude-sonnet-4-6")
+        );
         assert_eq!(profile.cwd.as_deref(), Some("~/.openclaw/workspace"));
         assert!(profile.has_tamux_mcp);
         assert_eq!(profile.imported_at_ms, 1_777_200_000_001);

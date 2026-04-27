@@ -54,11 +54,7 @@ async fn persist_weles_runtime_context(engine: &AgentEngine, task: &AgentTask) {
         }
     }
 
-    if let Err(error) = engine
-        .history
-        .set_consolidation_state(&key, "", now_millis())
-        .await
-    {
+    if let Err(error) = engine.history.delete_consolidation_state(&key).await {
         tracing::warn!(task_id = %task.id, "failed to clear WELES runtime context: {error}");
     }
 }

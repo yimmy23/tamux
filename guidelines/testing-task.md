@@ -5,6 +5,8 @@ recommended_skills:
   - test-driven-development
   - systematic-debugging
   - verification-before-completion
+recommended_guidelines:
+  - general-programming
 ---
 
 # Testing Task Guideline

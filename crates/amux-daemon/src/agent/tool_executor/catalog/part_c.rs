@@ -128,6 +128,22 @@ fn add_available_tools_part_c(
                 },
                 "required": ["message"]
             })),
+            ("whatsapp_link_start", "Start the WhatsApp link runtime and begin pairing or reconnect flow.", serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })),
+            ("whatsapp_link_stop", "Stop the WhatsApp link runtime and disconnect the current session.", serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })),
+            ("whatsapp_link_reset", "Reset the WhatsApp link runtime and clear persisted session state.", serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })),
+            ("whatsapp_link_status", "Return the current WhatsApp link runtime status, including linked phone and last error when present.", serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })),
         ] {
             tools.push(tool_def(name, desc, params));
         }

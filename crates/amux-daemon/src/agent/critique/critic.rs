@@ -7,7 +7,9 @@ fn tool_specific_caution_claim(tool_name: &str, action_summary: &str) -> Option<
             "Disable network access, enable sandboxing, and downgrade any yolo security level before running {}.",
             safe_action_summary
         )),
-        "send_slack_message" | "send_discord_message" | "send_telegram_message"
+        "send_slack_message"
+        | "send_discord_message"
+        | "send_telegram_message"
         | "send_whatsapp_message" => Some(format!(
             "Strip explicit messaging targets and broadcast mentions before sending {}.",
             safe_action_summary

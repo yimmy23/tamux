@@ -982,6 +982,7 @@ pub struct AgentMessagePatch {
 }
 
 mod audit;
+mod browser_profiles;
 mod causal_traces;
 mod checkpoints;
 mod cognitive_resonance;
@@ -994,7 +995,7 @@ mod debate;
 mod dream_state;
 mod event_log;
 mod event_triggers;
-mod browser_profiles;
+mod external_runtime_profiles;
 mod gateway_state;
 mod goal_runs;
 mod governance;
@@ -1004,7 +1005,6 @@ mod integrity_helpers;
 mod memory_graph;
 mod metacognition;
 mod offloaded_payloads;
-mod external_runtime_profiles;
 mod operator_profile;
 mod protocol_candidates;
 mod protocol_registry;

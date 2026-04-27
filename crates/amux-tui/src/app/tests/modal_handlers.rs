@@ -6559,8 +6559,6 @@ fn pinned_budget_modal_dismiss_restores_chat_focus() {
     });
     model.chat.select_message(Some(0));
     model.pending_pinned_budget_exceeded = Some(crate::app::PendingPinnedBudgetExceeded {
-        thread_id: "thread-1".to_string(),
-        message_id: "message-1".to_string(),
         current_pinned_chars: 100,
         pinned_budget_chars: 120,
         candidate_pinned_chars: 160,

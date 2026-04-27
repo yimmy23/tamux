@@ -1705,8 +1705,7 @@ pub(crate) fn build_skill_gate_override_prompt(state: &LatestSkillDiscoveryState
     if state.is_discovery_pending() {
         return format!(
             "Skill discovery is running asynchronously in a subprocess for this thread.\n- Query: {}\n- Status: pending\n- Next action: {}\n\nContinue reasoning normally, but prefer to defer heavy tool usage until the background skill result arrives.",
-            state.query,
-            state.recommended_action,
+            state.query, state.recommended_action,
         );
     }
 
@@ -1724,17 +1723,13 @@ pub(crate) fn build_skill_gate_override_prompt(state: &LatestSkillDiscoveryState
         };
         return format!(
             "Persisted mesh governance state still applies for this thread.\n- Confidence: {}\n- Next action: {}\n- Approval required: true\n- Skill already read: {}\n\n{}",
-            state.confidence_tier,
-            state.recommended_action,
-            state.skill_read_completed,
-            guidance,
+            state.confidence_tier, state.recommended_action, state.skill_read_completed, guidance,
         );
     }
 
     format!(
         "Persisted mesh gate state still applies for this thread.\n- Confidence: {}\n- Next action: {}\n- Approval required: false\n\nFollow this state over fresh legacy preflight defaults.",
-        state.confidence_tier,
-        state.recommended_action,
+        state.confidence_tier, state.recommended_action,
     )
 }
 
@@ -2513,6 +2508,11 @@ Use this workflow when Rust compilation or cargo builds fail and need investigat
                     .map(|candidate| candidate.skill_name.as_str()),
                 Some("debug-rust-build"),
                 "query `{query}` should rank the rust build skill first"
+            );
+            assert!(
+                result.recommended_action.starts_with("read_skill "),
+                "query `{query}` should recommend reading the matched skill, got `{}`",
+                result.recommended_action
             );
         }
     }

@@ -1650,8 +1650,6 @@ fn pin_budget_exceeded_event_opens_app_flow() {
         .pending_pinned_budget_exceeded
         .as_ref()
         .expect("budget payload should be stored");
-    assert_eq!(payload.thread_id, "thread-1");
-    assert_eq!(payload.message_id, "message-1");
     assert_eq!(payload.current_pinned_chars, 100);
     assert_eq!(payload.pinned_budget_chars, 120);
     assert_eq!(payload.candidate_pinned_chars, 160);
@@ -2885,14 +2883,71 @@ fn mission_control_header_prefers_active_execution_thread_runtime_and_usage() {
         }));
 
     let profile = model.current_header_agent_profile();
-    assert_eq!(profile.provider, "alibaba-coding-plan");
-    assert_eq!(profile.model, "MiniMax-M2.5");
-    assert_eq!(profile.reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(profile.provider, "openai");
+    assert_eq!(profile.model, "gpt-5.4");
+    assert_eq!(profile.reasoning_effort.as_deref(), Some("medium"));
 
     let usage = model.current_header_usage_summary();
-    assert_eq!(usage.total_thread_tokens, 30);
-    assert_eq!(usage.total_cost_usd, Some(0.25));
-    assert_eq!(usage.context_window_tokens, 205_000);
+    assert_eq!(usage.total_thread_tokens, 100);
+    assert_eq!(usage.total_cost_usd, Some(1.0));
+    assert_eq!(usage.context_window_tokens, 1_000_000);
+}
+
+#[test]
+fn header_profile_uses_thread_owner_not_latest_participant_author() {
+    let mut model = make_model();
+    model.config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
+    model.config.auth_source = "github_copilot".to_string();
+    model.config.model = "gpt-5.4".to_string();
+    model.config.context_window_tokens = 400_000;
+    model.subagents.entries.push(crate::state::SubAgentEntry {
+        id: "mokosh".to_string(),
+        name: "Mokosh".to_string(),
+        provider: "alibaba-coding-plan".to_string(),
+        model: "glm-5".to_string(),
+        role: Some("testing".to_string()),
+        enabled: true,
+        builtin: true,
+        immutable_identity: true,
+        disable_allowed: false,
+        delete_allowed: false,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        raw_json: None,
+    });
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-owner-main".to_string(),
+        agent_name: Some("Swarog".to_string()),
+        title: "Main-owned thread".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::Assistant,
+            content: "Participant contribution".to_string(),
+            author_agent_id: Some("mokosh".to_string()),
+            author_agent_name: Some("Mokosh".to_string()),
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        total_input_tokens: 10,
+        total_output_tokens: 20,
+        loaded_message_start: 0,
+        loaded_message_end: 1,
+        total_message_count: 1,
+        created_at: 1,
+        updated_at: 1,
+        ..Default::default()
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-owner-main".to_string(),
+    ));
+
+    let profile = model.current_header_agent_profile();
+    assert_eq!(profile.agent_label, "Swarog");
+    assert_eq!(profile.provider, PROVIDER_ID_GITHUB_COPILOT);
+    assert_eq!(profile.model, "gpt-5.4");
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(usage.context_window_tokens, 400_000);
 }
 
 #[test]
@@ -3126,7 +3181,7 @@ fn mission_control_header_context_window_tracks_active_execution_thread_changes(
         }));
 
     let updated = model.current_header_usage_summary();
-    assert_eq!(updated.context_window_tokens, 205_000);
+    assert_eq!(updated.context_window_tokens, 1_000_000);
 }
 
 #[test]
@@ -3645,9 +3700,9 @@ fn header_profile_switches_on_handoff_append_and_clears_stale_runtime() {
     });
 
     let profile = model.current_header_agent_profile();
-    assert_eq!(profile.agent_label, "Weles");
-    assert_eq!(profile.provider, "provider-weles");
-    assert_eq!(profile.model, "model-weles");
+    assert_eq!(profile.agent_label, "Swarog");
+    assert_eq!(profile.provider, model.config.provider);
+    assert_eq!(profile.model, model.config.model);
     let thread = model
         .chat
         .active_thread()
@@ -3879,6 +3934,83 @@ fn header_usage_summary_ignores_loaded_messages_before_known_compaction_boundary
     assert_eq!(
         usage.current_tokens, 224,
         "header should only count messages at or after the known compaction boundary"
+    );
+}
+
+#[test]
+fn header_usage_summary_resets_on_legacy_visible_compaction_artifact() {
+    let mut model = make_model();
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-legacy-compaction".to_string(),
+        title: "Legacy Compaction".to_string(),
+        total_message_count: 4,
+        loaded_message_start: 0,
+        loaded_message_end: 4,
+        messages: vec![
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::User,
+                content: "A".repeat(4_000),
+                ..Default::default()
+            },
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::Assistant,
+                content: "B".repeat(4_000),
+                ..Default::default()
+            },
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::Assistant,
+                content: "Pre-compaction context: ~842,460 / 400,000 tokens (threshold 320,000)\nTrigger: token-threshold\nStrategy: custom model generated summary.".to_string(),
+                ..Default::default()
+            },
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::Assistant,
+                content: "short follow-up".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-legacy-compaction".to_string(),
+    ));
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(
+        usage.current_tokens, 62,
+        "legacy compaction artifacts should reset fallback header context even without daemon fields"
+    );
+}
+
+#[test]
+fn header_usage_summary_prefers_daemon_active_context_window_tokens() {
+    let mut model = make_model();
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-authoritative-context".to_string(),
+        title: "Authoritative Context".to_string(),
+        total_message_count: 4,
+        loaded_message_start: 3,
+        loaded_message_end: 4,
+        active_context_window_start: Some(2),
+        active_context_window_end: Some(4),
+        active_context_window_tokens: Some(54),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::User,
+            content: "C".repeat(80),
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-authoritative-context".to_string(),
+    ));
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(
+        usage.current_tokens, 54,
+        "header should use daemon-calculated active context tokens instead of estimating the loaded page"
     );
 }
 
@@ -5207,6 +5339,127 @@ fn active_thread_reload_required_requests_detail_and_sidebar_context() {
         }
         other => panic!("expected work-context request, got {other:?}"),
     }
+}
+
+#[test]
+fn active_thread_reload_required_invalidates_stale_header_context_tokens() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-compacted".to_string(),
+        title: "Compacted".to_string(),
+        total_message_count: 2,
+        loaded_message_start: 0,
+        loaded_message_end: 2,
+        active_context_window_start: Some(0),
+        active_context_window_end: Some(2),
+        active_context_window_tokens: Some(239_700_000),
+        messages: vec![
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::Assistant,
+                content: "summary".to_string(),
+                message_kind: "compaction_artifact".to_string(),
+                compaction_payload: Some("P".repeat(40)),
+                ..Default::default()
+            },
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::User,
+                content: "C".repeat(80),
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-compacted".to_string(),
+    ));
+    while daemon_rx.try_recv().is_ok() {}
+
+    assert_eq!(
+        model.current_header_usage_summary().current_tokens,
+        239_700_000
+    );
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "thread-compacted".to_string(),
+    });
+
+    assert_eq!(
+        model.current_header_usage_summary().current_tokens,
+        54,
+        "reload should clear stale daemon context tokens while the authoritative detail is pending"
+    );
+    assert!(matches!(
+        next_thread_request(&mut daemon_rx),
+        Some((thread_id, _, _)) if thread_id == "thread-compacted"
+    ));
+}
+
+#[test]
+fn goal_header_thread_reload_required_refreshes_header_thread_even_when_not_selected() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "selected-thread".to_string(),
+        title: "Selected".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "selected-thread".to_string(),
+    ));
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "goal-thread".to_string(),
+        title: "Goal Thread".to_string(),
+        total_message_count: 2,
+        loaded_message_start: 0,
+        loaded_message_end: 2,
+        active_context_window_start: Some(0),
+        active_context_window_end: Some(2),
+        active_context_window_tokens: Some(239_700_000),
+        messages: vec![
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::Assistant,
+                content: "summary".to_string(),
+                message_kind: "compaction_artifact".to_string(),
+                compaction_payload: Some("P".repeat(40)),
+                ..Default::default()
+            },
+            crate::wire::AgentMessage {
+                role: crate::wire::MessageRole::User,
+                content: "C".repeat(80),
+                message_kind: "normal".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    });
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-reload".to_string(),
+            title: "Goal".to_string(),
+            active_thread_id: Some("goal-thread".to_string()),
+            ..Default::default()
+        }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-reload".to_string(),
+        step_id: None,
+    });
+    while daemon_rx.try_recv().is_ok() {}
+
+    assert_eq!(
+        model.current_header_usage_summary().current_tokens,
+        239_700_000
+    );
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "goal-thread".to_string(),
+    });
+
+    assert_eq!(model.chat.active_thread_id(), Some("selected-thread"));
+    assert_eq!(model.current_header_usage_summary().current_tokens, 54);
+    assert!(matches!(
+        next_thread_request(&mut daemon_rx),
+        Some((thread_id, _, _)) if thread_id == "goal-thread"
+    ));
 }
 
 #[test]

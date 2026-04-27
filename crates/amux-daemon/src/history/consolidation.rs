@@ -151,6 +151,20 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn delete_consolidation_state(&self, key: &str) -> Result<()> {
+        let key = key.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "DELETE FROM consolidation_state WHERE key = ?1",
+                    params![key],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     /// List consolidation_state entries whose key starts with `prefix`.
     pub async fn list_consolidation_state_by_prefix(
         &self,

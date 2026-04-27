@@ -1216,7 +1216,11 @@ async fn due_task_routine_materializes_enqueued_task_and_advances_next_run_at() 
         .expect("due routine should materialize into a task");
     let materialized_before = now_millis();
 
-    assert_eq!(created.len(), 1, "exactly one due routine should materialize");
+    assert_eq!(
+        created.len(),
+        1,
+        "exactly one due routine should materialize"
+    );
     assert_eq!(created[0].title, "Prepare daily brief");
     assert_eq!(created[0].description, "Prepare the daily project brief");
     assert_eq!(created[0].priority, TaskPriority::High);
@@ -1283,7 +1287,10 @@ async fn paused_due_routine_does_not_materialize_until_resumed() {
         .materialize_due_routines()
         .await
         .expect("paused routine check should succeed");
-    assert!(paused_created.is_empty(), "paused due routine should not materialize");
+    assert!(
+        paused_created.is_empty(),
+        "paused due routine should not materialize"
+    );
     assert!(
         engine.list_tasks().await.is_empty(),
         "no task should be enqueued while paused"
@@ -1300,5 +1307,176 @@ async fn paused_due_routine_does_not_materialize_until_resumed() {
         .await
         .expect("resumed routine should materialize");
     assert_eq!(resumed_created.len(), 1);
-    assert_eq!(resumed_created[0].source, "routine:routine-paused-materialize");
+    assert_eq!(
+        resumed_created[0].source,
+        "routine:routine-paused-materialize"
+    );
+}
+
+#[tokio::test]
+async fn due_task_routine_materializes_task_with_multi_channel_notifications() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let due_at = now_millis().saturating_sub(1_000);
+
+    engine
+        .history
+        .upsert_routine_definition(&crate::history::RoutineDefinitionRow {
+            id: "routine-multi-target-materialize".to_string(),
+            title: "Routine multi-target".to_string(),
+            description: "Fan out to multiple channels".to_string(),
+            enabled: true,
+            paused_at: None,
+            schedule_expression: "* * * * *".to_string(),
+            target_kind: "task".to_string(),
+            target_payload_json: serde_json::json!({
+                "title": "Send daily digest",
+                "description": "Prepare and send the daily digest",
+                "priority": "high",
+                "notify_on_complete": true,
+                "notify_channels": ["slack", "telegram"]
+            })
+            .to_string(),
+            next_run_at: Some(due_at),
+            last_run_at: None,
+            created_at: due_at.saturating_sub(5_000),
+            updated_at: due_at,
+        })
+        .await
+        .expect("store routine definition");
+
+    let created = engine
+        .materialize_due_routines()
+        .await
+        .expect("due routine should materialize into a task");
+
+    assert_eq!(
+        created.len(),
+        1,
+        "exactly one routine task should materialize"
+    );
+    assert_eq!(created[0].title, "Send daily digest");
+    assert!(created[0].notify_on_complete);
+    assert_eq!(created[0].notify_channels, vec!["slack", "telegram"]);
+
+    let tasks = engine.list_tasks().await;
+    let task = tasks
+        .iter()
+        .find(|task| task.source == "routine:routine-multi-target-materialize")
+        .expect("materialized task should be queued");
+    assert!(task.notify_on_complete);
+    assert_eq!(task.notify_channels, vec!["slack", "telegram"]);
+}
+
+#[tokio::test]
+async fn materialized_routine_task_completion_routes_slack_and_telegram_notifications() {
+    let mut config = AgentConfig::default();
+    config.gateway.slack_channel_filter = "C123".to_string();
+    config.gateway.telegram_allowed_chats = "T789".to_string();
+    let (engine, _temp_dir) = make_test_engine(config).await;
+    let due_at = now_millis().saturating_sub(1_000);
+
+    engine
+        .history
+        .upsert_routine_definition(&crate::history::RoutineDefinitionRow {
+            id: "routine-multi-target-delivery-proof".to_string(),
+            title: "Routine delivery proof".to_string(),
+            description: "Prove Slack + Telegram fanout".to_string(),
+            enabled: true,
+            paused_at: None,
+            schedule_expression: "* * * * *".to_string(),
+            target_kind: "task".to_string(),
+            target_payload_json: serde_json::json!({
+                "title": "Send digest",
+                "description": "Deliver digest",
+                "priority": "high",
+                "notify_on_complete": true,
+                "notify_channels": ["slack", "telegram"]
+            })
+            .to_string(),
+            next_run_at: Some(due_at),
+            last_run_at: None,
+            created_at: due_at.saturating_sub(5_000),
+            updated_at: due_at,
+        })
+        .await
+        .expect("store routine definition");
+
+    let mut created = engine
+        .materialize_due_routines()
+        .await
+        .expect("routine should materialize");
+    let mut task = created
+        .pop()
+        .expect("materialized routine task should exist");
+    task.status = TaskStatus::Completed;
+    task.result = Some("digest delivered".to_string());
+    task.thread_id = Some("thread-routine-proof".to_string());
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+    let mut events = engine.event_tx.subscribe();
+
+    let engine_for_task = engine.clone();
+    let notify_task = tokio::spawn(async move {
+        engine_for_task.notify_task_terminal_state(&task).await;
+    });
+
+    let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+        .await
+        .expect("notification event should arrive")
+        .expect("notification event should exist");
+    match event {
+        AgentEvent::Notification {
+            title,
+            severity,
+            channels,
+            ..
+        } => {
+            assert_eq!(title, "Task completed: Send digest");
+            assert_eq!(severity, NotificationSeverity::Info);
+            assert_eq!(channels, vec!["slack", "telegram"]);
+        }
+        other => panic!("expected notification event, got {other:?}"),
+    }
+
+    let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+        .await
+        .expect("notification inbox event should arrive")
+        .expect("notification inbox event should exist");
+    match event {
+        AgentEvent::NotificationInboxUpsert { notification } => {
+            assert_eq!(notification.kind, "task_completed");
+            assert!(notification.body.contains("Result: digest delivered"));
+        }
+        other => panic!("expected notification inbox upsert, got {other:?}"),
+    }
+
+    for (platform, channel_id) in [("slack", "C123"), ("telegram", "T789")] {
+        let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("gateway send request should be emitted")
+            .expect("gateway send request should exist")
+        {
+            amux_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+            other => panic!("expected GatewaySendRequest, got {other:?}"),
+        };
+        assert_eq!(request.platform, platform);
+        assert_eq!(request.channel_id, channel_id);
+        assert!(request.content.contains("Task completed: Send digest"));
+
+        engine
+            .complete_gateway_send_result(amux_protocol::GatewaySendResult {
+                correlation_id: request.correlation_id.clone(),
+                platform: platform.to_string(),
+                channel_id: channel_id.to_string(),
+                requested_channel_id: Some(channel_id.to_string()),
+                delivery_id: Some(format!("delivery-{platform}")),
+                ok: true,
+                error: None,
+                completed_at_ms: now_millis(),
+            })
+            .await;
+    }
+
+    notify_task.await.expect("notification task should finish");
 }

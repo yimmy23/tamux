@@ -771,7 +771,9 @@ mod tests {
 
         assert!(prompt.contains("current thread artifact specs directory"));
         assert!(prompt.contains("`threads/<thread_id>/artifacts/specs/`"));
-        assert!(prompt.contains("look up and reread the relevant spec from that current thread artifact specs directory"));
+        assert!(prompt.contains(
+            "look up and reread the relevant spec from that current thread artifact specs directory"
+        ));
         assert!(prompt.contains("Create a general specs todo for big work"));
         assert!(prompt.contains(
             "continue following up on spawned/background tasks until each one is resolved"

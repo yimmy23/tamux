@@ -142,14 +142,7 @@ async fn persist_gateway_health_update(
 }
 
 fn gateway_response_channel_key(platform: &str, channel_id: &str) -> Option<String> {
-    let label = match platform.to_ascii_lowercase().as_str() {
-        "slack" => "Slack",
-        "discord" => "Discord",
-        "telegram" => "Telegram",
-        "whatsapp" => "WhatsApp",
-        _ => return None,
-    };
-    Some(format!("{label}:{channel_id}"))
+    Some(crate::agent::gateway::gateway_channel_key(platform, channel_id))
 }
 
 fn is_expected_disconnect_error(error: &anyhow::Error) -> bool {

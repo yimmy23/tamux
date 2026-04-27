@@ -64,7 +64,10 @@ impl AgentEngine {
             .iter()
             .map(import_profile_row_json)
             .collect::<Vec<_>>();
-        let runtimes = filtered.iter().map(|row| row.runtime.clone()).collect::<Vec<_>>();
+        let runtimes = filtered
+            .iter()
+            .map(|row| row.runtime.clone())
+            .collect::<Vec<_>>();
         let with_tamux_mcp = profiles
             .iter()
             .filter(|row| row.get("has_tamux_mcp").and_then(|value| value.as_bool()) == Some(true))

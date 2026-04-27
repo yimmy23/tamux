@@ -334,8 +334,6 @@ struct ParticipantPlaygroundActivity {
 
 #[derive(Clone, Debug)]
 pub(crate) struct PendingPinnedBudgetExceeded {
-    thread_id: String,
-    message_id: String,
     current_pinned_chars: usize,
     pinned_budget_chars: usize,
     candidate_pinned_chars: usize,

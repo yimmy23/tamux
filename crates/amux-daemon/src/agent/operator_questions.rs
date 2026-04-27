@@ -55,6 +55,15 @@ fn validate_question_options(options: Vec<String>) -> Result<Vec<String>> {
 }
 
 impl AgentEngine {
+    pub(super) async fn pending_operator_question_thread_ids(&self) -> HashSet<String> {
+        self.pending_operator_questions
+            .lock()
+            .await
+            .values()
+            .filter_map(|state| state.question.thread_id.clone())
+            .collect()
+    }
+
     pub async fn ask_operator_question(
         &self,
         content: &str,

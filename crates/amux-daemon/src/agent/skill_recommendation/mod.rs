@@ -2,9 +2,9 @@ mod metadata;
 mod ranking;
 mod types;
 
-use crate::agent::skill_registry::{RegistryClient, to_community_entry};
+use crate::agent::skill_registry::{to_community_entry, RegistryClient};
 use crate::agent::types::SkillRecommendationConfig;
-use crate::history::{HistoryStore, SkillVariantRecord, derive_skill_metadata};
+use crate::history::{derive_skill_metadata, HistoryStore, SkillVariantRecord};
 use anyhow::{Context, Result};
 use base64::Engine;
 use ranking::rank_skill_candidates;

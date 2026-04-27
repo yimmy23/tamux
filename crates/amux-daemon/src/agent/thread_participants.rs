@@ -1033,6 +1033,18 @@ impl AgentEngine {
                     serde_json::Value::from(result.loaded_message_end),
                 );
                 detail.insert(
+                    "active_context_window_start".to_string(),
+                    serde_json::Value::from(result.active_context_window_start),
+                );
+                detail.insert(
+                    "active_context_window_end".to_string(),
+                    serde_json::Value::from(result.active_context_window_end),
+                );
+                detail.insert(
+                    "active_context_window_tokens".to_string(),
+                    serde_json::Value::from(result.active_context_window_tokens),
+                );
+                detail.insert(
                     "pinned_messages".to_string(),
                     serde_json::to_value(&result.pinned_messages)
                         .unwrap_or(serde_json::Value::Array(Vec::new())),

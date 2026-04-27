@@ -25,17 +25,39 @@ mod validation;
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 
+const TANTIVY_ERROR_DIRECTIVE: &str = "tantivy=error";
+
+fn daemon_log_filter_from_values(tamux_log: Option<&str>, amux_log: Option<&str>) -> EnvFilter {
+    let base_spec = tamux_log
+        .and_then(valid_env_filter_spec)
+        .or_else(|| amux_log.and_then(valid_env_filter_spec))
+        .unwrap_or_else(|| "info".to_string());
+    EnvFilter::new(base_spec).add_directive(
+        TANTIVY_ERROR_DIRECTIVE
+            .parse()
+            .expect("tantivy error directive should be valid"),
+    )
+}
+
+fn valid_env_filter_spec(value: &str) -> Option<String> {
+    EnvFilter::try_new(value).ok()?;
+    Some(value.to_string())
+}
+
+fn daemon_log_filter_from_env() -> EnvFilter {
+    daemon_log_filter_from_values(
+        std::env::var("TAMUX_LOG").ok().as_deref(),
+        std::env::var("AMUX_LOG").ok().as_deref(),
+    )
+}
+
 fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard> {
     let file_appender = amux_protocol::DailyLogWriter::new("tamux-daemon.log")?;
     let log_path = file_appender.current_path()?;
     let (writer, guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_env("TAMUX_LOG")
-                .or_else(|_| EnvFilter::try_from_env("AMUX_LOG"))
-                .unwrap_or_else(|_| EnvFilter::new("info")),
-        )
+        .with_env_filter(daemon_log_filter_from_env())
         .with_writer(writer)
         .with_ansi(false)
         .init();
@@ -101,6 +123,23 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn daemon_log_filter_forces_tantivy_to_error() {
+        let rendered = daemon_log_filter_from_values(Some("trace"), None).to_string();
+
+        assert!(rendered.contains("trace"), "{rendered}");
+        assert!(rendered.contains("tantivy=error"), "{rendered}");
+    }
+
+    #[test]
+    fn daemon_log_filter_overrides_existing_tantivy_directive() {
+        let filter = daemon_log_filter_from_values(Some("tantivy=trace,info"), None);
+        let rendered = filter.to_string();
+
+        assert!(rendered.contains("tantivy=error"), "{rendered}");
+        assert!(!rendered.contains("tantivy=trace"), "{rendered}");
+    }
 
     #[test]
     fn background_worker_protocol_round_trips() {

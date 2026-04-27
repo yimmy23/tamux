@@ -748,6 +748,169 @@ async fn agent_thread_detail_json_includes_offscreen_pinned_message_summaries() 
 }
 
 #[tokio::test]
+async fn agent_thread_detail_json_reports_real_active_context_window_for_paged_threads() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut compaction = assistant_message("visible compaction summary", 3);
+    compaction.message_kind = AgentMessageKind::CompactionArtifact;
+    compaction.compaction_payload = Some("P".repeat(40));
+
+    engine.threads.write().await.insert(
+        "thread-context-window".to_string(),
+        make_thread(
+            "thread-context-window",
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Context window",
+            false,
+            1,
+            4,
+            vec![
+                AgentMessage::user("A".repeat(400), 1),
+                assistant_message("B".repeat(400), 2),
+                compaction,
+                AgentMessage::user("C".repeat(80), 4),
+            ],
+        ),
+    );
+
+    let json = engine
+        .agent_thread_detail_json("thread-context-window", Some(1), Some(0))
+        .await;
+    let value: serde_json::Value = serde_json::from_str(&json).expect("decode thread detail");
+
+    assert_eq!(value["loaded_message_start"].as_u64(), Some(3));
+    assert_eq!(value["messages"].as_array().map(Vec::len), Some(1));
+    assert_eq!(value["active_context_window_start"].as_u64(), Some(2));
+    assert_eq!(value["active_context_window_end"].as_u64(), Some(4));
+    assert_eq!(value["active_context_window_tokens"].as_u64(), Some(54));
+}
+
+#[tokio::test]
+async fn agent_thread_detail_json_treats_legacy_visible_compaction_as_active_boundary() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let legacy_compaction = assistant_message(
+        "Pre-compaction context: ~842,460 / 400,000 tokens (threshold 320,000)\n\
+         Trigger: token-threshold\n\
+         Strategy: custom model generated summary.",
+        3,
+    );
+
+    engine.threads.write().await.insert(
+        "thread-legacy-context-window".to_string(),
+        make_thread(
+            "thread-legacy-context-window",
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Legacy context window",
+            false,
+            1,
+            4,
+            vec![
+                AgentMessage::user("A".repeat(400), 1),
+                assistant_message("B".repeat(400), 2),
+                legacy_compaction,
+                AgentMessage::user("C".repeat(80), 4),
+            ],
+        ),
+    );
+
+    let json = engine
+        .agent_thread_detail_json("thread-legacy-context-window", Some(1), Some(0))
+        .await;
+    let value: serde_json::Value = serde_json::from_str(&json).expect("decode thread detail");
+
+    assert_eq!(value["loaded_message_start"].as_u64(), Some(3));
+    assert_eq!(value["messages"].as_array().map(Vec::len), Some(1));
+    assert_eq!(value["active_context_window_start"].as_u64(), Some(2));
+    assert_eq!(value["active_context_window_end"].as_u64(), Some(4));
+    assert_eq!(value["active_context_window_tokens"].as_u64(), Some(78));
+}
+
+#[tokio::test]
+async fn paged_persisted_thread_detail_keeps_full_history_lazy() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-paged-persisted";
+    let mut messages = (0..12)
+        .map(|index| AgentMessage::user(format!("message-{index}"), index))
+        .collect::<Vec<_>>();
+    messages[1].pinned_for_compaction = true;
+    let pinned_id = messages[1].id.clone();
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Paged persisted thread",
+            false,
+            1,
+            12,
+            messages,
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let json = rehydrated
+        .agent_thread_detail_json(thread_id, Some(3), Some(2))
+        .await;
+    let value: serde_json::Value = serde_json::from_str(&json).expect("thread detail json");
+
+    assert_eq!(value["total_message_count"].as_u64(), Some(12));
+    assert_eq!(value["loaded_message_start"].as_u64(), Some(7));
+    assert_eq!(value["loaded_message_end"].as_u64(), Some(10));
+    let messages = value["messages"]
+        .as_array()
+        .expect("messages should be serialized");
+    let contents = messages
+        .iter()
+        .map(|message| message["content"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(contents, vec!["message-7", "message-8", "message-9"]);
+    let pinned_messages = value["pinned_messages"]
+        .as_array()
+        .expect("pinned_messages should be serialized");
+    assert_eq!(pinned_messages.len(), 1);
+    assert_eq!(
+        pinned_messages[0]["message_id"].as_str(),
+        Some(pinned_id.as_str())
+    );
+    assert_eq!(pinned_messages[0]["absolute_index"].as_u64(), Some(1));
+
+    let in_memory = rehydrated.threads.read().await;
+    let thread = in_memory
+        .get(thread_id)
+        .expect("thread summary should remain in memory");
+    assert!(
+        thread.messages.is_empty(),
+        "paged detail should not hydrate every persisted message into memory"
+    );
+    drop(in_memory);
+
+    assert!(
+        rehydrated
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id),
+        "full message hydration should remain pending after a paged detail request"
+    );
+}
+
+#[tokio::test]
 async fn get_thread_capped_for_ipc_truncates_oversized_thread_detail_payload() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

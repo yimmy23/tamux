@@ -6266,3 +6266,267 @@ async fn gateway_fast_path_reply_creates_thread_binding_and_history() {
     }));
     fs::remove_dir_all(&root).expect("cleanup test root");
 }
+
+#[tokio::test]
+async fn inbound_gateway_messages_reuse_same_thread_binding_for_same_slack_channel() {
+    let root = make_test_root("gateway-slack-thread-binding-continuity");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let first = super::gateway::IncomingMessage {
+        platform: "slack".into(),
+        sender: "alice".into(),
+        content: "first message".into(),
+        channel: "C123".into(),
+        message_id: Some("slack:msg-1".into()),
+        thread_context: Some(super::gateway::ThreadContext {
+            slack_thread_ts: Some("1712345678.000100".into()),
+            ..Default::default()
+        }),
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Slack:C123", &first, "first reply")
+        .await
+        .expect("persist first fast-path exchange");
+
+    engine
+        .gateway_threads
+        .write()
+        .await
+        .insert("Slack:C123".to_string(), thread_id.clone());
+
+    let second = super::gateway::IncomingMessage {
+        platform: "Slack".into(),
+        sender: "alice".into(),
+        content: "second message".into(),
+        channel: "C123".into(),
+        message_id: Some("slack:msg-2".into()),
+        thread_context: Some(super::gateway::ThreadContext {
+            slack_thread_ts: Some("1712345678.000200".into()),
+            ..Default::default()
+        }),
+    };
+
+    engine
+        .enqueue_gateway_message(second)
+        .await
+        .expect("enqueue second inbound message");
+    engine.process_gateway_messages().await;
+
+    let bound_thread_id = engine
+        .gateway_threads
+        .read()
+        .await
+        .get("Slack:C123")
+        .cloned()
+        .expect("binding should exist");
+    assert_eq!(bound_thread_id, thread_id);
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    let user_messages = thread
+        .messages
+        .iter()
+        .filter(|message| message.role == MessageRole::User)
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>();
+    assert!(user_messages.contains(&"first message"));
+    assert!(user_messages.contains(&"second message"));
+
+    let reply_context = engine
+        .gateway_state
+        .lock()
+        .await
+        .as_ref()
+        .and_then(|state| state.reply_contexts.get("Slack:C123").cloned())
+        .expect("reply context should be retained for channel");
+    assert_eq!(
+        reply_context.slack_thread_ts.as_deref(),
+        Some("1712345678.000200")
+    );
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn inbound_gateway_messages_reuse_same_thread_binding_for_same_telegram_chat() {
+    let root = make_test_root("gateway-telegram-thread-binding-continuity");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let first = super::gateway::IncomingMessage {
+        platform: "Telegram".into(),
+        sender: "alice".into(),
+        content: "first telegram".into(),
+        channel: "123456".into(),
+        message_id: Some("tg:1".into()),
+        thread_context: Some(super::gateway::ThreadContext {
+            telegram_message_id: Some(777),
+            ..Default::default()
+        }),
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Telegram:123456", &first, "first reply")
+        .await
+        .expect("persist first fast-path exchange");
+
+    engine
+        .gateway_threads
+        .write()
+        .await
+        .insert("Telegram:123456".to_string(), thread_id.clone());
+
+    let second = super::gateway::IncomingMessage {
+        platform: "telegram".into(),
+        sender: "alice".into(),
+        content: "second telegram".into(),
+        channel: "123456".into(),
+        message_id: Some("tg:2".into()),
+        thread_context: Some(super::gateway::ThreadContext {
+            telegram_message_id: Some(778),
+            ..Default::default()
+        }),
+    };
+
+    engine
+        .enqueue_gateway_message(second)
+        .await
+        .expect("enqueue second inbound message");
+    engine.process_gateway_messages().await;
+
+    let bound_thread_id = engine
+        .gateway_threads
+        .read()
+        .await
+        .get("Telegram:123456")
+        .cloned()
+        .expect("binding should exist");
+    assert_eq!(bound_thread_id, thread_id);
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    let user_messages = thread
+        .messages
+        .iter()
+        .filter(|message| message.role == MessageRole::User)
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>();
+    assert!(user_messages.contains(&"first telegram"));
+    assert!(user_messages.contains(&"second telegram"));
+
+    let reply_context = engine
+        .gateway_state
+        .lock()
+        .await
+        .as_ref()
+        .and_then(|state| state.reply_contexts.get("Telegram:123456").cloned())
+        .expect("reply context should be retained for chat");
+    assert_eq!(reply_context.telegram_message_id, Some(778));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn inbound_gateway_messages_reuse_same_thread_binding_for_same_discord_dm_alias() {
+    let root = make_test_root("gateway-discord-thread-binding-continuity");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let first = super::gateway::IncomingMessage {
+        platform: "Discord".into(),
+        sender: "alice".into(),
+        content: "first discord".into(),
+        channel: "user:123456789".into(),
+        message_id: Some("discord:1".into()),
+        thread_context: Some(super::gateway::ThreadContext {
+            discord_message_id: Some("111".into()),
+            ..Default::default()
+        }),
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &first, "first reply")
+        .await
+        .expect("persist first fast-path exchange");
+
+    engine
+        .gateway_threads
+        .write()
+        .await
+        .insert("Discord:user:123456789".to_string(), thread_id.clone());
+
+    let second = super::gateway::IncomingMessage {
+        platform: "discord".into(),
+        sender: "alice".into(),
+        content: "second discord".into(),
+        channel: "user:123456789".into(),
+        message_id: Some("discord:2".into()),
+        thread_context: Some(super::gateway::ThreadContext {
+            discord_message_id: Some("222".into()),
+            ..Default::default()
+        }),
+    };
+
+    engine
+        .enqueue_gateway_message(second)
+        .await
+        .expect("enqueue second inbound message");
+    engine.process_gateway_messages().await;
+
+    let bound_thread_id = engine
+        .gateway_threads
+        .read()
+        .await
+        .get("Discord:user:123456789")
+        .cloned()
+        .expect("binding should exist");
+    assert_eq!(bound_thread_id, thread_id);
+
+    let thread = engine
+        .threads
+        .read()
+        .await
+        .get(&thread_id)
+        .cloned()
+        .expect("thread should exist");
+    let user_messages = thread
+        .messages
+        .iter()
+        .filter(|message| message.role == MessageRole::User)
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>();
+    assert!(user_messages.contains(&"first discord"));
+    assert!(user_messages.contains(&"second discord"));
+
+    let reply_context = engine
+        .gateway_state
+        .lock()
+        .await
+        .as_ref()
+        .and_then(|state| state.reply_contexts.get("Discord:user:123456789").cloned())
+        .expect("reply context should be retained for dm alias");
+    assert_eq!(reply_context.discord_message_id.as_deref(), Some("222"));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}

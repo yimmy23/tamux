@@ -19,14 +19,7 @@ fn should_use_linked_whatsapp_transport(
 }
 
 fn gateway_channel_key(platform: &str, channel_id: &str) -> Option<String> {
-    let label = match platform.to_ascii_lowercase().as_str() {
-        "slack" => "Slack",
-        "discord" => "Discord",
-        "telegram" => "Telegram",
-        "whatsapp" => "WhatsApp",
-        _ => return None,
-    };
-    Some(format!("{label}:{channel_id}"))
+    Some(crate::agent::gateway::gateway_channel_key(platform, channel_id))
 }
 
 async fn block_if_duplicate_gateway_message(
