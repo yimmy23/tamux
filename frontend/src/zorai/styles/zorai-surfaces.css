@@ -1,0 +1,210 @@
+.zorai-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.zorai-goals-layout,
+.zorai-activity-grid,
+.zorai-settings-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.zorai-goals-layout {
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+}
+
+.zorai-activity-grid,
+.zorai-settings-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.zorai-panel {
+  border: 1px solid var(--zorai-border);
+  background: var(--zorai-bg-panel);
+  border-radius: 7px;
+  padding: 14px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.zorai-panel h2 {
+  margin: 4px 0 0;
+  font-size: 16px;
+}
+
+.zorai-input,
+.zorai-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 7px;
+  border: 1px solid var(--zorai-border-strong);
+  background: #0c111a;
+  color: var(--zorai-text);
+  padding: 9px 10px;
+  font: inherit;
+}
+
+.zorai-textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.zorai-inline-note,
+.zorai-empty-state {
+  color: var(--zorai-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.zorai-goal-list,
+.zorai-activity-list {
+  overflow: auto;
+}
+
+.zorai-run-card,
+.zorai-activity-item {
+  border: 1px solid var(--zorai-border);
+  background: #0d131d;
+  border-radius: 7px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.zorai-run-card + .zorai-run-card,
+.zorai-activity-item + .zorai-activity-item {
+  margin-top: 10px;
+}
+
+.zorai-run-card__header,
+.zorai-activity-item > div,
+.zorai-setting-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.zorai-run-card__header > div,
+.zorai-activity-item > div:first-child,
+.zorai-setting-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.zorai-run-card__header span,
+.zorai-run-card p,
+.zorai-activity-item span,
+.zorai-activity-item p,
+.zorai-setting-row span {
+  color: var(--zorai-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.zorai-run-card p,
+.zorai-activity-item p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.zorai-status-pill {
+  border: 1px solid var(--zorai-border-strong);
+  border-radius: 999px;
+  padding: 4px 8px;
+  height: max-content;
+  white-space: nowrap;
+}
+
+.zorai-run-card__meta,
+.zorai-card-actions,
+.zorai-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.zorai-run-card__meta span,
+.zorai-todo-strip span {
+  border: 1px solid var(--zorai-border);
+  border-radius: 999px;
+  color: var(--zorai-muted);
+  font-size: 11px;
+  padding: 4px 7px;
+}
+
+.zorai-todo-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.zorai-toolbar {
+  margin-bottom: 14px;
+}
+
+.zorai-toolbar .zorai-input {
+  max-width: 320px;
+}
+
+.zorai-button--active {
+  border-color: var(--zorai-accent);
+  color: var(--zorai-accent);
+}
+
+.zorai-setting-row {
+  align-items: center;
+  border-top: 1px solid var(--zorai-border);
+  padding-top: 12px;
+}
+
+.zorai-setting-row > :last-child {
+  max-width: 280px;
+}
+
+.zorai-switch {
+  width: 42px;
+  height: 24px;
+  border: 1px solid var(--zorai-border-strong);
+  border-radius: 999px;
+  background: #101722;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.zorai-switch span {
+  width: 18px;
+  height: 18px;
+  display: block;
+  border-radius: 50%;
+  background: var(--zorai-muted);
+  transition: transform 0.16s ease, background 0.16s ease;
+}
+
+.zorai-switch--on span {
+  background: var(--zorai-accent);
+  transform: translateX(17px);
+}
+
+@media (max-width: 900px) {
+  .zorai-goals-layout,
+  .zorai-activity-grid,
+  .zorai-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .zorai-setting-row {
+    display: grid;
+  }
+
+  .zorai-setting-row > :last-child {
+    max-width: none;
+  }
+}
+
