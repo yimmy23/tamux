@@ -45,4 +45,12 @@ describe("Zorai feature surfaces", () => {
     expect(source).toContain("Split right");
     expect(source).toContain("New infinite canvas");
   });
+
+  it("keeps Threads native to the Zorai shell instead of embedding the old chat view", () => {
+    const source = readFeature("./threads/ThreadsView.tsx");
+
+    expect(source).not.toContain("ChatView");
+    expect(source).toContain("zorai-native-thread-surface");
+    expect(source).toContain("zorai-thread-composer");
+  });
 });
