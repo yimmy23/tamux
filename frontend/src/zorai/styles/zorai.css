@@ -359,6 +359,10 @@
   border-color: var(--zorai-border-strong);
 }
 
+.zorai-message--pinned {
+  border-color: rgba(119, 216, 197, 0.46);
+}
+
 .zorai-message__meta {
   display: flex;
   justify-content: space-between;
@@ -374,6 +378,96 @@
 .zorai-message__tools {
   border-left: 2px solid var(--zorai-border-strong);
   padding-left: 10px;
+}
+
+.zorai-message__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.zorai-thread-context-stack {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.zorai-pinned-context,
+.zorai-pinned-message {
+  border: 1px solid var(--zorai-border);
+  border-radius: 7px;
+  background: #0d131d;
+}
+
+.zorai-pinned-context {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.zorai-pinned-context strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.zorai-pinned-context p,
+.zorai-pinned-message p,
+.zorai-pinned-message span {
+  margin: 0;
+  color: var(--zorai-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.zorai-pinned-message {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.zorai-pinned-message > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.zorai-pin-limit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 5, 10, 0.82);
+}
+
+.zorai-pin-limit-dialog {
+  width: min(560px, calc(100vw - 32px));
+  border: 1px solid rgba(248, 113, 113, 0.46);
+  border-radius: 8px;
+  background: var(--zorai-bg-panel);
+  color: var(--zorai-text);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
+}
+
+.zorai-pin-limit-dialog h2,
+.zorai-pin-limit-dialog p {
+  margin: 0;
+}
+
+.zorai-pin-limit-dialog p,
+.zorai-pin-limit-stats {
+  color: var(--zorai-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.zorai-pin-limit-stats {
+  display: grid;
+  gap: 6px;
 }
 
 .zorai-thread-composer {

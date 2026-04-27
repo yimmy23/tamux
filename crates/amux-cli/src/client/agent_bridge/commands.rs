@@ -211,6 +211,92 @@ where
                 })
                 .await?;
         }
+        AgentBridgeCommand::ListWorkspaceSettings => {
+            framed.send(ClientMessage::AgentListWorkspaceSettings).await?;
+        }
+        AgentBridgeCommand::GetWorkspaceSettings { workspace_id } => {
+            framed
+                .send(ClientMessage::AgentGetWorkspaceSettings { workspace_id })
+                .await?;
+        }
+        AgentBridgeCommand::SetWorkspaceOperator {
+            workspace_id,
+            operator,
+        } => {
+            framed
+                .send(ClientMessage::AgentSetWorkspaceOperator {
+                    workspace_id,
+                    operator,
+                })
+                .await?;
+        }
+        AgentBridgeCommand::CreateWorkspaceTask { request } => {
+            framed
+                .send(ClientMessage::AgentCreateWorkspaceTask { request })
+                .await?;
+        }
+        AgentBridgeCommand::ListWorkspaceTasks {
+            workspace_id,
+            include_deleted,
+        } => {
+            framed
+                .send(ClientMessage::AgentListWorkspaceTasks {
+                    workspace_id,
+                    include_deleted,
+                })
+                .await?;
+        }
+        AgentBridgeCommand::GetWorkspaceTask { task_id } => {
+            framed
+                .send(ClientMessage::AgentGetWorkspaceTask { task_id })
+                .await?;
+        }
+        AgentBridgeCommand::UpdateWorkspaceTask { task_id, update } => {
+            framed
+                .send(ClientMessage::AgentUpdateWorkspaceTask { task_id, update })
+                .await?;
+        }
+        AgentBridgeCommand::MoveWorkspaceTask { request } => {
+            framed
+                .send(ClientMessage::AgentMoveWorkspaceTask { request })
+                .await?;
+        }
+        AgentBridgeCommand::RunWorkspaceTask { task_id } => {
+            framed
+                .send(ClientMessage::AgentRunWorkspaceTask { task_id })
+                .await?;
+        }
+        AgentBridgeCommand::PauseWorkspaceTask { task_id } => {
+            framed
+                .send(ClientMessage::AgentPauseWorkspaceTask { task_id })
+                .await?;
+        }
+        AgentBridgeCommand::StopWorkspaceTask { task_id } => {
+            framed
+                .send(ClientMessage::AgentStopWorkspaceTask { task_id })
+                .await?;
+        }
+        AgentBridgeCommand::DeleteWorkspaceTask { task_id } => {
+            framed
+                .send(ClientMessage::AgentDeleteWorkspaceTask { task_id })
+                .await?;
+        }
+        AgentBridgeCommand::SubmitWorkspaceReview { review } => {
+            framed
+                .send(ClientMessage::AgentSubmitWorkspaceReview { review })
+                .await?;
+        }
+        AgentBridgeCommand::ListWorkspaceNotices {
+            workspace_id,
+            task_id,
+        } => {
+            framed
+                .send(ClientMessage::AgentListWorkspaceNotices {
+                    workspace_id,
+                    task_id,
+                })
+                .await?;
+        }
         AgentBridgeCommand::ListTodos => {
             framed.send(ClientMessage::AgentListTodos).await?;
         }

@@ -223,6 +223,51 @@ where
             let msg = serde_json::json!({"type":"goal-run-controlled","data":{"goal_run_id":goal_run_id,"ok":ok}});
             emit_agent_event(&msg.to_string())?;
         }
+        Some(Ok(DaemonMessage::AgentWorkspaceSettingsList { settings })) => {
+            let msg = serde_json::json!({"type":"workspace-settings-list","data":serde_json::to_value(settings).unwrap_or_default()});
+            emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentWorkspaceSettings { settings })) => {
+            let msg = serde_json::json!({"type":"workspace-settings","data":serde_json::to_value(settings).unwrap_or_default()});
+            emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentWorkspaceTaskList {
+            workspace_id,
+            tasks,
+        })) => {
+            let msg = serde_json::json!({"type":"workspace-task-list","data":serde_json::to_value(tasks).unwrap_or_default(),"workspace_id":workspace_id});
+            emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentWorkspaceTaskDetail { task })) => {
+            let msg = serde_json::json!({"type":"workspace-task-detail","data":serde_json::to_value(task).unwrap_or_default()});
+            emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentWorkspaceTaskUpdated { task })) => {
+            let msg = serde_json::json!({"type":"workspace-task-updated","data":serde_json::to_value(task).unwrap_or_default()});
+            emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentWorkspaceTaskDeleted {
+            task_id,
+            deleted_at,
+        })) => {
+            let msg = serde_json::json!({"type":"workspace-task-deleted","data":{"task_id":task_id,"deleted_at":deleted_at,"ok":true}});
+            emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentWorkspaceNotice { notice })) => {
+            let msg = serde_json::json!({"type":"workspace-notice","data":serde_json::to_value(notice).unwrap_or_default()});
+            emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentWorkspaceNoticeList {
+            workspace_id,
+            notices,
+        })) => {
+            let msg = serde_json::json!({"type":"workspace-notice-list","data":serde_json::to_value(notices).unwrap_or_default(),"workspace_id":workspace_id});
+            emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentWorkspaceError { message })) => {
+            let msg = serde_json::json!({"type":"error","message":message});
+            emit_agent_event(&msg.to_string())?;
+        }
         Some(Ok(DaemonMessage::AgentThreadControlled {
             thread_id,
             action,

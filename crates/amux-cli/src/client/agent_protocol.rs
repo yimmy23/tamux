@@ -110,6 +110,52 @@ pub(super) enum AgentBridgeCommand {
         action: String,
         step_index: Option<usize>,
     },
+    ListWorkspaceSettings,
+    GetWorkspaceSettings {
+        workspace_id: String,
+    },
+    SetWorkspaceOperator {
+        workspace_id: String,
+        operator: amux_protocol::WorkspaceOperator,
+    },
+    CreateWorkspaceTask {
+        request: amux_protocol::WorkspaceTaskCreate,
+    },
+    ListWorkspaceTasks {
+        workspace_id: String,
+        #[serde(default)]
+        include_deleted: bool,
+    },
+    GetWorkspaceTask {
+        task_id: String,
+    },
+    UpdateWorkspaceTask {
+        task_id: String,
+        update: amux_protocol::WorkspaceTaskUpdate,
+    },
+    MoveWorkspaceTask {
+        request: amux_protocol::WorkspaceTaskMove,
+    },
+    RunWorkspaceTask {
+        task_id: String,
+    },
+    PauseWorkspaceTask {
+        task_id: String,
+    },
+    StopWorkspaceTask {
+        task_id: String,
+    },
+    DeleteWorkspaceTask {
+        task_id: String,
+    },
+    SubmitWorkspaceReview {
+        review: amux_protocol::WorkspaceReviewSubmission,
+    },
+    ListWorkspaceNotices {
+        workspace_id: String,
+        #[serde(default)]
+        task_id: Option<String>,
+    },
     ListTodos,
     GetTodos {
         thread_id: String,

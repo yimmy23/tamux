@@ -13,6 +13,7 @@ import {
   summarizeGoalRunStep,
   type GoalRun,
 } from "@/lib/goalRuns";
+import { GoalWorkspacePanel } from "./GoalWorkspacePanel";
 
 const activeStatuses = new Set(["queued", "planning", "running", "awaiting_approval", "paused"]);
 
@@ -44,6 +45,7 @@ export function GoalsView() {
   const [goal, setGoal] = useState("");
   const [starting, setStarting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const supported = goalRunSupportAvailable();
 
   const visibleGoalRuns = useMemo(() => {
@@ -59,6 +61,16 @@ export function GoalsView() {
     const completed = visibleGoalRuns.filter((run) => run.status === "completed").length;
     return { active, waiting, completed, total: visibleGoalRuns.length };
   }, [visibleGoalRuns]);
+
+  const selectedRun = useMemo(() => {
+    return visibleGoalRuns.find((run) => run.id === selectedRunId) ?? visibleGoalRuns[0] ?? null;
+  }, [selectedRunId, visibleGoalRuns]);
+
+  useEffect(() => {
+    if (!selectedRunId && visibleGoalRuns[0]) {
+      setSelectedRunId(visibleGoalRuns[0].id);
+    }
+  }, [selectedRunId, visibleGoalRuns]);
 
   const refresh = useCallback(async () => {
     setGoalRuns(await fetchGoalRuns());
@@ -146,9 +158,19 @@ export function GoalsView() {
           {visibleGoalRuns.length === 0 ? (
             <div className="zorai-empty-state">No goal runs are loaded yet.</div>
           ) : (
-            visibleGoalRuns.map((run) => <GoalRunCard key={run.id} run={run} onControl={handleControl} />)
+            visibleGoalRuns.map((run) => (
+              <GoalRunCard
+                key={run.id}
+                run={run}
+                selected={run.id === selectedRun?.id}
+                onSelect={() => setSelectedRunId(run.id)}
+                onControl={handleControl}
+              />
+            ))
           )}
         </div>
+
+        <GoalWorkspacePanel run={selectedRun} onRefresh={refresh} onMessage={setMessage} />
       </div>
     </section>
   );
@@ -165,14 +187,18 @@ function Metric({ label, value }: { label: string; value: number }) {
 
 function GoalRunCard({
   run,
+  selected,
+  onSelect,
   onControl,
 }: {
   run: GoalRun;
+  selected: boolean;
+  onSelect: () => void;
   onControl: (run: GoalRun, action: "pause" | "resume" | "cancel") => void;
 }) {
   const todos = latestGoalRunTodoSnapshot(run).slice(0, 4);
   return (
-    <article className="zorai-run-card">
+    <article className={["zorai-run-card", selected ? "zorai-run-card--active" : ""].filter(Boolean).join(" ")}>
       <div className="zorai-run-card__header">
         <div>
           <strong>{run.title || run.goal}</strong>
@@ -193,6 +219,7 @@ function GoalRunCard({
       ) : null}
       {isGoalRunActive(run) ? (
         <div className="zorai-card-actions">
+          <button type="button" className="zorai-ghost-button" onClick={onSelect}>Open workspace</button>
           {run.status === "paused" ? (
             <button type="button" className="zorai-ghost-button" onClick={() => onControl(run, "resume")}>Resume</button>
           ) : (
@@ -200,8 +227,11 @@ function GoalRunCard({
           )}
           <button type="button" className="zorai-ghost-button" onClick={() => onControl(run, "cancel")}>Cancel</button>
         </div>
-      ) : null}
+      ) : (
+        <div className="zorai-card-actions">
+          <button type="button" className="zorai-ghost-button" onClick={onSelect}>Open workspace</button>
+        </div>
+      )}
     </article>
   );
 }
-

@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { SpawnedAgentsPanel } from "@/components/agent-chat-panel/SpawnedAgentsPanel";
 import { useAgentChatPanelRuntime } from "@/components/agent-chat-panel/runtime/context";
 import type { AgentMessage, AgentThread } from "@/lib/agentStore";
@@ -65,6 +65,7 @@ export function ThreadsRail() {
 
 export function ThreadsView() {
   const runtime = useAgentChatPanelRuntime();
+  const [pinLimitResult, setPinLimitResult] = useState<AmuxThreadMessagePinResult | null>(null);
 
   if (!runtime.activeThread) {
     return (
@@ -113,7 +114,19 @@ export function ThreadsView() {
             <span>Ask for a plan, delegate work, or turn a request into a goal.</span>
           </div>
         ) : (
-          runtime.messages.map((message) => <MessageBubble key={message.id} message={message} />)
+          runtime.messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onPin={async () => {
+                const result = await runtime.pinMessageForCompaction(runtime.activeThread?.id ?? message.threadId, message.id);
+                if (result && result.ok === false && result.error === "pinned_budget_exceeded") {
+                  setPinLimitResult(result);
+                }
+              }}
+              onUnpin={() => void runtime.unpinMessageForCompaction(runtime.activeThread?.id ?? message.threadId, message.id)}
+            />
+          ))
         )}
         <div ref={runtime.messagesEndRef} />
       </div>
@@ -146,6 +159,10 @@ export function ThreadsView() {
           </div>
         </div>
       </div>
+
+      {pinLimitResult ? (
+        <PinLimitModal result={pinLimitResult} onClose={() => setPinLimitResult(null)} />
+      ) : null}
     </section>
   );
 }
@@ -198,13 +215,21 @@ function ParticipantStrip({ thread }: { thread: AgentThread }) {
   );
 }
 
-function MessageBubble({ message }: { message: AgentMessage }) {
+function MessageBubble({
+  message,
+  onPin,
+  onUnpin,
+}: {
+  message: AgentMessage;
+  onPin: () => void | Promise<void>;
+  onUnpin: () => void | Promise<void>;
+}) {
   const fromUser = message.role === "user";
   const author = message.authorAgentName ?? (fromUser ? "You" : message.role === "assistant" ? "Zorai" : message.role);
   const tokenText = message.totalTokens > 0 ? `${message.totalTokens.toLocaleString()} tokens` : null;
 
   return (
-    <article className={["zorai-message", fromUser ? "zorai-message--user" : ""].filter(Boolean).join(" ")}>
+    <article id={`zorai-message-${message.id}`} className={["zorai-message", fromUser ? "zorai-message--user" : "", message.pinnedForCompaction ? "zorai-message--pinned" : ""].filter(Boolean).join(" ")}>
       <div className="zorai-message__meta">
         <strong>{author}</strong>
         <span>{formatTime(message.createdAt)}{tokenText ? ` / ${tokenText}` : ""}</span>
@@ -214,7 +239,50 @@ function MessageBubble({ message }: { message: AgentMessage }) {
       {message.toolCalls && message.toolCalls.length > 0 ? (
         <div className="zorai-message__tools">{message.toolCalls.length} tool calls</div>
       ) : null}
+      <div className="zorai-message__actions">
+        {message.pinnedForCompaction ? (
+          <button type="button" className="zorai-ghost-button" onClick={() => void onUnpin()}>
+            Unpin
+          </button>
+        ) : (
+          <button type="button" className="zorai-ghost-button" onClick={() => void onPin()}>
+            Pin
+          </button>
+        )}
+      </div>
     </article>
+  );
+}
+
+function PinLimitModal({
+  result,
+  onClose,
+}: {
+  result: AmuxThreadMessagePinResult;
+  onClose: () => void;
+}) {
+  const attempted = Math.max(0, (result.candidate_pinned_chars ?? 0) - result.current_pinned_chars);
+
+  return (
+    <div className="zorai-pin-limit-overlay" role="presentation">
+      <section className="zorai-pin-limit-dialog" role="dialog" aria-modal="true" aria-labelledby="zorai-pin-limit-title">
+        <div className="zorai-section-label">Pin Limit Reached</div>
+        <h2 id="zorai-pin-limit-title">This message cannot be pinned for compaction.</h2>
+        <p>
+          Pinned messages are injected after the owner compaction artifact and are capped
+          at 25% of the active model context window.
+        </p>
+        <div className="zorai-pin-limit-stats">
+          <span>Current pinned chars: {result.current_pinned_chars.toLocaleString()}</span>
+          <span>Pinned budget chars: {result.pinned_budget_chars.toLocaleString()}</span>
+          <span>Attempted total chars: {(result.candidate_pinned_chars ?? 0).toLocaleString()}</span>
+          <span>Attempted message size: {attempted.toLocaleString()}</span>
+        </div>
+        <div className="zorai-card-actions">
+          <button type="button" className="zorai-primary-button" onClick={onClose}>Close</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -233,15 +301,76 @@ export function ThreadsContext() {
   const runtime = useAgentChatPanelRuntime();
 
   return (
-    <SpawnedAgentsPanel
-      tree={runtime.spawnedAgentTree}
-      selectedDaemonThreadId={runtime.activeThread?.daemonThreadId ?? null}
-      canGoBackThread={runtime.canGoBackThread}
-      threadNavigationDepth={runtime.threadNavigationDepth}
-      backThreadTitle={runtime.backThreadTitle}
-      canOpenSpawnedThread={runtime.canOpenSpawnedThread}
-      openSpawnedThread={runtime.openSpawnedThread}
-      goBackThread={runtime.goBackThread}
-    />
+    <div className="zorai-thread-context-stack">
+      <PinnedThreadContext
+        messages={runtime.pinnedMessages}
+        pinnedUsageChars={runtime.pinnedUsageChars}
+        pinnedBudgetChars={runtime.pinnedBudgetChars}
+        pinnedOverBudget={runtime.pinnedOverBudget}
+        onJumpToMessage={(messageId) => {
+          document.getElementById(`zorai-message-${messageId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+        }}
+        onUnpinMessage={(messageId) => runtime.activeThreadId
+          ? runtime.unpinMessageForCompaction(runtime.activeThreadId, messageId)
+          : undefined}
+      />
+      <SpawnedAgentsPanel
+        tree={runtime.spawnedAgentTree}
+        selectedDaemonThreadId={runtime.activeThread?.daemonThreadId ?? null}
+        canGoBackThread={runtime.canGoBackThread}
+        threadNavigationDepth={runtime.threadNavigationDepth}
+        backThreadTitle={runtime.backThreadTitle}
+        canOpenSpawnedThread={runtime.canOpenSpawnedThread}
+        openSpawnedThread={runtime.openSpawnedThread}
+        goBackThread={runtime.goBackThread}
+      />
+    </div>
+  );
+}
+
+function PinnedThreadContext({
+  messages,
+  pinnedUsageChars,
+  pinnedBudgetChars,
+  pinnedOverBudget,
+  onJumpToMessage,
+  onUnpinMessage,
+}: {
+  messages: AgentMessage[];
+  pinnedUsageChars: number;
+  pinnedBudgetChars: number;
+  pinnedOverBudget: boolean;
+  onJumpToMessage: (messageId: string) => void;
+  onUnpinMessage: (messageId: string) => void | Promise<unknown> | undefined;
+}) {
+  return (
+    <div className="zorai-pinned-context">
+      <div>
+        <div className="zorai-section-label">Pinned Compaction Context</div>
+        <strong>{pinnedUsageChars.toLocaleString()} / {pinnedBudgetChars.toLocaleString()} chars</strong>
+      </div>
+      {pinnedOverBudget ? (
+        <p>Pinned content is over the active model budget. Unpin shorter context before the next compaction.</p>
+      ) : null}
+      {messages.length === 0 ? (
+        <div className="zorai-empty">No pinned messages in this thread.</div>
+      ) : messages.map((message) => (
+        <article key={message.id} className="zorai-pinned-message">
+          <div>
+            <strong>{message.role}</strong>
+            <span>{message.content.length.toLocaleString()} chars</span>
+          </div>
+          <p>{message.content || summarizeToolMessage(message)}</p>
+          <div className="zorai-card-actions">
+            <button type="button" className="zorai-ghost-button" onClick={() => onJumpToMessage(message.id)}>
+              Jump
+            </button>
+            <button type="button" className="zorai-ghost-button" onClick={() => void onUnpinMessage(message.id)}>
+              Unpin
+            </button>
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }

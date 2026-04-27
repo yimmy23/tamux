@@ -13,6 +13,18 @@ describe("Zorai feature surfaces", () => {
     expect(source).toContain("zorai-goals-surface");
   });
 
+  it("keeps TUI goal workspace modes in native Goals", () => {
+    const source = readFeature("./goals/GoalWorkspacePanel.tsx");
+
+    expect(source).toContain("Dossier");
+    expect(source).toContain("Files");
+    expect(source).toContain("Progress");
+    expect(source).toContain("Usage");
+    expect(source).toContain("Active agent");
+    expect(source).toContain("Threads");
+    expect(source).toContain("Needs attention");
+  });
+
   it("keeps Activity native to the Zorai shell instead of embedding legacy trace UI", () => {
     const source = readFeature("./activity/ActivityView.tsx");
 
@@ -67,11 +79,33 @@ describe("Zorai feature surfaces", () => {
     expect(source).toContain("New infinite canvas");
   });
 
+  it("keeps Workspaces aligned to the TUI workspace board instead of old terminal workspaces", () => {
+    const source = readFeature("./workspaces/WorkspacesView.tsx");
+
+    expect(source).not.toContain("migration hints");
+    expect(source).not.toContain("createSurface");
+    expect(source).not.toContain("splitActive");
+    expect(source).not.toContain("applyPresetLayout");
+    expect(source).toContain("WorkspaceTaskStatus");
+    expect(source).toContain("New task");
+    expect(source).toContain("Toggle operator");
+    expect(source).toContain("runWorkspaceTask");
+    expect(source).toContain("moveWorkspaceTask");
+  });
+
   it("keeps Threads native to the Zorai shell instead of embedding the old chat view", () => {
     const source = readFeature("./threads/ThreadsView.tsx");
 
     expect(source).not.toContain("ChatView");
     expect(source).toContain("zorai-native-thread-surface");
     expect(source).toContain("zorai-thread-composer");
+  });
+
+  it("keeps TUI-style pinned message controls in native Threads", () => {
+    const source = readFeature("./threads/ThreadsView.tsx");
+
+    expect(source).toContain("pinMessageForCompaction");
+    expect(source).toContain("Pinned Compaction Context");
+    expect(source).toContain("Pin Limit Reached");
   });
 });

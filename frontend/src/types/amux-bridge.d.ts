@@ -308,6 +308,46 @@ declare global {
         top_models_by_cost: AmuxModelStatisticsRow[];
     };
 
+    type AmuxWorkspaceOperator = "user" | "svarog";
+    type AmuxWorkspaceTaskType = "thread" | "goal";
+    type AmuxWorkspaceTaskStatus = "todo" | "in_progress" | "in_review" | "done";
+    type AmuxWorkspacePriority = "low" | "normal" | "high" | "urgent";
+    type AmuxWorkspaceActor = "user" | "svarog" | { agent: string } | { subagent: string } | null;
+
+    type AmuxWorkspaceSettings = {
+        workspace_id: string;
+        workspace_root?: string | null;
+        operator: AmuxWorkspaceOperator;
+        created_at: number;
+        updated_at: number;
+    };
+
+    type AmuxWorkspaceTaskCreate = {
+        workspace_id: string;
+        title: string;
+        task_type: AmuxWorkspaceTaskType;
+        description: string;
+        definition_of_done?: string | null;
+        priority?: AmuxWorkspacePriority | null;
+        assignee?: AmuxWorkspaceActor;
+        reviewer?: AmuxWorkspaceActor;
+    };
+
+    type AmuxWorkspaceTaskUpdate = Partial<{
+        title: string;
+        description: string;
+        definition_of_done: string | null;
+        priority: AmuxWorkspacePriority;
+        assignee: AmuxWorkspaceActor;
+        reviewer: AmuxWorkspaceActor;
+    }>;
+
+    type AmuxWorkspaceTaskMove = {
+        task_id: string;
+        status: AmuxWorkspaceTaskStatus;
+        sort_order?: number | null;
+    };
+
     type AmuxBridge = {
         checkSetupPrereqs?: (profile?: "source" | "desktop") => Promise<AmuxSetupPrereqReport>;
         discoverCodingAgents?: () => Promise<AmuxCodingAgentDiscoveryResult[]>;
@@ -356,6 +396,18 @@ declare global {
         agentListGoalRuns?: () => Promise<AmuxGoalRun[] | unknown>;
         agentGetGoalRun?: (goalRunId: string) => Promise<AmuxGoalRun | unknown>;
         agentControlGoalRun?: (goalRunId: string, action: AmuxGoalRunControlAction, stepIndex?: number | null) => Promise<boolean | { ok?: boolean; success?: boolean } | unknown>;
+        agentListWorkspaceSettings?: () => Promise<AmuxWorkspaceSettings[] | unknown>;
+        agentGetWorkspaceSettings?: (workspaceId: string) => Promise<AmuxWorkspaceSettings | unknown>;
+        agentSetWorkspaceOperator?: (workspaceId: string, operator: AmuxWorkspaceOperator) => Promise<AmuxWorkspaceSettings | unknown>;
+        agentListWorkspaceTasks?: (workspaceId: string, includeDeleted?: boolean) => Promise<unknown[] | unknown>;
+        agentCreateWorkspaceTask?: (request: AmuxWorkspaceTaskCreate) => Promise<unknown>;
+        agentUpdateWorkspaceTask?: (taskId: string, update: AmuxWorkspaceTaskUpdate) => Promise<unknown>;
+        agentMoveWorkspaceTask?: (request: AmuxWorkspaceTaskMove) => Promise<unknown>;
+        agentRunWorkspaceTask?: (taskId: string) => Promise<unknown>;
+        agentPauseWorkspaceTask?: (taskId: string) => Promise<unknown>;
+        agentStopWorkspaceTask?: (taskId: string) => Promise<unknown>;
+        agentDeleteWorkspaceTask?: (taskId: string) => Promise<unknown>;
+        agentListWorkspaceNotices?: (workspaceId: string, taskId?: string | null) => Promise<unknown[] | unknown>;
         agentExplainAction?: (actionId: string, stepIndex?: number | null) => Promise<unknown>;
         agentStartDivergentSession?: (payload: {
             problemStatement: string;
