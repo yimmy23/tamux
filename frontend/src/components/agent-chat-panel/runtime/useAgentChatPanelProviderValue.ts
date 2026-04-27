@@ -700,6 +700,7 @@ export function useAgentChatPanelProviderValue(): {
       if (direction === "latest") {
         return loadDaemonThreadPageIntoLocalState({
           daemonThreadId,
+          localThreadId: threadId,
           messageLimit,
           messageOffset: 0,
           mergeMode: "replace",
@@ -717,6 +718,7 @@ export function useAgentChatPanelProviderValue(): {
 
       return loadDaemonThreadPageIntoLocalState({
         daemonThreadId,
+        localThreadId: threadId,
         messageLimit,
         messageOffset: Math.max(0, totalMessages - loadedStart),
         mergeMode: "prepend",

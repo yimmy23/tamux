@@ -117,7 +117,9 @@ describe("Zorai feature surfaces", () => {
     expect(source).toContain("openThread");
     expect(source).toContain("onScroll");
     expect(source).toContain("loadOlderThreadMessages");
+    expect(source).toContain("threadHistoryLabel");
     expect(runtimeSource).toContain("loadThreadPage");
+    expect(runtimeSource).toContain("localThreadId: threadId");
     expect(runtimeSource).toContain("messageOffset");
     expect(runtimeSource).toContain("threadPageLoadChainRef");
     expect(eventsSource).toContain("resolveDaemonEventLocalThreadId");

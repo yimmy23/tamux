@@ -123,6 +123,7 @@ export async function reloadDaemonThreadIntoLocalState({
 
 export async function loadDaemonThreadPageIntoLocalState({
   daemonThreadId,
+  localThreadId: requestedLocalThreadId,
   messageLimit,
   messageOffset,
   mergeMode,
@@ -130,6 +131,7 @@ export async function loadDaemonThreadPageIntoLocalState({
   setDaemonTodosByThread,
 }: {
   daemonThreadId: string;
+  localThreadId?: string | null;
   messageLimit?: number | null;
   messageOffset?: number | null;
   mergeMode: "replace" | "prepend";
@@ -139,17 +141,18 @@ export async function loadDaemonThreadPageIntoLocalState({
   const amux = getAgentBridge();
   if (!amux?.agentGetThread) return false;
 
-  const localThreadId = useAgentStore.getState().threads.find(
+  const localThreadId = requestedLocalThreadId ?? useAgentStore.getState().threads.find(
     (thread) => thread.daemonThreadId === daemonThreadId,
   )?.id;
   if (!localThreadId) return false;
 
-  const remoteThread = await amux.agentGetThread(daemonThreadId, {
+  const remotePayload = await amux.agentGetThread(daemonThreadId, {
     messageLimit: messageLimit ?? resolveReactChatHistoryMessageLimit(
       useAgentStore.getState().agentSettings.react_chat_history_page_size,
     ) ?? null,
     messageOffset: messageOffset ?? null,
   }).catch(() => null) as any;
+  const remoteThread = normalizeBridgePayload(remotePayload);
   const hydrated = buildHydratedRemoteThread(
     (remoteThread ?? {}) as any,
     remoteThread?.agent_name ?? "assistant",

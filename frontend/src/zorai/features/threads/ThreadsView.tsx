@@ -51,7 +51,7 @@ export function ThreadsRail() {
                 <span className="zorai-thread-preview">{thread.lastMessagePreview}</span>
               )}
               <span className="zorai-thread-meta">
-                {thread.messageCount} msgs - {new Date(thread.updatedAt).toLocaleDateString()}
+                {threadHistoryLabel(thread)} - {new Date(thread.updatedAt).toLocaleDateString()}
               </span>
             </button>
           ))
@@ -59,6 +59,16 @@ export function ThreadsRail() {
       </div>
     </div>
   );
+}
+
+function threadHistoryLabel(thread: AgentThread): string {
+  if (thread.messageCount > 0) {
+    return `${thread.messageCount} msgs`;
+  }
+  if ((thread.totalInputTokens ?? 0) > 0 || (thread.totalOutputTokens ?? 0) > 0 || (thread.totalTokens ?? 0) > 0) {
+    return "history";
+  }
+  return "0 msgs";
 }
 
 export function ThreadsView() {
