@@ -1,10 +1,6 @@
-import yaml from "js-yaml";
-import { flushPendingWrites, scheduleTextWrite } from "../lib/persistence";
 import { ComponentRegistryAPI } from "../registry/componentRegistry";
 import { CommandRegistryAPI } from "../registry/commandRegistry";
 import { PluginManager, type Plugin } from "./PluginManager";
-
-const PLUGIN_VIEWS_DIR = "views/plugins";
 
 const getPluginManager = (): PluginManager => {
   if (!window.__tamuxPluginManager && !window.__amuxPluginManager) {
@@ -13,21 +9,6 @@ const getPluginManager = (): PluginManager => {
   }
 
   return window.__tamuxPluginManager ?? window.__amuxPluginManager!;
-};
-
-const persistPluginViews = async (plugin: Plugin): Promise<void> => {
-  if (!plugin.views || Object.keys(plugin.views).length === 0) {
-    return;
-  }
-
-  Object.entries(plugin.views).forEach(([viewName, viewValue]) => {
-    const safeName = viewName.replace(/[^a-zA-Z0-9_-]/g, "-");
-    const relativePath = `${PLUGIN_VIEWS_DIR}/${plugin.id}-${safeName}.yaml`;
-    const content = typeof viewValue === "string" ? viewValue : yaml.dump(viewValue);
-    scheduleTextWrite(relativePath, content, 0);
-  });
-
-  await flushPendingWrites();
 };
 
 export interface AmuxPluginAPI {
@@ -56,10 +37,6 @@ const pluginApi: AmuxPluginAPI = {
   registerCommand: CommandRegistryAPI.register,
   registerPlugin: (plugin: Plugin) => {
     pluginManager.registerPlugin(plugin);
-    void persistPluginViews(plugin).then(() => {
-      window.dispatchEvent(new Event("tamux-cdui-plugin-views-updated"));
-      window.dispatchEvent(new Event("amux-cdui-plugin-views-updated"));
-    });
   },
   unregisterPlugin: (id: string) => {
     pluginManager.unregisterPlugin(id);
