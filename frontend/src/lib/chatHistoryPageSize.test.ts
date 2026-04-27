@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildDaemonAgentConfig } from "./agentDaemonConfig.ts";
 import {
+  DEFAULT_CHAT_HISTORY_PAGE_SIZE,
+  resolveReactChatHistoryMessageLimit,
+} from "./chatHistoryPageSize.ts";
+import {
   DEFAULT_AGENT_SETTINGS,
   normalizeAgentSettingsFromSource,
 } from "./agentStore/settings.ts";
@@ -30,5 +34,9 @@ describe("daemon-backed chat history page size settings", () => {
 
     expect(daemonConfig.react_chat_history_page_size).toBe(0);
     expect(daemonConfig.tui_chat_history_page_size).toBe(222);
+  });
+
+  it("keeps React thread fetches paged even when the old All sentinel is configured", () => {
+    expect(resolveReactChatHistoryMessageLimit(0)).toBe(DEFAULT_CHAT_HISTORY_PAGE_SIZE);
   });
 });
