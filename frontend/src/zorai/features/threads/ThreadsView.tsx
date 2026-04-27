@@ -1,7 +1,6 @@
 import { useMemo, useState, type KeyboardEvent, type UIEvent } from "react";
 import { ToolEventRow } from "@/components/agent-chat-panel/chat-view/ToolEventRow";
 import { buildDisplayItems } from "@/components/agent-chat-panel/chat-view/helpers";
-import { SpawnedAgentsPanel } from "@/components/agent-chat-panel/SpawnedAgentsPanel";
 import { useAgentChatPanelRuntime } from "@/components/agent-chat-panel/runtime/context";
 import type { AgentMessage, AgentThread } from "@/lib/agentStore";
 
@@ -313,91 +312,8 @@ function PinLimitModal({
   );
 }
 
-function summarizePinnedMessage(message: AgentMessage): string {
-  if (message.toolName) return `Tool: ${message.toolName} (${message.toolStatus ?? "done"})`;
-  return "No text content";
-}
-
 function formatTime(timestamp: number): string {
   return Number.isFinite(timestamp)
     ? new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : "pending";
-}
-
-export function ThreadsContext() {
-  const runtime = useAgentChatPanelRuntime();
-
-  return (
-    <div className="zorai-thread-context-stack">
-      <PinnedThreadContext
-        messages={runtime.pinnedMessages}
-        pinnedUsageChars={runtime.pinnedUsageChars}
-        pinnedBudgetChars={runtime.pinnedBudgetChars}
-        pinnedOverBudget={runtime.pinnedOverBudget}
-        onJumpToMessage={(messageId) => {
-          document.getElementById(`zorai-message-${messageId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
-        }}
-        onUnpinMessage={(messageId) => runtime.activeThreadId
-          ? runtime.unpinMessageForCompaction(runtime.activeThreadId, messageId)
-          : undefined}
-      />
-      <SpawnedAgentsPanel
-        tree={runtime.spawnedAgentTree}
-        selectedDaemonThreadId={runtime.activeThread?.daemonThreadId ?? null}
-        canGoBackThread={runtime.canGoBackThread}
-        threadNavigationDepth={runtime.threadNavigationDepth}
-        backThreadTitle={runtime.backThreadTitle}
-        canOpenSpawnedThread={runtime.canOpenSpawnedThread}
-        openSpawnedThread={runtime.openSpawnedThread}
-        goBackThread={runtime.goBackThread}
-      />
-    </div>
-  );
-}
-
-function PinnedThreadContext({
-  messages,
-  pinnedUsageChars,
-  pinnedBudgetChars,
-  pinnedOverBudget,
-  onJumpToMessage,
-  onUnpinMessage,
-}: {
-  messages: AgentMessage[];
-  pinnedUsageChars: number;
-  pinnedBudgetChars: number;
-  pinnedOverBudget: boolean;
-  onJumpToMessage: (messageId: string) => void;
-  onUnpinMessage: (messageId: string) => void | Promise<unknown> | undefined;
-}) {
-  return (
-    <div className="zorai-pinned-context">
-      <div>
-        <div className="zorai-section-label">Pinned Compaction Context</div>
-        <strong>{pinnedUsageChars.toLocaleString()} / {pinnedBudgetChars.toLocaleString()} chars</strong>
-      </div>
-      {pinnedOverBudget ? (
-        <p>Pinned content is over the active model budget. Unpin shorter context before the next compaction.</p>
-      ) : null}
-      {messages.length === 0 ? (
-        <div className="zorai-empty">No pinned messages in this thread.</div>
-      ) : messages.map((message) => (
-        <article key={message.id} className="zorai-pinned-message">
-          <div>
-            <strong>{message.role}</strong>
-            <span>{message.content.length.toLocaleString()} chars</span>
-          </div>
-          <p>{message.content || summarizePinnedMessage(message)}</p>
-          <div className="zorai-card-actions">
-            <button type="button" className="zorai-ghost-button" onClick={() => onJumpToMessage(message.id)}>
-              Jump
-            </button>
-            <button type="button" className="zorai-ghost-button" onClick={() => void onUnpinMessage(message.id)}>
-              Unpin
-            </button>
-          </div>
-        </article>
-      ))}
-    </div>
-  );
 }

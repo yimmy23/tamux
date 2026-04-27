@@ -19,6 +19,7 @@ type SpawnedAgentsPanelProps = {
   canOpenSpawnedThread: (run: AgentRun) => boolean;
   openSpawnedThread: (run: AgentRun) => Promise<boolean>;
   goBackThread: () => void;
+  compact?: boolean;
 };
 
 type SpawnedAgentNodeProps = {
@@ -33,6 +34,7 @@ type SpawnedAgentNodeProps = {
     canOpen: boolean;
     openSpawnedThread: () => void;
   }) => ReactNode;
+  compact?: boolean;
 };
 
 function sessionHint(run: AgentRun): string | null {
@@ -55,6 +57,7 @@ export function SpawnedAgentNode({
   canOpenSpawnedThread,
   openSpawnedThread,
   renderActions,
+  compact = false,
 }: SpawnedAgentNodeProps) {
   const isSelected = Boolean(
     (node.item.thread_id && node.item.thread_id === selectedDaemonThreadId) ||
@@ -71,8 +74,8 @@ export function SpawnedAgentNode({
       style={{
         display: "grid",
         gap: "var(--space-2)",
-        marginLeft: depth > 0 ? 16 : 0,
-        paddingLeft: depth > 0 ? "var(--space-3)" : 0,
+        marginLeft: depth > 0 ? (compact ? 8 : 16) : 0,
+        paddingLeft: depth > 0 ? (compact ? "var(--space-2)" : "var(--space-3)") : 0,
         borderLeft: depth > 0 ? "1px solid var(--glass-border)" : "none",
       }}
     >
@@ -80,16 +83,16 @@ export function SpawnedAgentNode({
         style={{
           border: "1px solid",
           borderColor: isSelected ? "var(--accent)" : "var(--border)",
-          borderRadius: "var(--radius-lg)",
-          padding: "var(--space-3)",
+          borderRadius: compact ? "var(--radius-md)" : "var(--radius-lg)",
+          padding: compact ? "var(--space-2)" : "var(--space-3)",
           background: isSelected ? "rgba(94, 231, 223, 0.08)" : "var(--bg-secondary)",
           display: "grid",
-          gap: "var(--space-2)",
+          gap: compact ? 6 : "var(--space-2)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-2)", alignItems: "flex-start" }}>
           <div style={{ display: "grid", gap: 4 }}>
-            <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-primary)" }}>
+            <div style={{ fontSize: compact ? "var(--text-xs)" : "var(--text-sm)", fontWeight: 700, color: "var(--text-primary)" }}>
               {node.item.title}
             </div>
             {meta && (
@@ -104,7 +107,7 @@ export function SpawnedAgentNode({
                 fontSize: 11,
                 fontWeight: 700,
                 borderRadius: 999,
-                padding: "2px 8px",
+                padding: compact ? "1px 6px" : "2px 8px",
                 border: "1px solid color-mix(in srgb, currentColor 35%, transparent)",
                 color: runStatusColor(node.item.status),
                 background: "color-mix(in srgb, currentColor 10%, transparent)",
@@ -118,7 +121,7 @@ export function SpawnedAgentNode({
                   fontSize: 11,
                   fontWeight: 700,
                   borderRadius: 999,
-                  padding: "2px 8px",
+                  padding: compact ? "1px 6px" : "2px 8px",
                   border: "1px solid var(--accent-soft)",
                   color: "var(--accent)",
                   background: "rgba(94, 231, 223, 0.12)",
@@ -161,6 +164,7 @@ export function SpawnedAgentNode({
           canOpenSpawnedThread={canOpenSpawnedThread}
           openSpawnedThread={openSpawnedThread}
           renderActions={renderActions}
+          compact={compact}
         />
       ))}
     </div>
@@ -176,18 +180,19 @@ export function SpawnedAgentsPanel({
   canOpenSpawnedThread,
   openSpawnedThread,
   goBackThread,
+  compact = false,
 }: SpawnedAgentsPanelProps) {
   const backLabel = backThreadTitle ? `Back to ${backThreadTitle}` : "Back";
 
   return (
     <aside
       style={{
-        width: 300,
-        minWidth: 260,
-        maxWidth: 340,
+        width: compact ? "100%" : 300,
+        minWidth: compact ? 0 : 260,
+        maxWidth: compact ? "none" : 340,
         height: "100%",
         border: "1px solid var(--border)",
-        borderRadius: "var(--radius-xl)",
+        borderRadius: compact ? "var(--radius-md)" : "var(--radius-xl)",
         background: "var(--bg-primary)",
         display: "flex",
         flexDirection: "column",
@@ -196,7 +201,7 @@ export function SpawnedAgentsPanel({
     >
       <div
         style={{
-          padding: "var(--space-3)",
+          padding: compact ? "var(--space-2)" : "var(--space-3)",
           borderBottom: "1px solid var(--border)",
           background: "var(--bg-secondary)",
           display: "grid",
@@ -226,9 +231,9 @@ export function SpawnedAgentsPanel({
           flex: 1,
           minHeight: 0,
           overflow: "auto",
-          padding: "var(--space-3)",
+          padding: compact ? "var(--space-2)" : "var(--space-3)",
           display: "grid",
-          gap: "var(--space-3)",
+          gap: compact ? "var(--space-2)" : "var(--space-3)",
         }}
       >
         {!tree && (
@@ -243,6 +248,7 @@ export function SpawnedAgentsPanel({
             selectedTaskId={null}
             canOpenSpawnedThread={canOpenSpawnedThread}
             openSpawnedThread={openSpawnedThread}
+            compact={compact}
           />
         )}
 
@@ -255,6 +261,7 @@ export function SpawnedAgentsPanel({
             selectedTaskId={null}
             canOpenSpawnedThread={canOpenSpawnedThread}
             openSpawnedThread={openSpawnedThread}
+            compact={compact}
           />
         ))}
       </div>

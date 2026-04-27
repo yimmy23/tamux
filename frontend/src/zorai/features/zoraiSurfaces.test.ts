@@ -103,19 +103,40 @@ describe("Zorai feature surfaces", () => {
 
   it("keeps TUI-style pinned message controls in native Threads", () => {
     const source = readFeature("./threads/ThreadsView.tsx");
+    const contextSource = readFeature("./threads/ThreadsContextPanel.tsx");
 
     expect(source).toContain("pinMessageForCompaction");
-    expect(source).toContain("Pinned Compaction Context");
+    expect(contextSource).toContain("Pinned Messages");
     expect(source).toContain("Pin Limit Reached");
   });
 
   it("renders thread tool calls through collapsed tool rows instead of plain message bubbles", () => {
     const source = readFeature("./threads/ThreadsView.tsx");
+    const toolSource = readFeature("../../components/agent-chat-panel/chat-view/ToolEventRow.tsx");
 
     expect(source).toContain("buildDisplayItems");
     expect(source).toContain("ToolEventRow");
     expect(source).toContain('item.type === "tool"');
     expect(source).not.toContain("summarizeToolMessage");
+    expect(toolSource).toContain("toolStatusTone");
+    expect(readFeature("../../components/agent-chat-panel/chat-view/toolStatusTone.ts")).toContain("toolStatusTone");
+    expect(readFeature("../../components/agent-chat-panel/chat-view/toolStatusTone.ts")).toContain("var(--success)");
+    expect(readFeature("../../components/agent-chat-panel/chat-view/toolStatusTone.ts")).toContain("var(--warning)");
+  });
+
+  it("keeps thread context aligned with TUI tabs and daemon token context windows", () => {
+    const shellSource = readFeature("../shell/ZoraiShell.tsx");
+    const contextSource = readFeature("./threads/ThreadsContextPanel.tsx");
+
+    expect(shellSource).toContain("ThreadsContext");
+    expect(contextSource).toContain("fetchThreadWorkContext");
+    expect(contextSource).toContain("activeThread.daemonThreadId");
+    expect(contextSource).toContain("Todos");
+    expect(contextSource).toContain("Files");
+    expect(contextSource).toContain("Spawned");
+    expect(contextSource).toContain("profileContextWindowTokens");
+    expect(contextSource).toContain("activeContextWindowTokens");
+    expect(contextSource).toContain("tokens");
   });
 
   it("fetches latest thread pages on selection and older pages on scroll-up", () => {

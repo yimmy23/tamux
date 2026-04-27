@@ -85,6 +85,10 @@ export type RemoteAgentMessageRecord = {
 export type RemoteAgentThreadRecord = {
   id?: string;
   agent_name?: string | null;
+  profile_provider?: string | null;
+  profile_model?: string | null;
+  profile_reasoning_effort?: string | null;
+  profile_context_window_tokens?: number | null;
   title?: string;
   messages?: RemoteAgentMessageRecord[];
   upstream_thread_id?: string | null;
@@ -99,6 +103,9 @@ export type RemoteAgentThreadRecord = {
   total_message_count?: number | null;
   loaded_message_start?: number | null;
   loaded_message_end?: number | null;
+  active_context_window_start?: number | null;
+  active_context_window_end?: number | null;
+  active_context_window_tokens?: number | null;
   thread_participants?: Array<{
     agent_id?: string;
     agent_name?: string;
@@ -301,6 +308,9 @@ export function buildHydratedRemoteThread(
   const totalMessageCount = Number(thread.total_message_count ?? messages.length);
   const loadedMessageStart = typeof thread.loaded_message_start === "number" ? thread.loaded_message_start : null;
   const loadedMessageEnd = typeof thread.loaded_message_end === "number" ? thread.loaded_message_end : null;
+  const activeContextWindowStart = typeof thread.active_context_window_start === "number" ? thread.active_context_window_start : null;
+  const activeContextWindowEnd = typeof thread.active_context_window_end === "number" ? thread.active_context_window_end : null;
+  const activeContextWindowTokens = typeof thread.active_context_window_tokens === "number" ? thread.active_context_window_tokens : null;
   const resolvedAgentName = typeof thread.agent_name === "string" && thread.agent_name.trim()
     ? thread.agent_name
     : agent_name;
@@ -321,6 +331,21 @@ export function buildHydratedRemoteThread(
       messageCount: totalMessageCount,
       loadedMessageStart,
       loadedMessageEnd,
+      activeContextWindowStart,
+      activeContextWindowEnd,
+      activeContextWindowTokens,
+      profileProvider: typeof thread.profile_provider === "string" && thread.profile_provider.trim()
+        ? thread.profile_provider
+        : null,
+      profileModel: typeof thread.profile_model === "string" && thread.profile_model.trim()
+        ? thread.profile_model
+        : null,
+      profileReasoningEffort: typeof thread.profile_reasoning_effort === "string" && thread.profile_reasoning_effort.trim()
+        ? thread.profile_reasoning_effort
+        : null,
+      profileContextWindowTokens: typeof thread.profile_context_window_tokens === "number" && Number.isFinite(thread.profile_context_window_tokens)
+        ? Math.max(1, Math.trunc(thread.profile_context_window_tokens))
+        : null,
       totalInputTokens,
       totalOutputTokens,
       totalTokens: totalInputTokens + totalOutputTokens,

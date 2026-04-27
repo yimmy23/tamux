@@ -2,6 +2,7 @@ import { useState } from "react";
 import { buildToolReviewPresentation } from "../toolReviewPresentation";
 import type { ToolEventGroup } from "./types";
 import { getToolDiffPresentation, ToolDiffView } from "./toolDiffPresentation";
+import { toolStatusTone } from "./toolStatusTone";
 import {
   getToolFileTarget,
   getToolStructuredFields,
@@ -13,6 +14,7 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
   const [collapsed, setCollapsed] = useState(true);
   const statusLabel = group.status.toUpperCase();
   const shortId = (group.toolCallId || group.key).slice(-8);
+  const statusTone = toolStatusTone(group.status);
   const toolDiff = group.toolArguments
     ? getToolDiffPresentation(group.toolName, group.toolArguments)
     : null;
@@ -78,8 +80,20 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
                 {reviewPresentation.badgeLabel}
               </span>
             )}
-            <span style={{ color: "#BA4400", fontSize: 11 }}>#{shortId}</span>
-            <span style={{ color: "#BA4400", fontSize: 11 }}>{statusLabel}</span>
+            <span style={{ color: "var(--text-muted)", fontSize: 11 }}>#{shortId}</span>
+            <span
+              style={{
+                color: statusTone.text,
+                border: `1px solid ${statusTone.border}`,
+                background: statusTone.background,
+                borderRadius: 999,
+                padding: "1px 6px",
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              {statusLabel}
+            </span>
           </div>
         </div>
       </button>

@@ -133,6 +133,24 @@ declare global {
         entries: AmuxWorkContextEntry[];
     };
 
+    type AmuxAgentThread = {
+        id: string;
+        agent_name?: string | null;
+        profile_provider?: string | null;
+        profile_model?: string | null;
+        profile_reasoning_effort?: string | null;
+        profile_context_window_tokens?: number | null;
+        title: string;
+        created_at?: number | null;
+        updated_at?: number | null;
+        total_message_count?: number | null;
+        loaded_message_start?: number | null;
+        loaded_message_end?: number | null;
+        active_context_window_start?: number | null;
+        active_context_window_end?: number | null;
+        active_context_window_tokens?: number | null;
+    };
+
     type AmuxThreadMessagePinResult = {
         ok: boolean;
         thread_id: string;
