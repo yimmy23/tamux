@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use zorai_protocol::{AGENT_ID_RAROG, AGENT_ID_SWAROG};
 use anyhow::Result;
+use zorai_protocol::{AGENT_ID_RAROG, AGENT_ID_SWAROG};
 
 use crate::setup_wizard::PostSetupAction;
 
@@ -32,6 +32,97 @@ pub(crate) fn resolve_sibling_binary(current_exe: Option<&Path>, name: &str) -> 
 pub(crate) fn find_sibling_binary(name: &str) -> PathBuf {
     let current_exe = std::env::current_exe().ok();
     resolve_sibling_binary(current_exe.as_deref(), name)
+}
+
+pub(crate) fn resolve_gui_binary(
+    explicit_gui_path: Option<&str>,
+    current_exe: Option<&Path>,
+    cwd: Option<&Path>,
+) -> PathBuf {
+    if let Some(path) = explicit_gui_path
+        .map(PathBuf::from)
+        .filter(|path| path.exists())
+    {
+        return path;
+    }
+
+    if let Some(path) = resolve_existing_sibling_binary(current_exe, "zorai-desktop") {
+        return path;
+    }
+
+    if let Some(path) = cwd.and_then(resolve_development_gui_binary) {
+        return path;
+    }
+
+    resolve_sibling_binary(current_exe, "zorai-desktop")
+}
+
+fn resolve_existing_sibling_binary(current_exe: Option<&Path>, name: &str) -> Option<PathBuf> {
+    let binary_name = platform_binary_name(name);
+    let current = current_exe?;
+    let dir = current.parent()?;
+    let sibling = dir.join(binary_name);
+    sibling.exists().then_some(sibling)
+}
+
+fn resolve_development_gui_binary(cwd: &Path) -> Option<PathBuf> {
+    for root in cwd.ancestors() {
+        for release_root in [root.join("frontend").join("release"), root.join("release")] {
+            if let Some(path) = find_development_gui_in_release_root(&release_root) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn find_development_gui_in_release_root(release_root: &Path) -> Option<PathBuf> {
+    let unpacked = release_root.join("linux-unpacked").join("zorai");
+    if unpacked.exists() {
+        return Some(unpacked);
+    }
+
+    find_linux_appimage(release_root)
+}
+
+#[cfg(target_os = "linux")]
+fn find_linux_appimage(release_root: &Path) -> Option<PathBuf> {
+    let mut entries = std::fs::read_dir(release_root)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    entries.sort();
+
+    entries.into_iter().find(|path| {
+        path.is_file()
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("zorai"))
+            && path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("AppImage"))
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn find_development_gui_in_release_root(release_root: &Path) -> Option<PathBuf> {
+    let app_binary = release_root
+        .join("mac")
+        .join("zorai.app")
+        .join("Contents")
+        .join("MacOS")
+        .join("zorai");
+    app_binary.exists().then_some(app_binary)
+}
+
+#[cfg(windows)]
+fn find_development_gui_in_release_root(release_root: &Path) -> Option<PathBuf> {
+    let unpacked = release_root.join("win-unpacked").join("zorai.exe");
+    unpacked.exists().then_some(unpacked)
 }
 
 fn platform_binary_name(name: &str) -> String {
@@ -78,11 +169,14 @@ pub(crate) fn launch_tui() -> ! {
 }
 
 pub(crate) fn launch_gui() -> Result<()> {
-    let gui_binary = std::env::var("ZORAI_GUI_PATH")
-        .map(PathBuf::from)
-        .ok()
-        .filter(|path| path.exists())
-        .unwrap_or_else(|| find_sibling_binary("zorai-desktop"));
+    let explicit_gui_path = std::env::var("ZORAI_GUI_PATH").ok();
+    let current_exe = std::env::current_exe().ok();
+    let cwd = std::env::current_dir().ok();
+    let gui_binary = resolve_gui_binary(
+        explicit_gui_path.as_deref(),
+        current_exe.as_deref(),
+        cwd.as_deref(),
+    );
 
     match Command::new(&gui_binary).spawn() {
         Ok(_) => {
