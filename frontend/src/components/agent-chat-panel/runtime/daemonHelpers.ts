@@ -121,6 +121,25 @@ export async function reloadDaemonThreadIntoLocalState({
   });
 }
 
+export async function refreshDaemonThreadMetadataIntoLocalState({
+  daemonThreadId,
+  setThreadTodos,
+  setDaemonTodosByThread,
+}: {
+  daemonThreadId: string;
+  setThreadTodos: (threadId: string, todos: AgentTodoItem[]) => void;
+  setDaemonTodosByThread: Dispatch<SetStateAction<Record<string, AgentTodoItem[]>>>;
+}) {
+  return loadDaemonThreadPageIntoLocalState({
+    daemonThreadId,
+    messageLimit: 0,
+    messageOffset: 0,
+    mergeMode: "metadata",
+    setThreadTodos,
+    setDaemonTodosByThread,
+  });
+}
+
 export async function loadDaemonThreadPageIntoLocalState({
   daemonThreadId,
   localThreadId: requestedLocalThreadId,
@@ -134,16 +153,21 @@ export async function loadDaemonThreadPageIntoLocalState({
   localThreadId?: string | null;
   messageLimit?: number | null;
   messageOffset?: number | null;
-  mergeMode: "replace" | "prepend";
+  mergeMode: "replace" | "prepend" | "metadata";
   setThreadTodos: (threadId: string, todos: AgentTodoItem[]) => void;
   setDaemonTodosByThread: Dispatch<SetStateAction<Record<string, AgentTodoItem[]>>>;
 }): Promise<boolean> {
   const amux = getAgentBridge();
   if (!amux?.agentGetThread) return false;
 
-  const localThreadId = requestedLocalThreadId ?? useAgentStore.getState().threads.find(
-    (thread) => thread.daemonThreadId === daemonThreadId,
-  )?.id;
+  const stateBeforeLoad = useAgentStore.getState();
+  const localThreadId = requestedLocalThreadId
+    ?? stateBeforeLoad.threads.find(
+      (thread) => thread.id === stateBeforeLoad.activeThreadId && thread.daemonThreadId === daemonThreadId,
+    )?.id
+    ?? stateBeforeLoad.threads.find(
+      (thread) => thread.daemonThreadId === daemonThreadId,
+    )?.id;
   if (!localThreadId) return false;
 
   const remotePayload = await amux.agentGetThread(daemonThreadId, {
@@ -173,6 +197,7 @@ export async function loadDaemonThreadPageIntoLocalState({
     threads: state.threads.map((thread) => thread.id === localThreadId ? {
       ...thread,
       ...reloadedThread,
+      lastMessagePreview: reloadedThread.lastMessagePreview || thread.lastMessagePreview,
       loadedMessageStart: mergeMode === "prepend"
         ? Math.min(thread.loadedMessageStart ?? reloadedThread.loadedMessageStart ?? 0, reloadedThread.loadedMessageStart ?? 0)
         : reloadedThread.loadedMessageStart,
@@ -180,12 +205,14 @@ export async function loadDaemonThreadPageIntoLocalState({
         ? Math.max(thread.loadedMessageEnd ?? 0, reloadedThread.loadedMessageEnd ?? 0)
         : reloadedThread.loadedMessageEnd,
     } : thread),
-    messages: {
-      ...state.messages,
-      [localThreadId]: mergeMode === "prepend"
-        ? mergeMessages(reloadedMessages, state.messages[localThreadId] ?? [])
-        : reloadedMessages,
-    },
+    messages: mergeMode === "metadata"
+      ? state.messages
+      : {
+        ...state.messages,
+        [localThreadId]: mergeMode === "prepend"
+          ? mergeMessages(reloadedMessages, state.messages[localThreadId] ?? [])
+          : reloadedMessages,
+      },
   }));
 
   const todos = await fetchThreadTodos(daemonThreadId).catch(() => []);

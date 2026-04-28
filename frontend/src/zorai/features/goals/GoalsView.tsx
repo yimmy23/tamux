@@ -14,6 +14,9 @@ import {
   type GoalRun,
 } from "@/lib/goalRuns";
 import { GoalWorkspacePanel } from "./GoalWorkspacePanel";
+import { GoalLaunchPanel } from "./GoalLaunchPanel";
+import { openThreadTarget } from "../threads/openThreadTarget";
+import { navigateZorai } from "../../shell/zoraiNavigationEvents";
 
 const activeStatuses = new Set(["queued", "planning", "running", "awaiting_approval", "paused"]);
 
@@ -38,14 +41,41 @@ export function GoalsRail() {
   );
 }
 
-export function GoalsView() {
+export function GoalsContext() {
   const { goalRunsForTrace } = useAgentChatPanelRuntime();
+  const waiting = goalRunsForTrace.filter((goal) => goal.status === "awaiting_approval").length;
+  const active = goalRunsForTrace.filter(isGoalRunActive).length;
+  const failed = goalRunsForTrace.filter((goal) => goal.status === "failed").length;
+
+  return (
+    <div className="zorai-context-summary">
+      <div className="zorai-section-label">Goal Context</div>
+      <div className="zorai-context-stat-grid">
+        <Metric label="Active" value={active} />
+        <Metric label="Awaiting" value={waiting} />
+        <Metric label="Failed" value={failed} />
+      </div>
+      <div className="zorai-context-block">
+        <strong>Workspace modes</strong>
+        <span>Dossier / Files / Progress / Usage / Active agent / Threads / Needs attention</span>
+      </div>
+    </div>
+  );
+}
+
+export function GoalsView({
+  openGoalRunRequest,
+}: {
+  openGoalRunRequest?: { id: string; nonce: number } | null;
+}) {
+  const runtime = useAgentChatPanelRuntime();
+  const { goalRunsForTrace } = runtime;
   const [goalRuns, setGoalRuns] = useState<GoalRun[]>([]);
-  const [title, setTitle] = useState("");
-  const [goal, setGoal] = useState("");
   const [starting, setStarting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [launchOpen, setLaunchOpen] = useState(false);
   const supported = goalRunSupportAvailable();
 
   const visibleGoalRuns = useMemo(() => {
@@ -72,6 +102,12 @@ export function GoalsView() {
     }
   }, [selectedRunId, visibleGoalRuns]);
 
+  useEffect(() => {
+    if (!openGoalRunRequest?.id) return;
+    setSelectedRunId(openGoalRunRequest.id);
+    setWorkspaceOpen(true);
+  }, [openGoalRunRequest?.id, openGoalRunRequest?.nonce]);
+
   const refresh = useCallback(async () => {
     setGoalRuns(await fetchGoalRuns());
   }, []);
@@ -82,24 +118,36 @@ export function GoalsView() {
     return () => window.clearInterval(timer);
   }, [refresh]);
 
-  const handleStartGoal = async () => {
-    if (!goal.trim() || !supported) return;
+  const handleStartGoal = async (payload: Parameters<typeof startGoalRun>[0]) => {
+    if (!payload.goal.trim() || !supported) return;
     setStarting(true);
     setMessage(null);
-    const result = await startGoalRun({
-      title: title.trim() || null,
-      goal: goal.trim(),
-      priority: "normal",
-    });
+    const result = await startGoalRun(payload);
     setStarting(false);
     if (!result) {
       setMessage("Goal runner is not available from this runtime.");
       return;
     }
-    setTitle("");
-    setGoal("");
     setMessage("Goal queued.");
     await refresh();
+    setLaunchOpen(false);
+  };
+
+  const openGoalView = (run: GoalRun) => {
+    setSelectedRunId(run.id);
+    setWorkspaceOpen(true);
+  };
+
+  const openGoalThread = async (threadId: string) => {
+    const opened = await openThreadTarget(runtime, threadId);
+    if (!opened) {
+      setMessage(`Thread ${threadId} is not loaded yet.`);
+      return;
+    }
+    navigateZorai({
+      view: "threads",
+      returnTarget: { view: "goals", label: "Return to goal" },
+    });
   };
 
   const handleControl = async (run: GoalRun, action: "pause" | "resume" | "cancel") => {
@@ -109,6 +157,25 @@ export function GoalsView() {
     await refresh();
   };
 
+  if (workspaceOpen) {
+    return (
+      <section className="zorai-feature-surface zorai-goals-surface zorai-goal-view-surface">
+        <div className="zorai-view-header zorai-goal-view-header">
+          <div>
+            <div className="zorai-kicker">Goal View</div>
+            <h1>{selectedRun ? selectedRun.title || selectedRun.goal : "Goal workspace"}</h1>
+            <p>{selectedRun ? `${formatGoalRunStatus(selectedRun.status)} / ${summarizeGoalRunStep(selectedRun)}` : "Select a goal run."}</p>
+          </div>
+          <button type="button" className="zorai-ghost-button" onClick={() => setWorkspaceOpen(false)}>
+            Back to goals
+          </button>
+        </div>
+        <GoalWorkspacePanel run={selectedRun} onRefresh={refresh} onMessage={setMessage} onOpenThread={openGoalThread} />
+        {message ? <div className="zorai-inline-note">{message}</div> : null}
+      </section>
+    );
+  }
+
   return (
     <section className="zorai-feature-surface zorai-goals-surface">
       <div className="zorai-view-header">
@@ -117,6 +184,9 @@ export function GoalsView() {
           <h1>Plan, run, and supervise durable agent goals.</h1>
           <p>Goals turn a thread intent into a monitored run with steps, approvals, child tasks, and result memory.</p>
         </div>
+        <button type="button" className="zorai-primary-button" onClick={() => setLaunchOpen(true)}>
+          Start goal
+        </button>
       </div>
 
       <div className="zorai-metric-grid">
@@ -126,30 +196,7 @@ export function GoalsView() {
         <Metric label="Total Runs" value={metrics.total} />
       </div>
 
-      <div className="zorai-goals-layout">
-        <form className="zorai-panel" onSubmit={(event) => { event.preventDefault(); void handleStartGoal(); }}>
-          <div>
-            <div className="zorai-section-label">New Goal</div>
-            <h2>Start orchestration</h2>
-          </div>
-          <input
-            className="zorai-input"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="Optional goal title"
-          />
-          <textarea
-            className="zorai-textarea"
-            value={goal}
-            onChange={(event) => setGoal(event.target.value)}
-            placeholder="Describe the outcome, constraints, and acceptance criteria..."
-          />
-          <button type="submit" className="zorai-primary-button" disabled={!supported || !goal.trim() || starting}>
-            {starting ? "Starting..." : "Start Goal"}
-          </button>
-          {message ? <div className="zorai-inline-note">{message}</div> : null}
-        </form>
-
+      <div className="zorai-goals-layout zorai-goals-layout--runs-only">
         <div className="zorai-panel zorai-goal-list">
           <div>
             <div className="zorai-section-label">Goal Runs</div>
@@ -164,14 +211,25 @@ export function GoalsView() {
                 run={run}
                 selected={run.id === selectedRun?.id}
                 onSelect={() => setSelectedRunId(run.id)}
+                onOpen={() => openGoalView(run)}
                 onControl={handleControl}
               />
             ))
           )}
         </div>
-
-        <GoalWorkspacePanel run={selectedRun} onRefresh={refresh} onMessage={setMessage} />
       </div>
+      {launchOpen ? (
+        <div className="zorai-goal-launch-overlay" role="dialog" aria-modal="true" aria-label="Start goal">
+          <GoalLaunchPanel
+            runtime={runtime}
+            supported={supported}
+            starting={starting}
+            message={message}
+            onLaunch={handleStartGoal}
+            onClose={() => setLaunchOpen(false)}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -189,11 +247,13 @@ function GoalRunCard({
   run,
   selected,
   onSelect,
+  onOpen,
   onControl,
 }: {
   run: GoalRun;
   selected: boolean;
   onSelect: () => void;
+  onOpen: () => void;
   onControl: (run: GoalRun, action: "pause" | "resume" | "cancel") => void;
 }) {
   const todos = latestGoalRunTodoSnapshot(run).slice(0, 4);
@@ -219,7 +279,8 @@ function GoalRunCard({
       ) : null}
       {isGoalRunActive(run) ? (
         <div className="zorai-card-actions">
-          <button type="button" className="zorai-ghost-button" onClick={onSelect}>Open workspace</button>
+          <button type="button" className="zorai-ghost-button" onClick={onOpen}>Open goal view</button>
+          <button type="button" className="zorai-ghost-button" onClick={onSelect}>Select</button>
           {run.status === "paused" ? (
             <button type="button" className="zorai-ghost-button" onClick={() => onControl(run, "resume")}>Resume</button>
           ) : (
@@ -229,7 +290,8 @@ function GoalRunCard({
         </div>
       ) : (
         <div className="zorai-card-actions">
-          <button type="button" className="zorai-ghost-button" onClick={onSelect}>Open workspace</button>
+          <button type="button" className="zorai-ghost-button" onClick={onOpen}>Open goal view</button>
+          <button type="button" className="zorai-ghost-button" onClick={onSelect}>Select</button>
         </div>
       )}
     </article>

@@ -216,7 +216,9 @@ where
                 .await?;
         }
         AgentBridgeCommand::ListWorkspaceSettings => {
-            framed.send(ClientMessage::AgentListWorkspaceSettings).await?;
+            framed
+                .send(ClientMessage::AgentListWorkspaceSettings)
+                .await?;
         }
         AgentBridgeCommand::GetWorkspaceSettings { workspace_id } => {
             framed
@@ -610,6 +612,20 @@ where
         }
         AgentBridgeCommand::PluginDisableCmd { name } => {
             framed.send(ClientMessage::PluginDisable { name }).await?;
+        }
+        AgentBridgeCommand::PluginInstallCmd {
+            dir_name,
+            install_source,
+        } => {
+            framed
+                .send(ClientMessage::PluginInstall {
+                    dir_name,
+                    install_source,
+                })
+                .await?;
+        }
+        AgentBridgeCommand::PluginUninstallCmd { name } => {
+            framed.send(ClientMessage::PluginUninstall { name }).await?;
         }
         AgentBridgeCommand::PluginGetSettings { name } => {
             framed

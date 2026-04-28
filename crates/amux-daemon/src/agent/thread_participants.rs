@@ -126,14 +126,6 @@ fn is_participant_remove_action(action: &str) -> bool {
 }
 
 impl AgentEngine {
-    async fn task_id_for_thread(&self, thread_id: &str) -> Option<String> {
-        let tasks = self.tasks.lock().await;
-        tasks
-            .iter()
-            .find(|task| task.thread_id.as_deref() == Some(thread_id))
-            .map(|task| task.id.clone())
-    }
-
     async fn set_thread_participant_always_auto_response(
         &self,
         thread_id: &str,
@@ -533,20 +525,13 @@ impl AgentEngine {
             .unwrap_or_else(|| llm_user_content.to_string());
         let mut current_thread_id = thread_id.to_string();
         let mut current_llm_user_content = llm_user_content.to_string();
-        let task_id_for_thread = self.task_id_for_thread(thread_id).await;
-        let mut current_agent_scope_id = if task_id_for_thread.is_some() {
-            self.agent_scope_id_for_turn(Some(thread_id), task_id_for_thread.as_deref())
-                .await
-        } else {
-            canonical_agent_id(agent_id).to_string()
-        };
+        let mut current_agent_scope_id = canonical_agent_id(agent_id).to_string();
 
         loop {
             let thread_for_turn = current_thread_id.clone();
             let stored_user_content_for_turn = stored_user_content.clone();
             let llm_user_content_for_turn = current_llm_user_content.clone();
             let client_surface_for_turn = self.get_thread_client_surface(&thread_for_turn).await;
-            let task_id_for_turn = task_id_for_thread.clone();
             let outcome = Box::pin(run_with_agent_scope(
                 current_agent_scope_id.clone(),
                 async move {
@@ -555,7 +540,7 @@ impl AgentEngine {
                         &stored_user_content_for_turn,
                         &[],
                         &llm_user_content_for_turn,
-                        task_id_for_turn.as_deref(),
+                        None,
                         preferred_session_hint,
                         None,
                         client_surface_for_turn,
@@ -571,10 +556,7 @@ impl AgentEngine {
                 current_thread_id = outcome.thread_id.clone();
                 current_llm_user_content = restart.llm_user_content;
                 current_agent_scope_id = self
-                    .agent_scope_id_for_turn(
-                        Some(&current_thread_id),
-                        task_id_for_thread.as_deref(),
-                    )
+                    .agent_scope_id_for_turn(Some(&current_thread_id), None)
                     .await;
                 continue;
             }

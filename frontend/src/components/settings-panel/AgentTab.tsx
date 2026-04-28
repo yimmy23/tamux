@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { getDaemonOwnedAuthCapability, getProviderAuthSupportOptions } from "@/lib/agentDaemonConfig";
 import { getBridge } from "@/lib/bridge";
 import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
-import { ZORAI_APP_NAME } from "@/zorai/branding";
 import { filterFetchedModelsForAudio, filterFetchedModelsForImageGeneration } from "@/lib/providerModels";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
 import { DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW, getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, modelUsesContextWindowOverride, normalizeAuthSource, providerUsesConfigurableBaseUrl, resolveProviderModelDefinition } from "../../lib/agentStore";
@@ -126,10 +125,7 @@ export function AgentTab({
         : effectiveAuthSource === "github_copilot"
             ? Boolean(activeProviderAuthState?.authenticated)
             : Boolean(providerConfig.api_key || activeProviderAuthState?.authenticated);
-    const daemonDelayControlsDisabled = settings.agent_backend === "openclaw" || settings.agent_backend === "hermes";
-    const daemonDelayInputStyle = daemonDelayControlsDisabled
-        ? { ...inputStyle, width: 80, opacity: 0.6, cursor: "not-allowed" as const }
-        : { ...inputStyle, width: 80 };
+    const daemonDelayInputStyle = { ...inputStyle, width: 80 };
     const reactHistoryIsUnlimited = settings.react_chat_history_page_size === REACT_CHAT_HISTORY_PAGE_SIZE_ALL;
 
     useEffect(() => {
@@ -278,40 +274,6 @@ export function AgentTab({
                 </button>
             </div>
             <Section title="General">
-                <SettingRow label={`Enable ${PRIMARY_AGENT_NAME}`}>
-                    <Toggle value={settings.enabled} onChange={(value) => updateSetting("enabled", value)} />
-                </SettingRow>
-                <SettingRow label="Agent Backend">
-                    <select value={settings.agent_backend}
-                        onChange={(e) => updateSetting("agent_backend", e.target.value as "daemon" | "openclaw" | "hermes" | "legacy")}
-                        style={inputStyle}>
-                        <option value="daemon">{ZORAI_APP_NAME}</option>
-                        <option value="openclaw">OpenClaw</option>
-                        <option value="hermes">Hermes</option>
-                        <option value="legacy">Legacy Fallback</option>
-                    </select>
-                </SettingRow>
-                {settings.agent_backend === "legacy" ? (
-                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                        Legacy now acts as a frontend-only fallback when the desktop daemon bridge is unavailable. When the bridge is present, chat and goal runs still use the daemon stack so memory, goals, and self-orchestrating capabilities stay consistent.
-                    </div>
-                ) : null}
-                {(settings.agent_backend === "openclaw" || settings.agent_backend === "hermes") ? (
-                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                        <strong>{settings.agent_backend === "openclaw" ? "OpenClaw" : "Hermes"}</strong> will handle LLM inference, tools, memory, and gateway connections using its own infrastructure.
-                        {settings.agent_backend === "hermes" ? (
-                            <span> Config: <code>~/.hermes/config.yaml</code></span>
-                        ) : (
-                            <span> Config: <code>~/.openclaw/openclaw.json</code></span>
-                        )}
-                        <div style={{ marginTop: 6, padding: "4px 6px", background: "var(--bg-secondary)", borderRadius: 3 }}>
-                            <strong>{ZORAI_APP_NAME} tools:</strong> Add <code>tamux-mcp</code> to {settings.agent_backend === "hermes" ? "Hermes" : "OpenClaw"}'s MCP config for terminal session access, command execution, history search, and more.
-                            <div style={{ marginTop: 3, fontFamily: "monospace", fontSize: 10 }}>
-                                {`{"mcpServers": {"tamux": {"command": "tamux-mcp"}}}`}
-                            </div>
-                        </div>
-                    </div>
-                ) : null}
                 <SettingRow label={`${PRIMARY_AGENT_NAME} Name`}>
                     <div style={{ ...inputStyle, width: "100%", color: "var(--text-primary)", opacity: 0.85, cursor: "default" }}>
                         {PRIMARY_AGENT_NAME}
@@ -328,8 +290,7 @@ export function AgentTab({
                 </SettingRow>
             </Section>
 
-            {settings.agent_backend !== "openclaw" && settings.agent_backend !== "hermes" ? (
-                <Section title="Audio">
+            <Section title="Audio">
                     <SettingRow label="Enable Speech-to-Text">
                         <Toggle value={settings.audio_stt_enabled} onChange={(value) => updateSetting("audio_stt_enabled", value)} />
                     </SettingRow>
@@ -422,8 +383,7 @@ export function AgentTab({
                     <SettingRow label="Auto-speak Replies">
                         <Toggle value={settings.audio_tts_auto_speak} onChange={(value) => updateSetting("audio_tts_auto_speak", value)} />
                     </SettingRow>
-                </Section>
-            ) : null}
+            </Section>
 
             <Section title="Image Generation">
                 <SettingRow label="Image Provider">
@@ -460,9 +420,7 @@ export function AgentTab({
             </Section>
 
             <PromptPreviewSection
-                backend={settings.agent_backend}
                 refreshKey={[
-                    settings.agent_backend,
                     settings.system_prompt,
                     settings.active_provider,
                     providerConfig.model,
@@ -470,8 +428,7 @@ export function AgentTab({
                 ].join("|")}
             />
 
-            {settings.agent_backend !== "openclaw" && settings.agent_backend !== "hermes" ? (
-                <Section title={`${PRIMARY_AGENT_NAME} Provider`}>
+            <Section title={`${PRIMARY_AGENT_NAME} Provider`}>
                     <SettingRow label="Active Provider">
                         <SelectInput value={settings.active_provider}
                             options={providerOptions.map((provider) => provider.id)}
@@ -796,8 +753,7 @@ export function AgentTab({
                             <option value="xhigh">Extra High</option>
                         </select>
                     </SettingRow>
-                </Section>
-            ) : null}
+            </Section>
 
             <Section title="Tools">
                 <SettingRow label="Bash Tool">
@@ -1096,7 +1052,6 @@ export function AgentTab({
                         min={0}
                         max={60000}
                         step={100}
-                        disabled={daemonDelayControlsDisabled}
                         onChange={(event) => {
                             const nextValue = Number.parseFloat(event.target.value);
                             if (!Number.isNaN(nextValue)) {
@@ -1113,7 +1068,6 @@ export function AgentTab({
                         min={0}
                         max={60000}
                         step={100}
-                        disabled={daemonDelayControlsDisabled}
                         onChange={(event) => {
                             const nextValue = Number.parseFloat(event.target.value);
                             if (!Number.isNaN(nextValue)) {
@@ -1139,11 +1093,6 @@ export function AgentTab({
                         style={inputStyle}
                     />
                 </SettingRow>
-                {daemonDelayControlsDisabled ? (
-                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                        These delay controls only affect the {ZORAI_APP_NAME} daemon runtime. {settings.agent_backend === "openclaw" ? "OpenClaw" : "Hermes"} uses its own pacing rules.
-                    </div>
-                ) : null}
                 <SettingRow label="Auto Retry">
                     <Toggle value={settings.auto_retry}
                         onChange={(value) => updateSetting("auto_retry", value)} />

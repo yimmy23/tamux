@@ -881,6 +881,92 @@ async fn message_agent_can_request_visible_thread_continuation() {
 }
 
 #[tokio::test]
+async fn message_agent_to_active_thread_participant_defaults_to_visible_thread_continuation() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-message-agent-participant-default-continuation";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                title: "Participant default continuation".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user(
+                    "Please keep this work visible",
+                    1,
+                )],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+    engine
+        .upsert_thread_participant(thread_id, "weles", "verify and keep momentum")
+        .await
+        .expect("participant should register");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-message-agent-participant-default-continuation".to_string(),
+        ToolFunction {
+            name: "message_agent".to_string(),
+            arguments: serde_json::json!({
+                "target": "weles",
+                "message": "Please continue this work from your participant role."
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "message_agent to active participant should queue visible continuation: {}",
+        result.content
+    );
+    assert!(
+        result
+            .content
+            .contains("\"visible_thread_continuation_requested\": true"),
+        "active participant message_agent should default to visible-thread continuation: {}",
+        result.content
+    );
+    assert_eq!(
+        engine
+            .deferred_visible_thread_continuations_for(thread_id)
+            .await
+            .len(),
+        1,
+        "active participant message_agent should queue a visible-thread continuation"
+    );
+}
+
+#[tokio::test]
 async fn execute_managed_command_auto_denies_learned_destructive_category() {
     let recorded_bodies = Arc::new(Mutex::new(std::collections::VecDeque::new()));
     let root = tempdir().expect("tempdir should succeed");
@@ -1202,6 +1288,129 @@ async fn tui_bash_command_wait_false_returns_immediate_operation_handle() {
     assert!(
         marker.exists(),
         "backgrounded headless TUI command should finish after polling"
+    );
+}
+
+#[tokio::test]
+async fn tui_bash_command_wait_true_detaches_long_running_headless_command() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let marker = root.path().join("tui-headless-wait-true-detached.txt");
+    let thread_id = "thread-tui-bash-wait-true-detach";
+    engine
+        .set_thread_client_surface(thread_id, amux_protocol::ClientSurface::Tui)
+        .await;
+
+    let command = format!(
+        "python3 -c \"import pathlib, time; time.sleep(2); pathlib.Path(r'{}').write_text('done')\"",
+        marker.display()
+    );
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-tui-bash-wait-true-detach".to_string(),
+        ToolFunction {
+            name: "bash_command".to_string(),
+            arguments: serde_json::json!({
+                "command": command,
+                "wait_for_completion": true,
+                "timeout_seconds": 30,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "long-running TUI wait=true bash command should detach cleanly: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("operation_id: "),
+        "detached TUI wait=true bash command should return an operation handle: {}",
+        result.content
+    );
+    assert!(
+        !marker.exists(),
+        "detached TUI wait=true command should return before the subprocess finishes"
+    );
+
+    let operation_id = result
+        .content
+        .lines()
+        .find_map(|line| line.strip_prefix("operation_id: "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .expect("detached TUI wait=true command should expose an operation_id");
+
+    let status_call = ToolCall::with_default_weles_review(
+        "tool-tui-bash-wait-true-detach-status".to_string(),
+        ToolFunction {
+            name: "get_operation_status".to_string(),
+            arguments: serde_json::json!({
+                "operation_id": operation_id,
+            })
+            .to_string(),
+        },
+    );
+
+    let mut payload = serde_json::Value::Null;
+    let mut completed = false;
+    for _ in 0..30 {
+        let status = execute_tool(
+            &status_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !status.is_error,
+            "operation status lookup should succeed: {}",
+            status.content
+        );
+
+        payload = serde_json::from_str(&status.content)
+            .expect("operation status payload should be valid JSON");
+        if payload["state"] == "completed" {
+            completed = true;
+            break;
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    assert!(
+        completed,
+        "detached TUI wait=true command should complete within the polling window: {}",
+        payload
+    );
+    assert_eq!(payload["operation_id"], operation_id);
+    assert_eq!(payload["state"], "completed");
+    assert!(
+        marker.exists(),
+        "detached TUI wait=true command should eventually finish"
     );
 }
 

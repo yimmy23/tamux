@@ -46,6 +46,7 @@
                 None,
                 "bash_command",
                 Some(token),
+                None,
             )
             .await
         });

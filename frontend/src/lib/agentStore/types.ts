@@ -183,7 +183,7 @@ export type ApiTransportMode =
   | "chat_completions";
 export type NativeTransportKind = "alibaba_assistant_api";
 export type Modality = "text" | "image" | "video" | "audio";
-export type AgentBackend = "daemon" | "openclaw" | "hermes" | "legacy";
+export type AgentBackend = "daemon" | "legacy";
 
 export interface ModelDefinition {
   id: string;

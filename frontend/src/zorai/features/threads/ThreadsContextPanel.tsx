@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAgentChatPanelRuntime } from "@/components/agent-chat-panel/runtime/context";
 import type { AgentMessage, AgentThread, AgentTodoItem } from "@/lib/agentStore";
-import { fetchFilePreview, fetchGitDiff, fetchThreadWorkContext, type ThreadWorkContext, type WorkContextEntry } from "@/lib/agentWorkContext";
+import { fetchThreadWorkContext, type ThreadWorkContext, type WorkContextEntry } from "@/lib/agentWorkContext";
 import { getBridge } from "@/lib/bridge";
 import { shortenHomePath } from "@/lib/workspaceStore";
 import { workContextKindColor, workContextKindLabel } from "@/components/agent-chat-panel/tasks-view/helpers";
 import {
-  previewRequestForWorkContextEntry,
   threadContextEntryDisplayPath,
   threadContextEntryKey,
 } from "./threadContextPreview";
+import { useThreadFilePreview } from "./ThreadFilePreviewContext";
 import { SpawnedContext } from "./ThreadsSpawnedContext";
 
 type ContextTab = "todos" | "files" | "spawned";
@@ -28,14 +28,13 @@ export function ThreadsContext() {
   const currentContextTokens = resolveCurrentContextTokens(activeThread, runtime.messages);
 
   useEffect(() => {
-    if (!daemonThreadId || !activeThread) {
+    if (!daemonThreadId) {
       setWorkContext({ threadId: "", entries: [] });
       return;
     }
 
     let cancelled = false;
-    const requestThreadId = activeThread.daemonThreadId ?? daemonThreadId;
-    void fetchThreadWorkContext(requestThreadId).then((next) => {
+    void fetchThreadWorkContext(daemonThreadId).then((next) => {
       if (!cancelled) {
         setWorkContext(next);
       }
@@ -44,7 +43,7 @@ export function ThreadsContext() {
     return () => {
       cancelled = true;
     };
-  }, [activeThread, daemonThreadId]);
+  }, [daemonThreadId]);
 
   useEffect(() => {
     const bridge = getBridge();
@@ -167,9 +166,10 @@ function TodoContext({ todos }: { todos: AgentTodoItem[] }) {
   }
 
   return (
-    <section className="zorai-context-list">
+    <section className="zorai-todo-context-list">
       {todos.map((todo) => (
-        <article key={todo.id} className="zorai-context-list-item">
+        <article key={todo.id} className="zorai-todo-context-item">
+          <span className={`zorai-todo-checkbox zorai-todo-checkbox--${todo.status}`} aria-hidden="true" />
           <div>
             <strong>{todo.content}</strong>
             <span>{todo.status.replace(/_/g, " ")}</span>
@@ -181,16 +181,9 @@ function TodoContext({ todos }: { todos: AgentTodoItem[] }) {
 }
 
 function FilesContext({ entries }: { entries: WorkContextEntry[] }) {
+  const { openThreadFilePreview, previewTarget } = useThreadFilePreview();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [previewText, setPreviewText] = useState("");
-  const [previewKind, setPreviewKind] = useState<"git-diff" | "file-preview" | null>(null);
-  const [previewTitle, setPreviewTitle] = useState("");
-  const [loadingPreview, setLoadingPreview] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const selectedEntry = useMemo(
-    () => entries.find((entry) => threadContextEntryKey(entry) === selectedKey) ?? null,
-    [entries, selectedKey],
-  );
+  const overlayEntryKey = previewTarget ? threadContextEntryKey(previewTarget.entry) : null;
 
   useEffect(() => {
     setSelectedKey((current) => {
@@ -201,54 +194,6 @@ function FilesContext({ entries }: { entries: WorkContextEntry[] }) {
     });
   }, [entries]);
 
-  useEffect(() => {
-    if (!selectedEntry) {
-      setPreviewText("");
-      setPreviewKind(null);
-      setPreviewTitle("");
-      setLoadingPreview(false);
-      setPreviewError(null);
-      return;
-    }
-
-    let cancelled = false;
-    const request = previewRequestForWorkContextEntry(selectedEntry);
-    setLoadingPreview(true);
-    setPreviewError(null);
-    setPreviewKind(request.type);
-    setPreviewTitle(request.type === "git-diff" ? "Git diff" : "File preview");
-
-    const previewPromise = request.type === "git-diff"
-      ? fetchGitDiff(request.repoRoot, request.filePath)
-      : fetchFilePreview(request.path).then((preview) => {
-        if (!preview) return "";
-        if (!preview.isText) return "Binary file preview is not available.";
-        return preview.truncated ? `${preview.content}\n\n[Preview truncated]` : preview.content;
-      });
-
-    void previewPromise
-      .then((output) => {
-        if (!cancelled) {
-          setPreviewText(output);
-        }
-      })
-      .catch((reason: unknown) => {
-        if (!cancelled) {
-          setPreviewText("");
-          setPreviewError(reason instanceof Error ? reason.message : String(reason));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingPreview(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedEntry]);
-
   if (entries.length === 0) {
     return <div className="zorai-empty">No file or artifact context recorded for this thread yet.</div>;
   }
@@ -258,13 +203,16 @@ function FilesContext({ entries }: { entries: WorkContextEntry[] }) {
       <div className="zorai-file-context__list">
         {entries.slice(0, 24).map((entry) => {
           const entryKey = threadContextEntryKey(entry);
-          const selected = entryKey === selectedKey;
+          const selected = entryKey === selectedKey || entryKey === overlayEntryKey;
           return (
             <button
               key={entryKey}
               type="button"
               className={selected ? "zorai-file-context__item zorai-file-context__item--active" : "zorai-file-context__item"}
-              onClick={() => setSelectedKey(entryKey)}
+              onClick={() => {
+                setSelectedKey(entryKey);
+                openThreadFilePreview(entry);
+              }}
             >
               <span style={{ color: workContextKindColor(entry) }}>{workContextKindLabel(entry)}</span>
               <strong>{threadContextEntryDisplayPath(entry, shortenHomePath)}</strong>
@@ -273,46 +221,7 @@ function FilesContext({ entries }: { entries: WorkContextEntry[] }) {
           );
         })}
       </div>
-      <div className="zorai-file-preview">
-        <div className="zorai-file-preview__header">
-          <div>
-            <div className="zorai-section-label">{previewTitle || "Preview"}</div>
-            <strong>{selectedEntry ? threadContextEntryDisplayPath(selectedEntry, shortenHomePath) : "Select a file"}</strong>
-          </div>
-        </div>
-        {previewError ? <div className="zorai-empty zorai-empty--danger">{previewError}</div> : null}
-        {loadingPreview ? (
-          <div className="zorai-empty">Loading preview...</div>
-        ) : previewText.trim() ? (
-          <PreviewText text={previewText} kind={previewKind} />
-        ) : (
-          <div className="zorai-empty">
-            {previewKind === "git-diff" ? "No diff preview available for the selected file." : "No preview available for the selected file."}
-          </div>
-        )}
-      </div>
     </section>
-  );
-}
-
-function PreviewText({ text, kind }: { text: string; kind: "git-diff" | "file-preview" | null }) {
-  if (kind !== "git-diff") {
-    return <pre className="zorai-file-preview__pre">{text}</pre>;
-  }
-
-  return (
-    <pre className="zorai-file-preview__pre">
-      {text.split("\n").map((line, index) => {
-        const lineClass = line.startsWith("+") && !line.startsWith("+++")
-          ? "zorai-diff-line zorai-diff-line--added"
-          : line.startsWith("-") && !line.startsWith("---")
-            ? "zorai-diff-line zorai-diff-line--removed"
-            : line.startsWith("@@")
-              ? "zorai-diff-line zorai-diff-line--hunk"
-              : "zorai-diff-line";
-        return <span key={`${index}:${line}`} className={lineClass}>{line || " "}</span>;
-      })}
-    </pre>
   );
 }
 

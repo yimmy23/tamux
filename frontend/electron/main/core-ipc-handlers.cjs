@@ -60,6 +60,8 @@ function registerCoreIpcHandlers(ipcMain, options) {
     ipcMain.handle('plugin-daemon-get', pluginHandlers.getDaemon);
     ipcMain.handle('plugin-daemon-enable', pluginHandlers.enableDaemon);
     ipcMain.handle('plugin-daemon-disable', pluginHandlers.disableDaemon);
+    ipcMain.handle('plugin-daemon-install', pluginHandlers.installDaemon);
+    ipcMain.handle('plugin-daemon-uninstall', pluginHandlers.uninstallDaemon);
     ipcMain.handle('plugin-get-settings', pluginHandlers.getSettings);
     ipcMain.handle('plugin-update-settings', pluginHandlers.updateSettings);
     ipcMain.handle('plugin-test-connection', pluginHandlers.testConnection);

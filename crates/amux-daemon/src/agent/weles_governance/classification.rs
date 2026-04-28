@@ -127,21 +127,31 @@ fn file_suspicion_reasons(path: Option<&str>) -> Vec<String> {
     let Some(path) = path else {
         return Vec::new();
     };
-    let normalized = path.trim().to_ascii_lowercase();
-    let sensitive_markers = [
-        "/.env",
-        "credentials",
-        "credential",
-        "token",
-        ".ssh",
-        "id_rsa",
-        "auth",
-        "config",
-    ];
-    if sensitive_markers
-        .iter()
-        .any(|marker| normalized.contains(marker))
-    {
+    let normalized = path.trim().replace('\\', "/").to_ascii_lowercase();
+    let has_sensitive_component = normalized.split('/').any(|component| {
+        let component = component.trim();
+        component == ".env"
+            || component.starts_with(".env.")
+            || component == ".ssh"
+            || component == "id_rsa"
+            || component.starts_with("id_rsa.")
+            || matches!(
+                component,
+                "credentials"
+                    | "credential"
+                    | "credentials.json"
+                    | "credential.json"
+                    | "credentials.toml"
+                    | "credential.toml"
+                    | "credentials.yaml"
+                    | "credential.yaml"
+                    | "credentials.yml"
+                    | "credential.yml"
+                    | "credentials.env"
+                    | "credential.env"
+            )
+    });
+    if has_sensitive_component {
         vec!["file mutation targets a sensitive path".to_string()]
     } else {
         Vec::new()

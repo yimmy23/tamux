@@ -927,9 +927,14 @@ if matches!(
                 ClientMessage::AgentSubscribe => {
                     agent_event_rx = Some(agent.subscribe());
                     tracing::info!("client subscribed to agent events");
-                    agent.mark_operator_present("client_subscribe").await;
-                    agent.run_anticipatory_tick().await;
-                    agent.emit_anticipatory_snapshot().await;
+                    let subscribed_agent = agent.clone();
+                    tokio::spawn(async move {
+                        subscribed_agent
+                            .mark_operator_present("client_subscribe")
+                            .await;
+                        subscribed_agent.run_anticipatory_tick().await;
+                        subscribed_agent.emit_anticipatory_snapshot().await;
+                    });
                 }
 
                 ClientMessage::AgentUnsubscribe => {

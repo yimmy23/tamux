@@ -62,11 +62,14 @@ type PluginStoreState = {
 
   // OAuth state
   oauthError: string | null;
+  actionMessage: string | null;
 
   // Actions
   fetchPlugins: () => Promise<void>;
   selectPlugin: (name: string | null) => Promise<void>;
   toggleEnabled: (name: string, enabled: boolean) => Promise<void>;
+  installPlugin: (dirName: string, installSource: string) => Promise<void>;
+  uninstallPlugin: (name: string) => Promise<void>;
   updateSetting: (pluginName: string, key: string, value: string, isSecret: boolean) => Promise<void>;
   testConnection: (name: string) => Promise<void>;
   startOAuth: (name: string) => Promise<void>;
@@ -87,6 +90,7 @@ export const usePluginStore = create<PluginStoreState>((set, get) => ({
   testLoading: false,
 
   oauthError: null,
+  actionMessage: null,
 
   fetchPlugins: async () => {
     set({ loading: true, error: null });
@@ -161,6 +165,37 @@ export const usePluginStore = create<PluginStoreState>((set, get) => ({
     } catch {
       // Revert on failure
       await get().fetchPlugins();
+    }
+  },
+
+  installPlugin: async (dirName, installSource) => {
+    const normalizedDirName = dirName.trim();
+    const normalizedInstallSource = installSource.trim() || normalizedDirName;
+    if (!normalizedDirName) {
+      set({ actionMessage: "Plugin directory name is required." });
+      return;
+    }
+    try {
+      const bridge = getBridge();
+      const result = await bridge?.pluginDaemonInstall?.(normalizedDirName, normalizedInstallSource);
+      set({ actionMessage: result?.message ?? (result?.ok ? "Plugin registered." : result?.error ?? "Plugin registration failed.") });
+      await get().fetchPlugins();
+    } catch {
+      set({ actionMessage: "Plugin registration failed. Ensure the daemon is running." });
+    }
+  },
+
+  uninstallPlugin: async (name) => {
+    try {
+      const bridge = getBridge();
+      const result = await bridge?.pluginDaemonUninstall?.(name);
+      set({ actionMessage: result?.message ?? (result?.ok ? "Plugin removed." : result?.error ?? "Plugin removal failed.") });
+      if (get().selectedPlugin === name) {
+        set({ selectedPlugin: null, settingsSchema: [], settingsValues: [], testResult: null });
+      }
+      await get().fetchPlugins();
+    } catch {
+      set({ actionMessage: "Plugin removal failed. Ensure the daemon is running." });
     }
   },
 

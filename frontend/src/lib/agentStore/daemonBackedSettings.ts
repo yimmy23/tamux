@@ -3,6 +3,10 @@ export function normalizeDaemonBackedAgentMode(
   activeProvider: string,
   authSource: string,
 ): string {
+  if (agentBackend === "openclaw" || agentBackend === "hermes") {
+    return "daemon";
+  }
+
   if (
     agentBackend === "legacy"
     && activeProvider === "openai"

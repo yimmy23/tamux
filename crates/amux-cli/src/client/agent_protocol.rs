@@ -301,6 +301,15 @@ pub(super) enum AgentBridgeCommand {
     PluginDisableCmd {
         name: String,
     },
+    #[serde(rename = "plugin-install")]
+    PluginInstallCmd {
+        dir_name: String,
+        install_source: String,
+    },
+    #[serde(rename = "plugin-uninstall")]
+    PluginUninstallCmd {
+        name: String,
+    },
     #[serde(rename = "plugin-get-settings")]
     PluginGetSettings {
         name: String,

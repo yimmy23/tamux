@@ -410,7 +410,7 @@ declare global {
         agentGetWorkContext?: (threadId: string) => Promise<{ thread_id: string; context: AmuxThreadWorkContext } | AmuxThreadWorkContext | null | unknown>;
         agentGetGitDiff?: (repoPath: string, filePath?: string | null) => Promise<{ repo_path: string; file_path?: string | null; diff: string } | string | unknown>;
         agentGetFilePreview?: (path: string, maxBytes?: number | null) => Promise<{ path: string; content: string; truncated: boolean; is_text: boolean } | null | unknown>;
-        agentStartGoalRun?: (payload: { goal: string; title?: string | null; sessionId?: string | null; priority?: string | null; threadId?: string | null; clientRequestId?: string | null; requiresApproval?: boolean }) => Promise<AmuxGoalRun | unknown>;
+        agentStartGoalRun?: (payload: { goal: string; title?: string | null; sessionId?: string | null; priority?: string | null; threadId?: string | null; clientRequestId?: string | null; requiresApproval?: boolean; launchAssignments?: Array<{ role_id: string; enabled: boolean; provider: string; model: string; reasoning_effort?: string | null; inherit_from_main: boolean }> }) => Promise<AmuxGoalRun | unknown>;
         agentListGoalRuns?: () => Promise<AmuxGoalRun[] | unknown>;
         agentGetGoalRun?: (goalRunId: string) => Promise<AmuxGoalRun | unknown>;
         agentControlGoalRun?: (goalRunId: string, action: AmuxGoalRunControlAction, stepIndex?: number | null) => Promise<boolean | { ok?: boolean; success?: boolean } | unknown>;
@@ -562,6 +562,8 @@ declare global {
         onPluginOAuthComplete?: (callback: (data: { name: string; success: boolean; error?: string }) => void) => (() => void) | void;
         pluginDaemonEnable?: (name: string) => Promise<{ ok?: boolean; error?: string }>;
         pluginDaemonDisable?: (name: string) => Promise<{ ok?: boolean; error?: string }>;
+        pluginDaemonInstall?: (dirName: string, installSource: string) => Promise<{ ok?: boolean; message?: string; error?: string }>;
+        pluginDaemonUninstall?: (name: string) => Promise<{ ok?: boolean; message?: string; error?: string }>;
         pluginGetSettings?: (name: string) => Promise<{ plugin_name: string; settings: Array<{ key: string; value: string; is_secret: boolean }> }>;
         pluginUpdateSettings?: (pluginName: string, key: string, value: string, isSecret: boolean) => Promise<{ ok?: boolean; error?: string }>;
         pluginTestConnection?: (name: string) => Promise<{ plugin_name: string; success: boolean; message: string }>;

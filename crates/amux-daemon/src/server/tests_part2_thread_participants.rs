@@ -1,5 +1,19 @@
+async fn assert_no_immediate_authorization_error(conn: &mut TestConnection) {
+    match timeout(Duration::from_millis(100), conn.framed.next()).await {
+        Err(_) => {}
+        Ok(Some(Ok(DaemonMessage::Error { message }))) => {
+            panic!("compatible operator surface should not be rejected: {message}");
+        }
+        Ok(Some(Ok(other))) => {
+            panic!("unexpected daemon response while checking authorization: {other:?}");
+        }
+        Ok(Some(Err(error))) => panic!("codec failure while checking authorization: {error}"),
+        Ok(None) => panic!("connection closed while checking authorization"),
+    }
+}
+
 #[tokio::test]
-async fn unauthorized_participant_updates_are_rejected() {
+async fn electron_operator_can_update_tui_thread_participants_during_zorai_migration() {
     let mut conn = spawn_test_connection().await;
     let thread_id = "thread-participant-auth";
 
@@ -38,18 +52,59 @@ async fn unauthorized_participant_updates_are_rejected() {
         .await
         .expect("send participant command");
 
-    match conn.recv().await {
-        DaemonMessage::Error { message } => {
-            assert!(message.contains("unauthorized"));
-        }
-        other => panic!("expected participant authorization error, got {other:?}"),
-    }
+    assert_no_immediate_authorization_error(&mut conn).await;
 
     conn.shutdown().await;
 }
 
 #[tokio::test]
-async fn unauthorized_participant_suggestion_updates_are_rejected() {
+async fn electron_operator_can_send_message_to_tui_thread_during_zorai_migration() {
+    let mut conn = spawn_test_connection().await;
+    let thread_id = "thread-send-auth";
+
+    conn.agent.threads.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::types::AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Send auth".to_string(),
+            messages: vec![crate::agent::types::AgentMessage::user("ready", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            created_at: 1,
+            updated_at: 2,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        },
+    );
+    conn.agent
+        .set_thread_client_surface(thread_id, amux_protocol::ClientSurface::Tui)
+        .await;
+
+    conn.framed
+        .send(ClientMessage::AgentSendMessage {
+            thread_id: Some(thread_id.to_string()),
+            content: "hello from Zorai".to_string(),
+            session_id: None,
+            context_messages_json: None,
+            content_blocks_json: None,
+            client_surface: Some(amux_protocol::ClientSurface::Electron),
+            target_agent_id: None,
+        })
+        .await
+        .expect("send agent message");
+
+    assert_no_immediate_authorization_error(&mut conn).await;
+
+    conn.shutdown().await;
+}
+
+#[tokio::test]
+async fn electron_operator_can_update_tui_participant_suggestions_during_zorai_migration() {
     let mut conn = spawn_test_connection().await;
     let thread_id = "thread-suggestion-auth";
 
@@ -86,12 +141,7 @@ async fn unauthorized_participant_suggestion_updates_are_rejected() {
         .await
         .expect("send suggestion command");
 
-    match conn.recv().await {
-        DaemonMessage::Error { message } => {
-            assert!(message.contains("unauthorized"));
-        }
-        other => panic!("expected suggestion authorization error, got {other:?}"),
-    }
+    assert_no_immediate_authorization_error(&mut conn).await;
 
     conn.framed
         .send(ClientMessage::AgentDismissParticipantSuggestion {
@@ -103,12 +153,7 @@ async fn unauthorized_participant_suggestion_updates_are_rejected() {
         .await
         .expect("send dismiss suggestion command");
 
-    match conn.recv().await {
-        DaemonMessage::Error { message } => {
-            assert!(message.contains("unauthorized"));
-        }
-        other => panic!("expected dismiss authorization error, got {other:?}"),
-    }
+    assert_no_immediate_authorization_error(&mut conn).await;
 
     conn.shutdown().await;
 }

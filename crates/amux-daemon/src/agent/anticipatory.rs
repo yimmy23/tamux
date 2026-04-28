@@ -8,6 +8,7 @@ pub(super) const ANTICIPATORY_TICK_SECS: u64 = 30;
 const SESSION_RECONNECT_GRACE_MS: u64 = 5 * 60 * 1000;
 const PREDICTIVE_HYDRATION_COOLDOWN_MS: u64 = 10 * 60 * 1000;
 const RECENT_HEALTH_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
+const TOOL_HESITATION_TIGHTEN_RATE: f64 = 0.25;
 
 type AnticipatoryAdaptationMode = SatisfactionAdaptationMode;
 
@@ -350,7 +351,7 @@ impl AgentEngine {
             return base;
         }
 
-        if model.implicit_feedback.tool_hesitation_count > 0 {
+        if operator_tool_hesitation_rate(&model) >= TOOL_HESITATION_TIGHTEN_RATE {
             return AnticipatoryAdaptationMode::Tightened;
         }
 
@@ -533,7 +534,7 @@ impl AgentEngine {
             ),
             AnticipatoryAdaptationMode::Tightened => {
                 let model = self.operator_model.read().await;
-                if model.implicit_feedback.tool_hesitation_count > 0 {
+                if operator_tool_hesitation_rate(&model) >= TOOL_HESITATION_TIGHTEN_RATE {
                     (
                         "tool hesitation detected; optional proactive surfacing is tightened",
                         0.72,

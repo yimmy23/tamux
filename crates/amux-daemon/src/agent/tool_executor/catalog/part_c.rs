@@ -405,12 +405,12 @@ fn add_available_tools_part_c(
             "limit": { "type": "integer", "description": "Maximum subagents to return (default: 20)" }
         }
     })));
-    tools.push(tool_def("message_agent", &format!("Send a concise private internal DM to another tamux agent and get the reply. This is for behind-the-scenes coordination only: it does not switch the active responder for the current operator thread, and future operator turns do not route to the target agent. If the operator should talk directly to another agent, use `handoff_thread_agent` instead. You can coordinate with {} (concierge), {} (main agent), or any other built-in persona without asking the operator to relay messages.", CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME), serde_json::json!({
+    tools.push(tool_def("message_agent", &format!("Send a concise private internal DM to another tamux agent and get the reply. This is for behind-the-scenes coordination only: it does not switch the active responder for the current operator thread, and future operator turns do not route to the target agent. If the target is an active participant on the current visible operator thread and `request_visible_thread_continuation` is omitted, tamux treats the message as a request for that participant to continue visibly on the thread. If the operator should talk directly to another agent, use `handoff_thread_agent` instead. You can coordinate with {} (concierge), {} (main agent), or any other built-in persona without asking the operator to relay messages.", CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME), serde_json::json!({
         "type": "object",
         "properties": {
             "target": { "type": "string", "description": "Which agent should receive the internal message. Use a built-in agent id or persona name such as `svarog`, `rarog`, or `weles`." },
             "message": { "type": "string", "description": "Message to send" },
-            "request_visible_thread_continuation": { "type": "boolean", "description": "When true, the internal DM stays discussion-only and the target agent is asked to continue the current visible operator thread after this turn finishes." }
+            "request_visible_thread_continuation": { "type": "boolean", "description": "When true, the internal DM stays discussion-only and the target agent is asked to continue the current visible operator thread after this turn finishes. When omitted while targeting an active participant on a visible operator thread, this defaults to true." }
         },
         "required": ["target", "message"]
     })));

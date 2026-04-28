@@ -656,6 +656,14 @@ export function useAgentChatPanelProviderValue(): {
           nextThreads.push(localThread);
         }
       }
+      const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId);
+      if (
+        activeThread?.daemonThreadId
+        && !seenDaemonThreadIds.has(activeThread.daemonThreadId)
+        && !nextThreads.some((thread) => thread.id === activeThread.id)
+      ) {
+        nextThreads.push(activeThread);
+      }
 
       nextThreads.sort((left, right) => right.updatedAt - left.updatedAt);
       const validThreadIds = new Set(nextThreads.map((thread) => thread.id));

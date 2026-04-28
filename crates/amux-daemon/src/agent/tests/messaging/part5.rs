@@ -394,6 +394,182 @@ async fn visible_thread_participant_send_records_message_author_and_updates_part
 }
 
 #[tokio::test]
+async fn participant_follow_up_ignores_stale_task_scope_on_visible_thread() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind stale task scope server");
+    let addr = listener.local_addr().expect("stale task scope addr");
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let request_counter_task = request_counter.clone();
+
+    tokio::spawn(async move {
+        for _ in 0..3 {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let _body = read_http_request_body(&mut socket)
+                .await
+                .expect("read stale task scope request");
+            let response_body = match request_counter_task.fetch_add(1, Ordering::SeqCst) {
+                0 => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stale_scope_participant\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Mokosh found the concrete dashboard issue.\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stale_scope_participant\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7},\"error\":null}}\n\n"
+                ),
+                1 => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stale_scope_follow_up\"}}\n\n",
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Svarog continues the dashboard fix.\"}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stale_scope_follow_up\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":9,\"output_tokens\":5},\"error\":null}}\n\n"
+                ),
+                _ => concat!(
+                    "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stale_scope_tail\"}}\n\n",
+                    "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stale_scope_tail\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":0},\"error\":null}}\n\n"
+                ),
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write stale task scope response");
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.builtin_sub_agents.mokosh.provider = Some(PROVIDER_ID_OPENAI.to_string());
+    config.builtin_sub_agents.mokosh.model = Some("gpt-5.4-mini".to_string());
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread_participant_visible_stale_task_scope";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Participant stale task scope".to_string(),
+            messages: vec![AgentMessage::user("Can someone inspect the dashboard?", 1)],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "task-stale-weles-visible-thread".to_string(),
+        title: "Stale Weles task".to_string(),
+        description: "Previously associated Weles task".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: 1,
+        started_at: Some(1),
+        completed_at: Some(2),
+        error: None,
+        result: None,
+        thread_id: Some(thread_id.to_string()),
+        source: "event_trigger".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: Some(crate::agent::agent_identity::build_weles_persona_prompt(
+            "weles",
+        )),
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        sub_agent_def_id: Some("weles_builtin".to_string()),
+    });
+
+    engine
+        .upsert_thread_participant(thread_id, "mokosh", "inspect dashboard implementation")
+        .await
+        .expect("participant should register");
+
+    engine
+        .send_visible_thread_participant_message(
+            thread_id,
+            "mokosh",
+            None,
+            "Check the dashboard and report the next concrete fix.",
+        )
+        .await
+        .expect("participant visible send should succeed");
+
+    let thread_messages = engine
+        .get_thread(thread_id)
+        .await
+        .expect("thread should still exist after participant send")
+        .messages;
+    let follow_up = thread_messages
+        .iter()
+        .find(|message| message.content == "Svarog continues the dashboard fix.")
+        .expect("participant send should trigger an active-agent follow-up");
+    assert_eq!(follow_up.author_agent_id.as_deref(), Some(MAIN_AGENT_ID));
+    assert_eq!(
+        follow_up.author_agent_name.as_deref(),
+        Some(MAIN_AGENT_NAME)
+    );
+    assert!(
+        thread_messages.iter().all(|message| {
+            message.content != "Svarog continues the dashboard fix."
+                || message.author_agent_id.as_deref() != Some("weles")
+        }),
+        "stale Weles task scope must not own the visible active-agent follow-up"
+    );
+}
+
+#[tokio::test]
 async fn visible_thread_participant_send_does_not_trigger_self_reply_for_active_participant() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

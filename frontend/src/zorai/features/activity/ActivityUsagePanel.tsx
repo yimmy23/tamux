@@ -1,128 +1,181 @@
-import {
-  formatCost,
-  formatCount,
-  formatDate,
-  formatDuration,
-  type GoalUsageRow,
-  type SessionUsageRow,
-  type UsageRow,
-  type UsageStats,
-} from "./ActivityUsageStats";
+import { Children, useEffect, useState, type ReactNode } from "react";
+import { getBridge } from "@/lib/bridge";
+import { formatCount, formatDate, type SessionUsageRow, type UsageStats } from "./ActivityUsageStats";
+
+type UsageTab = "overview" | "providers" | "models" | "rankings";
+
+const usageTabs: Array<{ id: UsageTab; label: string }> = [
+  { id: "overview", label: "Overview" },
+  { id: "providers", label: "Providers" },
+  { id: "models", label: "Models" },
+  { id: "rankings", label: "Rankings" },
+];
+
+const windows: Array<{ id: AmuxStatisticsWindow; label: string }> = [
+  { id: "today", label: "Today" },
+  { id: "7d", label: "7d" },
+  { id: "30d", label: "30d" },
+  { id: "all", label: "All" },
+];
 
 export function UsagePanel({ stats }: { stats: UsageStats }) {
-  const topProviders = stats.providerRows.slice(0, 6);
-  const tokenMax = Math.max(...topProviders.map((row) => row.totalTokens), 1);
-  const costMax = Math.max(...topProviders.map((row) => row.cost), 0.000001);
+  const [tab, setTab] = useState<UsageTab>("overview");
+  const [windowId, setWindowId] = useState<AmuxStatisticsWindow>("all");
+  const [snapshot, setSnapshot] = useState<AmuxAgentStatisticsSnapshot | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const bridge = getBridge();
+    if (!bridge?.agentGetStatistics) {
+      setSnapshot(null);
+      setError("Statistics bridge is unavailable.");
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void bridge.agentGetStatistics(windowId).then((result) => {
+      if (!cancelled) setSnapshot((result ?? null) as AmuxAgentStatisticsSnapshot | null);
+    }).catch((fetchError) => {
+      if (!cancelled) {
+        setSnapshot(null);
+        setError(fetchError?.message || "Statistics request failed.");
+      }
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [windowId]);
 
   return (
     <div className="zorai-usage-stack">
-      <div className="zorai-metric-grid">
-        <UsageMetric label="Requests" value={formatCount(stats.totals.requests)} />
-        <UsageMetric label="Prompt tokens" value={formatCount(stats.totals.promptTokens)} />
-        <UsageMetric label="Completion tokens" value={formatCount(stats.totals.completionTokens)} />
-        <UsageMetric label="Estimated cost" value={formatCost(stats.totals.cost)} />
-        <UsageMetric label="Reasoning tokens" value={formatCount(stats.totals.reasoningTokens)} />
-        <UsageMetric label="Avg TPS" value={stats.totals.avgTps.toFixed(1)} />
+      <div className="zorai-toolbar">
+        {usageTabs.map((item) => (
+          <button key={item.id} type="button" className={["zorai-ghost-button", tab === item.id ? "zorai-button--active" : ""].filter(Boolean).join(" ")} onClick={() => setTab(item.id)}>
+            {item.label}
+          </button>
+        ))}
+        <span className="zorai-inline-note">Window</span>
+        {windows.map((item) => (
+          <button key={item.id} type="button" className={["zorai-ghost-button", windowId === item.id ? "zorai-button--active" : ""].filter(Boolean).join(" ")} onClick={() => setWindowId(item.id)}>
+            {item.label}
+          </button>
+        ))}
       </div>
 
-      <div className="zorai-usage-grid">
-        <div className="zorai-panel">
-          <div className="zorai-section-label">Token Usage</div>
-          <UsageBars rows={topProviders} valueKey="totalTokens" max={tokenMax} formatter={formatCount} />
-        </div>
-        <div className="zorai-panel">
-          <div className="zorai-section-label">Cost Usage</div>
-          <UsageBars rows={topProviders} valueKey="cost" max={costMax} formatter={formatCost} />
-        </div>
-        <ProviderUsageTable rows={stats.providerRows} />
-        <SessionUsageTable rows={stats.sessionRows} />
-        <GoalUsageTable rows={stats.goalRows} />
-      </div>
+      {loading ? <div className="zorai-empty-state">Loading historical statistics...</div> : null}
+      {error ? <div className="zorai-empty-state">{error} Local loaded-message total: {formatTokenValue(stats.totals.totalTokens)} tok.</div> : null}
+      {snapshot ? <StatisticsBody snapshot={snapshot} tab={tab} /> : null}
+      <SessionUsageTable rows={stats.sessionRows} />
     </div>
   );
 }
 
-function ProviderUsageTable({ rows }: { rows: UsageRow[] }) {
+function StatisticsBody({ snapshot, tab }: { snapshot: AmuxAgentStatisticsSnapshot; tab: UsageTab }) {
+  if (tab === "providers") return <ProviderTable rows={snapshot.providers} />;
+  if (tab === "models") return <ModelTable rows={snapshot.models} />;
+  if (tab === "rankings") return <Rankings snapshot={snapshot} />;
+
   return (
-    <div className="zorai-panel zorai-usage-panel--wide">
-      <div className="zorai-section-label">Provider / Model</div>
-      <div className="zorai-usage-table-wrap">
-        <table className="zorai-usage-table">
-          <thead>
-            <tr><th>Provider / Model</th><th>Req</th><th>Prompt</th><th>Completion</th><th>Total</th><th>Reasoning</th><th>Cost</th><th>TPS</th></tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? <UsageEmptyRow colSpan={8} /> : rows.map((row) => (
-              <tr key={row.key}>
-                <td>{row.provider} / {row.model}</td>
-                <td>{row.requests}</td>
-                <td>{formatCount(row.promptTokens)}</td>
-                <td>{formatCount(row.completionTokens)}</td>
-                <td>{formatCount(row.totalTokens)}</td>
-                <td>{formatCount(row.reasoningTokens)}</td>
-                <td>{formatCost(row.cost)}</td>
-                <td>{row.avgTps.toFixed(1)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="zorai-usage-grid">
+      <div className="zorai-panel zorai-usage-panel--wide">
+        <div className="zorai-section-label">Totals</div>
+        <div className="zorai-metric-grid">
+          <UsageMetric label="Input tokens" value={`${formatTokenValue(snapshot.totals.input_tokens)} tok`} />
+          <UsageMetric label="Output tokens" value={`${formatTokenValue(snapshot.totals.output_tokens)} tok`} />
+          <UsageMetric label="Total tokens" value={`${formatTokenValue(snapshot.totals.total_tokens)} tok`} />
+          <UsageMetric label="Total cost" value={formatCost(snapshot.totals.cost_usd)} />
+          <UsageMetric label="Providers" value={String(snapshot.totals.provider_count)} />
+          <UsageMetric label="Models" value={String(snapshot.totals.model_count)} />
+        </div>
+        <p className="zorai-empty-state">Generated at: {formatGeneratedAt(snapshot.generated_at)}</p>
+        {snapshot.has_incomplete_cost_history ? (
+          <p className="zorai-empty-state">Warning: historical cost is incomplete for this window. Older rows without stored cost are counted as $0.</p>
+        ) : null}
       </div>
+      <TopModelList title="Top Models By Tokens" rows={snapshot.top_models_by_tokens} value={(row) => `${formatTokenValue(row.total_tokens)} tok  ${formatCost(row.cost_usd)}`} />
+      <TopModelList title="Top Models By Cost" rows={snapshot.top_models_by_cost} value={(row) => `${formatCost(row.cost_usd)}  ${formatTokenValue(row.total_tokens)} tok`} />
+    </div>
+  );
+}
+
+function ProviderTable({ rows }: { rows: AmuxProviderStatisticsRow[] }) {
+  return (
+    <UsageTable title="Providers" columns={["Provider", "In", "Out", "Total", "Cost"]} empty="No provider statistics for this window.">
+      {rows.map((row) => (
+        <tr key={row.provider}><td>{row.provider}</td><td>{formatTokenValue(row.input_tokens)} tok</td><td>{formatTokenValue(row.output_tokens)} tok</td><td>{formatTokenValue(row.total_tokens)} tok</td><td>{formatCost(row.cost_usd)}</td></tr>
+      ))}
+    </UsageTable>
+  );
+}
+
+function ModelTable({ rows }: { rows: AmuxModelStatisticsRow[] }) {
+  return (
+    <UsageTable title="Provider / Model" columns={["Provider / Model", "In", "Out", "Total", "Cost"]} empty="No model statistics for this window.">
+      {rows.map((row) => (
+        <tr key={`${row.provider}/${row.model}`}><td>{row.provider} / {row.model}</td><td>{formatTokenValue(row.input_tokens)} tok</td><td>{formatTokenValue(row.output_tokens)} tok</td><td>{formatTokenValue(row.total_tokens)} tok</td><td>{formatCost(row.cost_usd)}</td></tr>
+      ))}
+    </UsageTable>
+  );
+}
+
+function Rankings({ snapshot }: { snapshot: AmuxAgentStatisticsSnapshot }) {
+  return (
+    <div className="zorai-usage-grid">
+      <TopModelList title="Top Models By Tokens" rows={snapshot.top_models_by_tokens} value={(row) => `${formatTokenValue(row.total_tokens)} tok  ${formatCost(row.cost_usd)}`} />
+      <TopModelList title="Top Models By Cost" rows={snapshot.top_models_by_cost} value={(row) => `${formatCost(row.cost_usd)}  ${formatTokenValue(row.total_tokens)} tok`} />
     </div>
   );
 }
 
 function SessionUsageTable({ rows }: { rows: SessionUsageRow[] }) {
   return (
-    <div className="zorai-panel zorai-usage-panel--wide">
-      <div className="zorai-section-label">Sessions</div>
-      <div className="zorai-usage-table-wrap">
-        <table className="zorai-usage-table">
-          <thead>
-            <tr><th>Thread</th><th>Provider models</th><th>Req</th><th>Total</th><th>Audio</th><th>Video</th><th>Cost</th><th>Updated</th></tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? <UsageEmptyRow colSpan={8} /> : rows.map((row) => (
-              <tr key={row.threadId}>
-                <td>{row.title}</td>
-                <td>{Array.from(row.providerModels).join(", ") || "unknown"}</td>
-                <td>{row.requests}</td>
-                <td>{formatCount(row.totalTokens)}</td>
-                <td>{formatCount(row.audioTokens)}</td>
-                <td>{formatCount(row.videoTokens)}</td>
-                <td>{formatCost(row.cost)}</td>
-                <td>{formatDate(row.updatedAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <UsageTable title="Sessions" columns={["Thread", "Provider models", "Req", "Total", "Audio", "Video", "Cost", "Updated"]} empty="No per-session usage has been loaded yet.">
+      {rows.map((row) => (
+        <tr key={row.threadId}>
+          <td>{row.title}</td>
+          <td>{Array.from(row.providerModels).join(", ") || "unknown"}</td>
+          <td>{row.requests}</td>
+          <td>{formatCount(row.totalTokens)}</td>
+          <td>{formatCount(row.audioTokens)}</td>
+          <td>{formatCount(row.videoTokens)}</td>
+          <td>{formatCost(row.cost)}</td>
+          <td>{formatDate(row.updatedAt)}</td>
+        </tr>
+      ))}
+    </UsageTable>
+  );
+}
+
+function TopModelList({ title, rows, value }: { title: string; rows: AmuxModelStatisticsRow[]; value: (row: AmuxModelStatisticsRow) => string }) {
+  return (
+    <div className="zorai-panel">
+      <div className="zorai-section-label">{title}</div>
+      {rows.length === 0 ? <div className="zorai-empty-state">No rankings for this window.</div> : rows.slice(0, 5).map((row, index) => (
+        <div key={`${title}-${row.provider}-${row.model}`} className="zorai-usage-ranking-row">
+          <strong>{index + 1}. {row.provider}/{row.model}</strong>
+          <span>{value(row)}</span>
+        </div>
+      ))}
     </div>
   );
 }
 
-function GoalUsageTable({ rows }: { rows: GoalUsageRow[] }) {
+function UsageTable({ title, columns, empty, children }: { title: string; columns: string[]; empty: string; children: ReactNode }) {
+  const hasRows = Children.count(children) > 0;
+
   return (
     <div className="zorai-panel zorai-usage-panel--wide">
-      <div className="zorai-section-label">Goal Usage</div>
+      <div className="zorai-section-label">{title}</div>
       <div className="zorai-usage-table-wrap">
         <table className="zorai-usage-table">
-          <thead>
-            <tr><th>Goal</th><th>Status</th><th>Provider / Model</th><th>Req</th><th>Prompt</th><th>Completion</th><th>Cost</th><th>Duration</th></tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? <UsageEmptyRow colSpan={8} /> : rows.map((row) => (
-              <tr key={row.key}>
-                <td>{row.goal}</td>
-                <td>{row.status}</td>
-                <td>{row.provider} / {row.model}</td>
-                <td>{row.requests}</td>
-                <td>{formatCount(row.promptTokens)}</td>
-                <td>{formatCount(row.completionTokens)}</td>
-                <td>{formatCost(row.cost)}</td>
-                <td>{formatDuration(row.durationMs)}</td>
-              </tr>
-            ))}
-          </tbody>
+          <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+          <tbody>{hasRows ? children : <tr><td colSpan={columns.length}>{empty}</td></tr>}</tbody>
         </table>
       </div>
     </div>
@@ -130,50 +183,26 @@ function GoalUsageTable({ rows }: { rows: GoalUsageRow[] }) {
 }
 
 function UsageMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="zorai-metric-card">
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </div>
-  );
+  return <div className="zorai-metric-card"><strong>{value}</strong><span>{label}</span></div>;
 }
 
-function UsageBars({
-  rows,
-  valueKey,
-  max,
-  formatter,
-}: {
-  rows: UsageRow[];
-  valueKey: "totalTokens" | "cost";
-  max: number;
-  formatter: (value: number) => string;
-}) {
-  if (rows.length === 0) {
-    return <div className="zorai-empty-state">No usage has been recorded yet.</div>;
+function formatCost(value: number): string {
+  return `$${Number(value || 0).toFixed(6)}`;
+}
+
+function formatGeneratedAt(value: number): string {
+  return Number.isFinite(value) ? new Date(value).toLocaleString() : "unknown";
+}
+
+function formatTokenValue(tokens: number): string {
+  const rounded = Math.max(0, Math.round(tokens || 0));
+  if (rounded < 1000) return String(rounded);
+  const units = ["", "k", "M", "B", "T", "P"];
+  let value = rounded;
+  let unit = 0;
+  while (value >= 999_995 && unit + 1 < units.length) {
+    value /= 1000;
+    unit += 1;
   }
-
-  return (
-    <div className="zorai-usage-bars">
-      {rows.map((row) => {
-        const value = row[valueKey];
-        const width = `${Math.max(4, Math.round((value / max) * 100))}%`;
-        return (
-          <div className="zorai-usage-bar" key={`${valueKey}-${row.key}`}>
-            <span>{row.provider}</span>
-            <div><i style={{ width }} /></div>
-            <strong>{formatter(value)}</strong>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function UsageEmptyRow({ colSpan }: { colSpan: number }) {
-  return (
-    <tr>
-      <td colSpan={colSpan}>No usage has been recorded yet.</td>
-    </tr>
-  );
+  return `${(value / 1000).toFixed(2)}${units[unit + 1] ?? ""}`;
 }

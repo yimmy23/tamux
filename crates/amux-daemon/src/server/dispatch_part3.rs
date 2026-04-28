@@ -405,7 +405,7 @@ if matches!(
                         if let Some(expected_surface) =
                             agent.get_thread_client_surface(thread_id).await
                         {
-                            if expected_surface != client_surface {
+                            if !client_surface_can_write_thread(expected_surface, client_surface) {
                                 framed
                                     .send(DaemonMessage::Error {
                                         message: format!(
@@ -566,7 +566,7 @@ if matches!(
                         if let Some(expected_surface) =
                             agent.get_thread_client_surface(&thread_id).await
                         {
-                            if expected_surface != client_surface {
+                            if !client_surface_can_write_thread(expected_surface, client_surface) {
                                 framed
                                     .send(DaemonMessage::Error {
                                         message: format!(
@@ -604,7 +604,7 @@ if matches!(
                         if let Some(expected_surface) =
                             agent.get_thread_client_surface(&thread_id).await
                         {
-                            if expected_surface != client_surface {
+                            if !client_surface_can_write_thread(expected_surface, client_surface) {
                                 framed
                                     .send(DaemonMessage::Error {
                                         message: format!(
@@ -640,7 +640,7 @@ if matches!(
                         if let Some(expected_surface) =
                             agent.get_thread_client_surface(&thread_id).await
                         {
-                            if expected_surface != client_surface {
+                            if !client_surface_can_write_thread(expected_surface, client_surface) {
                                 framed
                                     .send(DaemonMessage::Error {
                                         message: format!(

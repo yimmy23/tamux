@@ -1883,10 +1883,9 @@ async fn execute_message_agent(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("missing 'message' argument"))?;
-    let request_visible_thread_continuation = args
+    let requested_visible_thread_continuation = args
         .get("request_visible_thread_continuation")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
+        .and_then(|value| value.as_bool());
 
     let sender = if let Some(current_task_id) = task_id {
         let tasks = agent.tasks.lock().await;
@@ -1900,16 +1899,31 @@ async fn execute_message_agent(
     if canonical_agent_id(&sender) == canonical_agent_id(&resolved_target_id) {
         anyhow::bail!("message_agent cannot target the current active responder");
     }
-    if request_visible_thread_continuation
-        && (thread_id.trim().is_empty()
-            || crate::agent::agent_identity::is_internal_dm_thread(thread_id)
-            || crate::agent::agent_identity::is_participant_playground_thread(thread_id)
-            || crate::agent::is_internal_handoff_thread(thread_id))
+    let visible_operator_thread = !thread_id.trim().is_empty()
+        && !crate::agent::agent_identity::is_internal_dm_thread(thread_id)
+        && !crate::agent::agent_identity::is_participant_playground_thread(thread_id)
+        && !crate::agent::is_internal_handoff_thread(thread_id);
+    if requested_visible_thread_continuation == Some(true) && !visible_operator_thread
     {
         anyhow::bail!(
             "request_visible_thread_continuation requires a visible operator thread, not an internal thread"
         );
     }
+    let defaults_to_visible_thread_continuation =
+        requested_visible_thread_continuation.is_none()
+            && visible_operator_thread
+            && agent
+                .list_thread_participants(thread_id)
+                .await
+                .iter()
+                .any(|participant| {
+                    participant.status == crate::agent::ThreadParticipantStatus::Active
+                        && participant
+                            .agent_id
+                            .eq_ignore_ascii_case(&resolved_target_id)
+                });
+    let request_visible_thread_continuation =
+        requested_visible_thread_continuation.unwrap_or(defaults_to_visible_thread_continuation);
 
     let preferred_session_hint = preferred_session_id.as_ref().map(|value| value.to_string());
     let result = if request_visible_thread_continuation {

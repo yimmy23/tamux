@@ -513,6 +513,25 @@ fn operator_satisfaction_uses_signal_gates_and_friction() {
 }
 
 #[test]
+fn operator_satisfaction_uses_friction_rates_so_historical_counts_can_recover() {
+    let mut model = OperatorModel::default();
+    model.cognitive_style.message_count = 35;
+    model.attention_topology.focus_event_count = 555;
+    model.attention_topology.rapid_switch_count = 294;
+    model.implicit_feedback.tool_hesitation_count = 47;
+    model.implicit_feedback.revision_message_count = 5;
+    model.implicit_feedback.rapid_revert_count = 13;
+
+    refresh_operator_satisfaction(&mut model);
+
+    assert_eq!(model.operator_satisfaction.label, "healthy");
+    assert!(
+        model.operator_satisfaction.score >= 0.65,
+        "historical friction should not permanently clamp satisfaction to strained"
+    );
+}
+
+#[test]
 fn operator_model_diagnostic_summary_exposes_thresholds_and_friction() {
     let mut model = OperatorModel::default();
     model.cognitive_style.message_count = 1;

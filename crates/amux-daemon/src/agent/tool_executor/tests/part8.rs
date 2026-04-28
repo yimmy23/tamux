@@ -300,6 +300,36 @@ async fn critique_preflight_skips_non_guarded_read_file_even_when_enabled() {
 }
 
 #[tokio::test]
+async fn critique_preflight_skips_code_path_names_that_only_look_sensitive() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.critique.enabled = true;
+    config.critique.mode = crate::agent::types::CritiqueMode::Deterministic;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let args = serde_json::json!({
+        "input": "*** Begin Patch\n*** Update File: src/core/oauth/config.rs\n@@\n-old\n+new\n*** End Patch\n"
+    });
+    let classification = crate::agent::weles_governance::classify_tool_call("apply_patch", &args);
+
+    assert!(
+        !classification
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("sensitive path")),
+        "ordinary code paths should not be sensitive just because their names contain oauth/config/core: {:?}",
+        classification.reasons
+    );
+    assert!(
+        !engine
+            .should_run_critique_preflight("apply_patch", &classification)
+            .await,
+        "ordinary code path patches should not trigger critique preflight when suspicious-only mode is enabled"
+    );
+}
+
+#[tokio::test]
 async fn critique_preflight_runs_for_sensitive_apply_patch_calls() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;

@@ -443,4 +443,160 @@ mod tests {
 
         let _ = client_handle.await;
     }
+
+    #[tokio::test]
+    async fn oauth_flow_acquisition_works() {
+        let token_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind token server");
+        let token_addr = token_listener.local_addr().expect("token listener address");
+
+        let token_server = tokio::spawn(async move {
+            let (mut stream, _) = token_listener.accept().await.expect("accept token request");
+            let mut buf = vec![0u8; 8192];
+            let n = stream.read(&mut buf).await.expect("read token request");
+            let request = String::from_utf8_lossy(&buf[..n]);
+
+            assert!(
+                request.starts_with("POST /token HTTP/1.1"),
+                "expected code exchange POST request, got: {request}"
+            );
+            assert!(
+                request.contains("grant_type=authorization_code"),
+                "authorization code grant missing from request: {request}"
+            );
+            assert!(
+                request.contains("code=my_auth_code"),
+                "authorization code missing from request: {request}"
+            );
+            assert!(
+                request.contains("authorization: Basic "),
+                "basic auth header missing from request: {request}"
+            );
+            assert!(
+                request.contains("code_verifier="),
+                "PKCE verifier missing from request: {request}"
+            );
+            assert!(
+                request.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A"),
+                "redirect_uri missing from request: {request}"
+            );
+
+            let response_body = r#"{"access_token":"access-token-123","refresh_token":"refresh-token-456","expires_in":1800,"token_type":"Bearer"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("write token response");
+            stream.shutdown().await.expect("shutdown token response");
+        });
+
+        let config = OAuthFlowConfig {
+            client_id: "test-client".to_string(),
+            client_secret: Some("test-secret".to_string()),
+            authorization_url: "https://example.com/auth".to_string(),
+            token_url: format!("http://{token_addr}/token"),
+            scopes: vec!["scope1".to_string(), "scope2".to_string()],
+            pkce: true,
+        };
+
+        let mut state = start_oauth_flow(&config).await.unwrap();
+        let callback_port = state.listener.local_addr().unwrap().port();
+        let csrf = state.csrf_state.clone();
+
+        let callback_client = tokio::spawn(async move {
+            let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", callback_port))
+                .await
+                .expect("connect callback listener");
+            let request = format!(
+                "GET /callback?code=my_auth_code&state={} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                csrf
+            );
+            stream
+                .write_all(request.as_bytes())
+                .await
+                .expect("write callback request");
+            let mut buf = vec![0u8; 4096];
+            let _ = stream.read(&mut buf).await;
+        });
+
+        let code = await_callback(&mut state)
+            .await
+            .expect("callback should succeed");
+        assert_eq!(code, "my_auth_code");
+
+        let result = exchange_code(&state, &code)
+            .await
+            .expect("code exchange should succeed");
+
+        assert_eq!(result.access_token, "access-token-123");
+        assert_eq!(result.refresh_token.as_deref(), Some("refresh-token-456"));
+        assert_eq!(result.expires_in, Some(1800));
+
+        callback_client.await.expect("callback client task");
+        token_server.await.expect("token server task");
+    }
+
+    #[tokio::test]
+    async fn refresh_access_token_handles_expiry() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind refresh token test server");
+        let addr = listener.local_addr().expect("listener address");
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept refresh request");
+            let mut buf = vec![0u8; 4096];
+            let n = stream.read(&mut buf).await.expect("read refresh request");
+            let request = String::from_utf8_lossy(&buf[..n]);
+
+            assert!(
+                request.starts_with("POST /token HTTP/1.1"),
+                "expected refresh POST request, got: {request}"
+            );
+            assert!(
+                request.contains("grant_type=refresh_token"),
+                "refresh grant type missing from request: {request}"
+            );
+            assert!(
+                request.contains("refresh_token=refresh-token-123"),
+                "refresh token missing from request: {request}"
+            );
+
+            let response_body = r#"{"access_token":"access-token-456","refresh_token":"refresh-token-789","expires_in":3600,"token_type":"Bearer"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("write refresh response");
+            stream.shutdown().await.expect("shutdown refresh response");
+        });
+
+        let config = OAuthFlowConfig {
+            client_id: "test-client".to_string(),
+            client_secret: Some("test-secret".to_string()),
+            authorization_url: "https://example.com/auth".to_string(),
+            token_url: format!("http://{addr}/token"),
+            scopes: vec![],
+            pkce: false,
+        };
+
+        let result = refresh_access_token(&config, "refresh-token-123")
+            .await
+            .expect("refresh should succeed");
+
+        assert_eq!(result.access_token, "access-token-456");
+        assert_eq!(result.refresh_token.as_deref(), Some("refresh-token-789"));
+        assert_eq!(result.expires_in, Some(3600));
+
+        server.await.expect("refresh test server task");
+    }
 }

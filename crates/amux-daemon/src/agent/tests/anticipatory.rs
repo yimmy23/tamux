@@ -555,6 +555,48 @@ async fn tool_hesitation_suppresses_optional_morning_brief() {
 }
 
 #[tokio::test]
+async fn historical_tool_hesitation_rate_does_not_suppress_optional_morning_brief() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let now = now_millis();
+    let mut goal = sample_goal_run("goal-recovered-brief", Some("thread-recovered-brief"));
+    goal.title = "Resume recovered flow".to_string();
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now;
+    goal.current_step_title = Some("continue the active work".to_string());
+    engine.goal_runs.lock().await.push_back(goal);
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 35;
+        model.attention_topology.focus_event_count = 555;
+        model.attention_topology.rapid_switch_count = 294;
+        model.implicit_feedback.tool_hesitation_count = 47;
+        model.implicit_feedback.revision_message_count = 5;
+        model.implicit_feedback.rapid_revert_count = 13;
+        refresh_operator_satisfaction(&mut model);
+    }
+    engine.mark_operator_present("test").await;
+
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .items
+            .iter()
+            .any(|item| item.kind == "morning_brief"),
+        "old friction should not permanently suppress optional morning briefs"
+    );
+}
+
+#[tokio::test]
 async fn slow_approval_latency_surfaces_proactive_suppression_transparency() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

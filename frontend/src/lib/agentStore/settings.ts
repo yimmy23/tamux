@@ -94,6 +94,8 @@ export interface AgentSettings {
   "opencode-zen": AgentProviderConfig;
   custom: AgentProviderConfig;
   enable_bash_tool: boolean;
+  managed_sandbox_enabled: boolean;
+  managed_security_level: "highest" | "moderate" | "lowest" | "yolo";
   enable_vision_tool: boolean;
   enable_web_browsing_tool: boolean;
   bash_timeout_seconds: number;
@@ -210,6 +212,8 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   "opencode-zen": { base_url: "https://opencode.ai/zen/v1", model: "claude-sonnet-4-5", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   custom: { base_url: "", model: "", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: 128_000 },
   enable_bash_tool: true,
+  managed_sandbox_enabled: false,
+  managed_security_level: "lowest",
   enable_vision_tool: false,
   enable_web_browsing_tool: false,
   bash_timeout_seconds: 30,
@@ -312,13 +316,21 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   agent_backend: "daemon",
 };
 
-const VALID_AGENT_BACKENDS = ["daemon", "openclaw", "hermes", "legacy"] as const;
+const VALID_AGENT_BACKENDS = ["daemon", "legacy"] as const;
+const VALID_MANAGED_SECURITY_LEVELS = ["highest", "moderate", "lowest", "yolo"] as const;
 
 export function normalizeAgentBackend(value: unknown): AgentBackend {
   if (typeof value === "string" && (VALID_AGENT_BACKENDS as readonly string[]).includes(value)) {
     return value as AgentBackend;
   }
   return "daemon";
+}
+
+function normalizeManagedSecurityLevel(value: unknown): AgentSettings["managed_security_level"] {
+  if (typeof value === "string" && (VALID_MANAGED_SECURITY_LEVELS as readonly string[]).includes(value)) {
+    return value as AgentSettings["managed_security_level"];
+  }
+  return DEFAULT_AGENT_SETTINGS.managed_security_level;
 }
 
 export function loadAgentSettings(): AgentSettings {
@@ -358,6 +370,12 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
   image_generation_provider?: AgentProviderId | string;
   image_generation_model?: string;
   system_prompt?: string;
+  managed_sandbox_enabled?: boolean;
+  managed_security_level?: string;
+  managed_execution?: {
+    sandbox_enabled?: boolean;
+    security_level?: string;
+  };
   auto_compact_context?: boolean;
   max_context_messages?: number;
   react_chat_history_page_size?: number;
@@ -621,6 +639,13 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     honcho_base_url: source.honcho_base_url ?? DEFAULT_AGENT_SETTINGS.honcho_base_url,
     honcho_workspace_id: source.honcho_workspace_id ?? DEFAULT_AGENT_SETTINGS.honcho_workspace_id,
     enable_bash_tool: source.enable_bash_tool ?? source.tools?.bash ?? DEFAULT_AGENT_SETTINGS.enable_bash_tool,
+    managed_sandbox_enabled:
+      source.managed_sandbox_enabled
+      ?? source.managed_execution?.sandbox_enabled
+      ?? DEFAULT_AGENT_SETTINGS.managed_sandbox_enabled,
+    managed_security_level: normalizeManagedSecurityLevel(
+      source.managed_security_level ?? source.managed_execution?.security_level,
+    ),
     enable_vision_tool: source.enable_vision_tool ?? source.tools?.vision ?? DEFAULT_AGENT_SETTINGS.enable_vision_tool,
     enable_web_browsing_tool: source.enable_web_browsing_tool ?? source.tools?.web_browse ?? DEFAULT_AGENT_SETTINGS.enable_web_browsing_tool,
     enable_web_search_tool: source.enable_web_search_tool ?? source.tools?.web_search ?? DEFAULT_AGENT_SETTINGS.enable_web_search_tool,

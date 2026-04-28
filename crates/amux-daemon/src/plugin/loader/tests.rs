@@ -260,6 +260,84 @@ fn scan_plugins_dir_skips_invalid_manifest() {
     assert_eq!(result.skipped[0].0, "bad-plugin");
 }
 
+fn repo_plugin_manifest_path(relative: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative)
+}
+
+#[test]
+fn validate_repo_gitlab_manifest_loads() {
+    let validator = make_validator();
+    let path = repo_plugin_manifest_path("plugins/tamux-plugin-gitlab/gitlab/plugin.json");
+    let raw = std::fs::read(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+
+    let (manifest, _) = validate_manifest(&raw, &validator).expect("gitlab manifest should load");
+    assert_eq!(manifest.name, "gitlab");
+    assert_eq!(manifest.version, "1.0.0");
+    assert!(
+        manifest.api.is_some(),
+        "gitlab plugin should declare api section"
+    );
+    assert!(
+        manifest.commands.is_some(),
+        "gitlab plugin should declare commands"
+    );
+    let endpoints = &manifest.api.as_ref().expect("gitlab api").endpoints;
+    assert!(endpoints.contains_key("get_repo"));
+    assert!(endpoints.contains_key("list_issues"));
+    assert!(endpoints.contains_key("list_merge_requests"));
+}
+
+#[test]
+fn validate_repo_linear_manifest_loads() {
+    let validator = make_validator();
+    let path = repo_plugin_manifest_path("plugins/tamux-plugin-linear/linear/plugin.json");
+    let raw = std::fs::read(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+
+    let (manifest, _) = validate_manifest(&raw, &validator).expect("linear manifest should load");
+    assert_eq!(manifest.name, "linear");
+    assert_eq!(manifest.version, "1.0.0");
+    assert!(
+        manifest.api.is_some(),
+        "linear plugin should declare api section"
+    );
+    assert!(
+        manifest.commands.is_some(),
+        "linear plugin should declare commands"
+    );
+    let endpoints = &manifest.api.as_ref().expect("linear api").endpoints;
+    assert!(endpoints.contains_key("get_issue"));
+    assert!(endpoints.contains_key("list_issues"));
+    assert!(endpoints.contains_key("list_projects"));
+}
+
+#[test]
+fn validate_repo_jira_manifest_loads() {
+    let validator = make_validator();
+    let path = repo_plugin_manifest_path("plugins/tamux-plugin-jira/jira/plugin.json");
+    let raw = std::fs::read(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+
+    let (manifest, _) = validate_manifest(&raw, &validator).expect("jira manifest should load");
+    assert_eq!(manifest.name, "jira");
+    assert_eq!(manifest.version, "1.0.0");
+    assert!(
+        manifest.api.is_some(),
+        "jira plugin should declare api section"
+    );
+    assert!(
+        manifest.commands.is_some(),
+        "jira plugin should declare commands"
+    );
+    let endpoints = &manifest.api.as_ref().expect("jira api").endpoints;
+    assert!(endpoints.contains_key("get_issue"));
+    assert!(endpoints.contains_key("list_issues"));
+    assert!(endpoints.contains_key("list_projects"));
+}
+
 #[test]
 fn scan_plugins_dir_skips_dir_without_manifest() {
     let tmp = tempfile::TempDir::new().unwrap();

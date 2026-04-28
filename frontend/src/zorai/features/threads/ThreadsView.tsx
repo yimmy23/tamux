@@ -2,10 +2,29 @@ import { useMemo, useState, type KeyboardEvent, type UIEvent } from "react";
 import { ToolEventRow } from "@/components/agent-chat-panel/chat-view/ToolEventRow";
 import { buildDisplayItems } from "@/components/agent-chat-panel/chat-view/helpers";
 import { useAgentChatPanelRuntime } from "@/components/agent-chat-panel/runtime/context";
-import type { AgentMessage, AgentThread } from "@/lib/agentStore";
+import { useAgentStore, type AgentMessage, type AgentThread } from "@/lib/agentStore";
+import { ThreadFilePreviewOverlay } from "./ThreadFilePreviewOverlay";
+import { buildThreadFilterTabs, dateFilters, filterThreads, type DateFilterId, type ThreadFilterTab } from "./threadFilterModel";
 
 export function ThreadsRail() {
   const runtime = useAgentChatPanelRuntime();
+  const subAgents = useAgentStore((state) => state.subAgents);
+  const [tab, setTab] = useState<ThreadFilterTab>("svarog");
+  const [dateFilter, setDateFilter] = useState<DateFilterId>("all");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const displayedThreads = useMemo(() => filterThreads(runtime.filteredThreads, {
+    tab,
+    dateFilter,
+    fromDate,
+    toDate,
+    goalThreadIds: goalThreadIds(runtime.goalRunsForTrace),
+  }), [dateFilter, fromDate, runtime.filteredThreads, runtime.goalRunsForTrace, tab, toDate]);
+  const threadTabs = useMemo(() => buildThreadFilterTabs(
+    runtime.filteredThreads,
+    subAgents,
+    goalThreadIds(runtime.goalRunsForTrace),
+  ), [runtime.filteredThreads, runtime.goalRunsForTrace, subAgents]);
 
   return (
     <div className="zorai-rail-stack">
@@ -31,11 +50,34 @@ export function ThreadsRail() {
         onChange={(event) => runtime.setSearchQuery(event.target.value)}
         placeholder="Search threads"
       />
+      <div className="zorai-thread-filter-tabs" aria-label="Thread source filters">
+        {threadTabs.map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            className={["zorai-thread-filter-tab", tab === item.id ? "zorai-thread-filter-tab--active" : ""].filter(Boolean).join(" ")}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div className="zorai-thread-date-filters" aria-label="Thread date filters">
+        <select value={dateFilter} onChange={(event) => setDateFilter(event.target.value as DateFilterId)}>
+          {dateFilters.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+        </select>
+        {dateFilter === "custom" ? (
+          <>
+            <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} aria-label="From date" />
+            <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} aria-label="To date" />
+          </>
+        ) : null}
+      </div>
       <div className="zorai-thread-list">
-        {runtime.filteredThreads.length === 0 ? (
+        {displayedThreads.length === 0 ? (
           <div className="zorai-empty">No threads match this search.</div>
         ) : (
-          runtime.filteredThreads.map((thread) => (
+          displayedThreads.map((thread) => (
             <button
               type="button"
               key={thread.id}
@@ -60,6 +102,16 @@ export function ThreadsRail() {
       </div>
     </div>
   );
+}
+
+function goalThreadIds(goalRuns: ReturnType<typeof useAgentChatPanelRuntime>["goalRunsForTrace"]): Set<string> {
+  const ids = new Set<string>();
+  for (const goal of goalRuns) {
+    for (const id of [goal.thread_id, goal.root_thread_id, goal.active_thread_id, ...(goal.execution_thread_ids ?? [])]) {
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
 }
 
 function threadHistoryLabel(thread: AgentThread): string {
@@ -109,21 +161,11 @@ export function ThreadsView() {
       });
     }
   };
-  const startGoal = () => {
-    const prompt = runtime.input.trim();
-    if (!prompt) return;
-    void runtime.startGoalRunFromPrompt(prompt).then((started) => {
-      if (started) runtime.setInput("");
-    });
-  };
-
   return (
     <section className="zorai-thread-surface zorai-native-thread-surface">
       <ThreadHeader
         thread={runtime.activeThread}
         messageCount={runtime.messages.length}
-        streaming={runtime.isStreamingResponse}
-        onStop={() => runtime.stopStreaming(runtime.activeThreadId)}
       />
       <ParticipantStrip thread={runtime.activeThread} />
 
@@ -169,9 +211,13 @@ export function ThreadsView() {
         <div className="zorai-thread-composer__footer">
           <span>Enter sends. Shift+Enter adds a new line.</span>
           <div className="zorai-card-actions">
-            {runtime.canStartGoalRun ? (
-              <button type="button" className="zorai-ghost-button" onClick={startGoal} disabled={!runtime.input.trim()}>
-                Start Goal
+            {runtime.isStreamingResponse ? (
+              <button
+                type="button"
+                className="zorai-ghost-button zorai-stop-button"
+                onClick={() => runtime.stopStreaming(runtime.activeThreadId)}
+              >
+                Stop
               </button>
             ) : null}
             <button
@@ -189,6 +235,7 @@ export function ThreadsView() {
       {pinLimitResult ? (
         <PinLimitModal result={pinLimitResult} onClose={() => setPinLimitResult(null)} />
       ) : null}
+      <ThreadFilePreviewOverlay />
     </section>
   );
 }
@@ -196,13 +243,9 @@ export function ThreadsView() {
 function ThreadHeader({
   thread,
   messageCount,
-  streaming,
-  onStop,
 }: {
   thread: AgentThread;
   messageCount: number;
-  streaming: boolean;
-  onStop: () => void;
 }) {
   return (
     <header className="zorai-thread-header">
@@ -211,11 +254,6 @@ function ThreadHeader({
         <h2>{thread.title}</h2>
         <span>{messageCount} messages / {thread.agent_name}</span>
       </div>
-      {streaming ? (
-        <button type="button" className="zorai-ghost-button" onClick={onStop}>
-          Stop
-        </button>
-      ) : null}
     </header>
   );
 }
@@ -260,7 +298,12 @@ function MessageBubble({
         <strong>{author}</strong>
         <span>{formatTime(message.createdAt)}{tokenText ? ` / ${tokenText}` : ""}</span>
       </div>
-      {message.reasoning ? <p className="zorai-message__reasoning">{message.reasoning}</p> : null}
+      {message.reasoning ? (
+        <details className="zorai-message__reasoning" open={message.isStreaming ? true : undefined}>
+          <summary className="zorai-message__reasoning-toggle">Reasoning</summary>
+          <div>{message.reasoning}</div>
+        </details>
+      ) : null}
       <div className="zorai-message__content">{message.content || "No text content"}</div>
       {message.toolCalls && message.toolCalls.length > 0 ? (
         <div className="zorai-message__tools">{message.toolCalls.length} tool calls</div>

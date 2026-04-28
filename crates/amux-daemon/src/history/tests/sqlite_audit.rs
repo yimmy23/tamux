@@ -265,6 +265,89 @@ async fn replace_thread_snapshot_replaces_messages_without_losing_thread_row() -
 }
 
 #[tokio::test]
+async fn replace_thread_snapshot_removes_pruned_messages_from_search_index() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "snapshot-search-prune-thread";
+    let thread = AgentDbThread {
+        id: thread_id.to_string(),
+        workspace_id: None,
+        surface_id: None,
+        pane_id: None,
+        agent_name: Some("test-agent".to_string()),
+        title: "Snapshot Search Prune".to_string(),
+        created_at: 1000,
+        updated_at: 1000,
+        message_count: 1,
+        total_tokens: 1,
+        last_preview: "obsolete marker body".to_string(),
+        metadata_json: None,
+    };
+    let old_message = AgentDbMessage {
+        id: "old-search-message".to_string(),
+        thread_id: thread_id.to_string(),
+        created_at: 1001,
+        role: "assistant".to_string(),
+        content: "obsolete marker body".to_string(),
+        provider: None,
+        model: None,
+        input_tokens: Some(0),
+        output_tokens: Some(1),
+        total_tokens: Some(1),
+        cost_usd: None,
+        reasoning: None,
+        tool_calls_json: None,
+        metadata_json: None,
+    };
+    store.create_thread(&thread).await?;
+    store.add_message(&old_message).await?;
+
+    let refreshed_thread = AgentDbThread {
+        updated_at: 2000,
+        message_count: 1,
+        total_tokens: 1,
+        last_preview: "fresh marker body".to_string(),
+        ..thread
+    };
+    let new_message = AgentDbMessage {
+        id: "new-search-message".to_string(),
+        thread_id: thread_id.to_string(),
+        created_at: 2001,
+        role: "assistant".to_string(),
+        content: "fresh marker body".to_string(),
+        provider: None,
+        model: None,
+        input_tokens: Some(0),
+        output_tokens: Some(1),
+        total_tokens: Some(1),
+        cost_usd: None,
+        reasoning: None,
+        tool_calls_json: None,
+        metadata_json: None,
+    };
+
+    store
+        .replace_thread_snapshot(&refreshed_thread, &[new_message])
+        .await?;
+
+    let mut hits = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        hits = store.search("obsolete marker", 5).await?.1;
+        if hits.iter().all(|hit| hit.id != old_message.id) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(
+        hits.iter().all(|hit| hit.id != old_message.id),
+        "pruned message remained searchable: {hits:?}"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn replace_thread_snapshot_does_not_regress_to_stale_snapshot() -> Result<()> {
     let (store, root) = make_test_store().await?;
     let thread_id = "thread-stale-snapshot-guard";

@@ -19,17 +19,30 @@ export function threadContextEntryDisplayPath(entry: WorkContextEntry, shortenPa
   return entry.repoRoot ? `${shortenPath(entry.repoRoot)}/${entry.path}` : shortenPath(entry.path);
 }
 
-export function previewRequestForWorkContextEntry(entry: WorkContextEntry): ThreadContextPreviewRequest {
+function joinRepoPath(repoRoot: string, path: string): string {
+  const cleanRoot = repoRoot.replace(/\/+$/, "");
+  const cleanPath = path.replace(/^\/+/, "");
+  return cleanPath ? `${cleanRoot}/${cleanPath}` : cleanRoot;
+}
+
+export function previewRequestsForWorkContextEntry(entry: WorkContextEntry): ThreadContextPreviewRequest[] {
+  const filePreviewPath = entry.repoRoot ? joinRepoPath(entry.repoRoot, entry.path) : entry.path;
+  const requests: ThreadContextPreviewRequest[] = [{
+    type: "file-preview",
+    path: filePreviewPath,
+  }];
+
   if (entry.repoRoot) {
-    return {
+    requests.push({
       type: "git-diff",
       repoRoot: entry.repoRoot,
       filePath: entry.path,
-    };
+    });
   }
 
-  return {
-    type: "file-preview",
-    path: entry.path,
-  };
+  return requests;
+}
+
+export function previewRequestForWorkContextEntry(entry: WorkContextEntry): ThreadContextPreviewRequest {
+  return previewRequestsForWorkContextEntry(entry)[0];
 }

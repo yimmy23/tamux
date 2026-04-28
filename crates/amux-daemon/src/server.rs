@@ -104,6 +104,40 @@ fn client_message_requires_startup_readiness(msg: &ClientMessage) -> bool {
     )
 }
 
+fn client_surface_can_write_thread(
+    expected_surface: amux_protocol::ClientSurface,
+    actual_surface: amux_protocol::ClientSurface,
+) -> bool {
+    expected_surface == actual_surface
+        || matches!(
+            (expected_surface, actual_surface),
+            (
+                amux_protocol::ClientSurface::Tui,
+                amux_protocol::ClientSurface::Electron
+            ) | (
+                amux_protocol::ClientSurface::Electron,
+                amux_protocol::ClientSurface::Tui
+            )
+        )
+}
+
+#[cfg(test)]
+mod client_surface_authorization_tests {
+    use super::*;
+
+    #[test]
+    fn local_operator_surfaces_can_write_each_others_threads() {
+        assert!(client_surface_can_write_thread(
+            amux_protocol::ClientSurface::Tui,
+            amux_protocol::ClientSurface::Electron
+        ));
+        assert!(client_surface_can_write_thread(
+            amux_protocol::ClientSurface::Electron,
+            amux_protocol::ClientSurface::Tui
+        ));
+    }
+}
+
 #[cfg(test)]
 mod startup_readiness_tests {
     use super::*;

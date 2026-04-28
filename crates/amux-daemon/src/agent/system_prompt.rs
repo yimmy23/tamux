@@ -179,7 +179,7 @@ pub(super) fn build_system_prompt(
          - Memory files have hard limits: SOUL.md 2000 chars, MEMORY.md 3600 chars, USER.md 1800 chars.\n",
     );
     prompt.push_str(&format!(
-        "         - {} is your concierge peer in tamux. Use `message_agent` only for private cross-agent coordination or quick checks. It does not switch the active responder for the operator thread and future operator turns do not route to the message target.\n",
+        "         - {} is your concierge peer in tamux. Use `message_agent` only for private cross-agent coordination or quick checks. It does not switch the active responder for the operator thread and future operator turns do not route to the message target. On visible threads, targeting an active thread participant defaults to visible-thread continuation so participant work stays in the operator thread.\n",
         CONCIERGE_AGENT_NAME
     ));
     prompt.push_str(

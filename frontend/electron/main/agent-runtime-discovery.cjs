@@ -1,5 +1,4 @@
 const fs = require('fs');
-const net = require('net');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -30,15 +29,6 @@ const KNOWN_CODING_AGENTS = [
         launchArgs: [],
     },
     {
-        id: 'hermes',
-        label: 'Hermes Agent',
-        description: 'Nous Research Hermes agent runtime.',
-        executables: ['hermes'],
-        versionArgs: ['--version'],
-        configPaths: ['~/.hermes/config.yaml', '~/.hermes/.env'],
-        launchArgs: [],
-    },
-    {
         id: 'pi',
         label: 'pi.dev',
         description: 'Pi terminal coding harness.',
@@ -53,15 +43,6 @@ const KNOWN_CODING_AGENTS = [
         description: 'OpenCode terminal coding assistant.',
         executables: ['opencode'],
         versionArgs: ['--version'],
-        launchArgs: [],
-    },
-    {
-        id: 'openclaw',
-        label: 'OpenClaw',
-        description: 'OpenClaw agent and gateway runtime.',
-        executables: ['openclaw'],
-        versionArgs: ['--version'],
-        configPaths: ['~/.openclaw/openclaw.json', '~/.openclaw/workspace', '~/.openclaw/state'],
         launchArgs: [],
     },
     {
@@ -266,7 +247,7 @@ function collectAITrainingChecks(definition, workspacePath) {
 function hasWorkspaceChecks(checks, paths) {
     return paths.every((targetPath) => checks.some((check) => check.scope === 'workspace' && check.path === targetPath && check.exists));
 }
-function summarizeRuntimeReadiness(agent, available, checks, gatewayReachable) {
+function summarizeRuntimeReadiness(agent, available, checks) {
     if (!available) {
         return {
             readiness: 'missing',
@@ -277,31 +258,6 @@ function summarizeRuntimeReadiness(agent, available, checks, gatewayReachable) {
     const existingChecks = checks.filter((check) => check.exists);
     const missingChecks = checks.filter((check) => !check.exists);
     const runtimeNotes = [];
-
-    if (agent.id === 'hermes') {
-        if (existingChecks.length > 0) {
-            runtimeNotes.push('Hermes configuration was detected. Consider wiring tamux-mcp into Hermes MCP settings for deeper integration.');
-            return { readiness: 'ready', runtimeNotes };
-        }
-
-        runtimeNotes.push('Hermes is installed, but no ~/.hermes config was detected yet. Run hermes setup before expecting provider-backed workflows.');
-        return { readiness: 'needs-setup', runtimeNotes };
-    }
-
-    if (agent.id === 'openclaw') {
-        if (existingChecks.length === 0) {
-            runtimeNotes.push('OpenClaw is installed, but no ~/.openclaw runtime files were detected yet. Run onboarding before expecting gateway-backed workflows.');
-            return { readiness: 'needs-setup', runtimeNotes };
-        }
-
-        if (gatewayReachable === true) {
-            runtimeNotes.push('OpenClaw gateway responded on 127.0.0.1:18789.');
-            return { readiness: 'ready', runtimeNotes };
-        }
-
-        runtimeNotes.push('OpenClaw configuration is present, but the local gateway did not respond on 127.0.0.1:18789. Direct agent mode should still be usable.');
-        return { readiness: 'needs-setup', runtimeNotes };
-    }
 
     if (agent.id === 'pi') {
         if (existingChecks.length > 0) {
@@ -320,40 +276,12 @@ function summarizeRuntimeReadiness(agent, available, checks, gatewayReachable) {
 
     return { readiness: 'ready', runtimeNotes };
 }
-function checkLocalTcpPort(host, port, timeoutMs = 300) {
-    return new Promise((resolve) => {
-        const socket = net.createConnection({ host, port });
-        let settled = false;
-
-        const finish = (value) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            try {
-                socket.destroy();
-            } catch {
-                // Ignore socket cleanup errors.
-            }
-            resolve(value);
-        };
-
-        socket.setTimeout(timeoutMs);
-        socket.once('connect', () => finish(true));
-        socket.once('timeout', () => finish(false));
-        socket.once('error', () => finish(false));
-        socket.once('close', () => finish(false));
-    });
-}
 async function discoverCodingAgents() {
     const discovered = await Promise.all(KNOWN_CODING_AGENTS.map(async (agent) => {
         const executable = agent.executables.find((candidate) => resolveExecutablePath(candidate)) || null;
         const commandPath = executable ? resolveExecutablePath(executable) : null;
         const checks = collectConfigChecks(agent.configPaths || []);
-        const gatewayReachable = agent.id === 'openclaw'
-            ? await checkLocalTcpPort('127.0.0.1', 18789)
-            : null;
-        const readinessSummary = summarizeRuntimeReadiness(agent, Boolean(commandPath), checks, gatewayReachable);
+        const readinessSummary = summarizeRuntimeReadiness(agent, Boolean(commandPath), checks);
 
         return {
             id: agent.id,
@@ -364,8 +292,8 @@ async function discoverCodingAgents() {
             readiness: readinessSummary.readiness,
             checks,
             runtimeNotes: readinessSummary.runtimeNotes,
-            gatewayLabel: agent.id === 'openclaw' ? '127.0.0.1:18789' : null,
-            gatewayReachable,
+            gatewayLabel: null,
+            gatewayReachable: null,
             error: commandPath ? null : `${agent.label} was not found on PATH.`,
         };
     }));

@@ -77,6 +77,7 @@ async fn execute_run_terminal_command(
                 session_id,
                 "run_terminal_command",
                 cancel_token,
+                None,
             )
             .await;
         }
@@ -99,6 +100,7 @@ async fn execute_run_terminal_command(
             session_id,
             "run_terminal_command",
             cancel_token,
+            None,
         )
         .await
     }
@@ -115,6 +117,7 @@ async fn execute_bash_command(
     cancel_token: Option<CancellationToken>,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
     let client_surface = resolve_shell_tool_client_surface(agent, thread_id, task_id).await;
+    let foreground_detach_after = headless_foreground_detach_after_for_surface(client_surface);
     if should_use_managed_execution_for_surface(client_surface, args) {
         if session_manager.list().await.is_empty()
             && can_run_headless_when_terminal_unavailable(args)
@@ -125,6 +128,7 @@ async fn execute_bash_command(
                 session_id,
                 "bash_command",
                 cancel_token,
+                foreground_detach_after,
             )
             .await;
         }
@@ -147,9 +151,19 @@ async fn execute_bash_command(
             session_id,
             "bash_command",
             cancel_token,
+            foreground_detach_after,
         )
         .await
     }
+}
+
+const TUI_HEADLESS_FOREGROUND_GRACE_SECS: u64 = 1;
+
+fn headless_foreground_detach_after_for_surface(
+    client_surface: Option<amux_protocol::ClientSurface>,
+) -> Option<std::time::Duration> {
+    matches!(client_surface, Some(amux_protocol::ClientSurface::Tui))
+        .then(|| std::time::Duration::from_secs(TUI_HEADLESS_FOREGROUND_GRACE_SECS))
 }
 
 async fn resolve_shell_tool_client_surface(
@@ -400,6 +414,7 @@ async fn execute_headless_shell_command(
     session_id: Option<SessionId>,
     tool_name: &str,
     cancel_token: Option<CancellationToken>,
+    foreground_detach_after: Option<std::time::Duration>,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
     let command = args
         .get("command")
@@ -468,16 +483,15 @@ async fn execute_headless_shell_command(
         Ok::<Vec<u8>, std::io::Error>(buf)
     });
 
-    let wait_result = async {
-        tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), child.wait())
-            .await
-            .map_err(|_| anyhow::anyhow!("{tool_name} timed out after {timeout_secs}s"))?
-            .with_context(|| format!("{tool_name} process wait failed"))
-    };
+    let full_timeout = std::time::Duration::from_secs(timeout_secs);
+    let foreground_wait = foreground_detach_after
+        .map(|duration| duration.min(full_timeout))
+        .unwrap_or(full_timeout);
+    let wait_result = tokio::time::timeout(foreground_wait, child.wait());
 
     let status = if let Some(token) = cancel_token.as_ref() {
         tokio::select! {
-            result = wait_result => result?,
+            result = wait_result => result,
             _ = token.cancelled() => {
                 let _ = child.start_kill();
                 let _ = child.wait().await;
@@ -487,7 +501,38 @@ async fn execute_headless_shell_command(
             }
         }
     } else {
-        wait_result.await?
+        wait_result.await
+    };
+
+    let status = match status {
+        Ok(result) => result.with_context(|| format!("{tool_name} process wait failed"))?,
+        Err(_) if foreground_detach_after.is_some() && foreground_wait < full_timeout => {
+            let operation = crate::server::operation_registry().accept_operation(tool_name, None);
+            let operation_id = operation.operation_id.clone();
+            crate::server::operation_registry().mark_started(&operation_id);
+            spawn_headless_shell_monitor(
+                operation_id.clone(),
+                command.to_string(),
+                cwd.clone(),
+                child,
+                stdout_task,
+                stderr_task,
+            );
+            let cwd_suffix = cwd
+                .as_ref()
+                .map(|path| format!(" in {}", path.display()))
+                .unwrap_or_default();
+            return Ok((
+                format!(
+                    "Headless command detached{cwd_suffix} as background operation {operation_id} after {}s foreground grace.\noperation_id: {operation_id}\nwait_for_completion=true exceeded the TUI foreground grace window. Use get_operation_status with this operation_id for explicit polling.",
+                    foreground_wait.as_secs()
+                ),
+                None,
+            ));
+        }
+        Err(_) => {
+            anyhow::bail!("{tool_name} timed out after {timeout_secs}s");
+        }
     };
 
     let stdout = stdout_task
@@ -582,69 +627,14 @@ fn spawn_headless_shell_command_background(
     });
 
     crate::server::operation_registry().mark_started(&operation_id);
-
-    let operation_id_for_task = operation_id.clone();
-    let command_for_task = command.to_string();
-    let cwd_for_task = cwd.as_ref().map(|path| path.display().to_string());
-    let started_at = std::time::Instant::now();
-    tokio::spawn(async move {
-        let outcome = child.wait().await;
-        let stdout = stdout_task
-            .await
-            .ok()
-            .and_then(|result| result.ok())
-            .map(|bytes| compact_background_output(&bytes, 4000))
-            .filter(|value| !value.is_empty());
-        let stderr = stderr_task
-            .await
-            .ok()
-            .and_then(|result| result.ok())
-            .map(|bytes| compact_background_output(&bytes, 4000))
-            .filter(|value| !value.is_empty());
-        let duration_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-
-        match outcome {
-            Ok(status) if status.success() => {
-                crate::server::operation_registry().mark_completed_with_terminal_result(
-                    &operation_id_for_task,
-                    serde_json::json!({
-                        "command": command_for_task,
-                        "cwd": cwd_for_task,
-                        "exit_code": status.code(),
-                        "duration_ms": duration_ms,
-                        "stdout": stdout,
-                        "stderr": stderr,
-                    }),
-                );
-            }
-            Ok(status) => {
-                crate::server::operation_registry().mark_failed_with_terminal_result(
-                    &operation_id_for_task,
-                    serde_json::json!({
-                        "command": command_for_task,
-                        "cwd": cwd_for_task,
-                        "exit_code": status.code(),
-                        "duration_ms": duration_ms,
-                        "stdout": stdout,
-                        "stderr": stderr,
-                    }),
-                );
-            }
-            Err(error) => {
-                crate::server::operation_registry().mark_failed_with_terminal_result(
-                    &operation_id_for_task,
-                    serde_json::json!({
-                        "command": command_for_task,
-                        "cwd": cwd_for_task,
-                        "duration_ms": duration_ms,
-                        "spawn_error": error.to_string(),
-                        "stdout": stdout,
-                        "stderr": stderr,
-                    }),
-                );
-            }
-        }
-    });
+    spawn_headless_shell_monitor(
+        operation_id.clone(),
+        command.to_string(),
+        cwd.clone(),
+        child,
+        stdout_task,
+        stderr_task,
+    );
 
     let cwd_suffix = cwd
         .as_ref()
@@ -669,4 +659,74 @@ fn spawn_headless_shell_command_background(
             None,
         ))
     }
+}
+
+fn spawn_headless_shell_monitor(
+    operation_id: String,
+    command: String,
+    cwd: Option<PathBuf>,
+    mut child: tokio::process::Child,
+    stdout_task: tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>>,
+    stderr_task: tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>>,
+) {
+    let cwd_for_task = cwd.as_ref().map(|path| path.display().to_string());
+    let started_at = std::time::Instant::now();
+    tokio::spawn(async move {
+        let outcome = child.wait().await;
+        let stdout = stdout_task
+            .await
+            .ok()
+            .and_then(|result| result.ok())
+            .map(|bytes| compact_background_output(&bytes, 4000))
+            .filter(|value| !value.is_empty());
+        let stderr = stderr_task
+            .await
+            .ok()
+            .and_then(|result| result.ok())
+            .map(|bytes| compact_background_output(&bytes, 4000))
+            .filter(|value| !value.is_empty());
+        let duration_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+
+        match outcome {
+            Ok(status) if status.success() => {
+                crate::server::operation_registry().mark_completed_with_terminal_result(
+                    &operation_id,
+                    serde_json::json!({
+                        "command": command,
+                        "cwd": cwd_for_task,
+                        "exit_code": status.code(),
+                        "duration_ms": duration_ms,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    }),
+                );
+            }
+            Ok(status) => {
+                crate::server::operation_registry().mark_failed_with_terminal_result(
+                    &operation_id,
+                    serde_json::json!({
+                        "command": command,
+                        "cwd": cwd_for_task,
+                        "exit_code": status.code(),
+                        "duration_ms": duration_ms,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    }),
+                );
+            }
+            Err(error) => {
+                crate::server::operation_registry().mark_failed_with_terminal_result(
+                    &operation_id,
+                    serde_json::json!({
+                        "command": command,
+                        "cwd": cwd_for_task,
+                        "duration_ms": duration_ms,
+                        "spawn_error": error.to_string(),
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    }),
+                );
+            }
+        }
+    });
 }

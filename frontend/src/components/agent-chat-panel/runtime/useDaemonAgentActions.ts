@@ -8,36 +8,13 @@ import { startGoalRun, goalRunSupportAvailable, type GoalRun } from "@/lib/goalR
 import { useWorkspaceStore } from "@/lib/workspaceStore";
 import { appendDaemonSystemMessage, normalizeBridgePayload, reloadDaemonThreadIntoLocalState } from "./daemonHelpers";
 import { parseLeadingAgentDirective, type AgentDirective } from "./agentDirective";
+import { builtinAgentSetupCandidate, isBuiltinPersonaSetupError } from "./builtinAgentSetupPreflight";
 import type { BuiltinAgentSetupState } from "./types";
-
-const BUILTIN_PERSONA_ALIASES = [
-  "swarozyc",
-  "radogost",
-  "domowoj",
-  "swietowit",
-  "perun",
-  "mokosh",
-  "dazhbog",
-] as const;
 
 type PendingBuiltinAgentSetup = BuiltinAgentSetupState & {
   directive: AgentDirective;
   threadId: string | null;
 };
-
-function isBuiltinPersonaAlias(agentAlias: string): boolean {
-  return BUILTIN_PERSONA_ALIASES.includes(agentAlias.trim().toLowerCase() as (typeof BUILTIN_PERSONA_ALIASES)[number]);
-}
-
-function isBuiltinPersonaSetupError(error: string | undefined, targetAgentId: string): boolean {
-  const normalizedError = (error ?? "").toLowerCase();
-  return normalizedError.includes(`builtin agent '${targetAgentId.toLowerCase()}' is not configured`);
-}
-
-function builtinPersonaDisplayName(agentAlias: string): string {
-  const normalized = agentAlias.trim().toLowerCase();
-  return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : agentAlias;
-}
 
 function parseImageGenerationPrompt(text: string): string | null {
   const match = text.trim().match(/^\/image(?:\s+([\s\S]*))?$/);
@@ -101,10 +78,37 @@ export function useDaemonAgentActions({
     const defaultModel = defaultProviderConfig?.model?.trim()
       || getProviderDefinition(defaultProviderId)?.defaultModel
       || "";
+    const promptBuiltinSetupIfNeeded = async (threadId: string | null): Promise<boolean> => {
+      if (!promptForSetup) {
+        return false;
+      }
+      let candidate = builtinAgentSetupCandidate(targetAgentId, useAgentStore.getState().subAgents);
+      if (!candidate) {
+        return false;
+      }
+      await useAgentStore.getState().refreshSubAgents();
+      candidate = builtinAgentSetupCandidate(targetAgentId, useAgentStore.getState().subAgents);
+      if (!candidate) {
+        return false;
+      }
+      setPendingBuiltinAgentSetup({
+        targetAgentId: candidate.targetAgentId,
+        targetAgentName: candidate.targetAgentName,
+        providerId: defaultProviderId,
+        model: defaultModel,
+        error: null,
+        directive,
+        threadId,
+      });
+      return true;
+    };
 
     if (directive.kind === "internal_delegate") {
       if (!amux?.agentInternalDelegate) {
         appendDaemonSystemMessage("Internal delegation is not available in this runtime.", currentThreadId);
+        return true;
+      }
+      if (await promptBuiltinSetupIfNeeded(daemonThreadId ?? currentThreadId ?? null)) {
         return true;
       }
       const response = await amux.agentInternalDelegate(
@@ -114,10 +118,11 @@ export function useDaemonAgentActions({
         null,
       );
       const payload = normalizeBridgePayload(response);
-      if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaAlias(targetAgentId) && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+      if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+        const candidate = builtinAgentSetupCandidate(targetAgentId, useAgentStore.getState().subAgents);
         setPendingBuiltinAgentSetup({
-          targetAgentId,
-          targetAgentName: builtinPersonaDisplayName(directive.agentAlias),
+          targetAgentId: candidate?.targetAgentId ?? targetAgentId,
+          targetAgentName: candidate?.targetAgentName ?? targetAgentId,
           providerId: defaultProviderId,
           model: defaultModel,
           error: null,
@@ -146,6 +151,9 @@ export function useDaemonAgentActions({
       appendDaemonSystemMessage("Thread participants are not available in this runtime.", currentThreadId);
       return true;
     }
+    if (await promptBuiltinSetupIfNeeded(daemonThreadId)) {
+      return true;
+    }
     const response = await amux.agentThreadParticipantCommand({
       threadId: daemonThreadId,
       targetAgentId: directive.agentAlias,
@@ -154,10 +162,11 @@ export function useDaemonAgentActions({
       sessionId: null,
     });
     const payload = normalizeBridgePayload(response);
-    if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaAlias(targetAgentId) && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+    if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+      const candidate = builtinAgentSetupCandidate(targetAgentId, useAgentStore.getState().subAgents);
       setPendingBuiltinAgentSetup({
-        targetAgentId,
-        targetAgentName: builtinPersonaDisplayName(directive.agentAlias),
+        targetAgentId: candidate?.targetAgentId ?? targetAgentId,
+        targetAgentName: candidate?.targetAgentName ?? targetAgentId,
         providerId: defaultProviderId,
         model: defaultModel,
         error: null,
@@ -165,6 +174,13 @@ export function useDaemonAgentActions({
         threadId: daemonThreadId,
       });
       return true;
+    }
+    if (payload?.ok !== false) {
+      await reloadDaemonThreadIntoLocalState({
+        daemonThreadId,
+        setThreadTodos,
+        setDaemonTodosByThread,
+      });
     }
     appendDaemonSystemMessage(
       payload?.ok === false && typeof payload?.error === "string"
@@ -178,6 +194,8 @@ export function useDaemonAgentActions({
   }, [
     agentSettings,
     daemonThreadIdRef,
+    setDaemonTodosByThread,
+    setThreadTodos,
   ]);
 
   const submitBuiltinAgentSetup = useCallback(async (providerId: AgentProviderId, model: string) => {
@@ -202,6 +220,7 @@ export function useDaemonAgentActions({
       return;
     }
     setPendingBuiltinAgentSetup(null);
+    await useAgentStore.getState().refreshSubAgents();
     await runDirective(pending.directive, pending.threadId, false);
   }, [pendingBuiltinAgentSetup, runDirective]);
 
@@ -388,6 +407,9 @@ export function useDaemonAgentActions({
         return;
       }
 
+      if (/^[!@]\S+/.test(trimmed)) {
+        await useAgentStore.getState().refreshSubAgents();
+      }
       const knownAgentAliases = [
         "main",
         "svarog",
@@ -458,12 +480,11 @@ export function useDaemonAgentActions({
         isCompactionSummary: false,
       });
 
-      const isExternalAgent = agentSettings.agent_backend === "openclaw" || agentSettings.agent_backend === "hermes";
       addMessage(threadId, {
         role: "assistant",
         content: "",
-        provider: isExternalAgent ? agentSettings.agent_backend : agentSettings.active_provider,
-        model: isExternalAgent ? agentSettings.agent_backend : ((agentSettings[agentSettings.active_provider] as any)?.model || "unknown"),
+        provider: agentSettings.active_provider,
+        model: ((agentSettings[agentSettings.active_provider] as any)?.model || "unknown"),
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,

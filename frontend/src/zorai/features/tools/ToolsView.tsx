@@ -2,9 +2,9 @@ import { useEffect, type CSSProperties } from "react";
 import { CommandLogPanel } from "@/components/CommandLogPanel";
 import { FileManagerPanel } from "@/components/FileManagerPanel";
 import { InfiniteCanvasSurface } from "@/components/InfiniteCanvasSurface";
+import { LayoutContainer } from "@/components/LayoutContainer";
 import { SessionVaultPanel } from "@/components/SessionVaultPanel";
 import { SystemMonitorPanel } from "@/components/SystemMonitorPanel";
-import { TerminalPane } from "@/components/TerminalPane";
 import { WebBrowserPanel } from "@/components/WebBrowserPanel";
 import type { Surface } from "@/lib/types";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
@@ -93,6 +93,66 @@ export function ToolsView({ activeTool, onSelectTool }: ToolsProps) {
   );
 }
 
+export function ToolsContext({ activeTool, onSelectTool }: ToolsProps) {
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace);
+  const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface);
+  const closeWorkspace = useWorkspaceStore((state) => state.closeWorkspace);
+
+  return (
+    <div className="zorai-context-summary">
+      <div className="zorai-section-label">Operational Workspaces</div>
+      <div className="zorai-context-block">
+        <strong>{activeToolLabel(activeTool)}</strong>
+        <span>Stored terminal and canvas workspaces.</span>
+      </div>
+      <div className="zorai-operational-workspaces">
+        {workspaces.length === 0 ? (
+          <div className="zorai-empty">No operational workspaces yet.</div>
+        ) : workspaces.map((workspace) => (
+          <div key={workspace.id} className={["zorai-context-block", workspace.id === activeWorkspaceId ? "zorai-context-block--active" : ""].filter(Boolean).join(" ")}>
+            <button
+              type="button"
+              className="zorai-context-link"
+              onClick={() => {
+                setActiveWorkspace(workspace.id);
+                onSelectTool("terminal");
+              }}
+            >
+              {workspace.name}
+            </button>
+            <span>{workspace.surfaces.length} surfaces / {workspace.cwd}</span>
+            <button
+              type="button"
+              className="zorai-context-chip"
+              onClick={() => closeWorkspace(workspace.id)}
+            >
+              Remove workspace
+            </button>
+            <div className="zorai-operational-surfaces">
+              {workspace.surfaces.map((surface) => (
+                <button
+                  type="button"
+                  key={surface.id}
+                  className="zorai-context-chip"
+                  onClick={() => {
+                    setActiveWorkspace(workspace.id);
+                    setActiveSurface(surface.id);
+                    onSelectTool(surface.layoutMode === "canvas" ? "canvas" : "terminal");
+                  }}
+                >
+                  {surface.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ToolSurface({ activeTool }: { activeTool: ZoraiToolId }) {
   useEmbeddedToolState(activeTool);
 
@@ -107,12 +167,19 @@ function ToolSurface({ activeTool }: { activeTool: ZoraiToolId }) {
 }
 
 function TerminalTool() {
-  const activePaneId = useWorkspaceStore((state) => state.activePaneId());
   const activeWorkspace = useWorkspaceStore((state) => state.activeWorkspace());
   const activeSurface = useWorkspaceStore((state) => state.activeSurface());
   const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
   const createSurface = useWorkspaceStore((state) => state.createSurface);
+  const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface);
   const splitActive = useWorkspaceStore((state) => state.splitActive);
+  const terminalSurface = resolveTerminalSurface(activeSurface, activeWorkspace?.surfaces ?? []);
+
+  useEffect(() => {
+    if (terminalSurface && activeSurface?.id !== terminalSurface.id) {
+      setActiveSurface(terminalSurface.id);
+    }
+  }, [activeSurface?.id, setActiveSurface, terminalSurface]);
 
   const createTerminalSurface = () => {
     if (!activeWorkspace) {
@@ -122,11 +189,23 @@ function TerminalTool() {
     createSurface(activeWorkspace.id, { layoutMode: "bsp" });
   };
 
-  const splitTerminal = (direction: "horizontal" | "vertical") => {
-    if (!activeSurface) {
-      createTerminalSurface();
-      return;
+  const ensureTerminalSurface = () => {
+    if (terminalSurface) {
+      setActiveSurface(terminalSurface.id);
+      return terminalSurface;
     }
+    if (!activeWorkspace) {
+      createWorkspace("Workspace", { layoutMode: "bsp" });
+      return getActiveTerminalSurface();
+    }
+    const surfaceId = createSurface(activeWorkspace.id, { layoutMode: "bsp" });
+    return getSurfaceById(surfaceId);
+  };
+
+  const splitTerminal = (direction: "horizontal" | "vertical") => {
+    const surface = ensureTerminalSurface();
+    if (!surface) return;
+    setActiveSurface(surface.id);
     splitActive(direction, direction === "horizontal" ? "Right Terminal" : "Down Terminal");
   };
 
@@ -135,7 +214,7 @@ function TerminalTool() {
       <div className="zorai-tool-actionbar">
         <div>
           <div className="zorai-section-label">Terminal surfaces</div>
-          <strong>{activeSurface?.layoutMode === "canvas" ? "Canvas terminal panel" : "BSP terminal surface"}</strong>
+          <strong>{terminalSurface ? terminalSurface.name : "No BSP terminal surface open"}</strong>
         </div>
         <div className="zorai-card-actions">
           <button type="button" className="zorai-primary-button" onClick={createTerminalSurface}>New terminal surface</button>
@@ -146,8 +225,8 @@ function TerminalTool() {
       </div>
 
       <div className="zorai-terminal-tool">
-        {activePaneId ? (
-          <TerminalPane paneId={activePaneId} hideHeader />
+        {terminalSurface && activeSurface?.id === terminalSurface.id ? (
+          <LayoutContainer />
         ) : (
           <div className="zorai-tool-empty">
             <strong>No active terminal pane</strong>
@@ -183,7 +262,11 @@ function CanvasTool() {
   };
 
   const createCanvasSurface = () => {
-    ensureCanvasSurface();
+    if (!activeWorkspace) {
+      createWorkspace("Workspace", { layoutMode: "canvas" });
+      return;
+    }
+    createSurface(activeWorkspace.id, { layoutMode: "canvas" });
   };
 
   const createCanvasTerminal = () => {
@@ -253,9 +336,19 @@ function resolveCanvasSurface(activeSurface: Surface | undefined, surfaces: Surf
   return surfaces.find((surface) => surface.layoutMode === "canvas") ?? null;
 }
 
+function resolveTerminalSurface(activeSurface: Surface | undefined, surfaces: Surface[]): Surface | null {
+  if (activeSurface?.layoutMode === "bsp") return activeSurface;
+  return surfaces.find((surface) => surface.layoutMode === "bsp") ?? null;
+}
+
 function getActiveCanvasSurface(): Surface | null {
   const surface = useWorkspaceStore.getState().activeSurface();
   return surface?.layoutMode === "canvas" ? surface : null;
+}
+
+function getActiveTerminalSurface(): Surface | null {
+  const surface = useWorkspaceStore.getState().activeSurface();
+  return surface?.layoutMode === "bsp" ? surface : null;
 }
 
 function getSurfaceById(surfaceId: string | null): Surface | null {
@@ -263,6 +356,10 @@ function getSurfaceById(surfaceId: string | null): Surface | null {
   return useWorkspaceStore.getState().workspaces
     .flatMap((workspace) => workspace.surfaces)
     .find((surface) => surface.id === surfaceId) ?? null;
+}
+
+function activeToolLabel(activeTool: ZoraiToolId): string {
+  return zoraiTools.find((tool) => tool.id === activeTool)?.title ?? "Operator Tools";
 }
 
 function useEmbeddedToolState(activeTool: ZoraiToolId) {

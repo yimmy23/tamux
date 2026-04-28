@@ -28,9 +28,14 @@ export interface GoalRunStep {
     id: string;
     title: string;
     kind: GoalRunStepKind;
+    position?: number | null;
     status?: string | null;
+    instructions?: string;
     success_condition?: string | null;
     session_id?: string | null;
+    task_id?: string | null;
+    summary?: string | null;
+    error?: string | null;
 }
 
 export interface GoalRunEvent {
@@ -69,6 +74,63 @@ export interface GoalAgentAssignment {
     inherit_from_main: boolean;
 }
 
+export interface GoalEvidenceRecord {
+    id: string;
+    title: string;
+    source?: string | null;
+    uri?: string | null;
+    summary?: string | null;
+    captured_at?: number | null;
+}
+
+export interface GoalProofCheckRecord {
+    id: string;
+    title: string;
+    state: string;
+    summary?: string | null;
+    evidence_ids: string[];
+    resolved_at?: number | null;
+}
+
+export interface GoalRunReportRecord {
+    summary: string;
+    state: string;
+    notes: string[];
+    evidence: GoalEvidenceRecord[];
+    proof_checks: GoalProofCheckRecord[];
+    generated_at?: number | null;
+}
+
+export interface GoalResumeDecisionRecord {
+    action: string;
+    reason_code: string;
+    reason?: string | null;
+    details: string[];
+    decided_at?: number | null;
+    projection_state: string;
+}
+
+export interface GoalDeliveryUnitRecord {
+    id: string;
+    title: string;
+    status: string;
+    execution_binding: string;
+    verification_binding: string;
+    summary?: string | null;
+    proof_checks: GoalProofCheckRecord[];
+    evidence: GoalEvidenceRecord[];
+    report?: GoalRunReportRecord | null;
+}
+
+export interface GoalRunDossier {
+    units: GoalDeliveryUnitRecord[];
+    projection_state: string;
+    latest_resume_decision?: GoalResumeDecisionRecord | null;
+    report?: GoalRunReportRecord | null;
+    summary?: string | null;
+    projection_error?: string | null;
+}
+
 export interface GoalRun {
     id: string;
     title: string;
@@ -80,6 +142,9 @@ export interface GoalRun {
     started_at?: number | null;
     completed_at?: number | null;
     thread_id?: string | null;
+    root_thread_id?: string | null;
+    active_thread_id?: string | null;
+    execution_thread_ids?: string[];
     current_step_index?: number | null;
     current_step_title?: string | null;
     current_step_kind?: GoalRunStepKind | null;
@@ -109,6 +174,7 @@ export interface GoalRun {
     current_step_owner_profile?: GoalRuntimeOwnerProfile | null;
     steps?: GoalRunStep[];
     events?: GoalRunEvent[];
+    dossier?: GoalRunDossier | null;
 }
 
 export interface StartGoalRunPayload {
@@ -119,6 +185,7 @@ export interface StartGoalRunPayload {
     threadId?: string | null;
     clientRequestId?: string | null;
     requiresApproval?: boolean;
+    launchAssignments?: GoalAgentAssignment[];
 }
 
 import { getBridge } from "./bridge";
@@ -254,6 +321,117 @@ function normalizeModelUsage(raw: unknown): GoalRunModelUsage[] {
         .filter((entry): entry is GoalRunModelUsage => entry !== null);
 }
 
+function normalizeEvidence(raw: unknown): GoalEvidenceRecord | null {
+    const evidence = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : null;
+    if (!evidence) return null;
+    const id = toStringOrEmpty(evidence.id);
+    const title = toStringOrEmpty(evidence.title);
+    if (!id || !title) return null;
+    return {
+        id,
+        title,
+        source: typeof evidence.source === "string" ? evidence.source : null,
+        uri: typeof evidence.uri === "string" ? evidence.uri : null,
+        summary: typeof evidence.summary === "string" ? evidence.summary : null,
+        captured_at: toNumberOrNull(evidence.captured_at ?? evidence.capturedAt),
+    };
+}
+
+function normalizeProofCheck(raw: unknown): GoalProofCheckRecord | null {
+    const proof = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : null;
+    if (!proof) return null;
+    const id = toStringOrEmpty(proof.id);
+    const title = toStringOrEmpty(proof.title);
+    if (!id || !title) return null;
+    return {
+        id,
+        title,
+        state: toStringOrEmpty(proof.state) || "pending",
+        summary: typeof proof.summary === "string" ? proof.summary : null,
+        evidence_ids: toStringArray(proof.evidence_ids ?? proof.evidenceIds),
+        resolved_at: toNumberOrNull(proof.resolved_at ?? proof.resolvedAt),
+    };
+}
+
+function normalizeReport(raw: unknown): GoalRunReportRecord | null {
+    const report = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : null;
+    if (!report) return null;
+    const summary = toStringOrEmpty(report.summary);
+    const state = toStringOrEmpty(report.state);
+    const proofRaw = report.proof_checks ?? report.proofChecks;
+    if (!summary && !state) return null;
+    return {
+        summary,
+        state: state || "pending",
+        notes: toStringArray(report.notes),
+        evidence: Array.isArray(report.evidence)
+            ? report.evidence.map(normalizeEvidence).filter((entry): entry is GoalEvidenceRecord => entry !== null)
+            : [],
+        proof_checks: Array.isArray(proofRaw)
+            ? proofRaw.map(normalizeProofCheck).filter((entry): entry is GoalProofCheckRecord => entry !== null)
+            : [],
+        generated_at: toNumberOrNull(report.generated_at ?? report.generatedAt),
+    };
+}
+
+function normalizeResumeDecision(raw: unknown): GoalResumeDecisionRecord | null {
+    const decision = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : null;
+    if (!decision) return null;
+    const action = toStringOrEmpty(decision.action);
+    const reasonCode = toStringOrEmpty(decision.reason_code ?? decision.reasonCode);
+    if (!action && !reasonCode) return null;
+    return {
+        action: action || "continue",
+        reason_code: reasonCode || "unknown",
+        reason: typeof decision.reason === "string" ? decision.reason : null,
+        details: toStringArray(decision.details),
+        decided_at: toNumberOrNull(decision.decided_at ?? decision.decidedAt),
+        projection_state: toStringOrEmpty(decision.projection_state ?? decision.projectionState) || "unknown",
+    };
+}
+
+function normalizeDeliveryUnit(raw: unknown): GoalDeliveryUnitRecord | null {
+    const unit = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : null;
+    if (!unit) return null;
+    const id = toStringOrEmpty(unit.id);
+    const title = toStringOrEmpty(unit.title);
+    if (!id || !title) return null;
+    const proofRaw = unit.proof_checks ?? unit.proofChecks;
+    return {
+        id,
+        title,
+        status: toStringOrEmpty(unit.status) || "pending",
+        execution_binding: toStringOrEmpty(unit.execution_binding ?? unit.executionBinding),
+        verification_binding: toStringOrEmpty(unit.verification_binding ?? unit.verificationBinding),
+        summary: typeof unit.summary === "string" ? unit.summary : null,
+        proof_checks: Array.isArray(proofRaw)
+            ? proofRaw.map(normalizeProofCheck).filter((entry): entry is GoalProofCheckRecord => entry !== null)
+            : [],
+        evidence: Array.isArray(unit.evidence)
+            ? unit.evidence.map(normalizeEvidence).filter((entry): entry is GoalEvidenceRecord => entry !== null)
+            : [],
+        report: normalizeReport(unit.report),
+    };
+}
+
+function normalizeDossier(raw: unknown): GoalRunDossier | null {
+    const dossier = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : null;
+    if (!dossier) return null;
+    const unitsRaw = Array.isArray(dossier.units) ? dossier.units : [];
+    return {
+        units: unitsRaw.map(normalizeDeliveryUnit).filter((entry): entry is GoalDeliveryUnitRecord => entry !== null),
+        projection_state: toStringOrEmpty(dossier.projection_state ?? dossier.projectionState) || "unknown",
+        latest_resume_decision: normalizeResumeDecision(dossier.latest_resume_decision ?? dossier.latestResumeDecision),
+        report: normalizeReport(dossier.report),
+        summary: typeof dossier.summary === "string" ? dossier.summary : null,
+        projection_error: typeof dossier.projection_error === "string"
+            ? dossier.projection_error
+            : typeof dossier.projectionError === "string"
+                ? dossier.projectionError
+                : null,
+    };
+}
+
 function toTodoStatus(value: unknown): TodoStatus {
     switch (value) {
         case "in_progress":
@@ -306,7 +484,9 @@ function normalizeStep(raw: unknown, index: number): GoalRunStep {
         id: typeof step.id === "string" && step.id ? step.id : `step-${index}`,
         title: typeof step.title === "string" && step.title ? step.title : `Step ${index + 1}`,
         kind: toStepKind(step.kind),
+        position: toNumberOrNull(step.position),
         status: typeof step.status === "string" ? step.status : null,
+        instructions: typeof step.instructions === "string" ? step.instructions : "",
         success_condition: typeof step.success_condition === "string"
             ? step.success_condition
             : typeof step.success_criteria === "string"
@@ -319,6 +499,13 @@ function normalizeStep(raw: unknown, index: number): GoalRunStep {
             : typeof step.sessionId === "string"
                 ? step.sessionId
                 : null,
+        task_id: typeof step.task_id === "string"
+            ? step.task_id
+            : typeof step.taskId === "string"
+                ? step.taskId
+                : null,
+        summary: typeof step.summary === "string" ? step.summary : null,
+        error: typeof step.error === "string" ? step.error : null,
     };
 }
 
@@ -366,6 +553,17 @@ export function normalizeGoalRun(raw: unknown): GoalRun | null {
             : typeof goalRun.threadId === "string"
                 ? goalRun.threadId
                 : null,
+        root_thread_id: typeof goalRun.root_thread_id === "string"
+            ? goalRun.root_thread_id
+            : typeof goalRun.rootThreadId === "string"
+                ? goalRun.rootThreadId
+                : null,
+        active_thread_id: typeof goalRun.active_thread_id === "string"
+            ? goalRun.active_thread_id
+            : typeof goalRun.activeThreadId === "string"
+                ? goalRun.activeThreadId
+                : null,
+        execution_thread_ids: toStringArray(goalRun.execution_thread_ids ?? goalRun.executionThreadIds),
         current_step_index: currentStepIndex,
         current_step_title: typeof goalRun.current_step_title === "string"
             ? goalRun.current_step_title
@@ -443,6 +641,7 @@ export function normalizeGoalRun(raw: unknown): GoalRun | null {
                 : null,
         steps: normalizedSteps,
         events: normalizedEvents,
+        dossier: normalizeDossier(goalRun.dossier),
     };
 }
 

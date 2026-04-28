@@ -12,6 +12,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import {
   appendDaemonSystemMessage,
   recordDaemonWorkflowNotice,
+  refreshDaemonThreadMetadataIntoLocalState,
   reloadDaemonThreadIntoLocalState,
   syncWelesHealth,
 } from "./daemonHelpers";
@@ -139,15 +140,12 @@ export function useDaemonAgentEvents({
         return last;
       }
 
-      const isExternalAgent = agentBackend === "openclaw" || agentBackend === "hermes";
       const agentSettings = useAgentStore.getState().agentSettings;
       addMessage(threadId, {
         role: "assistant",
         content: "",
-        provider: isExternalAgent ? agentBackend : agentSettings.active_provider,
-        model: isExternalAgent
-          ? agentBackend
-          : ((agentSettings[agentSettings.active_provider] as any)?.model || ""),
+        provider: agentSettings.active_provider,
+        model: ((agentSettings[agentSettings.active_provider] as any)?.model || ""),
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
@@ -249,13 +247,12 @@ export function useDaemonAgentEvents({
             totalTokens: 0,
             isCompactionSummary: false,
           });
-          const isExternalAgent = agentBackend === "openclaw" || agentBackend === "hermes";
           const agentSettings = useAgentStore.getState().agentSettings;
           addMessage(tid, {
             role: "assistant",
             content: "",
-            provider: isExternalAgent ? agentBackend : agentSettings.active_provider,
-            model: isExternalAgent ? agentBackend : ((agentSettings[agentSettings.active_provider] as any)?.model || ""),
+            provider: agentSettings.active_provider,
+            model: ((agentSettings[agentSettings.active_provider] as any)?.model || ""),
             inputTokens: 0,
             outputTokens: 0,
             totalTokens: 0,
@@ -291,7 +288,7 @@ export function useDaemonAgentEvents({
         case "thread_reload_required": {
           const reloadThreadId = typeof event.thread_id === "string" ? event.thread_id : null;
           if (reloadThreadId) {
-            void reloadDaemonThreadIntoLocalState({
+            void refreshDaemonThreadMetadataIntoLocalState({
               daemonThreadId: reloadThreadId,
               setThreadTodos,
               setDaemonTodosByThread,

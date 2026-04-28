@@ -208,8 +208,6 @@ const SETUP_DEPENDENCY_DEFS = {
     uv: { name: 'uv', label: 'uv', command: 'uv' },
     aline: { name: 'aline', label: 'Aline CLI', command: 'aline' },
     'tamux-mcp': { name: 'tamux-mcp', label: 'tamux-mcp', command: 'tamux-mcp' },
-    hermes: { name: 'hermes', label: 'Hermes Agent', command: 'hermes' },
-    openclaw: { name: 'openclaw', label: 'OpenClaw', command: 'openclaw' },
 };
 
 const SETUP_REQUIRED_BY_PROFILE = {
@@ -217,7 +215,7 @@ const SETUP_REQUIRED_BY_PROFILE = {
     desktop: [],
 };
 
-const SETUP_OPTIONAL = ['aline', 'tamux-mcp', 'hermes', 'openclaw'];
+const SETUP_OPTIONAL = ['aline', 'tamux-mcp'];
 
 function setupInstallHint(depName) {
     const platform = process.platform;
@@ -244,10 +242,6 @@ function setupInstallHint(depName) {
             return ['uv tool install aline-ai'];
         case 'tamux-mcp':
             return ['cargo build --release -p tamux-mcp'];
-        case 'hermes':
-            return ['python3 -m pip install "hermes-agent[all]"'];
-        case 'openclaw':
-            return ['npm install -g openclaw'];
         default:
             return [];
     }
@@ -480,6 +474,18 @@ function registerIpcHandlers() {
                     return { plugin_name: name, settings: [] };
                 }
             },
+            installDaemon: async (_event, dirName, installSource) => {
+                try {
+                    const result = await sendAgentQuery({
+                        type: 'plugin-install',
+                        dir_name: String(dirName || '').trim(),
+                        install_source: String(installSource || '').trim(),
+                    }, 'plugin-action-result');
+                    return { ok: Boolean(result?.success), message: result?.message ?? '' };
+                } catch (err) {
+                    return { ok: false, error: err.message };
+                }
+            },
             listDaemon: async () => {
                 try {
                     return await sendAgentQuery({ type: 'plugin-list' }, 'plugin-list-result');
@@ -516,6 +522,14 @@ function registerIpcHandlers() {
                         is_secret: Boolean(isSecret),
                     });
                     return { ok: true };
+                } catch (err) {
+                    return { ok: false, error: err.message };
+                }
+            },
+            uninstallDaemon: async (_event, name) => {
+                try {
+                    const result = await sendAgentQuery({ type: 'plugin-uninstall', name }, 'plugin-action-result');
+                    return { ok: Boolean(result?.success), message: result?.message ?? '' };
                 } catch (err) {
                     return { ok: false, error: err.message };
                 }

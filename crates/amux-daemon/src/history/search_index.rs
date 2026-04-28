@@ -7,14 +7,18 @@ use std::{
 };
 use tantivy::collector::TopDocs;
 use tantivy::directory::error::LockError;
+use tantivy::indexer::{IndexWriterOptions, NoMergePolicy};
 use tantivy::query::QueryParser;
 use tantivy::schema::{Field, Schema, TantivyDocument, Value, FAST, STORED, STRING, TEXT};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{Index, IndexWriter, TantivyError, Term};
 
 const INDEX_WRITER_HEAP_BYTES: usize = 50_000_000;
+const INDEX_WRITER_THREADS: usize = 1;
+const INDEX_MERGE_THREADS: usize = 1;
 const INDEX_WRITER_LOCK_WAIT: Duration = Duration::from_millis(200);
 const INDEX_WRITER_LOCK_RETRY_DELAY: Duration = Duration::from_millis(10);
+const BACKGROUND_INDEX_DEBOUNCE: Duration = Duration::from_millis(100);
 const SOURCE_KEY_SEPARATOR: &str = ":";
 static TANTIVY_WRITER_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
 
@@ -98,6 +102,19 @@ pub(crate) struct SearchIndex {
     index: Index,
     fields: SearchFields,
     writer_lock: Arc<Mutex<()>>,
+    background: Arc<BackgroundIndexQueue>,
+}
+
+#[derive(Default)]
+struct BackgroundIndexQueue {
+    state: Mutex<BackgroundIndexState>,
+}
+
+#[derive(Default)]
+struct BackgroundIndexState {
+    documents: Vec<SearchDocument>,
+    deletes: Vec<(SearchSourceKind, String)>,
+    worker_running: bool,
 }
 
 #[derive(Clone)]
@@ -131,6 +148,7 @@ impl SearchIndex {
             index,
             fields,
             writer_lock,
+            background: Arc::new(BackgroundIndexQueue::default()),
         })
     }
 
@@ -139,7 +157,15 @@ impl SearchIndex {
     }
 
     pub(crate) fn upsert_many(&self, documents: Vec<SearchDocument>) -> Result<()> {
-        if documents.is_empty() {
+        self.apply_changes(documents, Vec::new())
+    }
+
+    fn apply_changes(
+        &self,
+        documents: Vec<SearchDocument>,
+        deletes: Vec<(SearchSourceKind, String)>,
+    ) -> Result<()> {
+        if documents.is_empty() && deletes.is_empty() {
             return Ok(());
         }
 
@@ -149,6 +175,12 @@ impl SearchIndex {
             .lock()
             .map_err(|_| anyhow!("tantivy index writer lock poisoned"))?;
         let mut writer = self.open_writer_with_retry(deadline)?;
+        for (source_kind, source_id) in deletes {
+            writer.delete_term(Term::from_field_text(
+                self.fields.source_key,
+                &source_key(source_kind, &source_id),
+            ));
+        }
         for document in documents {
             writer.delete_term(Term::from_field_text(
                 self.fields.source_key,
@@ -162,14 +194,144 @@ impl SearchIndex {
 
     fn open_writer_with_retry(&self, deadline: Instant) -> Result<IndexWriter<TantivyDocument>> {
         loop {
-            match self.index.writer(INDEX_WRITER_HEAP_BYTES) {
-                Ok(writer) => return Ok(writer),
+            match self
+                .index
+                .writer_with_options(search_index_writer_options())
+            {
+                Ok(writer) => {
+                    writer.set_merge_policy(Box::new(NoMergePolicy));
+                    return Ok(writer);
+                }
                 Err(error) if is_writer_lock_busy(&error) && !writer_deadline_elapsed(deadline) => {
                     std::thread::sleep(INDEX_WRITER_LOCK_RETRY_DELAY);
                 }
                 Err(error) => return Err(error).context("open tantivy index writer"),
             }
         }
+    }
+
+    pub(crate) fn enqueue_background_changes(
+        &self,
+        documents: Vec<SearchDocument>,
+        delete_source_kind: SearchSourceKind,
+        delete_source_ids: Vec<String>,
+    ) {
+        if documents.is_empty() && delete_source_ids.is_empty() {
+            return;
+        }
+
+        let deletes = delete_source_ids
+            .into_iter()
+            .map(|source_id| (delete_source_kind, source_id))
+            .collect::<Vec<_>>();
+        let should_spawn = {
+            let mut state = self
+                .background
+                .state
+                .lock()
+                .expect("tantivy background queue lock poisoned");
+            state.documents.extend(documents);
+            state.deletes.extend(deletes);
+            if state.worker_running {
+                false
+            } else {
+                state.worker_running = true;
+                true
+            }
+        };
+
+        if should_spawn {
+            let index = self.clone();
+            if let Err(error) = std::thread::Builder::new()
+                .name("tamux-search-index".to_string())
+                .spawn(move || index.run_background_index_worker())
+            {
+                tracing::warn!(
+                    error = %error,
+                    "failed to spawn tantivy search index background worker; applying queued index changes synchronously"
+                );
+                self.drain_background_queue_sync();
+            }
+        }
+    }
+
+    fn run_background_index_worker(&self) {
+        loop {
+            std::thread::sleep(BACKGROUND_INDEX_DEBOUNCE);
+            let (documents, deletes) = self.take_background_index_batch();
+            if documents.is_empty() && deletes.is_empty() {
+                return;
+            }
+            let document_count = documents.len();
+            let delete_count = deletes.len();
+            if let Err(error) = self.apply_changes(documents, deletes) {
+                if error_contains_writer_lock_busy(&error) {
+                    tracing::debug!(
+                        error = %error,
+                        document_count,
+                        delete_count,
+                        "tantivy writer busy; skipping queued search index changes"
+                    );
+                } else {
+                    tracing::warn!(
+                        error = %error,
+                        document_count,
+                        delete_count,
+                        "failed to apply queued changes to tantivy search index"
+                    );
+                }
+            }
+        }
+    }
+
+    fn drain_background_queue_sync(&self) {
+        let (documents, deletes) = self.take_background_index_batch_for_sync();
+        if documents.is_empty() && deletes.is_empty() {
+            return;
+        }
+        let document_count = documents.len();
+        let delete_count = deletes.len();
+        if let Err(error) = self.apply_changes(documents, deletes) {
+            tracing::warn!(
+                error = %error,
+                document_count,
+                delete_count,
+                "failed to apply queued search index changes synchronously"
+            );
+        }
+    }
+
+    fn take_background_index_batch(
+        &self,
+    ) -> (Vec<SearchDocument>, Vec<(SearchSourceKind, String)>) {
+        let mut state = self
+            .background
+            .state
+            .lock()
+            .expect("tantivy background queue lock poisoned");
+        if state.documents.is_empty() && state.deletes.is_empty() {
+            state.worker_running = false;
+            return (Vec::new(), Vec::new());
+        }
+        (
+            std::mem::take(&mut state.documents),
+            std::mem::take(&mut state.deletes),
+        )
+    }
+
+    fn take_background_index_batch_for_sync(
+        &self,
+    ) -> (Vec<SearchDocument>, Vec<(SearchSourceKind, String)>) {
+        let mut state = self
+            .background
+            .state
+            .lock()
+            .expect("tantivy background queue lock poisoned");
+        state.worker_running = false;
+        (
+            std::mem::take(&mut state.documents),
+            std::mem::take(&mut state.deletes),
+        )
     }
 
     pub(crate) fn search(&self, request: SearchRequest) -> Result<Vec<SearchHitRef>> {
@@ -309,38 +471,32 @@ impl super::HistoryStore {
         if documents.is_empty() {
             return;
         }
+        self.apply_search_index_changes_background(
+            documents,
+            SearchSourceKind::AgentMessage,
+            Vec::new(),
+        );
+    }
+
+    pub(crate) fn apply_search_index_changes_background(
+        &self,
+        documents: Vec<SearchDocument>,
+        delete_source_kind: SearchSourceKind,
+        delete_source_ids: Vec<String>,
+    ) {
         let Some(index) = &self.search_index else {
             return;
         };
-        let index = index.clone();
-        let document_count = documents.len();
-        let spawn_result = std::thread::Builder::new()
-            .name("tamux-search-index".to_string())
-            .spawn(move || {
-                if let Err(error) = index.upsert_many(documents) {
-                    if error_contains_writer_lock_busy(&error) {
-                        tracing::debug!(
-                            error = %error,
-                            document_count,
-                            "tantivy writer busy; skipping search index batch upsert"
-                        );
-                    } else {
-                        tracing::warn!(
-                            error = %error,
-                            document_count,
-                            "failed to upsert document batch into tantivy search index"
-                        );
-                    }
-                }
-            });
-        if let Err(error) = spawn_result {
-            tracing::warn!(
-                error = %error,
-                document_count,
-                "failed to spawn tantivy search index batch worker"
-            );
-        }
+        index.enqueue_background_changes(documents, delete_source_kind, delete_source_ids);
     }
+}
+
+fn search_index_writer_options() -> IndexWriterOptions {
+    IndexWriterOptions::builder()
+        .num_worker_threads(INDEX_WRITER_THREADS)
+        .num_merge_threads(INDEX_MERGE_THREADS)
+        .memory_budget_per_thread(INDEX_WRITER_HEAP_BYTES)
+        .build()
 }
 
 fn build_schema() -> Schema {

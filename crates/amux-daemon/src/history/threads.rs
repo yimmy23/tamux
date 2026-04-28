@@ -36,6 +36,22 @@ fn index_agent_messages(store: &HistoryStore, messages: &[AgentDbMessage]) {
     store.upsert_search_documents_background(documents);
 }
 
+fn apply_agent_message_search_changes(
+    store: &HistoryStore,
+    upsert_messages: &[AgentDbMessage],
+    delete_message_ids: Vec<String>,
+) {
+    let documents = upsert_messages
+        .iter()
+        .map(agent_message_search_document)
+        .collect::<Vec<_>>();
+    store.apply_search_index_changes_background(
+        documents,
+        super::search_index::SearchSourceKind::AgentMessage,
+        delete_message_ids,
+    );
+}
+
 fn agent_message_needs_upsert(existing: &AgentDbMessage, incoming: &AgentDbMessage) -> bool {
     existing.thread_id != incoming.thread_id
         || existing.created_at != incoming.created_at
@@ -329,7 +345,6 @@ impl HistoryStore {
     ) -> Result<()> {
         let thread = thread.clone();
         let messages = messages.to_vec();
-        let messages_for_index = messages.clone();
         self.conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
@@ -384,9 +399,34 @@ impl HistoryStore {
                             incoming_latest_created_at,
                             "skipping stale thread snapshot replace"
                         );
-                        return Ok(false);
+                        return Ok(None);
                     }
                 }
+
+                let mut existing_stmt = transaction.prepare(
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
+                     FROM agent_messages WHERE thread_id = ?1",
+                )?;
+                let existing_rows = existing_stmt.query_map(params![&thread.id], map_agent_message)?;
+                let mut existing_messages =
+                    std::collections::HashMap::<String, AgentDbMessage>::new();
+                for row in existing_rows {
+                    let message = row?;
+                    existing_messages.insert(message.id.clone(), message);
+                }
+                drop(existing_stmt);
+
+                let incoming_ids = messages
+                    .iter()
+                    .map(|message| message.id.clone())
+                    .collect::<std::collections::HashSet<_>>();
+                let changed_messages =
+                    messages_requiring_search_reindex(&existing_messages, &messages);
+                let stale_ids = existing_messages
+                    .keys()
+                    .filter(|id| !incoming_ids.contains(*id))
+                    .cloned()
+                    .collect::<Vec<_>>();
 
                 transaction.execute(
                     "INSERT INTO agent_threads \
@@ -465,13 +505,13 @@ impl HistoryStore {
                 }
 
                 transaction.commit()?;
-                Ok(true)
+                Ok(Some((changed_messages, stale_ids)))
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
-            .map(|persisted| {
-                if persisted {
-                    index_agent_messages(self, &messages_for_index);
+            .map(|index_changes| {
+                if let Some((changed_messages, stale_ids)) = index_changes {
+                    apply_agent_message_search_changes(self, &changed_messages, stale_ids);
                 }
             })
     }

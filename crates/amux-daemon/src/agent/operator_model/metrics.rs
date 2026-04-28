@@ -393,14 +393,87 @@ fn approval_base_score(model: &OperatorModel) -> f64 {
     0.7 + approval_rate * 0.2 + fast_positive_approval_bonus
 }
 
+fn rate(count: u64, denominator: u64) -> f64 {
+    if count == 0 {
+        return 0.0;
+    }
+    count as f64 / denominator.max(1) as f64
+}
+
+pub(crate) fn operator_tool_hesitation_rate(model: &OperatorModel) -> f64 {
+    let observed_activity = model
+        .cognitive_style
+        .message_count
+        .saturating_add(model.risk_fingerprint.approval_requests)
+        .saturating_add(model.attention_topology.focus_event_count)
+        .max(1);
+    rate(
+        model.implicit_feedback.tool_hesitation_count,
+        observed_activity,
+    )
+    .min(1.0)
+}
+
+fn operator_feedback_message_denominator(model: &OperatorModel) -> u64 {
+    model.cognitive_style.message_count.max(1)
+}
+
+fn operator_fast_denial_denominator(model: &OperatorModel) -> u64 {
+    model
+        .risk_fingerprint
+        .approval_requests
+        .max(model.cognitive_style.message_count)
+        .max(1)
+}
+
+fn operator_rapid_switch_rate(model: &OperatorModel) -> f64 {
+    if model.attention_topology.rapid_switch_count == 0 {
+        return 0.0;
+    }
+    if model.attention_topology.focus_event_count == 0 {
+        return 1.0;
+    }
+    rate(
+        model.attention_topology.rapid_switch_count,
+        model.attention_topology.focus_event_count,
+    )
+    .min(1.0)
+}
+
 pub(crate) fn refresh_operator_satisfaction(model: &mut OperatorModel) {
-    let friction = model.implicit_feedback.tool_hesitation_count as f64 * 0.12
-        + model.implicit_feedback.revision_message_count as f64 * 0.10
-        + model.implicit_feedback.correction_message_count as f64 * 0.16
-        + model.implicit_feedback.fast_denial_count as f64 * 0.18
-        + model.implicit_feedback.rapid_revert_count as f64 * 0.20
-        + model.implicit_feedback.session_abandon_count as f64 * 0.14
-        + model.attention_topology.rapid_switch_count.min(10) as f64 * 0.03;
+    let feedback_messages = operator_feedback_message_denominator(model);
+    let friction = operator_tool_hesitation_rate(model) * 0.12
+        + rate(
+            model.implicit_feedback.revision_message_count,
+            feedback_messages,
+        )
+        .min(1.0)
+            * 0.10
+        + rate(
+            model.implicit_feedback.correction_message_count,
+            feedback_messages,
+        )
+        .min(1.0)
+            * 0.16
+        + rate(
+            model.implicit_feedback.fast_denial_count,
+            operator_fast_denial_denominator(model),
+        )
+        .min(1.0)
+            * 0.18
+        + rate(
+            model.implicit_feedback.rapid_revert_count,
+            feedback_messages,
+        )
+        .min(1.0)
+            * 0.20
+        + rate(
+            model.implicit_feedback.session_abandon_count,
+            feedback_messages,
+        )
+        .min(1.0)
+            * 0.14
+        + operator_rapid_switch_rate(model) * 0.06;
 
     let score = normalize_satisfaction_score(approval_base_score(model) - friction);
     model.operator_satisfaction.score = score;

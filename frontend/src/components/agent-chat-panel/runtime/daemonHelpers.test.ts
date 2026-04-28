@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAgentStore } from "@/lib/agentStore";
 import type { AgentThread } from "@/lib/agentStore";
-import { loadDaemonThreadPageIntoLocalState } from "./daemonHelpers";
+import { loadDaemonThreadPageIntoLocalState, refreshDaemonThreadMetadataIntoLocalState } from "./daemonHelpers";
 
 const agentGetThread = vi.fn();
 
@@ -87,5 +87,54 @@ describe("loadDaemonThreadPageIntoLocalState", () => {
     expect(loaded).toBe(true);
     expect(useAgentStore.getState().messages["local-active"]?.[0]?.content).toBe("real daemon message");
     expect(useAgentStore.getState().messages["local-stale"]).toEqual([]);
+  });
+
+  it("refreshes daemon thread metadata without replacing visible messages", async () => {
+    useAgentStore.setState({
+      messages: {
+        "local-active": [{
+          id: "local-message",
+          threadId: "local-active",
+          role: "assistant",
+          content: "streaming local content",
+          createdAt: 2,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          isCompactionSummary: false,
+        }],
+      },
+    } as any);
+    agentGetThread.mockResolvedValue({
+      id: "daemon-1",
+      title: "Updated title",
+      agent_name: "Svarog",
+      messages: [
+        {
+          id: "remote-message",
+          role: "user",
+          content: "remote replacement should not land",
+          timestamp: 10,
+        },
+      ],
+      total_message_count: 27,
+      loaded_message_start: 27,
+      loaded_message_end: 27,
+    });
+
+    const refreshed = await refreshDaemonThreadMetadataIntoLocalState({
+      daemonThreadId: "daemon-1",
+      setThreadTodos: vi.fn(),
+      setDaemonTodosByThread: vi.fn(),
+    });
+
+    expect(refreshed).toBe(true);
+    expect(agentGetThread).toHaveBeenCalledWith("daemon-1", {
+      messageLimit: 0,
+      messageOffset: 0,
+    });
+    expect(useAgentStore.getState().threads.find((thread) => thread.id === "local-active")?.title).toBe("Updated title");
+    expect(useAgentStore.getState().threads.find((thread) => thread.id === "local-active")?.messageCount).toBe(27);
+    expect(useAgentStore.getState().messages["local-active"]?.[0]?.content).toBe("streaming local content");
   });
 });

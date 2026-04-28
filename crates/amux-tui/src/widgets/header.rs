@@ -94,12 +94,12 @@ pub fn render(
     let mut top_spans = vec![
         Span::styled(
             "\u{2591}\u{2592}\u{2593}",
-            Style::default().fg(Color::Indexed(24)),
+            Style::default().fg(Color::Yellow),
         ),
-        Span::styled(" TAMUX ", theme.accent_primary),
+        Span::styled(" Zorai ", theme.accent_secondary),
         Span::styled(
             "\u{2593}\u{2592}\u{2591} ",
-            Style::default().fg(Color::Indexed(24)),
+            Style::default().fg(Color::Yellow),
         ),
     ];
 
