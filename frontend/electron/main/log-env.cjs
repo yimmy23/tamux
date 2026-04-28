@@ -1,6 +1,5 @@
 const ERROR_ONLY_LOG_ENV = Object.freeze({
     ZORAI_LOG: 'error',
-    ZORAI_LOG: 'error',
     ZORAI_TUI_LOG: 'error',
     ZORAI_GATEWAY_LOG: 'error',
     RUST_LOG: 'error',

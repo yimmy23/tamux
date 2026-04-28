@@ -6,7 +6,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DIST_DIR="$PROJECT_ROOT/dist-release"
 
 export ZORAI_LOG=error
-export ZORAI_LOG=error
 export ZORAI_TUI_LOG=error
 export ZORAI_GATEWAY_LOG=error
 export RUST_LOG=error

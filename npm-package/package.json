@@ -1,6 +1,6 @@
 {
   "name": "zorai",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "The Agent That Lives - daemon-first AI agent runtime",
   "license": "MIT",
   "homepage": "https://zorai.app",

@@ -28,7 +28,6 @@ OUT_DIR="$PROJECT_ROOT/dist-release/windows"
 TARGET="x86_64-pc-windows-gnu"
 
 export ZORAI_LOG=error
-export ZORAI_LOG=error
 export ZORAI_TUI_LOG=error
 export ZORAI_GATEWAY_LOG=error
 export RUST_LOG=error

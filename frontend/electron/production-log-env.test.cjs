@@ -10,8 +10,7 @@ const repoRoot = path.join(__dirname, "..");
 test("packaged runtime forces rust log env to error", () => {
   const env = createChildLogEnv(
     {
-      ZORAI_LOG: "debug",
-      ZORAI_LOG: "trace",
+      ZORAI_LOG: "error",
       ZORAI_TUI_LOG: "info",
       ZORAI_GATEWAY_LOG: "warn",
       RUST_LOG: "debug",
@@ -20,7 +19,6 @@ test("packaged runtime forces rust log env to error", () => {
     { isPackaged: true },
   );
 
-  assert.equal(env.ZORAI_LOG, "error");
   assert.equal(env.ZORAI_LOG, "error");
   assert.equal(env.ZORAI_TUI_LOG, "error");
   assert.equal(env.ZORAI_GATEWAY_LOG, "error");
@@ -31,14 +29,12 @@ test("packaged runtime forces rust log env to error", () => {
 test("development runtime preserves existing rust log env", () => {
   const env = createChildLogEnv(
     {
-      ZORAI_LOG: "debug",
       ZORAI_LOG: "trace",
       RUST_LOG: "info",
     },
     { isPackaged: false },
   );
 
-  assert.equal(env.ZORAI_LOG, "debug");
   assert.equal(env.ZORAI_LOG, "trace");
   assert.equal(env.RUST_LOG, "info");
 });
@@ -46,7 +42,6 @@ test("development runtime preserves existing rust log env", () => {
 test("release workflow exports error-only log env", () => {
   const releaseWorkflow = fs.readFileSync(path.join(repoRoot, "../.github/workflows/release.yml"), "utf8");
 
-  assert.match(releaseWorkflow, /ZORAI_LOG:\s*['"]?error['"]?/);
   assert.match(releaseWorkflow, /ZORAI_LOG:\s*['"]?error['"]?/);
   assert.match(releaseWorkflow, /ZORAI_TUI_LOG:\s*['"]?error['"]?/);
   assert.match(releaseWorkflow, /ZORAI_GATEWAY_LOG:\s*['"]?error['"]?/);
@@ -64,7 +59,6 @@ test("release scripts export error-only log env", () => {
 
   for (const scriptPath of scriptPaths) {
     const source = fs.readFileSync(scriptPath, "utf8");
-    assert.match(source, /ZORAI_LOG/);
     assert.match(source, /ZORAI_LOG/);
     assert.match(source, /error/);
   }

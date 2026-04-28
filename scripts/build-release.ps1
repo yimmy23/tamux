@@ -70,7 +70,6 @@ $OutDir = Join-Path $ProjectRoot "dist-release"
 $FrontendDir = Join-Path $ProjectRoot "frontend"
 
 $env:ZORAI_LOG = "error"
-$env:ZORAI_LOG = "error"
 $env:ZORAI_TUI_LOG = "error"
 $env:ZORAI_GATEWAY_LOG = "error"
 $env:RUST_LOG = "error"
