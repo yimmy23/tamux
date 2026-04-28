@@ -2869,6 +2869,309 @@ async fn anticipatory_prompt_context_marks_cached_precomputation_used() {
 }
 
 #[tokio::test]
+async fn speculative_queue_admits_high_confidence_items_and_dedupes_by_thread_and_action() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let now = now_millis();
+    let item = AnticipatoryItem {
+        id: "intent-spec-1".to_string(),
+        kind: "intent_prediction".to_string(),
+        title: "Likely Next Action".to_string(),
+        summary: "Predicted next step: inspect repo context".to_string(),
+        bullets: vec![],
+        intent_prediction: None,
+        confidence: 0.91,
+        goal_run_id: None,
+        thread_id: Some("thread-spec".to_string()),
+        preferred_client_surface: None,
+        preferred_attention_surface: None,
+        created_at: now,
+        updated_at: now,
+    };
+
+    engine
+        .build_speculative_execution_queue(&[item.clone(), item])
+        .await;
+
+    let runtime = engine.anticipatory.read().await;
+    assert_eq!(runtime.opportunity_queue.len(), 1);
+    let queued = runtime
+        .opportunity_queue
+        .front()
+        .expect("speculative opportunity should be queued");
+    assert_eq!(queued.thread_id.as_deref(), Some("thread-spec"));
+    assert_eq!(queued.action_kind, "repo_context_refresh");
+}
+
+#[tokio::test]
+async fn speculative_queue_rejects_unsafe_or_low_confidence_items() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let now = now_millis();
+    let low_confidence = AnticipatoryItem {
+        id: "intent-spec-low".to_string(),
+        kind: "intent_prediction".to_string(),
+        title: "Low confidence".to_string(),
+        summary: "maybe do something".to_string(),
+        bullets: vec![],
+        intent_prediction: None,
+        confidence: 0.4,
+        goal_run_id: None,
+        thread_id: Some("thread-low".to_string()),
+        preferred_client_surface: None,
+        preferred_attention_surface: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let unsupported = AnticipatoryItem {
+        id: "collab-spec".to_string(),
+        kind: "collaboration_disagreement".to_string(),
+        title: "Collaboration".to_string(),
+        summary: "unsafe for speculative queue".to_string(),
+        bullets: vec![],
+        intent_prediction: None,
+        confidence: 0.99,
+        goal_run_id: None,
+        thread_id: Some("thread-low".to_string()),
+        preferred_client_surface: None,
+        preferred_attention_surface: None,
+        created_at: now,
+        updated_at: now,
+    };
+
+    engine
+        .build_speculative_execution_queue(&[low_confidence, unsupported])
+        .await;
+
+    assert!(engine.anticipatory.read().await.opportunity_queue.is_empty());
+}
+
+#[tokio::test]
+async fn speculative_queue_execution_persists_result_and_retrieval_marks_usage() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let repo_root = root.path().join("repo-speculative");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::fs::write(repo_root.join("tracked.txt"), "hello\n").unwrap();
+    std::fs::write(repo_root.join("dirty.txt"), "dirty\n").unwrap();
+    std::process::Command::new("git")
+        .arg("init")
+        .arg(&repo_root)
+        .output()
+        .expect("git init should succeed");
+    std::process::Command::new("git")
+        .current_dir(&repo_root)
+        .args(["config", "user.email", "spec@example.com"])
+        .output()
+        .expect("git config email should succeed");
+    std::process::Command::new("git")
+        .current_dir(&repo_root)
+        .args(["config", "user.name", "Spec Test"])
+        .output()
+        .expect("git config name should succeed");
+    std::process::Command::new("git")
+        .current_dir(&repo_root)
+        .args(["add", "tracked.txt"])
+        .output()
+        .expect("git add should succeed");
+    std::process::Command::new("git")
+        .current_dir(&repo_root)
+        .args(["commit", "-m", "init"])
+        .output()
+        .expect("git commit should succeed");
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-spec-run"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-spec-run".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-spec-run".to_string(),
+            entries: vec![WorkContextEntry {
+                path: repo_root.join("dirty.txt").to_string_lossy().to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "test".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+
+    let item = AnticipatoryItem {
+        id: "intent-spec-run".to_string(),
+        kind: "intent_prediction".to_string(),
+        title: "Likely Next Action".to_string(),
+        summary: "Predicted next step: inspect repo context".to_string(),
+        bullets: vec![],
+        intent_prediction: None,
+        confidence: 0.92,
+        goal_run_id: None,
+        thread_id: Some("thread-spec-run".to_string()),
+        preferred_client_surface: None,
+        preferred_attention_surface: None,
+        created_at: now_millis(),
+        updated_at: now_millis(),
+    };
+
+    engine.build_speculative_execution_queue(&[item]).await;
+    engine.run_speculative_execution_queue().await;
+
+    let result = engine
+        .take_matching_speculative_result("thread-spec-run", "repo_context_refresh")
+        .await
+        .expect("speculative result should be retrievable");
+    assert!(result.summary.contains("branch"));
+    assert!(result.precomputation_id.is_some());
+
+    let second = engine
+        .take_matching_speculative_result("thread-spec-run", "repo_context_refresh")
+        .await;
+    assert!(second.is_none(), "used speculative results should not be reused");
+
+    let pattern_id = engine
+        .history
+        .list_temporal_patterns("file_access", 8)
+        .await
+        .expect("patterns should load")
+        .into_iter()
+        .filter_map(|row| row.id)
+        .max()
+        .expect("pattern id should exist");
+    let prediction_id = engine
+        .history
+        .list_temporal_predictions(pattern_id, 8)
+        .await
+        .expect("predictions should load")
+        .into_iter()
+        .filter_map(|row| row.id)
+        .max()
+        .expect("prediction id should exist");
+    let logs = engine
+        .history
+        .list_precomputation_log(prediction_id)
+        .await
+        .expect("precomputation log should load");
+    assert!(logs.iter().any(|row| row.was_used == Some(true)));
+}
+
+#[tokio::test]
+async fn speculative_queue_expiry_cleans_stale_entries() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let expired_at = now_millis().saturating_sub(1);
+    {
+        let mut runtime = engine.anticipatory.write().await;
+        runtime.opportunity_queue.push_back(SpeculativeOpportunity {
+            id: "expired-opportunity".to_string(),
+            thread_id: Some("thread-expired".to_string()),
+            source_kind: "intent_prediction".to_string(),
+            action_kind: "repo_context_refresh".to_string(),
+            confidence: 0.9,
+            created_at_ms: expired_at,
+            expires_at_ms: expired_at,
+            status: SpeculativeOpportunityStatus::Queued,
+            summary: "expired".to_string(),
+        });
+        runtime.speculative_results_by_thread.insert(
+            "thread-expired".to_string(),
+            vec![SpeculativeResult {
+                opportunity_id: "expired-opportunity".to_string(),
+                action_kind: "repo_context_refresh".to_string(),
+                thread_id: Some("thread-expired".to_string()),
+                summary: "expired".to_string(),
+                artifact: serde_json::json!({"summary": "expired"}),
+                completed_at_ms: expired_at,
+                expires_at_ms: expired_at,
+                used_at_ms: None,
+                precomputation_id: None,
+            }],
+        );
+    }
+
+    engine.build_speculative_execution_queue(&[]).await;
+    let runtime = engine.anticipatory.read().await;
+    assert!(runtime.opportunity_queue.is_empty());
+    assert!(runtime.speculative_results_by_thread.is_empty());
+}
+
+#[tokio::test]
+async fn speculative_prompt_context_surfaces_cached_speculative_result() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .anticipatory
+        .write()
+        .await
+        .speculative_results_by_thread
+        .insert(
+            "thread-spec-context".to_string(),
+            vec![SpeculativeResult {
+                opportunity_id: "spec-ctx-1".to_string(),
+                action_kind: "repo_context_refresh".to_string(),
+                thread_id: Some("thread-spec-context".to_string()),
+                summary: "branch main; dirty=true; speculative".to_string(),
+                artifact: serde_json::json!({"summary": "branch main; dirty=true; speculative"}),
+                completed_at_ms: now_millis(),
+                expires_at_ms: now_millis().saturating_add(60_000),
+                used_at_ms: None,
+                precomputation_id: None,
+            }],
+        );
+
+    let context = engine
+        .build_anticipatory_prompt_context("thread-spec-context")
+        .await
+        .expect("prompt context should exist");
+    assert!(context.contains("Speculative result"));
+}
+
+#[tokio::test]
+async fn speculative_queue_drops_unknown_action_kind_during_execution() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    {
+        let mut runtime = engine.anticipatory.write().await;
+        runtime.opportunity_queue.push_back(SpeculativeOpportunity {
+            id: "bad-action".to_string(),
+            thread_id: Some("thread-bad".to_string()),
+            source_kind: "intent_prediction".to_string(),
+            action_kind: "unsafe_write".to_string(),
+            confidence: 0.95,
+            created_at_ms: now_millis(),
+            expires_at_ms: now_millis().saturating_add(60_000),
+            status: SpeculativeOpportunityStatus::Queued,
+            summary: "unsafe".to_string(),
+        });
+    }
+
+    engine.run_speculative_execution_queue().await;
+    let runtime = engine.anticipatory.read().await;
+    assert!(runtime.opportunity_queue.is_empty());
+    assert!(runtime.speculative_results_by_thread.is_empty());
+}
+
+#[tokio::test]
 async fn cognitive_resonance_sampling_persists_samples_and_adjustment_logs() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

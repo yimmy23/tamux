@@ -593,6 +593,42 @@ pub struct IntentPredictionPayload {
     pub ranked_actions: Vec<IntentPredictionCandidate>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SpeculativeOpportunityStatus {
+    Queued,
+    Running,
+    Completed,
+    Expired,
+    Consumed,
+    Dropped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SpeculativeOpportunity {
+    pub id: String,
+    pub thread_id: Option<String>,
+    pub source_kind: String,
+    pub action_kind: String,
+    pub confidence: f64,
+    pub created_at_ms: u64,
+    pub expires_at_ms: u64,
+    pub status: SpeculativeOpportunityStatus,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SpeculativeResult {
+    pub opportunity_id: String,
+    pub action_kind: String,
+    pub thread_id: Option<String>,
+    pub summary: String,
+    pub artifact: serde_json::Value,
+    pub completed_at_ms: u64,
+    pub expires_at_ms: u64,
+    pub used_at_ms: Option<u64>,
+    pub precomputation_id: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AnticipatoryItem {
     pub id: String,

@@ -1,6 +1,6 @@
 //! Anticipatory runtime surfaces and background pre-warming.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use super::*;
 
@@ -9,6 +9,10 @@ const SESSION_RECONNECT_GRACE_MS: u64 = 5 * 60 * 1000;
 const PREDICTIVE_HYDRATION_COOLDOWN_MS: u64 = 10 * 60 * 1000;
 const RECENT_HEALTH_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
 const TOOL_HESITATION_TIGHTEN_RATE: f64 = 0.25;
+const SPECULATIVE_CONFIDENCE_THRESHOLD: f64 = 0.8;
+const SPECULATIVE_RESULT_TTL_MS: u64 = 5 * 60 * 1000;
+const MAX_SPECULATIVE_OPPORTUNITIES_PER_TICK: usize = 2;
+pub(super) const SPECULATIVE_ACTION_REPO_CONTEXT_REFRESH: &str = "repo_context_refresh";
 
 type AnticipatoryAdaptationMode = SatisfactionAdaptationMode;
 
@@ -40,6 +44,9 @@ pub(super) struct AnticipatoryRuntime {
     pub active_attention_updated_at: Option<u64>,
     pub hydration_by_thread: HashMap<String, u64>,
     pub prewarm_cache_by_thread: HashMap<String, AnticipatoryPrewarmSnapshot>,
+    pub opportunity_queue: VecDeque<SpeculativeOpportunity>,
+    pub speculative_results_by_thread: HashMap<String, Vec<SpeculativeResult>>,
+    pub last_speculative_sweep_at: Option<u64>,
 }
 
 impl AgentEngine {
@@ -104,6 +111,8 @@ impl AgentEngine {
         self.run_session_start_prewarm(settings).await;
         self.run_predictive_hydration(settings).await;
         let next_items = self.compute_anticipatory_items(settings).await;
+        self.build_speculative_execution_queue(&next_items).await;
+        self.run_speculative_execution_queue().await;
         self.sample_cognitive_resonance_runtime().await;
         self.refresh_anticipatory_items(next_items, settings).await;
     }
@@ -493,6 +502,170 @@ impl AgentEngine {
         }
 
         self.emit_anticipatory_update(next_items).await;
+    }
+
+    async fn build_speculative_execution_queue(&self, items: &[AnticipatoryItem]) {
+        let now = now_millis();
+        let mut runtime = self.anticipatory.write().await;
+        runtime.last_speculative_sweep_at = Some(now);
+        runtime
+            .opportunity_queue
+            .retain(|opportunity| opportunity.expires_at_ms > now);
+        for results in runtime.speculative_results_by_thread.values_mut() {
+            results.retain(|result| result.expires_at_ms > now && result.used_at_ms.is_none());
+        }
+        runtime
+            .speculative_results_by_thread
+            .retain(|_, results| !results.is_empty());
+
+        for item in items {
+            let Some(thread_id) = item.thread_id.clone() else {
+                continue;
+            };
+            if item.confidence < SPECULATIVE_CONFIDENCE_THRESHOLD {
+                continue;
+            }
+            if !matches!(item.kind.as_str(), "intent_prediction" | "system_outcome_foresight") {
+                continue;
+            }
+
+            let action_kind = SPECULATIVE_ACTION_REPO_CONTEXT_REFRESH.to_string();
+            let deduped = runtime.opportunity_queue.iter().any(|existing| {
+                existing.thread_id.as_deref() == Some(thread_id.as_str())
+                    && existing.action_kind == action_kind
+                    && existing.status != SpeculativeOpportunityStatus::Expired
+                    && existing.status != SpeculativeOpportunityStatus::Dropped
+                    && existing.status != SpeculativeOpportunityStatus::Consumed
+            }) || runtime
+                .speculative_results_by_thread
+                .get(&thread_id)
+                .is_some_and(|results| {
+                    results
+                        .iter()
+                        .any(|result| result.action_kind == action_kind && result.used_at_ms.is_none())
+                });
+            if deduped {
+                continue;
+            }
+
+            runtime.opportunity_queue.push_back(SpeculativeOpportunity {
+                id: format!("speculative_{}", uuid::Uuid::new_v4()),
+                thread_id: Some(thread_id),
+                source_kind: item.kind.clone(),
+                action_kind,
+                confidence: item.confidence,
+                created_at_ms: now,
+                expires_at_ms: now.saturating_add(SPECULATIVE_RESULT_TTL_MS),
+                status: SpeculativeOpportunityStatus::Queued,
+                summary: item.summary.clone(),
+            });
+        }
+    }
+
+    async fn run_speculative_execution_queue(&self) {
+        let mut processed = 0usize;
+        loop {
+            if processed >= MAX_SPECULATIVE_OPPORTUNITIES_PER_TICK {
+                break;
+            }
+            let now = now_millis();
+            let next = {
+                let mut runtime = self.anticipatory.write().await;
+                while let Some(front) = runtime.opportunity_queue.front_mut() {
+                    if front.expires_at_ms <= now {
+                        front.status = SpeculativeOpportunityStatus::Expired;
+                        runtime.opportunity_queue.pop_front();
+                        continue;
+                    }
+                    if front.action_kind != SPECULATIVE_ACTION_REPO_CONTEXT_REFRESH {
+                        front.status = SpeculativeOpportunityStatus::Dropped;
+                        runtime.opportunity_queue.pop_front();
+                        continue;
+                    }
+                    front.status = SpeculativeOpportunityStatus::Running;
+                    break;
+                }
+                runtime.opportunity_queue.pop_front()
+            };
+
+            let Some(mut opportunity) = next else {
+                break;
+            };
+            processed += 1;
+
+            let Some(thread_id) = opportunity.thread_id.clone() else {
+                continue;
+            };
+            self.refresh_thread_repo_context(&thread_id).await;
+            self.refresh_anticipatory_prewarm_cache(&thread_id).await;
+
+            let snapshot = {
+                let runtime = self.anticipatory.read().await;
+                runtime.prewarm_cache_by_thread.get(&thread_id).cloned()
+            };
+            let Some(snapshot) = snapshot else {
+                continue;
+            };
+
+            opportunity.status = SpeculativeOpportunityStatus::Completed;
+            let result = SpeculativeResult {
+                opportunity_id: opportunity.id.clone(),
+                action_kind: opportunity.action_kind.clone(),
+                thread_id: Some(thread_id.clone()),
+                summary: snapshot.summary.clone(),
+                artifact: serde_json::json!({
+                    "summary": snapshot.summary,
+                    "precomputation_id": snapshot.precomputation_id,
+                }),
+                completed_at_ms: now_millis(),
+                expires_at_ms: opportunity.expires_at_ms,
+                used_at_ms: None,
+                precomputation_id: snapshot.precomputation_id,
+            };
+
+            let mut runtime = self.anticipatory.write().await;
+            let results = runtime
+                .speculative_results_by_thread
+                .entry(thread_id)
+                .or_default();
+            results.retain(|existing| {
+                existing.action_kind != result.action_kind || existing.used_at_ms.is_some()
+            });
+            results.push(result);
+        }
+    }
+
+    pub(super) async fn take_matching_speculative_result(
+        &self,
+        thread_id: &str,
+        action_kind: &str,
+    ) -> Option<SpeculativeResult> {
+        let now = now_millis();
+        let result = {
+            let mut runtime = self.anticipatory.write().await;
+            let results = runtime.speculative_results_by_thread.get_mut(thread_id)?;
+            let result = results
+                .iter_mut()
+                .find(|candidate| {
+                    candidate.action_kind == action_kind
+                        && candidate.expires_at_ms > now
+                        && candidate.used_at_ms.is_none()
+                })?;
+            result.used_at_ms = Some(now);
+            result.clone()
+        };
+
+        if let Some(precomputation_id) = result.precomputation_id {
+            if let Err(error) = self
+                .history
+                .update_precomputation_usage(precomputation_id, true, now)
+                .await
+            {
+                tracing::warn!(thread_id = %thread_id, %error, "failed to mark speculative precomputation as used");
+            }
+        }
+
+        Some(result)
     }
 
     async fn compute_proactive_suppression_transparency(

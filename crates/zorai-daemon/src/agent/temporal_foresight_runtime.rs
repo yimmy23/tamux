@@ -108,6 +108,10 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<String> {
+        let speculative_summary = self
+            .take_matching_speculative_result(thread_id, SPECULATIVE_ACTION_REPO_CONTEXT_REFRESH)
+            .await
+            .map(|result| result.summary);
         let (intent_item, foresight_item, prewarm_summary) = {
             let runtime = self.anticipatory.read().await;
             let intent_item = runtime
@@ -132,7 +136,11 @@ impl AgentEngine {
             (intent_item, foresight_item, prewarm_summary)
         };
 
-        if intent_item.is_none() && foresight_item.is_none() && prewarm_summary.is_none() {
+        if intent_item.is_none()
+            && foresight_item.is_none()
+            && prewarm_summary.is_none()
+            && speculative_summary.is_none()
+        {
             return None;
         }
 
@@ -164,6 +172,9 @@ impl AgentEngine {
         }
         if let Some(summary) = prewarm_summary {
             lines.push(format!("- Cached precomputation: {summary}"));
+        }
+        if let Some(summary) = speculative_summary {
+            lines.push(format!("- Speculative result: {summary}"));
         }
 
         Some(format!("## Temporal Foresight\n{}\n", lines.join("\n")))
