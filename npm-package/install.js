@@ -21,7 +21,7 @@ const PLATFORM_MAP = {
   "linux-x64": {
     archivePlatform: "linux-x86_64",
     checksumPlatform: "linux-x86_64",
-    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp"],
+    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp", "zorai-desktop"],
   },
   "linux-arm64": {
     archivePlatform: "linux-aarch64",
@@ -41,7 +41,7 @@ const PLATFORM_MAP = {
   "win32-x64": {
     archivePlatform: "windows-x64",
     checksumPlatform: "windows-x64",
-    requiredBinaries: ["zorai.exe", "zorai-daemon.exe", "zorai-tui.exe", "zorai-gateway.exe", "zorai-mcp.exe"],
+    requiredBinaries: ["zorai.exe", "zorai-daemon.exe", "zorai-tui.exe", "zorai-gateway.exe", "zorai-mcp.exe", "zorai-desktop.exe"],
   },
 };
 
@@ -290,7 +290,7 @@ function getInstallUsageHint(isGlobalInstall, globalBinDir) {
     return "zorai: run 'zorai --help' once your npm global bin directory is on PATH, and open a new shell if it is not recognized immediately";
   }
 
-  return "zorai: run with 'npx zor-ai --help' (or 'npm exec zor-ai -- --help') after a local install";
+  return "zor-ai: run with 'npx zor-ai --help' (or 'npm exec zor-ai -- --help') after a local install";
 }
 
 function prependDirectoryToPath(env, directory) {

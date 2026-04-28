@@ -73,6 +73,13 @@ jobs:
 
       - name: Stage bundled skills and guidelines
         run: |
+          LINUX_APPIMAGE="$(find frontend/release -maxdepth 1 -type f -name "*.AppImage" -print -quit)"
+          if [ -z "$LINUX_APPIMAGE" ]; then
+            echo "Electron Linux AppImage was not produced" >&2
+            exit 1
+          fi
+          cp "$LINUX_APPIMAGE" dist-release/linux/zorai-desktop
+          chmod 755 dist-release/linux/zorai-desktop
           cp -R skills dist-release/linux/
           cp -R guidelines dist-release/linux/
 
@@ -82,7 +89,7 @@ jobs:
         run: |
           cd dist-release/linux
           ZIP="zorai-linux-x86_64.zip"
-          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines
+          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway zorai-desktop skills guidelines
           sha256sum "$ZIP" > "SHA256SUMS-linux-x86_64.txt"
 
       - name: Upload Linux artifacts
@@ -216,6 +223,7 @@ jobs:
       - name: Stage bundled skills and guidelines
         shell: pwsh
         run: |
+          Copy-Item frontend/release/zorai-portable.exe dist-release/windows/zorai-desktop.exe
           Copy-Item -Recurse skills dist-release/windows/
           Copy-Item -Recurse guidelines dist-release/windows/
 
@@ -226,7 +234,7 @@ jobs:
         working-directory: dist-release/windows
         run: |
           $zip = "zorai-windows-x64.zip"
-          Compress-Archive -Path zorai-daemon.exe, zorai.exe, zoi.exe, zorai-tui.exe, zorai-mcp.exe, zorai-gateway.exe, skills, guidelines -DestinationPath $zip -Force
+          Compress-Archive -Path zorai-daemon.exe, zorai.exe, zoi.exe, zorai-tui.exe, zorai-mcp.exe, zorai-gateway.exe, zorai-desktop.exe, skills, guidelines -DestinationPath $zip -Force
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $zip" | Out-File -FilePath SHA256SUMS-windows-x64.txt -Encoding ascii
 

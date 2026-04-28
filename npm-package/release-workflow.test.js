@@ -12,10 +12,12 @@ test("GitHub release workflow bundles guidelines in every native zip", function 
   );
 
   assert.match(workflow, /cp -R guidelines dist-release\/linux\//);
-  assert.match(workflow, /zip -r "\$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines/);
+  assert.match(workflow, /cp "\$LINUX_APPIMAGE" dist-release\/linux\/zorai-desktop/);
+  assert.match(workflow, /zip -r "\$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway zorai-desktop skills guidelines/);
   assert.match(workflow, /cp -R guidelines dist-release\/linux-arm64\//);
   assert.match(workflow, /Copy-Item -Recurse guidelines dist-release\/windows\//);
-  assert.match(workflow, /Compress-Archive -Path zorai-daemon\.exe, zorai\.exe, zoi\.exe, zorai-tui\.exe, zorai-mcp\.exe, zorai-gateway\.exe, skills, guidelines/);
+  assert.match(workflow, /Copy-Item frontend\/release\/zorai-portable\.exe dist-release\/windows\/zorai-desktop\.exe/);
+  assert.match(workflow, /Compress-Archive -Path zorai-daemon\.exe, zorai\.exe, zoi\.exe, zorai-tui\.exe, zorai-mcp\.exe, zorai-gateway\.exe, zorai-desktop\.exe, skills, guidelines/);
   assert.match(workflow, /cp -R guidelines dist-release\/macos\//);
   assert.match(workflow, /zip -r "\$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines/);
 });

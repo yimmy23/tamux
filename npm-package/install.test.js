@@ -23,6 +23,7 @@ test("getReleaseAssetInfo maps linux x64 to published zip asset names", function
       "zorai-tui",
       "zorai-gateway",
       "zorai-mcp",
+      "zorai-desktop",
     ],
   });
 });
@@ -61,6 +62,7 @@ test("getReleaseAssetInfo maps windows x64 to published zip asset names", functi
       "zorai-tui.exe",
       "zorai-gateway.exe",
       "zorai-mcp.exe",
+      "zorai-desktop.exe",
     ],
   });
 });
