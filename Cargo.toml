@@ -1,20 +1,20 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/amux-daemon",
-    "crates/amux-shared",
-    "crates/amux-protocol",
-    "crates/amux-cli",
-    "crates/amux-gateway",
-    "crates/amux-mcp",
-    "crates/amux-tui",
+    "crates/zorai-daemon",
+    "crates/zorai-shared",
+    "crates/zorai-protocol",
+    "crates/zorai-cli",
+    "crates/zorai-gateway",
+    "crates/zorai-mcp",
+    "crates/zorai-tui",
 ]
 
 [workspace.package]
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 license = "MIT"
-authors = ["tamux contributors"]
+authors = ["zorai contributors"]
 
 [workspace.dependencies]
 # Shared dependencies across the workspace
@@ -43,5 +43,5 @@ arrow-array = "57.3.0"
 arrow-schema = "57.3.0"
 
 # Protocol
-amux-shared = { package = "tamux-shared", path = "crates/amux-shared" }
-amux-protocol = { package = "tamux-protocol", path = "crates/amux-protocol" }
+zorai-shared = { package = "zorai-shared", path = "crates/zorai-shared" }
+zorai-protocol = { package = "zorai-protocol", path = "crates/zorai-protocol" }

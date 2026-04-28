@@ -70,7 +70,7 @@ function resolveWorkspaceSurfacePane(args: Record<string, unknown>) {
 let registered = false;
 
 export function registerCodingAgentsPlugin() {
-    const pluginApi = window.TamuxApi ?? window.AmuxApi;
+    const pluginApi = window.ZoraiApi;
     if (registered || typeof window === "undefined" || !pluginApi) {
         return;
     }
@@ -83,7 +83,7 @@ export function registerCodingAgentsPlugin() {
     pluginApi.registerPlugin({
         id: "coding-agents",
         name: "Coding Agents",
-        version: "0.7.1",
+        version: "0.8.0",
         assistantTools: [
             {
                 type: "function",
@@ -106,7 +106,7 @@ export function registerCodingAgentsPlugin() {
                         properties: {
                             agent: {
                                 type: "string",
-                                description: "Coding agent id, label, or executable name such as claude, codex, hermes, opencode, openclaw, kimi, aider, or goose.",
+                                description: "Coding agent id, label, or executable name such as claude, codex, opencode, kimi, aider, or goose.",
                             },
                             mode: {
                                 type: "string",
@@ -114,7 +114,7 @@ export function registerCodingAgentsPlugin() {
                             },
                             prompt: {
                                 type: "string",
-                                description: "Optional inline task prompt for launch modes that require one, such as Hermes one-shot or OpenClaw direct-agent mode.",
+                                description: "Optional inline task prompt for launch modes that require one, such as one-shot or print mode.",
                             },
                             workspace: {
                                 type: "string",

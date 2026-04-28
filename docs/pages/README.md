@@ -1,13 +1,13 @@
-# tamux GitHub Docs
+# Zorai GitHub Docs
 
-This folder contains a static HTML documentation site for tamux.
+This folder contains a static HTML documentation site for Zorai.
 
 ## What it includes
 
 - `index.html` — overview and feature map
 - `guides.html` — installation, first-run flow, and operator habits
 - `architecture.html` — daemon/runtime/agent deep dive
-- `why-tamux.html` — product-positioning explanation of what makes tamux different
+- `why-zorai.html` — product-positioning explanation of what makes Zorai different
 - `mission-control.html` — launch/orchestration cockpit for goal runs
 - `workspaces.html` — Jira-style workspace task boards over threads and goals
 - `goal-runners.html` — durable goal orchestration model

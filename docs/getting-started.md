@@ -1,13 +1,13 @@
-# tamux Getting Started
+# Zorai Getting Started
 
-tamux is an AI-native terminal multiplexer with workspaces, panes, a Rust daemon, and an Electron desktop UI. The daemon now also owns workspace task boards and long-running goal runners that can plan work, enqueue child execution entries, pause for approval, and persist what they learn.
+Zorai is a fully agentic daemon runtime with workspaces, a Rust daemon, and an Electron desktop UI. The daemon owns agent threads, workspace task boards, long-running goal runners, approvals, memory, and tool execution so work can continue beyond any single UI session.
 
 For providers, configuration, shortcuts, release packaging, plugin installation, and MCP registration, see [reference.md](reference.md).
 
 ## Install Locations
 
 - **Desktop app binaries (packaged):** inside application resources (`resources/bin` on desktop builds).
-- **Runtime data directory:** `~/.tamux` (Unix) or `%LOCALAPPDATA%\tamux` (Windows).
+- **Runtime data directory:** `~/.zorai` (Unix) or `%LOCALAPPDATA%\zorai` (Windows).
 - **Source builds:** binaries are produced in `target/debug` or `target/release`.
 
 ## Quick Install
@@ -15,13 +15,13 @@ For providers, configuration, shortcuts, release packaging, plugin installation,
 Use the shell installer when you want the native CLI binaries without npm:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mkurman/tamux/main/scripts/install.sh | sh
-tamux --help
+curl -fsSL https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.sh | sh
+zorai --help
 ```
 
-The installer downloads the same GitHub release bundles used by the npm package and installs them into `~/.local/bin` by default. Set `TAMUX_VERSION` to pin a specific release or `TAMUX_INSTALL_DIR` to change the install location.
+The installer downloads the same GitHub release bundles used by the npm package and installs them into `~/.local/bin` by default. Set `ZORAI_VERSION` to pin a specific release or `ZORAI_INSTALL_DIR` to change the install location.
 
-Later, `tamux upgrade` will upgrade from the same source that installed the current binary: npm-backed installs use npm, and direct-binary installs reuse the direct installer for the active install directory.
+Later, `zorai upgrade` will upgrade from the same source that installed the current binary: npm-backed installs use npm, and direct-binary installs reuse the direct installer for the active install directory.
 
 ## Required Dependencies
 
@@ -79,7 +79,7 @@ Use this path if you want to validate the long-running autonomy flow end to end.
 2. Start the daemon:
 
 ```bash
-cargo run --release --bin tamux-daemon
+cargo run --release --bin zorai-daemon
 ```
 
 3. In another terminal, launch the desktop app:

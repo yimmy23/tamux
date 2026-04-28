@@ -33,7 +33,7 @@ function Get-InstallHint($Dependency) {
         "git" { return "winget install Git.Git" }
         "uv" { return "powershell -ExecutionPolicy ByPass -c `"irm https://astral.sh/uv/install.ps1 | iex`"" }
         "aline" { return "uv tool install aline-ai" }
-        "tamux-mcp" { return "cargo build --release -p tamux-mcp" }
+        "zorai-mcp" { return "cargo build --release -p zorai-mcp" }
         "hermes" { return "python -m pip install `"hermes-agent[all]`"" }
         "openclaw" { return "npm install -g openclaw" }
         default { return "No install hint available" }
@@ -46,7 +46,7 @@ $requiredDeps = if ($Profile -eq "source") {
     @()
 }
 
-$optionalDeps = @("aline", "tamux-mcp", "hermes", "openclaw")
+$optionalDeps = @("aline", "zorai-mcp", "hermes", "openclaw")
 
 $requiredRows = @()
 $optionalRows = @()
@@ -87,7 +87,7 @@ $report = [ordered]@{
 if ($Format -eq "json") {
     $report | ConvertTo-Json -Depth 8
 } else {
-    Write-Host "tamux setup preflight"
+    Write-Host "zorai setup preflight"
     Write-Host "Profile:  $Profile"
     Write-Host "Platform: windows"
     Write-Host ""

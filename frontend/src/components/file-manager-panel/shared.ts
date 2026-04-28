@@ -40,7 +40,7 @@ export const DEFAULT_RIGHT_PATH = ".";
 
 export function getBridge(): FsBridge | null {
     if (typeof window === "undefined") return null;
-    return ((window as unknown as { amux?: FsBridge }).amux ?? null);
+    return ((window as unknown as { zorai?: FsBridge }).zorai ?? null);
 }
 
 export function encodeToBase64(text: string): string {

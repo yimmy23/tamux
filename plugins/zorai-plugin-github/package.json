@@ -1,0 +1,20 @@
+{
+  "name": "zorai-plugin-github",
+  "version": "1.0.0",
+  "description": "GitHub integration for zorai",
+  "author": "zorai",
+  "license": "MIT",
+  "keywords": [
+    "zorai",
+    "plugin",
+    "github"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/anthropic/cmux-next"
+  },
+  "files": [
+    "github/",
+    "README.md"
+  ]
+}

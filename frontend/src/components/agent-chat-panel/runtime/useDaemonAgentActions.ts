@@ -8,36 +8,13 @@ import { startGoalRun, goalRunSupportAvailable, type GoalRun } from "@/lib/goalR
 import { useWorkspaceStore } from "@/lib/workspaceStore";
 import { appendDaemonSystemMessage, normalizeBridgePayload, reloadDaemonThreadIntoLocalState } from "./daemonHelpers";
 import { parseLeadingAgentDirective, type AgentDirective } from "./agentDirective";
+import { builtinAgentSetupCandidate, isBuiltinPersonaSetupError } from "./builtinAgentSetupPreflight";
 import type { BuiltinAgentSetupState } from "./types";
-
-const BUILTIN_PERSONA_ALIASES = [
-  "swarozyc",
-  "radogost",
-  "domowoj",
-  "swietowit",
-  "perun",
-  "mokosh",
-  "dazhbog",
-] as const;
 
 type PendingBuiltinAgentSetup = BuiltinAgentSetupState & {
   directive: AgentDirective;
   threadId: string | null;
 };
-
-function isBuiltinPersonaAlias(agentAlias: string): boolean {
-  return BUILTIN_PERSONA_ALIASES.includes(agentAlias.trim().toLowerCase() as (typeof BUILTIN_PERSONA_ALIASES)[number]);
-}
-
-function isBuiltinPersonaSetupError(error: string | undefined, targetAgentId: string): boolean {
-  const normalizedError = (error ?? "").toLowerCase();
-  return normalizedError.includes(`builtin agent '${targetAgentId.toLowerCase()}' is not configured`);
-}
-
-function builtinPersonaDisplayName(agentAlias: string): string {
-  const normalized = agentAlias.trim().toLowerCase();
-  return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : agentAlias;
-}
 
 function parseImageGenerationPrompt(text: string): string | null {
   const match = text.trim().match(/^\/image(?:\s+([\s\S]*))?$/);
@@ -93,7 +70,7 @@ export function useDaemonAgentActions({
     currentThreadId: string | null,
     promptForSetup = true,
   ) => {
-    const amux = getAgentBridge();
+    const zorai = getAgentBridge();
     const daemonThreadId = daemonThreadIdRef.current;
     const targetAgentId = directive.agentAlias.trim().toLowerCase();
     const defaultProviderId = agentSettings.active_provider;
@@ -101,23 +78,51 @@ export function useDaemonAgentActions({
     const defaultModel = defaultProviderConfig?.model?.trim()
       || getProviderDefinition(defaultProviderId)?.defaultModel
       || "";
+    const promptBuiltinSetupIfNeeded = async (threadId: string | null): Promise<boolean> => {
+      if (!promptForSetup) {
+        return false;
+      }
+      let candidate = builtinAgentSetupCandidate(targetAgentId, useAgentStore.getState().subAgents);
+      if (!candidate) {
+        return false;
+      }
+      await useAgentStore.getState().refreshSubAgents();
+      candidate = builtinAgentSetupCandidate(targetAgentId, useAgentStore.getState().subAgents);
+      if (!candidate) {
+        return false;
+      }
+      setPendingBuiltinAgentSetup({
+        targetAgentId: candidate.targetAgentId,
+        targetAgentName: candidate.targetAgentName,
+        providerId: defaultProviderId,
+        model: defaultModel,
+        error: null,
+        directive,
+        threadId,
+      });
+      return true;
+    };
 
     if (directive.kind === "internal_delegate") {
-      if (!amux?.agentInternalDelegate) {
+      if (!zorai?.agentInternalDelegate) {
         appendDaemonSystemMessage("Internal delegation is not available in this runtime.", currentThreadId);
         return true;
       }
-      const response = await amux.agentInternalDelegate(
+      if (await promptBuiltinSetupIfNeeded(daemonThreadId ?? currentThreadId ?? null)) {
+        return true;
+      }
+      const response = await zorai.agentInternalDelegate(
         daemonThreadId ?? null,
         directive.agentAlias,
         directive.body,
         null,
       );
       const payload = normalizeBridgePayload(response);
-      if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaAlias(targetAgentId) && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+      if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+        const candidate = builtinAgentSetupCandidate(targetAgentId, useAgentStore.getState().subAgents);
         setPendingBuiltinAgentSetup({
-          targetAgentId,
-          targetAgentName: builtinPersonaDisplayName(directive.agentAlias),
+          targetAgentId: candidate?.targetAgentId ?? targetAgentId,
+          targetAgentName: candidate?.targetAgentName ?? targetAgentId,
           providerId: defaultProviderId,
           model: defaultModel,
           error: null,
@@ -142,11 +147,14 @@ export function useDaemonAgentActions({
       );
       return true;
     }
-    if (!amux?.agentThreadParticipantCommand) {
+    if (!zorai?.agentThreadParticipantCommand) {
       appendDaemonSystemMessage("Thread participants are not available in this runtime.", currentThreadId);
       return true;
     }
-    const response = await amux.agentThreadParticipantCommand({
+    if (await promptBuiltinSetupIfNeeded(daemonThreadId)) {
+      return true;
+    }
+    const response = await zorai.agentThreadParticipantCommand({
       threadId: daemonThreadId,
       targetAgentId: directive.agentAlias,
       action: directive.kind === "participant_deactivate" ? "deactivate" : "upsert",
@@ -154,10 +162,11 @@ export function useDaemonAgentActions({
       sessionId: null,
     });
     const payload = normalizeBridgePayload(response);
-    if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaAlias(targetAgentId) && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+    if (payload?.ok === false && typeof payload?.error === "string" && promptForSetup && isBuiltinPersonaSetupError(payload.error, targetAgentId)) {
+      const candidate = builtinAgentSetupCandidate(targetAgentId, useAgentStore.getState().subAgents);
       setPendingBuiltinAgentSetup({
-        targetAgentId,
-        targetAgentName: builtinPersonaDisplayName(directive.agentAlias),
+        targetAgentId: candidate?.targetAgentId ?? targetAgentId,
+        targetAgentName: candidate?.targetAgentName ?? targetAgentId,
         providerId: defaultProviderId,
         model: defaultModel,
         error: null,
@@ -165,6 +174,13 @@ export function useDaemonAgentActions({
         threadId: daemonThreadId,
       });
       return true;
+    }
+    if (payload?.ok !== false) {
+      await reloadDaemonThreadIntoLocalState({
+        daemonThreadId,
+        setThreadTodos,
+        setDaemonTodosByThread,
+      });
     }
     appendDaemonSystemMessage(
       payload?.ok === false && typeof payload?.error === "string"
@@ -178,15 +194,17 @@ export function useDaemonAgentActions({
   }, [
     agentSettings,
     daemonThreadIdRef,
+    setDaemonTodosByThread,
+    setThreadTodos,
   ]);
 
   const submitBuiltinAgentSetup = useCallback(async (providerId: AgentProviderId, model: string) => {
-    const amux = getAgentBridge();
+    const zorai = getAgentBridge();
     const pending = pendingBuiltinAgentSetup;
-    if (!pending || !amux?.agentSetTargetAgentProviderModel) {
+    if (!pending || !zorai?.agentSetTargetAgentProviderModel) {
       return;
     }
-    const response = await amux.agentSetTargetAgentProviderModel(
+    const response = await zorai.agentSetTargetAgentProviderModel(
       pending.targetAgentId,
       providerId,
       model,
@@ -202,6 +220,7 @@ export function useDaemonAgentActions({
       return;
     }
     setPendingBuiltinAgentSetup(null);
+    await useAgentStore.getState().refreshSubAgents();
     await runDirective(pending.directive, pending.threadId, false);
   }, [pendingBuiltinAgentSetup, runDirective]);
 
@@ -210,11 +229,11 @@ export function useDaemonAgentActions({
   }, []);
 
   const sendDaemonMessage = useCallback((payload: { text: string; contentBlocksJson?: string | null; localContentBlocks?: AgentContentBlock[] }) => {
-    const amux = getAgentBridge();
-    if (!amux?.agentSendMessage) {
+    const zorai = getAgentBridge();
+    if (!zorai?.agentSendMessage) {
       return false;
     }
-    const sendAgentMessage = amux.agentSendMessage;
+    const sendAgentMessage = zorai.agentSendMessage;
 
     void (async () => {
       const text = payload.text;
@@ -229,7 +248,7 @@ export function useDaemonAgentActions({
       const imagePrompt = parseImageGenerationPrompt(text);
 
       if (imagePrompt !== null) {
-        if (!amux?.agentGenerateImage) {
+        if (!zorai?.agentGenerateImage) {
           appendDaemonSystemMessage("Image generation is not available in this runtime.", currentThreadId);
           return;
         }
@@ -268,7 +287,7 @@ export function useDaemonAgentActions({
         const requestedDaemonThreadId = daemonThreadIdRef.current ?? localThread?.daemonThreadId ?? null;
 
         try {
-          const response = await amux.agentGenerateImage(
+          const response = await zorai.agentGenerateImage(
             imagePrompt,
             requestedDaemonThreadId ? { thread_id: requestedDaemonThreadId } : undefined,
           );
@@ -319,8 +338,8 @@ export function useDaemonAgentActions({
 
       if (trimmed === "!explain") {
         const latestGoalRun = [...goalRunsForTrace].sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))[0];
-        if (latestGoalRun?.id && amux.agentExplainAction) {
-          const response = await amux.agentExplainAction(latestGoalRun.id, null);
+        if (latestGoalRun?.id && zorai.agentExplainAction) {
+          const response = await zorai.agentExplainAction(latestGoalRun.id, null);
           const payload = normalizeBridgePayload(response);
           appendDaemonSystemMessage(
             payload?.ok === false && typeof payload?.error === "string"
@@ -337,8 +356,8 @@ export function useDaemonAgentActions({
       if (trimmed.startsWith("!diverge ")) {
         const problemStatement = trimmed.slice("!diverge ".length).trim();
         const daemonThreadId = daemonThreadIdRef.current;
-        if (problemStatement && daemonThreadId && amux.agentStartDivergentSession) {
-          const response = await amux.agentStartDivergentSession({
+        if (problemStatement && daemonThreadId && zorai.agentStartDivergentSession) {
+          const response = await zorai.agentStartDivergentSession({
             problemStatement,
             threadId: daemonThreadId,
             goalRunId: null,
@@ -370,8 +389,8 @@ export function useDaemonAgentActions({
       if (trimmed.startsWith("!diverge-get")) {
         const explicitSessionId = trimmed.slice("!diverge-get".length).trim();
         const sessionId = explicitSessionId || latestDivergentSessionId || "";
-        if (sessionId && amux.agentGetDivergentSession) {
-          const response = await amux.agentGetDivergentSession(sessionId);
+        if (sessionId && zorai.agentGetDivergentSession) {
+          const response = await zorai.agentGetDivergentSession(sessionId);
           const payload = normalizeBridgePayload(response);
           appendDaemonSystemMessage(
             payload?.ok === false && typeof payload?.error === "string"
@@ -388,6 +407,9 @@ export function useDaemonAgentActions({
         return;
       }
 
+      if (/^[!@]\S+/.test(trimmed)) {
+        await useAgentStore.getState().refreshSubAgents();
+      }
       const knownAgentAliases = [
         "main",
         "svarog",
@@ -458,12 +480,11 @@ export function useDaemonAgentActions({
         isCompactionSummary: false,
       });
 
-      const isExternalAgent = agentSettings.agent_backend === "openclaw" || agentSettings.agent_backend === "hermes";
       addMessage(threadId, {
         role: "assistant",
         content: "",
-        provider: isExternalAgent ? agentSettings.agent_backend : agentSettings.active_provider,
-        model: isExternalAgent ? agentSettings.agent_backend : ((agentSettings[agentSettings.active_provider] as any)?.model || "unknown"),
+        provider: agentSettings.active_provider,
+        model: ((agentSettings[agentSettings.active_provider] as any)?.model || "unknown"),
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,

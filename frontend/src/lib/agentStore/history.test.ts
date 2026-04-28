@@ -40,4 +40,30 @@ describe("buildHydratedRemoteThread", () => {
     expect(hydrated?.thread.daemonThreadId).toBe("dm:svarog:weles");
     expect(hydrated?.thread.title).toBe("Internal DM · Swarog ↔ WELES");
   });
+
+  it("hydrates daemon runtime profile and active context-window token metadata", () => {
+    const hydrated = buildHydratedRemoteThread(
+      {
+        id: "thread-runtime-context",
+        title: "Runtime Context",
+        profile_provider: "alibaba-coding-plan",
+        profile_model: "glm-5",
+        profile_reasoning_effort: "high",
+        profile_context_window_tokens: 202_752,
+        active_context_window_start: 2,
+        active_context_window_end: 6,
+        active_context_window_tokens: 12_345,
+        messages: [],
+      },
+      "Svarog",
+    );
+
+    expect(hydrated?.thread.profileProvider).toBe("alibaba-coding-plan");
+    expect(hydrated?.thread.profileModel).toBe("glm-5");
+    expect(hydrated?.thread.profileReasoningEffort).toBe("high");
+    expect(hydrated?.thread.profileContextWindowTokens).toBe(202_752);
+    expect(hydrated?.thread.activeContextWindowStart).toBe(2);
+    expect(hydrated?.thread.activeContextWindowEnd).toBe(6);
+    expect(hydrated?.thread.activeContextWindowTokens).toBe(12_345);
+  });
 });

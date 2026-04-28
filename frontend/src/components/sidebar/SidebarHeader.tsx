@@ -42,7 +42,7 @@ export function SidebarHeader({
             >
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-3)" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
-                        <span className="amux-panel-title">Runtime Environments</span>
+                        <span className="zorai-panel-title">Runtime Environments</span>
                         <div style={{ fontSize: "var(--text-lg)", fontWeight: 700 }}>Workspace Fleet</div>
                         <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", lineHeight: 1.5 }}>
                             Grouped environments for code, approvals, and telemetry
@@ -140,7 +140,7 @@ function SidebarMetric({ label, value, accent }: { label: string; value: string;
                 gap: "var(--space-1)",
             }}
         >
-            <span className="amux-panel-title">{label}</span>
+            <span className="zorai-panel-title">{label}</span>
             <span style={{ color: accent, fontWeight: 700, fontSize: "var(--text-md)" }}>{value}</span>
         </div>
     );

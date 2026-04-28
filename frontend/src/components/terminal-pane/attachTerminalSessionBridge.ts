@@ -155,8 +155,8 @@ export function attachTerminalSessionBridge({
 
   void (async () => {
     try {
-      const amux = getBridge();
-      const unsubscribe = amux?.onTerminalEvent?.((event: any) => {
+      const zorai = getBridge();
+      const unsubscribe = zorai?.onTerminalEvent?.((event: any) => {
         if (cancelled) return;
         handleTerminalEvent(event);
       });
@@ -187,7 +187,7 @@ export function attachTerminalSessionBridge({
           requestedSessionId = undefined;
         }
       }
-      const bridge = await amux?.startTerminalSession?.({
+      const bridge = await zorai?.startTerminalSession?.({
         paneId,
         sessionId: requestedSessionId,
         shell,
@@ -235,8 +235,8 @@ export function attachTerminalSessionBridge({
   })();
 
   const dataDisposable = term.onData((data) => {
-    const amux = getBridge();
-    if (!amux?.sendTerminalInput || !sessionReadyRef.current) return;
+    const zorai = getBridge();
+    if (!zorai?.sendTerminalInput || !sessionReadyRef.current) return;
 
     if (pendingInlineApprovalPromptRef.current) {
       let response = "";
@@ -300,7 +300,7 @@ export function attachTerminalSessionBridge({
 
     setSharedCursorMode("human");
     trackInput(data);
-    void amux.sendTerminalInput(paneId, encodeTextToBase64(data));
+    void zorai.sendTerminalInput(paneId, encodeTextToBase64(data));
   });
 
   return () => {

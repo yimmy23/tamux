@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tamux development script
+# zorai development script
 # Usage: ./scripts/dev.sh [daemon|ui|cli|all]
 set -euo pipefail
 
@@ -10,9 +10,9 @@ cmd="${1:-all}"
 
 case "$cmd" in
   daemon)
-    echo "▶ Starting tamux-daemon in development mode..."
+    echo "▶ Starting zorai-daemon in development mode..."
     cd "$PROJECT_ROOT"
-    TAMUX_LOG=debug cargo run --bin tamux-daemon
+    ZORAI_LOG=debug cargo run --bin zorai-daemon
     ;;
   ui)
     echo "▶ Starting Electron dev UI..."
@@ -29,8 +29,8 @@ case "$cmd" in
   cli)
     echo "▶ Building CLI..."
     cd "$PROJECT_ROOT"
-    cargo build --bin tamux
-    echo "✓ CLI built: target/debug/tamux"
+    cargo build --bin zorai
+    echo "✓ CLI built: target/debug/zorai"
     ;;
   all)
     echo "▶ Building all crates..."

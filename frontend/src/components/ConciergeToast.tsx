@@ -1,17 +1,30 @@
+import { useAgentChatPanelRuntime } from "./agent-chat-panel/runtime/context";
 import { useAgentStore } from "../lib/agentStore";
 import { useWorkspaceStore } from "../lib/workspaceStore";
+import { openThreadTarget } from "../zorai/features/threads/openThreadTarget";
+import { navigateZorai } from "../zorai/shell/zoraiNavigationEvents";
 
 export function ConciergeToast() {
+    const runtime = useAgentChatPanelRuntime();
     const welcome = useAgentStore((s) => s.conciergeWelcome);
     const dismiss = useAgentStore((s) => s.dismissConciergeWelcome);
     const config = useAgentStore((s) => s.conciergeConfig);
     const threads = useAgentStore((s) => s.threads);
-    const setActiveThread = useAgentStore((s) => s.setActiveThread);
-    const createThread = useAgentStore((s) => s.createThread);
     const settingsOpen = useWorkspaceStore((s) => s.settingsOpen);
     const toggleSettings = useWorkspaceStore((s) => s.toggleSettings);
 
     if (!welcome || !config.enabled) return null;
+
+    const openThread = async (threadId: string) => {
+        const opened = await openThreadTarget(runtime, threadId);
+        if (!opened) {
+            const targetThreadId = resolveLocalThreadId(threadId);
+            if (targetThreadId) {
+                runtime.openThread(targetThreadId);
+            }
+        }
+        navigateZorai({ view: "threads" });
+    };
 
     const resolveLocalThreadId = (threadId?: string) => {
         if (!threadId) return null;
@@ -48,27 +61,24 @@ export function ConciergeToast() {
                             if (action.action_type === "dismiss" || action.action_type === "dismiss_welcome") {
                                 await dismiss();
                             } else if (action.action_type === "continue_session" && action.thread_id) {
-                                const targetThreadId = resolveLocalThreadId(action.thread_id);
-                                if (targetThreadId) {
-                                    setActiveThread(targetThreadId);
-                                }
+                                await openThread(action.thread_id);
                                 await dismiss();
                             } else if (action.action_type === "start_new") {
-                                createThread({});
+                                runtime.createThread({});
+                                navigateZorai({ view: "threads" });
                                 await dismiss();
                             } else if (action.action_type === "start_goal_run") {
                                 // Navigate to goal run creation
-                                createThread({});
+                                runtime.createThread({});
+                                navigateZorai({ view: "threads" });
                                 await dismiss();
                             } else if (action.action_type === "focus_chat") {
                                 // Focus chat input
-                                const conciergeThreadId = resolveLocalThreadId("concierge");
-                                if (conciergeThreadId) {
-                                    setActiveThread(conciergeThreadId);
-                                }
+                                await openThread("concierge");
                                 await dismiss();
                             } else if (action.action_type === "open_settings") {
                                 // Navigate to settings panel
+                                navigateZorai({ view: "settings" });
                                 if (!settingsOpen) toggleSettings();
                                 await dismiss();
                             } else {

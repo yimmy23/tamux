@@ -35,6 +35,15 @@ export interface AgentThread {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  loadedMessageStart?: number | null;
+  loadedMessageEnd?: number | null;
+  activeContextWindowStart?: number | null;
+  activeContextWindowEnd?: number | null;
+  activeContextWindowTokens?: number | null;
+  profileProvider?: string | null;
+  profileModel?: string | null;
+  profileReasoningEffort?: string | null;
+  profileContextWindowTokens?: number | null;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalTokens: number;
@@ -174,7 +183,7 @@ export type ApiTransportMode =
   | "chat_completions";
 export type NativeTransportKind = "alibaba_assistant_api";
 export type Modality = "text" | "image" | "video" | "audio";
-export type AgentBackend = "daemon" | "openclaw" | "hermes" | "legacy";
+export type AgentBackend = "daemon" | "legacy";
 
 export interface ModelDefinition {
   id: string;

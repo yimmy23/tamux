@@ -44,8 +44,8 @@ export function TimeTravelSlider({ style, className }: TimeTravelSliderProps = {
       // Fall back to the persisted snapshot index when no live pane bridge exists.
     }
 
-    const amux = getBridge();
-    const rows = await amux?.dbListSnapshotIndex?.(null);
+    const zorai = getBridge();
+    const rows = await zorai?.dbListSnapshotIndex?.(null);
     if (Array.isArray(rows)) {
       setSnapshots(rows.map((snapshot: any) => toSnapshotEntry(snapshot)));
     }
@@ -112,7 +112,7 @@ export function TimeTravelSlider({ style, className }: TimeTravelSliderProps = {
         backdropFilter: "none",
         ...(style ?? {}),
       }}
-      className={className ? `amux-shell-card ${className}` : "amux-shell-card"}
+      className={className ? `zorai-shell-card ${className}` : "zorai-shell-card"}
     >
       <TimeTravelHeader
         snapshotCount={snapshots.length}

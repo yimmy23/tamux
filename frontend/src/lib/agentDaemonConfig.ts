@@ -3,6 +3,7 @@ import {
   getDefaultAuthSource,
   getEffectiveContextWindow,
   normalizeAuthSource,
+  normalizeApiTransport,
 } from "./agentStore/providers.ts";
 import type { AgentProviderConfig } from "./agentStore/types.ts";
 import { getBridge } from "./bridge.ts";
@@ -25,24 +26,23 @@ export function getAgentBridge() {
 export function resolveDaemonBackend(
   backend: AgentSettings["agent_backend"],
 ): Exclude<AgentSettings["agent_backend"], "legacy"> {
-  return backend === "legacy" ? "daemon" : backend;
+  void backend;
+  return "daemon";
 }
 
 export function shouldUseDaemonRuntime(
   backend: AgentSettings["agent_backend"],
 ): boolean {
-  if (backend === "openclaw" || backend === "hermes") {
-    return true;
-  }
+  void backend;
   return Boolean(getAgentBridge()?.agentSendMessage);
 }
 
 export function getDaemonOwnedAuthCapability(
   backend: AgentSettings["agent_backend"],
-  bridge: AmuxBridge | null = getAgentBridge(),
+  bridge: ZoraiBridge | null = getAgentBridge(),
 ): DaemonOwnedAuthCapability {
-  const daemonOwnedAuthAvailable = backend === "daemon"
-    || (backend === "legacy" && Boolean(bridge?.agentSendMessage));
+  void backend;
+  const daemonOwnedAuthAvailable = Boolean(bridge?.agentSendMessage);
 
   return {
     daemonOwnedAuthAvailable,
@@ -52,7 +52,7 @@ export function getDaemonOwnedAuthCapability(
 
 export function getProviderAuthSupportOptions(
   backend: AgentSettings["agent_backend"],
-  bridge: AmuxBridge | null = getAgentBridge(),
+  bridge: ZoraiBridge | null = getAgentBridge(),
 ): { daemonOwnedAuthAvailable: boolean } {
   return {
     daemonOwnedAuthAvailable: getDaemonOwnedAuthCapability(backend, bridge).daemonOwnedAuthAvailable,
@@ -135,7 +135,7 @@ export function buildDaemonAgentConfig(
           base_url: referencedConfig.base_url || "",
           model: referencedConfig.model || "",
           assistant_id: referencedConfig.assistant_id || "",
-          api_transport: referencedConfig.api_transport || "chat_completions",
+          api_transport: normalizeApiTransport(referencedProviderId, referencedConfig.api_transport),
           auth_source: referencedAuthSource,
           context_window_tokens: getEffectiveContextWindow(referencedProviderId, referencedConfig),
           reasoning_effort: agentSettings.reasoning_effort || "high",
@@ -151,10 +151,16 @@ export function buildDaemonAgentConfig(
     base_url: providerConfig?.base_url || "",
     model: providerConfig?.model || "",
     assistant_id: providerConfig?.assistant_id || "",
-    api_transport: providerConfig?.api_transport || "chat_completions",
+    api_transport: normalizeApiTransport(providerKey, providerConfig?.api_transport),
     auth_source: authSource,
     reasoning_effort: agentSettings.reasoning_effort || "high",
     system_prompt: agentSettings.system_prompt,
+    managed_sandbox_enabled: agentSettings.managed_sandbox_enabled,
+    managed_security_level: agentSettings.managed_security_level,
+    managed_execution: {
+      sandbox_enabled: agentSettings.managed_sandbox_enabled,
+      security_level: agentSettings.managed_security_level,
+    },
     auto_compact_context: agentSettings.auto_compact_context,
     max_context_messages: agentSettings.max_context_messages,
     react_chat_history_page_size: agentSettings.react_chat_history_page_size,
@@ -190,7 +196,10 @@ export function buildDaemonAgentConfig(
         api_key: agentSettings.compaction.custom_model.api_key,
         assistant_id: agentSettings.compaction.custom_model.assistant_id,
         auth_source: agentSettings.compaction.custom_model.auth_source,
-        api_transport: agentSettings.compaction.custom_model.api_transport,
+        api_transport: normalizeApiTransport(
+          agentSettings.compaction.custom_model.provider,
+          agentSettings.compaction.custom_model.api_transport,
+        ),
         reasoning_effort: agentSettings.compaction.custom_model.reasoning_effort,
         context_window_tokens: agentSettings.compaction.custom_model.context_window_tokens,
       },
@@ -250,7 +259,7 @@ export function buildDaemonAgentConfig(
       whatsapp_token: agentSettings.whatsapp_token,
       whatsapp_phone_id: agentSettings.whatsapp_phone_id,
       whatsapp_allowed_contacts: agentSettings.whatsapp_allowed_contacts,
-      command_prefix: agentSettings.gateway_command_prefix || "!tamux",
+      command_prefix: agentSettings.gateway_command_prefix || "!zorai",
     },
     snapshot_retention: snapshotSettings
       ? {

@@ -125,10 +125,7 @@ export function AgentTab({
         : effectiveAuthSource === "github_copilot"
             ? Boolean(activeProviderAuthState?.authenticated)
             : Boolean(providerConfig.api_key || activeProviderAuthState?.authenticated);
-    const daemonDelayControlsDisabled = settings.agent_backend === "openclaw" || settings.agent_backend === "hermes";
-    const daemonDelayInputStyle = daemonDelayControlsDisabled
-        ? { ...inputStyle, width: 80, opacity: 0.6, cursor: "not-allowed" as const }
-        : { ...inputStyle, width: 80 };
+    const daemonDelayInputStyle = { ...inputStyle, width: 80 };
     const reactHistoryIsUnlimited = settings.react_chat_history_page_size === REACT_CHAT_HISTORY_PAGE_SIZE_ALL;
 
     useEffect(() => {
@@ -145,14 +142,14 @@ export function AgentTab({
             return;
         }
 
-        const amux = getBridge();
-        if (!amux?.openAICodexAuthStatus) {
+        const zorai = getBridge();
+        if (!zorai?.openAICodexAuthStatus) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
         }
 
         let cancelled = false;
-        void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
+        void zorai.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
             if (!cancelled) {
                 setSubscriptionAuthStatus(status);
             }
@@ -173,11 +170,11 @@ export function AgentTab({
         }
 
         const timer = window.setInterval(() => {
-            const amux = getBridge();
-            if (!amux?.openAICodexAuthStatus) {
+            const zorai = getBridge();
+            if (!zorai?.openAICodexAuthStatus) {
                 return;
             }
-            void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
+            void zorai.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
                 setSubscriptionAuthStatus(status);
             }).catch(() => { });
         }, 2000);
@@ -196,15 +193,15 @@ export function AgentTab({
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT subscription auth requires daemon-backed execution" });
             return;
         }
-        const amux = getBridge();
-        if (!amux?.openAICodexAuthLogin) {
+        const zorai = getBridge();
+        if (!zorai?.openAICodexAuthLogin) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
         }
 
         setSubscriptionAuthBusy(true);
         try {
-            const result = await amux.openAICodexAuthLogin();
+            const result = await zorai.openAICodexAuthLogin();
             setSubscriptionAuthStatus(result);
             const authUrl = deriveOpenAICodexAuthUi(result).authUrl;
             if (authUrl) {
@@ -222,15 +219,15 @@ export function AgentTab({
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT subscription auth requires daemon-backed execution" });
             return;
         }
-        const amux = getBridge();
-        if (!amux?.openAICodexAuthLogout) {
+        const zorai = getBridge();
+        if (!zorai?.openAICodexAuthLogout) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
         }
 
         setSubscriptionAuthBusy(true);
         try {
-            await amux.openAICodexAuthLogout();
+            await zorai.openAICodexAuthLogout();
             setSubscriptionAuthStatus({ available: false, status: null, authMode: "chatgpt_subscription", error: "No ChatGPT subscription auth found" });
         } catch (error: any) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: error?.message || "Failed to clear ChatGPT auth" });
@@ -268,8 +265,8 @@ export function AgentTab({
                 </span>
                 <button
                     onClick={() => {
-                        window.dispatchEvent(new CustomEvent("tamux-open-settings-tab", { detail: { tab: "auth" } }));
-                        window.dispatchEvent(new CustomEvent("amux-open-settings-tab", { detail: { tab: "auth" } }));
+                        window.dispatchEvent(new CustomEvent("zorai-open-settings-tab", { detail: { tab: "auth" } }));
+                        window.dispatchEvent(new CustomEvent("zorai-open-settings-tab", { detail: { tab: "auth" } }));
                     }}
                     style={{ ...smallBtnStyle, fontSize: 10, marginLeft: "auto" }}
                 >
@@ -277,40 +274,6 @@ export function AgentTab({
                 </button>
             </div>
             <Section title="General">
-                <SettingRow label={`Enable ${PRIMARY_AGENT_NAME}`}>
-                    <Toggle value={settings.enabled} onChange={(value) => updateSetting("enabled", value)} />
-                </SettingRow>
-                <SettingRow label="Agent Backend">
-                    <select value={settings.agent_backend}
-                        onChange={(e) => updateSetting("agent_backend", e.target.value as "daemon" | "openclaw" | "hermes" | "legacy")}
-                        style={inputStyle}>
-                        <option value="daemon">tamux</option>
-                        <option value="openclaw">OpenClaw</option>
-                        <option value="hermes">Hermes</option>
-                        <option value="legacy">Legacy Fallback</option>
-                    </select>
-                </SettingRow>
-                {settings.agent_backend === "legacy" ? (
-                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                        Legacy now acts as a frontend-only fallback when the desktop daemon bridge is unavailable. When the bridge is present, chat and goal runs still use the daemon stack so memory, goals, and self-orchestrating capabilities stay consistent.
-                    </div>
-                ) : null}
-                {(settings.agent_backend === "openclaw" || settings.agent_backend === "hermes") ? (
-                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                        <strong>{settings.agent_backend === "openclaw" ? "OpenClaw" : "Hermes"}</strong> will handle LLM inference, tools, memory, and gateway connections using its own infrastructure.
-                        {settings.agent_backend === "hermes" ? (
-                            <span> Config: <code>~/.hermes/config.yaml</code></span>
-                        ) : (
-                            <span> Config: <code>~/.openclaw/openclaw.json</code></span>
-                        )}
-                        <div style={{ marginTop: 6, padding: "4px 6px", background: "var(--bg-secondary)", borderRadius: 3 }}>
-                            <strong>tamux tools:</strong> Add <code>tamux-mcp</code> to {settings.agent_backend === "hermes" ? "Hermes" : "OpenClaw"}'s MCP config for terminal session access, command execution, history search, and more.
-                            <div style={{ marginTop: 3, fontFamily: "monospace", fontSize: 10 }}>
-                                {`{"mcpServers": {"tamux": {"command": "tamux-mcp"}}}`}
-                            </div>
-                        </div>
-                    </div>
-                ) : null}
                 <SettingRow label={`${PRIMARY_AGENT_NAME} Name`}>
                     <div style={{ ...inputStyle, width: "100%", color: "var(--text-primary)", opacity: 0.85, cursor: "default" }}>
                         {PRIMARY_AGENT_NAME}
@@ -327,8 +290,7 @@ export function AgentTab({
                 </SettingRow>
             </Section>
 
-            {settings.agent_backend !== "openclaw" && settings.agent_backend !== "hermes" ? (
-                <Section title="Audio">
+            <Section title="Audio">
                     <SettingRow label="Enable Speech-to-Text">
                         <Toggle value={settings.audio_stt_enabled} onChange={(value) => updateSetting("audio_stt_enabled", value)} />
                     </SettingRow>
@@ -421,8 +383,7 @@ export function AgentTab({
                     <SettingRow label="Auto-speak Replies">
                         <Toggle value={settings.audio_tts_auto_speak} onChange={(value) => updateSetting("audio_tts_auto_speak", value)} />
                     </SettingRow>
-                </Section>
-            ) : null}
+            </Section>
 
             <Section title="Image Generation">
                 <SettingRow label="Image Provider">
@@ -459,9 +420,7 @@ export function AgentTab({
             </Section>
 
             <PromptPreviewSection
-                backend={settings.agent_backend}
                 refreshKey={[
-                    settings.agent_backend,
                     settings.system_prompt,
                     settings.active_provider,
                     providerConfig.model,
@@ -469,8 +428,7 @@ export function AgentTab({
                 ].join("|")}
             />
 
-            {settings.agent_backend !== "openclaw" && settings.agent_backend !== "hermes" ? (
-                <Section title={`${PRIMARY_AGENT_NAME} Provider`}>
+            <Section title={`${PRIMARY_AGENT_NAME} Provider`}>
                     <SettingRow label="Active Provider">
                         <SelectInput value={settings.active_provider}
                             options={providerOptions.map((provider) => provider.id)}
@@ -658,7 +616,7 @@ export function AgentTab({
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
                                     <span style={{ fontSize: 11, color: subscriptionAuthStatus?.available ? "var(--success, #6ee7b7)" : "var(--text-secondary)" }}>
                                         {subscriptionAuthStatus?.available
-                                            ? `Connected (${subscriptionAuthStatus.source || subscriptionAuthStatus.authMode || "tamux"})`
+                                            ? `Connected (${subscriptionAuthStatus.source || subscriptionAuthStatus.authMode || "zorai"})`
                                             : subscriptionAuthStatus?.error || "No ChatGPT subscription auth found"}
                                     </span>
                                     {subscriptionAuthStatus?.available ? (
@@ -696,9 +654,9 @@ export function AgentTab({
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    const amux = getBridge();
-                                                    if (amux?.writeClipboardText) {
-                                                        void amux.writeClipboardText(subscriptionAuthUi.authUrl!);
+                                                    const zorai = getBridge();
+                                                    if (zorai?.writeClipboardText) {
+                                                        void zorai.writeClipboardText(subscriptionAuthUi.authUrl!);
                                                         return;
                                                     }
                                                     void navigator.clipboard?.writeText(subscriptionAuthUi.authUrl!).catch(() => { });
@@ -795,8 +753,7 @@ export function AgentTab({
                             <option value="xhigh">Extra High</option>
                         </select>
                     </SettingRow>
-                </Section>
-            ) : null}
+            </Section>
 
             <Section title="Tools">
                 <SettingRow label="Bash Tool">
@@ -864,7 +821,7 @@ export function AgentTab({
                             <TextInput value={settings.honcho_base_url} onChange={(value) => updateSetting("honcho_base_url", value)} placeholder="Leave blank for managed cloud" />
                         </SettingRow>
                         <SettingRow label="Honcho Workspace">
-                            <TextInput value={settings.honcho_workspace_id} onChange={(value) => updateSetting("honcho_workspace_id", value)} placeholder="tamux" />
+                            <TextInput value={settings.honcho_workspace_id} onChange={(value) => updateSetting("honcho_workspace_id", value)} placeholder="zorai" />
                         </SettingRow>
                     </>
                 ) : null}
@@ -1095,7 +1052,6 @@ export function AgentTab({
                         min={0}
                         max={60000}
                         step={100}
-                        disabled={daemonDelayControlsDisabled}
                         onChange={(event) => {
                             const nextValue = Number.parseFloat(event.target.value);
                             if (!Number.isNaN(nextValue)) {
@@ -1112,7 +1068,6 @@ export function AgentTab({
                         min={0}
                         max={60000}
                         step={100}
-                        disabled={daemonDelayControlsDisabled}
                         onChange={(event) => {
                             const nextValue = Number.parseFloat(event.target.value);
                             if (!Number.isNaN(nextValue)) {
@@ -1138,11 +1093,6 @@ export function AgentTab({
                         style={inputStyle}
                     />
                 </SettingRow>
-                {daemonDelayControlsDisabled ? (
-                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                        These delay controls only affect the tamux daemon runtime. {settings.agent_backend === "openclaw" ? "OpenClaw" : "Hermes"} uses its own pacing rules.
-                    </div>
-                ) : null}
                 <SettingRow label="Auto Retry">
                     <Toggle value={settings.auto_retry}
                         onChange={(value) => updateSetting("auto_retry", value)} />

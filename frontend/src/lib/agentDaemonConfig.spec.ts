@@ -38,16 +38,6 @@ assert(
   "Legacy backend should not expose daemon-owned ChatGPT auth without the daemon bridge",
 );
 
-assert(
-  !getDaemonOwnedAuthCapability("openclaw", daemonBridge).chatgptSubscriptionAvailable,
-  "OpenClaw should not expose daemon-owned ChatGPT auth",
-);
-
-assert(
-  !getDaemonOwnedAuthCapability("hermes", daemonBridge).chatgptSubscriptionAvailable,
-  "Hermes should not expose daemon-owned ChatGPT auth",
-);
-
 const unsupportedOpenAiSources = getSupportedAuthSources("openai", {
   daemonOwnedAuthAvailable: false,
 });
@@ -67,21 +57,6 @@ assert(
     daemonOwnedAuthAvailable: false,
   }) === "api_key",
   "ChatGPT subscription auth should normalize to API key when daemon-owned auth is unavailable",
-);
-
-const unsupportedBackendConfig = buildDaemonAgentConfig({
-  ...DEFAULT_AGENT_SETTINGS,
-  agent_backend: "openclaw",
-  active_provider: "openai",
-  openai: {
-    ...DEFAULT_AGENT_SETTINGS.openai,
-    auth_source: "chatgpt_subscription",
-  },
-});
-
-assert(
-  unsupportedBackendConfig.auth_source === "api_key",
-  "Daemon config should not emit ChatGPT subscription auth for non-daemon-backed execution",
 );
 
 const configuredDelaySettings = {

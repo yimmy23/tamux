@@ -3,7 +3,7 @@
 Status: proposed RFC for implementation planning
 Last updated: 2026-04-09
 
-This RFC defines execution semantics for orchestrated work across one or more PTY-backed lanes in tamux.
+This RFC defines execution semantics for orchestrated work across one or more PTY-backed lanes in Zorai.
 
 For shared concepts and invariants, see [orchestration-safety-architecture.md](./orchestration-safety-architecture.md). For governance semantics, see [safety-architecture-spec.md](./safety-architecture-spec.md).
 

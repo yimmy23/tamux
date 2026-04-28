@@ -231,10 +231,10 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
     });
   },
   resolveApproval: (id, status) => {
-    const amux = getBridge();
-    if (amux?.agentResolveTaskApproval) {
+    const zorai = getBridge();
+    if (zorai?.agentResolveTaskApproval) {
       const decision = status === "denied" ? "deny" : status === "approved-session" ? "approve-session" : "approve-once";
-      amux.agentResolveTaskApproval(id, decision).catch(() => {});
+      zorai.agentResolveTaskApproval(id, decision).catch(() => {});
     }
 
     set((state) => {

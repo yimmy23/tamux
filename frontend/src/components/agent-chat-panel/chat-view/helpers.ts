@@ -44,7 +44,12 @@ export function buildDisplayItems(messages: AgentMessage[]): ChatDisplayItem[] {
   const items: ChatDisplayItem[] = [];
   const groups = new Map<string, ToolEventGroup>();
 
-  for (const message of messages) {
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (isToolPlaceholderAssistantMessage(message, messages[index - 1], messages[index + 1])) {
+      continue;
+    }
+
     if (message.role !== "tool") {
       items.push({ type: "message", message });
       continue;
@@ -82,6 +87,27 @@ export function buildDisplayItems(messages: AgentMessage[]): ChatDisplayItem[] {
   }
 
   return items;
+}
+
+function isToolPlaceholderAssistantMessage(
+  message: AgentMessage,
+  previous?: AgentMessage,
+  next?: AgentMessage,
+): boolean {
+  if (message.role !== "assistant") {
+    return false;
+  }
+
+  if (message.reasoning?.trim()) {
+    return false;
+  }
+
+  const content = message.content.trim();
+  if (content !== "" && content !== "Calling tools...") {
+    return false;
+  }
+
+  return previous?.role === "tool" || next?.role === "tool";
 }
 
 export function filterDisplayItems(items: ChatDisplayItem[], searchQuery: string): ChatDisplayItem[] {

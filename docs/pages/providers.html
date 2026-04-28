@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Providers · tamux</title>
-  <meta name="description" content="Built-in and custom model providers supported by tamux." />
+  <title>Providers · Zorai</title>
+  <meta name="description" content="Built-in and custom model providers supported by Zorai." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -23,7 +23,7 @@
 
       <section>
         <h2>How Provider Loading Works</h2>
-        <p>tamux starts with built-in providers, then merges valid custom providers from <code>custom-auth.yaml</code>. Invalid custom entries are reported as non-blocking diagnostics and do not remove valid custom providers or built-in providers.</p>
+        <p>Zorai starts with built-in providers, then merges valid custom providers from <code>custom-auth.yaml</code>. Invalid custom entries are reported as non-blocking diagnostics and do not remove valid custom providers or built-in providers.</p>
         <p>Model fetching for main agents and sub-agents uses the same daemon lookup path, so a custom provider that appears in the catalog is also available to model validation and sub-agent spawning.</p>
       </section>
 

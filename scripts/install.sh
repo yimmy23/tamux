@@ -1,20 +1,20 @@
 #!/bin/sh
-# install.sh -- Install tamux native binaries without npm
-# Usage: curl -fsSL https://raw.githubusercontent.com/mkurman/tamux/main/scripts/install.sh | sh
-#        TAMUX_VERSION=0.4.2 ./scripts/install.sh
-#        TAMUX_INSTALL_DIR=/opt/tamux/bin ./scripts/install.sh
+# install.sh -- Install zorai native binaries without npm
+# Usage: curl -fsSL https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.sh | sh
+#        ZORAI_VERSION=0.4.2 ./scripts/install.sh
+#        ZORAI_INSTALL_DIR=/opt/zorai/bin ./scripts/install.sh
 #        ./scripts/install.sh --dry-run
 set -eu
 
-INSTALL_DIR="${TAMUX_INSTALL_DIR:-$HOME/.local/bin}"
-SKILLS_DIR="${TAMUX_SKILLS_DIR:-$HOME/.tamux/skills}"
-GUIDELINES_DIR="${TAMUX_GUIDELINES_DIR:-$HOME/.tamux/guidelines}"
+INSTALL_DIR="${ZORAI_INSTALL_DIR:-$HOME/.local/bin}"
+SKILLS_DIR="${ZORAI_SKILLS_DIR:-$HOME/.zorai/skills}"
+GUIDELINES_DIR="${ZORAI_GUIDELINES_DIR:-$HOME/.zorai/guidelines}"
 GITHUB_OWNER="mkurman"
-GITHUB_REPO="tamux"
+GITHUB_REPO="zorai"
 GITHUB_API_URL="https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}"
 DOWNLOAD_BASE_URL="https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download"
-DIRECT_INSTALL_MARKER="${INSTALL_DIR}/.tamux-install-source"
-BINARIES="tamux tamux-daemon tamux-tui tamux-gateway tamux-mcp"
+DIRECT_INSTALL_MARKER="${INSTALL_DIR}/.zorai-install-source"
+BINARIES="zorai zorai-daemon zorai-tui zorai-gateway zorai-mcp"
 DRY_RUN=false
 
 for arg in "$@"; do
@@ -45,7 +45,7 @@ require_command() {
 download_file() {
   curl -fsSL \
     -H "Accept: application/vnd.github+json" \
-    -H "User-Agent: tamux-installer" \
+    -H "User-Agent: zorai-installer" \
     "$1" \
     -o "$2"
 }
@@ -80,42 +80,52 @@ detect_platform() {
     *) die "Unsupported architecture for $platform: $arch_name" ;;
   esac
 
-  archive_name="tamux-${archive_platform}.zip"
+  archive_name="zorai-${archive_platform}.zip"
   checksum_name="SHA256SUMS-${checksum_platform}.txt"
 
   echo "Detected platform: ${archive_platform}"
 }
 
 resolve_version() {
-  if [ -n "${TAMUX_VERSION:-}" ]; then
-    VERSION="$(normalize_version "$TAMUX_VERSION")"
+  if [ -n "${ZORAI_VERSION:-}" ]; then
+    VERSION="$(normalize_version "$ZORAI_VERSION")"
     echo "Using specified version: ${VERSION}"
     return
   fi
 
   metadata="$(curl -fsSL \
     -H "Accept: application/vnd.github+json" \
-    -H "User-Agent: tamux-installer" \
+    -H "User-Agent: zorai-installer" \
     "${GITHUB_API_URL}/releases/latest")" || true
 
   VERSION="$(printf '%s' "$metadata" | tr -d '\n' | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' | head -n 1)"
 
   if [ -z "${VERSION:-}" ]; then
-    die "Could not determine latest version from GitHub. Set TAMUX_VERSION=x.y.z"
+    die "Could not determine latest version from GitHub. Set ZORAI_VERSION=x.y.z"
   fi
 
   echo "Latest version: ${VERSION}"
 }
 
-wait_for_previous_tamux() {
-  if [ -z "${TAMUX_UPGRADE_WAIT_PID:-}" ]; then
+wait_for_previous_zorai() {
+  if [ -z "${ZORAI_UPGRADE_WAIT_PID:-}" ]; then
     return
   fi
 
-  echo "Waiting for tamux process ${TAMUX_UPGRADE_WAIT_PID} to exit..."
-  while kill -0 "${TAMUX_UPGRADE_WAIT_PID}" 2>/dev/null; do
+  echo "Waiting for zorai process ${ZORAI_UPGRADE_WAIT_PID} to exit..."
+  while kill -0 "${ZORAI_UPGRADE_WAIT_PID}" 2>/dev/null; do
     sleep 1
   done
+}
+
+migrate_legacy_tamux_root() {
+  legacy_root="${HOME}/.tamux"
+  target_root="${HOME}/.zorai"
+
+  if [ -d "$legacy_root" ] && [ ! -e "$target_root" ]; then
+    mv "$legacy_root" "$target_root"
+    echo "Migrated legacy runtime data: ${legacy_root} -> ${target_root}"
+  fi
 }
 
 sha256_file() {
@@ -207,6 +217,16 @@ install_binaries() {
   echo "Installed: ${BINARIES} -> ${INSTALL_DIR}"
 }
 
+install_cli_alias() {
+  alias_path="${INSTALL_DIR}/zoi"
+  rm -f "$alias_path"
+  (
+    cd "$INSTALL_DIR"
+    ln -sf "zorai" "$alias_path"
+  )
+  echo "Installed CLI alias: zoi -> zorai"
+}
+
 install_skills() {
   if [ ! -d "$EXTRACT_DIR/skills" ]; then
     die "Release bundle is missing bundled skills"
@@ -240,7 +260,7 @@ install_guidelines() {
 }
 
 install_custom_auth_template() {
-  root_dir="${HOME}/.tamux"
+  root_dir="${HOME}/.zorai"
   custom_auth_path="${root_dir}/custom-auth.yaml"
   mkdir -p "$root_dir"
 
@@ -264,28 +284,28 @@ YAML
 }
 
 start_daemon_after_upgrade() {
-  if [ "${TAMUX_START_DAEMON_AFTER_INSTALL:-}" != "1" ]; then
+  if [ "${ZORAI_START_DAEMON_AFTER_INSTALL:-}" != "1" ]; then
     return
   fi
 
-  daemon_path="${INSTALL_DIR}/tamux-daemon"
+  daemon_path="${INSTALL_DIR}/zorai-daemon"
   if [ ! -x "$daemon_path" ]; then
     die "Installed daemon binary is missing or not executable: ${daemon_path}"
   fi
 
-  echo "Starting tamux-daemon..."
+  echo "Starting zorai-daemon..."
   "$daemon_path" >/dev/null 2>&1 &
 }
 
 print_path_hint() {
   case ":${PATH:-}:" in
     *":$INSTALL_DIR:"*)
-      echo "tamux: run 'tamux --help' to confirm the install."
+      echo "zorai: run 'zorai --help' to confirm the install."
       ;;
     *)
-      echo "tamux: add '${INSTALL_DIR}' to PATH if 'tamux' is not found."
-      echo "tamux: example: export PATH=\"${INSTALL_DIR}:\$PATH\""
-      echo "tamux: open a new shell after updating PATH, then run 'tamux --help'."
+      echo "zorai: add '${INSTALL_DIR}' to PATH if 'zorai' is not found."
+      echo "zorai: example: export PATH=\"${INSTALL_DIR}:\$PATH\""
+      echo "zorai: open a new shell after updating PATH, then run 'zorai --help'."
       ;;
   esac
 }
@@ -317,15 +337,16 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 require_command curl
-TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t tamux-install)"
+TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t zorai-install)"
 ARCHIVE_PATH="${TMP_DIR}/${archive_name}"
 CHECKSUM_PATH="${TMP_DIR}/${checksum_name}"
 EXTRACT_DIR="${TMP_DIR}/extract"
 trap cleanup EXIT INT TERM HUP
 
-wait_for_previous_tamux
+wait_for_previous_zorai
+migrate_legacy_tamux_root
 
-echo "Downloading tamux v${VERSION} for ${archive_platform}..."
+echo "Downloading zorai v${VERSION} for ${archive_platform}..."
 download_file "$CHECKSUM_URL" "$CHECKSUM_PATH"
 download_file "$ARCHIVE_URL" "$ARCHIVE_PATH"
 
@@ -339,11 +360,12 @@ extract_archive
 
 echo "Verifying extracted binaries..."
 install_binaries "$verify_extracted_binaries"
+install_cli_alias
 install_skills
 install_guidelines
 install_custom_auth_template
 start_daemon_after_upgrade
 
 echo ""
-echo "tamux installed successfully."
+echo "zorai installed successfully."
 print_path_hint

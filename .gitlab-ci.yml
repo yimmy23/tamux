@@ -1,4 +1,4 @@
-# tamux CI/CD Pipeline
+# zorai CI/CD Pipeline
 # Triggered by vX.Y.Z tags for release builds
 # Produces: platform binaries, Electron desktop apps, GitLab Release, npm publish
 
@@ -33,20 +33,20 @@ variables:
     - mkdir -p artifacts
     - |
       if [ "$PLATFORM" = "windows-x64" ]; then
-        BINS="tamux-daemon.exe tamux.exe tamux-tui.exe tamux-mcp.exe tamux-gateway.exe"
+        BINS="zorai-daemon.exe zorai.exe zorai-tui.exe zorai-mcp.exe zorai-gateway.exe"
       else
-        BINS="tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway"
+        BINS="zorai-daemon zorai zorai-tui zorai-mcp zorai-gateway"
       fi
-    - tar czf "artifacts/tamux-binaries-${PLATFORM}.tar.gz" -C "dist-release/${DIST_DIR}" $BINS
+    - tar czf "artifacts/zorai-binaries-${PLATFORM}.tar.gz" -C "dist-release/${DIST_DIR}" $BINS
     # Generate per-platform SHA256SUMS
     - cd artifacts
-    - sha256sum "tamux-binaries-${PLATFORM}.tar.gz" > "SHA256SUMS-${PLATFORM}.txt"
+    - sha256sum "zorai-binaries-${PLATFORM}.tar.gz" > "SHA256SUMS-${PLATFORM}.txt"
     # Upload to GitLab Generic Package Registry
     - |
-      for FILE in tamux-binaries-${PLATFORM}.tar.gz SHA256SUMS-${PLATFORM}.txt; do
+      for FILE in zorai-binaries-${PLATFORM}.tar.gz SHA256SUMS-${PLATFORM}.txt; do
         curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
           --upload-file "$FILE" \
-          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/tamux/${VERSION}/${FILE}"
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/zorai/${VERSION}/${FILE}"
       done
   artifacts:
     paths:
@@ -80,20 +80,20 @@ build:linux-arm64:
     # Use cross for ARM64 cross-compilation (Pitfall 3)
     - cross build --release --target aarch64-unknown-linux-gnu
     - mkdir -p "dist-release/linux"
-    - cp target/aarch64-unknown-linux-gnu/release/tamux-daemon dist-release/linux/
-    - cp target/aarch64-unknown-linux-gnu/release/tamux dist-release/linux/
-    - cp target/aarch64-unknown-linux-gnu/release/tamux-tui dist-release/linux/
-    - cp target/aarch64-unknown-linux-gnu/release/tamux-mcp dist-release/linux/
-    - cp target/aarch64-unknown-linux-gnu/release/tamux-gateway dist-release/linux/
+    - cp target/aarch64-unknown-linux-gnu/release/zorai-daemon dist-release/linux/
+    - cp target/aarch64-unknown-linux-gnu/release/zorai dist-release/linux/
+    - cp target/aarch64-unknown-linux-gnu/release/zorai-tui dist-release/linux/
+    - cp target/aarch64-unknown-linux-gnu/release/zorai-mcp dist-release/linux/
+    - cp target/aarch64-unknown-linux-gnu/release/zorai-gateway dist-release/linux/
     - mkdir -p artifacts
-    - tar czf "artifacts/tamux-binaries-${PLATFORM}.tar.gz" -C dist-release/linux tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway
+    - tar czf "artifacts/zorai-binaries-${PLATFORM}.tar.gz" -C dist-release/linux zorai-daemon zorai zorai-tui zorai-mcp zorai-gateway
     - cd artifacts
-    - sha256sum "tamux-binaries-${PLATFORM}.tar.gz" > "SHA256SUMS-${PLATFORM}.txt"
+    - sha256sum "zorai-binaries-${PLATFORM}.tar.gz" > "SHA256SUMS-${PLATFORM}.txt"
     - |
-      for FILE in tamux-binaries-${PLATFORM}.tar.gz SHA256SUMS-${PLATFORM}.txt; do
+      for FILE in zorai-binaries-${PLATFORM}.tar.gz SHA256SUMS-${PLATFORM}.txt; do
         curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
           --upload-file "$FILE" \
-          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/tamux/${VERSION}/${FILE}"
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/zorai/${VERSION}/${FILE}"
       done
 
 build:darwin-arm64:
@@ -134,13 +134,13 @@ build:windows-x64:
     - npm run build
     # Copy Rust binaries from build stage into dist/ for electron-builder extraResources
     - mkdir -p dist
-    - cp ../artifacts/tamux-binaries-${PLATFORM}.tar.gz /tmp/
-    - cd /tmp && tar xzf tamux-binaries-${PLATFORM}.tar.gz && cd -
-    - cp /tmp/tamux-daemon${BIN_EXT} dist/ 2>/dev/null || true
-    - cp /tmp/tamux${BIN_EXT} dist/ 2>/dev/null || true
-    - cp /tmp/tamux-tui${BIN_EXT} dist/ 2>/dev/null || true
-    - cp /tmp/tamux-mcp${BIN_EXT} dist/ 2>/dev/null || true
-    - cp /tmp/tamux-gateway${BIN_EXT} dist/ 2>/dev/null || true
+    - cp ../artifacts/zorai-binaries-${PLATFORM}.tar.gz /tmp/
+    - cd /tmp && tar xzf zorai-binaries-${PLATFORM}.tar.gz && cd -
+    - cp /tmp/zorai-daemon${BIN_EXT} dist/ 2>/dev/null || true
+    - cp /tmp/zorai${BIN_EXT} dist/ 2>/dev/null || true
+    - cp /tmp/zorai-tui${BIN_EXT} dist/ 2>/dev/null || true
+    - cp /tmp/zorai-mcp${BIN_EXT} dist/ 2>/dev/null || true
+    - cp /tmp/zorai-gateway${BIN_EXT} dist/ 2>/dev/null || true
     # Build Electron app
     - npx electron-builder --${EB_PLATFORM} --publish never
     # Upload desktop artifacts to package registry
@@ -150,7 +150,7 @@ build:windows-x64:
           BASENAME=$(basename "$FILE")
           curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
             --upload-file "$FILE" \
-            "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/tamux/${VERSION}/${BASENAME}"
+            "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/zorai/${VERSION}/${BASENAME}"
         fi
       done
   rules:
@@ -217,10 +217,10 @@ release:create:
       optional: true
   script:
     - export VERSION="${CI_COMMIT_TAG#v}"
-    - export PKG_BASE="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/tamux/${VERSION}"
+    - export PKG_BASE="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/zorai/${VERSION}"
     # Generate combined SHA256SUMS
     - |
-      echo "# SHA256SUMS for tamux v${VERSION}" > SHA256SUMS.txt
+      echo "# SHA256SUMS for zorai v${VERSION}" > SHA256SUMS.txt
       for PLATFORM in linux-x64 linux-arm64 darwin-arm64 windows-x64; do
         SUMS_FILE="SHA256SUMS-${PLATFORM}.txt"
         curl -fsSL --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
@@ -233,32 +233,32 @@ release:create:
     # Create GitLab Release with asset links
     - |
       glab release create "${CI_COMMIT_TAG}" \
-        --name "tamux v${VERSION}" \
-        --notes "## tamux v${VERSION}
+        --name "zorai v${VERSION}" \
+        --notes "## zorai v${VERSION}
 
       ### Binary Downloads
       | Platform | Download |
       |----------|----------|
-      | Linux x64 | [tamux-binaries-linux-x64.tar.gz](${PKG_BASE}/tamux-binaries-linux-x64.tar.gz) |
-      | Linux ARM64 | [tamux-binaries-linux-arm64.tar.gz](${PKG_BASE}/tamux-binaries-linux-arm64.tar.gz) |
-      | macOS ARM64 | [tamux-binaries-darwin-arm64.tar.gz](${PKG_BASE}/tamux-binaries-darwin-arm64.tar.gz) |
-      | Windows x64 | [tamux-binaries-windows-x64.tar.gz](${PKG_BASE}/tamux-binaries-windows-x64.tar.gz) |
+      | Linux x64 | [zorai-binaries-linux-x64.tar.gz](${PKG_BASE}/zorai-binaries-linux-x64.tar.gz) |
+      | Linux ARM64 | [zorai-binaries-linux-arm64.tar.gz](${PKG_BASE}/zorai-binaries-linux-arm64.tar.gz) |
+      | macOS ARM64 | [zorai-binaries-darwin-arm64.tar.gz](${PKG_BASE}/zorai-binaries-darwin-arm64.tar.gz) |
+      | Windows x64 | [zorai-binaries-windows-x64.tar.gz](${PKG_BASE}/zorai-binaries-windows-x64.tar.gz) |
 
       ### Desktop Downloads
       | Platform | Download |
       |----------|----------|
-      | Linux x64 | [tamux-${VERSION}.AppImage](${PKG_BASE}/tamux-${VERSION}.AppImage) |
-      | macOS ARM64 | [tamux-${VERSION}.dmg](${PKG_BASE}/tamux-${VERSION}.dmg) |
-      | Windows x64 | [tamux-portable.exe](${PKG_BASE}/tamux-portable.exe) |
+      | Linux x64 | [zorai-${VERSION}.AppImage](${PKG_BASE}/zorai-${VERSION}.AppImage) |
+      | macOS ARM64 | [zorai-${VERSION}.dmg](${PKG_BASE}/zorai-${VERSION}.dmg) |
+      | Windows x64 | [zorai-portable.exe](${PKG_BASE}/zorai-portable.exe) |
 
       ### Checksums
       [SHA256SUMS.txt](${PKG_BASE}/SHA256SUMS.txt)
 
       ### Install
       \`\`\`
-      npx tamux
+      npx zorai
       # or
-      curl -fsSL https://tamux.dev/install.sh | sh
+      curl -fsSL https://zorai.dev/install.sh | sh
       \`\`\`
       "
   rules:

@@ -1,6 +1,6 @@
 # Workspaces
 
-Workspaces are tamux's board-level planning and execution layer. They turn loose agent work into a visible Jira-style flow where every item has an owner, a status, a review path, and a durable audit trail.
+Workspaces are Zorai's board-level planning and execution layer. They turn loose agent work into a visible Jira-style flow where every item has an owner, a status, a review path, and a durable audit trail.
 
 The short version:
 
@@ -91,7 +91,7 @@ Svarog has access to all workspace tools. Other agents and subagents get readabl
 Workspace state lives in the daemon database and is also mirrored to disk:
 
 ```text
-<tamux install dir>/workspaces/workspace-<id>/
+<zorai install dir>/workspaces/workspace-<id>/
   workspace.json
   task-<id>/
     failed-review.md
@@ -116,7 +116,7 @@ Use a standalone thread when the work is conversational and does not need board 
 
 ## Related Reading
 
-- [How tamux Works](how-tamux-works.md)
+- [How Zorai Works](how-zorai-works.md)
 - [Goal Runners](goal-runners.md)
 - [Best Practices](best-practices.md)
 - [Thread Participants](operating/thread-participants.md)

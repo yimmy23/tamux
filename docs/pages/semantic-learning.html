@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Semantic & Learning · tamux docs</title>
-  <meta name="description" content="Operator modeling, workspace semantics, collaboration, skill evolution, generated tools, anticipatory behavior, and causal learning loops in tamux." />
+  <title>Semantic & Learning · Zorai docs</title>
+  <meta name="description" content="Operator modeling, workspace semantics, collaboration, skill evolution, generated tools, anticipatory behavior, and causal learning loops in Zorai." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -20,13 +20,13 @@
       <header class="page-header">
         <p class="eyebrow">Higher-order capabilities</p>
         <h1>Semantic &amp; Learning</h1>
-        <p class="lead">How tamux gets beyond raw prompting: operator modeling, workspace semantics, collaboration, procedural memory, generated tools, anticipatory behavior, and causal learning loops.</p>
+        <p class="lead">How Zorai gets beyond raw prompting: operator modeling, workspace semantics, collaboration, procedural memory, generated tools, anticipatory behavior, and causal learning loops.</p>
       </header>
 
       <section>
         <h2>The core idea</h2>
         <p>Strong model access is not enough to make an agent system feel consistently intelligent. In practice, quality depends on whether the runtime can understand the operator, understand the workspace, preserve useful procedures, learn from friction, and reuse prior work without becoming opaque or untrustworthy.</p>
-        <p>That is the role of the semantic and learning layers in tamux. They turn the daemon from “a model with tools” into “a system that can accumulate structured understanding over time.”</p>
+        <p>That is the role of the semantic and learning layers in Zorai. They turn the daemon from “a model with tools” into “a system that can accumulate structured understanding over time.”</p>
         <div class="callout info">
           <strong>Practical reading:</strong> this page is about the intelligence layers that sit above basic execution. They are what make repeated use better than isolated one-off prompts.
         </div>
@@ -58,7 +58,7 @@
 
       <section>
         <h2>Implicit feedback learning</h2>
-        <p>Most useful feedback is never given as a formal rating. tamux can capture and increasingly learn from behavioral signals that appear naturally during work, including:</p>
+        <p>Most useful feedback is never given as a formal rating. Zorai can capture and increasingly learn from behavioral signals that appear naturally during work, including:</p>
         <ul class="check-list">
           <li>fast denials</li>
           <li>correction-style messages</li>
@@ -77,7 +77,7 @@
 
       <section>
         <h2>Semantic environment model</h2>
-        <p>The semantic environment model gives the daemon bounded structural understanding of the local workspace. Instead of treating a repository as undifferentiated text, tamux can inspect the project and answer questions about real topology.</p>
+        <p>The semantic environment model gives the daemon bounded structural understanding of the local workspace. Instead of treating a repository as undifferentiated text, Zorai can inspect the project and answer questions about real topology.</p>
         <p>Current semantic surfaces include bounded understanding of:</p>
         <ul class="check-list">
           <li>Rust crates and Node packages</li>
@@ -119,21 +119,21 @@
 
       <section>
         <h2>Collaboration as explicit protocol</h2>
-        <p>tamux treats multi-agent collaboration as something that should be inspectable, not magical. Subagents and collaborating agents can coordinate through explicit collaboration sessions with:</p>
+        <p>Zorai treats multi-agent collaboration as something that should be inspectable, not magical. Subagents and collaborating agents can coordinate through explicit collaboration sessions with:</p>
         <ul class="check-list">
           <li>contributions</li>
           <li>disagreement records</li>
           <li>weighted voting</li>
           <li>persisted shared state</li>
         </ul>
-        <p>That matters because naive multi-agent systems often just fan out parallel prompts and concatenate the results. tamux aims for something stronger: visible structured collaboration where disagreements can be surfaced and resolved instead of silently averaged away.</p>
+        <p>That matters because naive multi-agent systems often just fan out parallel prompts and concatenate the results. Zorai aims for something stronger: visible structured collaboration where disagreements can be surfaced and resolved instead of silently averaged away.</p>
         <div class="card-grid two-up">
           <article class="card">
             <h3>Naive pattern</h3>
             <p>Spawn three agents, get three answers, and pick one by hand with little trace of why the others disagreed.</p>
           </article>
           <article class="card">
-            <h3>tamux pattern</h3>
+            <h3>Zorai pattern</h3>
             <p>Specialists contribute into shared protocol, disagreements are recorded, votes can be cast, and the resulting state is inspectable later.</p>
           </article>
         </div>
@@ -141,7 +141,7 @@
 
       <section>
         <h2>Procedural memory and skill evolution</h2>
-        <p>Facts matter, but procedures often matter more. In tamux, skills are procedural memory: reusable patterns of action rather than just notes about the world.</p>
+        <p>Facts matter, but procedures often matter more. In Zorai, skills are procedural memory: reusable patterns of action rather than just notes about the world.</p>
         <p>That layer includes:</p>
         <ul class="check-list">
           <li>local installed skills</li>
@@ -159,7 +159,7 @@
 
       <section>
         <h2>Why skill evolution is more than a prompt library</h2>
-        <p>A static prompt library can store text, but it cannot easily represent lifecycle. tamux’s skill direction is more dynamic.</p>
+        <p>A static prompt library can store text, but it cannot easily represent lifecycle. Zorai’s skill direction is more dynamic.</p>
         <div class="card-grid three-up">
           <article class="card">
             <h3>Usage</h3>
@@ -178,12 +178,12 @@
 
       <section>
         <h2>Runtime tool synthesis</h2>
-        <p>Sometimes the right workflow is blocked not by reasoning failure, but by a missing conservative capability. tamux addresses that with runtime tool synthesis: generating guarded tools from conservative CLI or OpenAPI surfaces, storing them in a registry, and promoting proven tools into reusable assets.</p>
+        <p>Sometimes the right workflow is blocked not by reasoning failure, but by a missing conservative capability. Zorai addresses that with runtime tool synthesis: generating guarded tools from conservative CLI or OpenAPI surfaces, storing them in a registry, and promoting proven tools into reusable assets.</p>
         <p>This is a major intelligence multiplier because it lets the runtime expand its safe action surface over time rather than remaining limited to the original hand-written tool catalog.</p>
         <div class="card-grid two-up">
           <article class="card">
             <h3>Example</h3>
-            <p>A stable CLI has a narrow <code>--help</code> surface that would be useful repeatedly. Instead of wrapping it manually every time, tamux can synthesize a guarded runtime tool around the conservative interface.</p>
+            <p>A stable CLI has a narrow <code>--help</code> surface that would be useful repeatedly. Instead of wrapping it manually every time, Zorai can synthesize a guarded runtime tool around the conservative interface.</p>
           </article>
           <article class="card">
             <h3>Why guardrails matter</h3>
@@ -212,7 +212,7 @@
 
       <section>
         <h2>Causal traces and learning loops</h2>
-        <p>Execution quality improves when the system can later explain not only what happened, but why. tamux’s causal trace layer records decision rationale, failed paths, alternatives considered, and blast radius assessment around work.</p>
+        <p>Execution quality improves when the system can later explain not only what happened, but why. Zorai’s causal trace layer records decision rationale, failed paths, alternatives considered, and blast radius assessment around work.</p>
         <p>That enables several learning loops:</p>
         <ul class="check-list">
           <li>post-hoc explanation of why one path was chosen over another</li>

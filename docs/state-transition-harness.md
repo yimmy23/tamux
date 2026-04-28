@@ -1,6 +1,6 @@
 # State-Transition Harness (current landed slice)
 
-This document tracks the additive harness subsystem that is now real in `crates/amux-daemon/src/agent/harness/`.
+This document tracks the additive harness subsystem that is now real in `crates/zorai-daemon/src/agent/harness/`.
 
 ## What exists now
 

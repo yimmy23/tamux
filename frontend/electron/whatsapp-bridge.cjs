@@ -1,5 +1,5 @@
 /**
- * WhatsApp Web bridge sidecar for tamux-gateway.
+ * WhatsApp Web bridge sidecar for zorai-gateway.
  *
  * Uses @whiskeysockets/baileys to connect to WhatsApp via the multi-device
  * protocol. Communicates with the Electron main process via JSON-RPC over

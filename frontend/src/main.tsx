@@ -1,7 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import CDUIApp from "./CDUIApp";
 import { loadSession } from "./lib/sessionPersistence";
 import { hydrateCommandLogStore } from "./lib/commandLogStore";
 import { hydrateAgentMissionStore } from "./lib/agentMissionStore";
@@ -10,30 +9,22 @@ import { hydrateSettingsStore } from "./lib/settingsStore";
 import { hydrateAgentStore } from "./lib/agentStore";
 import { hydrateTranscriptStore } from "./lib/transcriptStore";
 import { hydrateFileManagerStore } from "./lib/fileManagerStore";
-import { hydrateCDUIPreference, isCDUIEnabled } from "./lib/cduiMode";
 import { hydrateSnippetStore } from "./lib/snippetStore";
 import { hydrateStatusStore } from "./lib/statusStore";
 import { hydrateTierStore } from "./lib/tierStore";
 import { useWorkspaceStore } from "./lib/workspaceStore";
-import { RuntimeModeBanner } from "./components/RuntimeModeBanner";
 import "./styles/global.css";
 
-const renderRoot = (useCDUI: boolean): void => {
+const renderRoot = (): void => {
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-      <>
-        <RuntimeModeBanner />
-        {useCDUI ? <CDUIApp /> : <App />}
-      </>
+      <App />
     </React.StrictMode>
   );
 };
 
 async function bootstrap() {
-  await Promise.all([
-    hydrateCDUIPreference(),
-    hydrateSettingsStore(),
-  ]);
+  await hydrateSettingsStore();
 
   await Promise.all([
     hydrateAgentStore(),
@@ -49,14 +40,12 @@ async function bootstrap() {
   // Start status polling after stores are hydrated (non-blocking)
   hydrateStatusStore();
 
-  const useCDUI = isCDUIEnabled();
-
   const persistedSession = await loadSession();
   if (persistedSession) {
     useWorkspaceStore.getState().hydrateSession(persistedSession);
   }
 
-  renderRoot(useCDUI);
+  renderRoot();
 }
 
 void bootstrap();

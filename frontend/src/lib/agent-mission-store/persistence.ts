@@ -57,7 +57,7 @@ export function defaultFrozenSnapshot(): string {
   return trimBoundedText(
     [
       "Environment facts:",
-      "- tamux uses a daemon-first PTY backend with persistent sessions.",
+      "- zorai uses a daemon-first PTY backend with persistent sessions.",
       "- The frontend exposes agent traces, approvals, and execution graphs.",
       "- Snippets act as portable procedural skills for repeated workflows.",
       "- Risky shell commands require explicit approval before Enter is sent.",

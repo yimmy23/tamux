@@ -38,8 +38,8 @@ export function SystemMonitorControls({
                     <option key={value} value={value}>Top {value} processes</option>
                 ))}
             </select>
-            <span className="amux-chip">{visibleProcesses} visible</span>
-            <span className="amux-chip">{timestampLabel}</span>
+            <span className="zorai-chip">{visibleProcesses} visible</span>
+            <span className="zorai-chip">{timestampLabel}</span>
         </div>
     );
 }

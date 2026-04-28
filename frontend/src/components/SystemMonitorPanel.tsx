@@ -28,8 +28,8 @@ export function SystemMonitorPanel({ style, className }: SystemMonitorPanelProps
         let timeoutId: number | undefined;
 
         const fetchSnapshot = async () => {
-            const amux = getBridge();
-            if (!amux?.getSystemMonitorSnapshot) {
+            const zorai = getBridge();
+            if (!zorai?.getSystemMonitorSnapshot) {
                 if (active) {
                     setError("Native system monitoring is available in the desktop runtime.");
                     setSnapshot(null);
@@ -42,7 +42,7 @@ export function SystemMonitorPanel({ style, className }: SystemMonitorPanelProps
             }
 
             try {
-                const next = await amux.getSystemMonitorSnapshot({ processLimit });
+                const next = await zorai.getSystemMonitorSnapshot({ processLimit });
                 if (!active) return;
                 setSnapshot(next);
                 setError(null);
@@ -109,7 +109,7 @@ export function SystemMonitorPanel({ style, className }: SystemMonitorPanelProps
                     overflow: "hidden",
                     borderRadius: 0,
                 }}
-                className="amux-shell-card"
+                className="zorai-shell-card"
             >
                 <SystemMonitorHeader
                     hostname={snapshot?.hostname ?? "pending"}

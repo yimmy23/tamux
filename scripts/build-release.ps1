@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    tamux release build for Windows (PowerShell)
+    zorai release build for Windows (PowerShell)
 
 .DESCRIPTION
     Builds Rust binaries, frontend, and Electron app with optional code signing.
@@ -13,17 +13,17 @@
 .PARAMETER SignTool
     Signing method: "signtool" (default), "azure", or "pfx".
     - signtool: Uses certificate thumbprint from store
-    - pfx: Uses PFX file (set AMUX_SIGN_CERT and AMUX_SIGN_PASSWORD)
+    - pfx: Uses PFX file (set ZORAI_SIGN_CERT and ZORAI_SIGN_PASSWORD)
     - azure: Uses Azure Trusted Signing (set AZURE_* env vars)
 
 .PARAMETER Thumbprint
-    Certificate thumbprint for signtool signing. Overrides AMUX_SIGN_THUMBPRINT env var.
+    Certificate thumbprint for signtool signing. Overrides ZORAI_SIGN_THUMBPRINT env var.
 
 .PARAMETER CertFile
-    Path to PFX certificate file. Overrides AMUX_SIGN_CERT env var.
+    Path to PFX certificate file. Overrides ZORAI_SIGN_CERT env var.
 
 .PARAMETER CertPassword
-    PFX certificate password. Overrides AMUX_SIGN_PASSWORD env var.
+    PFX certificate password. Overrides ZORAI_SIGN_PASSWORD env var.
 
 .PARAMETER SkipRust
     Skip Rust compilation (use existing binaries).
@@ -69,10 +69,10 @@ $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $OutDir = Join-Path $ProjectRoot "dist-release"
 $FrontendDir = Join-Path $ProjectRoot "frontend"
 
-$env:TAMUX_LOG = "error"
-$env:AMUX_LOG = "error"
-$env:TAMUX_TUI_LOG = "error"
-$env:AMUX_GATEWAY_LOG = "error"
+$env:ZORAI_LOG = "error"
+$env:ZORAI_LOG = "error"
+$env:ZORAI_TUI_LOG = "error"
+$env:ZORAI_GATEWAY_LOG = "error"
 $env:RUST_LOG = "error"
 
 # ─────────────────────────────────────────────────────
@@ -101,10 +101,10 @@ function Sign-Binary([string]$FilePath) {
 
     switch ($SignTool) {
         "pfx" {
-            $cert = if ($CertFile) { $CertFile } else { if ($env:TAMUX_SIGN_CERT) { $env:TAMUX_SIGN_CERT } else { $env:AMUX_SIGN_CERT } }
-            $pass = if ($CertPassword) { $CertPassword } else { if ($env:TAMUX_SIGN_PASSWORD) { $env:TAMUX_SIGN_PASSWORD } else { $env:AMUX_SIGN_PASSWORD } }
+            $cert = if ($CertFile) { $CertFile } else { if ($env:ZORAI_SIGN_CERT) { $env:ZORAI_SIGN_CERT } else { $env:ZORAI_SIGN_CERT } }
+            $pass = if ($CertPassword) { $CertPassword } else { if ($env:ZORAI_SIGN_PASSWORD) { $env:ZORAI_SIGN_PASSWORD } else { $env:ZORAI_SIGN_PASSWORD } }
             if (-not $cert) {
-                Write-Warn "No PFX certificate. Set -CertFile or TAMUX_SIGN_CERT."
+                Write-Warn "No PFX certificate. Set -CertFile or ZORAI_SIGN_CERT."
                 return
             }
             Write-Host "  Signing $fileName (PFX)..."
@@ -112,9 +112,9 @@ function Sign-Binary([string]$FilePath) {
             if ($LASTEXITCODE -ne 0) { throw "signtool failed for $fileName" }
         }
         "signtool" {
-            $thumb = if ($Thumbprint) { $Thumbprint } else { if ($env:TAMUX_SIGN_THUMBPRINT) { $env:TAMUX_SIGN_THUMBPRINT } else { $env:AMUX_SIGN_THUMBPRINT } }
+            $thumb = if ($Thumbprint) { $Thumbprint } else { if ($env:ZORAI_SIGN_THUMBPRINT) { $env:ZORAI_SIGN_THUMBPRINT } else { $env:ZORAI_SIGN_THUMBPRINT } }
             if (-not $thumb) {
-                Write-Warn "No certificate thumbprint. Set -Thumbprint or TAMUX_SIGN_THUMBPRINT."
+                Write-Warn "No certificate thumbprint. Set -Thumbprint or ZORAI_SIGN_THUMBPRINT."
                 return
             }
             Write-Host "  Signing $fileName (cert store)..."
@@ -228,7 +228,7 @@ $totalSteps = 6
 $step = 0
 
 Write-Host "`n============================================================" -ForegroundColor White
-Write-Host " tamux release build" -ForegroundColor White
+Write-Host " zorai release build" -ForegroundColor White
 Write-Host "============================================================" -ForegroundColor White
 
 # Setup preflight
@@ -276,17 +276,18 @@ if ($SkipFrontend) {
 $step++
 Write-Step $step $totalSteps "Collecting artifacts..."
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-Get-ChildItem $OutDir -Filter "tamux*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem $OutDir -Filter "amux*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem $OutDir -Filter "zorai*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem $OutDir -Filter "zorai*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
 $targetDir = if ($Target) { Join-Path $ProjectRoot "target" $Target "release" } else { Join-Path $ProjectRoot "target" "release" }
 
 $binaries = @(
-    @{ Name = "tamux-daemon"; Desc = "Daemon" },
-    @{ Name = "tamux";        Desc = "CLI" },
-    @{ Name = "tamux-tui";    Desc = "TUI" },
-    @{ Name = "tamux-mcp";    Desc = "MCP server" },
-    @{ Name = "tamux-gateway"; Desc = "Chat gateway" }
+    @{ Name = "zorai-daemon"; Desc = "Daemon" },
+    @{ Name = "zorai";        Desc = "CLI" },
+    @{ Name = "zoi";          Desc = "CLI alias" },
+    @{ Name = "zorai-tui";    Desc = "TUI" },
+    @{ Name = "zorai-mcp";    Desc = "MCP server" },
+    @{ Name = "zorai-gateway"; Desc = "Chat gateway" }
 )
 
 foreach ($bin in $binaries) {
@@ -307,7 +308,7 @@ foreach ($bin in $binaries) {
 # Copy to frontend/dist for Electron bundling
 $distDir = Join-Path $FrontendDir "dist"
 if (Test-Path $distDir) {
-    foreach ($name in @("tamux-daemon.exe", "tamux.exe", "tamux-tui.exe", "tamux-mcp.exe", "tamux-gateway.exe")) {
+    foreach ($name in @("zorai-daemon.exe", "zorai.exe", "zoi.exe", "zorai-tui.exe", "zorai-mcp.exe", "zorai-gateway.exe")) {
         $src = Join-Path $OutDir $name
         if (Test-Path $src) { Copy-Item $src $distDir -Force }
     }
@@ -342,24 +343,24 @@ if ($SkipElectron) {
     try {
         # Set signing env vars for electron-builder
         if ($Sign) {
-            if ($CertFile -or $env:TAMUX_SIGN_CERT -or $env:AMUX_SIGN_CERT) {
-                $env:CSC_LINK = if ($CertFile) { $CertFile } else { if ($env:TAMUX_SIGN_CERT) { $env:TAMUX_SIGN_CERT } else { $env:AMUX_SIGN_CERT } }
-                $env:CSC_KEY_PASSWORD = if ($CertPassword) { $CertPassword } else { if ($env:TAMUX_SIGN_PASSWORD) { $env:TAMUX_SIGN_PASSWORD } else { $env:AMUX_SIGN_PASSWORD } }
+            if ($CertFile -or $env:ZORAI_SIGN_CERT -or $env:ZORAI_SIGN_CERT) {
+                $env:CSC_LINK = if ($CertFile) { $CertFile } else { if ($env:ZORAI_SIGN_CERT) { $env:ZORAI_SIGN_CERT } else { $env:ZORAI_SIGN_CERT } }
+                $env:CSC_KEY_PASSWORD = if ($CertPassword) { $CertPassword } else { if ($env:ZORAI_SIGN_PASSWORD) { $env:ZORAI_SIGN_PASSWORD } else { $env:ZORAI_SIGN_PASSWORD } }
             }
-            if ($Thumbprint -or $env:TAMUX_SIGN_THUMBPRINT -or $env:AMUX_SIGN_THUMBPRINT) {
+            if ($Thumbprint -or $env:ZORAI_SIGN_THUMBPRINT -or $env:ZORAI_SIGN_THUMBPRINT) {
                 # For electron-builder custom signing, we need a sign hook
-                $env:TAMUX_SIGN_THUMBPRINT = if ($Thumbprint) { $Thumbprint } elseif ($env:TAMUX_SIGN_THUMBPRINT) { $env:TAMUX_SIGN_THUMBPRINT } else { $env:AMUX_SIGN_THUMBPRINT }
+                $env:ZORAI_SIGN_THUMBPRINT = if ($Thumbprint) { $Thumbprint } elseif ($env:ZORAI_SIGN_THUMBPRINT) { $env:ZORAI_SIGN_THUMBPRINT } else { $env:ZORAI_SIGN_THUMBPRINT }
             }
         }
 
-        Get-ChildItem (Join-Path $FrontendDir "release") -Filter "tamux*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-        Get-ChildItem (Join-Path $FrontendDir "release") -Filter "amux*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem (Join-Path $FrontendDir "release") -Filter "zorai*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem (Join-Path $FrontendDir "release") -Filter "zorai*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
         & npx electron-builder --win portable nsis
         if ($LASTEXITCODE -ne 0) { throw "Electron build failed" }
 
         # Copy Electron artifacts
         $releaseDir = Join-Path $FrontendDir "release"
-        Get-ChildItem $releaseDir -Filter "tamux*.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+        Get-ChildItem $releaseDir -Filter "zorai*.exe" -ErrorAction SilentlyContinue | ForEach-Object {
             Copy-Item $_.FullName $OutDir -Force
             Write-Ok "Electron: $($_.Name)"
         }
@@ -389,12 +390,12 @@ $bundleArtifacts = Get-ChildItem $OutDir -File | Where-Object {
 
 if ($bundleArtifacts.Count -gt 0) {
     $checksumsFile = Join-Path $OutDir "SHA256SUMS-windows-x64.txt"
-    $bundleFile = Join-Path $OutDir "tamux-windows-x64.zip"
+    $bundleFile = Join-Path $OutDir "zorai-windows-x64.zip"
     $notesFile = Join-Path $OutDir "RELEASE_NOTES.md"
 
     if (-not (Test-Path $notesFile)) {
         @(
-            "# tamux Windows Release Notes",
+            "# zorai Windows Release Notes",
             "",
             "Built on $(Get-Date -AsUTC -Format 'yyyy-MM-dd HH:mm UTC').",
             "",

@@ -3,7 +3,7 @@ import { useWorkspaceStore } from "../../lib/workspaceStore";
 import { registerCanvasBrowserController } from "../../lib/canvasBrowserRegistry";
 import { BrowserChrome } from "./BrowserChrome";
 
-const SHADOW_STYLE_ID = "tamux-webview-stretch-style";
+const SHADOW_STYLE_ID = "zorai-webview-stretch-style";
 
 export function CanvasBrowserPane({
   paneId,
@@ -231,7 +231,7 @@ export function CanvasBrowserPane({
             background: "#ffffff",
           },
           allowpopups: "true",
-          partition: "persist:amux-browser",
+          partition: "persist:zorai-browser",
         })}
       </div>
     </div>

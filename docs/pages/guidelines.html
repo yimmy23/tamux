@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Guidelines · tamux</title>
-  <meta name="description" content="How tamux guidelines work, where they are installed, and how agents use them before skill discovery." />
+  <title>Guidelines · Zorai</title>
+  <meta name="description" content="How Zorai guidelines work, where they are installed, and how agents use them before skill discovery." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -33,11 +33,11 @@
         <table>
           <thead><tr><th>Platform</th><th>Guidelines directory</th></tr></thead>
           <tbody>
-            <tr><td>Linux/macOS</td><td><code>~/.tamux/guidelines</code></td></tr>
-            <tr><td>Windows</td><td><code>%LOCALAPPDATA%\tamux\guidelines</code></td></tr>
+            <tr><td>Linux/macOS</td><td><code>~/.zorai/guidelines</code></td></tr>
+            <tr><td>Windows</td><td><code>%LOCALAPPDATA%\zorai\guidelines</code></td></tr>
           </tbody>
         </table>
-        <pre><code>~/.tamux/
+        <pre><code>~/.zorai/
   guidelines/
   skills/</code></pre>
         <p>Packaged installation and app startup copy bundled guideline defaults into this directory without overwriting user-created files.</p>
@@ -46,20 +46,20 @@
       <section>
         <h2>CLI Commands</h2>
         <pre><code># Install a custom guideline
-tamux guideline install ./my-guideline.md
+zorai guideline install ./my-guideline.md
 
 # Install under a different filename
-tamux guideline install ./my-guideline.md --name team-coding.md
+zorai guideline install ./my-guideline.md --name team-coding.md
 
 # Overwrite an existing guideline
-tamux guideline install ./my-guideline.md --force
+zorai guideline install ./my-guideline.md --force
 
 # Top-level install form
-tamux install guideline ./my-guideline.md
+zorai install guideline ./my-guideline.md
 
 # List installed guidelines
-tamux guideline list
-tamux guidelines list --json</code></pre>
+zorai guideline list
+zorai guidelines list --json</code></pre>
         <p>The installer accepts Markdown files only and refuses to overwrite by default.</p>
       </section>
 

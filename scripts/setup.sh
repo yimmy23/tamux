@@ -49,7 +49,7 @@ esac
 declare -a REQUIRED_DEPS
 declare -a OPTIONAL_DEPS=(
     "aline"
-    "tamux-mcp"
+    "zorai-mcp"
     "hermes"
     "openclaw"
 )
@@ -133,8 +133,8 @@ install_hint() {
         aline)
             echo "uv tool install aline-ai"
             ;;
-        tamux-mcp)
-            echo "cargo build --release -p tamux-mcp"
+        zorai-mcp)
+            echo "cargo build --release -p zorai-mcp"
             ;;
         hermes)
             echo "python3 -m pip install \"hermes-agent[all]\""
@@ -172,7 +172,7 @@ for dep in "${OPTIONAL_DEPS[@]}"; do
 done
 
 if [[ "$OUTPUT_FORMAT" == "text" ]]; then
-    echo "tamux setup preflight"
+    echo "zorai setup preflight"
     echo "Profile:  $PROFILE"
     echo "Platform: $PLATFORM"
     echo ""

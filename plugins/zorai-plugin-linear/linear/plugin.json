@@ -1,0 +1,79 @@
+{
+  "name": "linear",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Linear integration — fetch issues and projects through the plugin API proxy",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "settings": {
+    "token": {
+      "type": "string",
+      "label": "Linear API Token",
+      "required": true,
+      "secret": true,
+      "description": "Linear API token used for authenticated GraphQL requests"
+    }
+  },
+  "api": {
+    "base_url": "https://api.linear.app",
+    "endpoints": {
+      "get_issue": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "query { issues(first: 1, filter: { identifier: { eq: \"{{params.identifier}}\" } }) { nodes { id identifier title description url priority state { name } project { name } team { key name } } } }"
+        },
+        "response_template": "## Issue\n\n{{#each data.issues.nodes}}- {{identifier}} {{title}}\n  - State: {{state.name}}\n  - Priority: {{priority}}\n  - Team: {{team.name}} ({{team.key}})\n  - Project: {{project.name}}\n  - URL: {{url}}\n  - Description: {{truncate description 280}}\n{{/each}}"
+      },
+      "list_issues": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "query { issues(first: {{default params.first \"20\"}}) { nodes { id identifier title url state { name } team { key } } } }"
+        },
+        "response_template": "## Issues\n\n{{#each data.issues.nodes}}- {{identifier}} {{title}} ({{state.name}}) — {{team.key}} — {{url}}\n{{/each}}"
+      },
+      "list_projects": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "query { projects(first: {{default params.first \"20\"}}) { nodes { id name state url lead { name } } } }"
+        },
+        "response_template": "## Projects\n\n{{#each data.projects.nodes}}- {{name}} ({{state}}) — Lead: {{lead.name}} — {{url}}\n{{/each}}"
+      }
+    },
+    "rate_limit": {
+      "requests_per_minute": 60
+    }
+  },
+  "commands": {
+    "issue": {
+      "description": "Fetch Linear issue details by identifier",
+      "action": "get_issue"
+    },
+    "issues": {
+      "description": "List Linear issues",
+      "action": "list_issues"
+    },
+    "projects": {
+      "description": "List Linear projects",
+      "action": "list_projects"
+    }
+  },
+  "skills": [
+    "skills/linear.md"
+  ]
+}

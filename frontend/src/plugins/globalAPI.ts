@@ -1,36 +1,16 @@
-import yaml from "js-yaml";
-import { flushPendingWrites, scheduleTextWrite } from "../lib/persistence";
 import { ComponentRegistryAPI } from "../registry/componentRegistry";
 import { CommandRegistryAPI } from "../registry/commandRegistry";
 import { PluginManager, type Plugin } from "./PluginManager";
 
-const PLUGIN_VIEWS_DIR = "views/plugins";
-
 const getPluginManager = (): PluginManager => {
-  if (!window.__tamuxPluginManager && !window.__amuxPluginManager) {
-    window.__tamuxPluginManager = new PluginManager();
-    window.__amuxPluginManager = window.__tamuxPluginManager;
+  if (!window.__zoraiPluginManager) {
+    window.__zoraiPluginManager = new PluginManager();
   }
 
-  return window.__tamuxPluginManager ?? window.__amuxPluginManager!;
+  return window.__zoraiPluginManager!;
 };
 
-const persistPluginViews = async (plugin: Plugin): Promise<void> => {
-  if (!plugin.views || Object.keys(plugin.views).length === 0) {
-    return;
-  }
-
-  Object.entries(plugin.views).forEach(([viewName, viewValue]) => {
-    const safeName = viewName.replace(/[^a-zA-Z0-9_-]/g, "-");
-    const relativePath = `${PLUGIN_VIEWS_DIR}/${plugin.id}-${safeName}.yaml`;
-    const content = typeof viewValue === "string" ? viewValue : yaml.dump(viewValue);
-    scheduleTextWrite(relativePath, content, 0);
-  });
-
-  await flushPendingWrites();
-};
-
-export interface AmuxPluginAPI {
+export interface ZoraiPluginAPI {
   registerComponent: typeof ComponentRegistryAPI.register;
   registerCommand: typeof CommandRegistryAPI.register;
   registerPlugin: (plugin: Plugin) => void;
@@ -42,24 +22,18 @@ export interface AmuxPluginAPI {
 
 declare global {
   interface Window {
-    TamuxApi?: AmuxPluginAPI;
-    AmuxApi?: AmuxPluginAPI;
-    __tamuxPluginManager?: PluginManager;
-    __amuxPluginManager?: PluginManager;
+    ZoraiApi?: ZoraiPluginAPI;
+    __zoraiPluginManager?: PluginManager;
   }
 }
 
 const pluginManager = getPluginManager();
 
-const pluginApi: AmuxPluginAPI = {
+const pluginApi: ZoraiPluginAPI = {
   registerComponent: ComponentRegistryAPI.register,
   registerCommand: CommandRegistryAPI.register,
   registerPlugin: (plugin: Plugin) => {
     pluginManager.registerPlugin(plugin);
-    void persistPluginViews(plugin).then(() => {
-      window.dispatchEvent(new Event("tamux-cdui-plugin-views-updated"));
-      window.dispatchEvent(new Event("amux-cdui-plugin-views-updated"));
-    });
   },
   unregisterPlugin: (id: string) => {
     pluginManager.unregisterPlugin(id);
@@ -69,7 +43,6 @@ const pluginApi: AmuxPluginAPI = {
   getPlugins: () => pluginManager.listPlugins(),
 };
 
-window.TamuxApi = pluginApi;
-window.AmuxApi = pluginApi;
+window.ZoraiApi = pluginApi;
 
 export { pluginManager };

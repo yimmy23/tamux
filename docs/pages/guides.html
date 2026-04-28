@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Guides · tamux</title>
-  <meta name="description" content="Installation, first-run setup, daily workflow patterns, and practical guidance for operating tamux." />
+  <title>Guides · Zorai</title>
+  <meta name="description" content="Installation, first-run setup, daily workflow patterns, and practical guidance for operating Zorai." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -29,39 +29,44 @@
           <article class="card">
             <h3>Quick install</h3>
             <p>Native binaries without npm.</p>
-            <pre><code>curl -fsSL https://raw.githubusercontent.com/mkurman/tamux/main/scripts/install.sh | sh
-tamux --help</code></pre>
+            <pre><code>curl -fsSL https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.sh | sh
+zorai --help
+zoi --help</code></pre>
           </article>
           <article class="card">
             <h3>NPM install</h3>
             <p>Install via npm.</p>
-            <pre><code>npm install -g tamux
-tamux --help</code></pre>
+            <pre><code>npm install -g zorai
+zorai --help
+zoi --help</code></pre>
           </article>
           <article class="card">
             <h3>Pre-built artifacts</h3>
             <p>Use pre-built binaries for quick setup.</p>
             <pre><code># Linux
-curl -fsSLO https://github.com/mkurman/tamux/releases/latest/download/tamux-linux-x86_64.zip
+curl -fsSLO https://github.com/mkurman/zorai/releases/latest/download/zorai-linux-x86_64.zip
 
 # macOS Intel
-curl -fsSLO https://github.com/mkurman/tamux/releases/latest/download/tamux-darwin-x86_64.zip
+curl -fsSLO https://github.com/mkurman/zorai/releases/latest/download/zorai-darwin-x86_64.zip
 
 # macOS Silicon
-curl -fsSLO https://github.com/mkurman/tamux/releases/latest/download/tamux-darwin-arm64.zip
+curl -fsSLO https://github.com/mkurman/zorai/releases/latest/download/zorai-darwin-arm64.zip
 
 # Windows
-curl -fsSLO https://github.com/mkurman/tamux/releases/latest/download/tamux-windows-x64.zip</code></pre>
+curl -fsSLO https://github.com/mkurman/zorai/releases/latest/download/zorai-windows-x64.zip</code></pre>
           </article>
           <article class="card">
             <h3>Source install</h3>
             <p>Full daemon + Electron + TUI workflow.</p>
-            <pre><code>git clone https://github.com/mkurman/tamux.git
-cd tamux
+            <pre><code>git clone https://github.com/mkurman/zorai.git
+cd zorai
 ./scripts/setup.sh --check --profile source</code></pre>
           </article>
         </div>
         <p>Requires Rust, Node.js, npm, git, and <code>uv</code>. Start the daemon first; everything else reconnects to it.</p>
+        <div class="callout info">
+          <strong>CLI alias:</strong> <code>zoi</code> is installed as a short alias for <code>zorai</code>. Use either command; examples keep <code>zorai</code> when clarity matters.
+        </div>
         <h3>npm install</h3>
         <pre><code>cd frontend
 npm install</code></pre>
@@ -71,7 +76,7 @@ npm install</code></pre>
         <h2>First-run checklist</h2>
         <ol class="numbered-list">
           <li>Run <code>./scripts/setup.sh --check --profile source</code></li>
-          <li>Start daemon: <code>cargo run --release --bin tamux-daemon</code></li>
+          <li>Start daemon: <code>cargo run --release --bin zorai-daemon</code></li>
           <li>Open your preferred surface: Electron, TUI, CLI, or MCP</li>
           <li>Verify runtime points at the daemon backend</li>
           <li>Inspect goal, task, and approval surfaces</li>
@@ -105,7 +110,7 @@ propose the smallest safe fix, and capture any reusable workflow as a skill.</co
             <tr><td>Electron</td><td>Desktop overview</td><td>Goals, settings, plugin UI, multi-pane</td></tr>
             <tr><td>TUI</td><td>Keyboard-first, SSH</td><td>Inspect sessions, goals, workspace tasks, approvals</td></tr>
             <tr><td>CLI</td><td>Scripting</td><td>Automation, session management, health</td></tr>
-            <tr><td>MCP</td><td>External integration</td><td>Expose tamux to outside tools</td></tr>
+            <tr><td>MCP</td><td>External integration</td><td>Expose Zorai to outside tools</td></tr>
             <tr><td>Gateway</td><td>Chat platforms</td><td>Discord, Slack, Telegram, WhatsApp</td></tr>
           </tbody>
         </table>
@@ -125,7 +130,7 @@ propose the smallest safe fix, and capture any reusable workflow as a skill.</co
           </article>
           <article class="card">
             <h3>Explicit success criteria</h3>
-            <p>Define done, constraints, and verification. tamux rewards specificity.</p>
+            <p>Define done, constraints, and verification. Zorai rewards specificity.</p>
           </article>
           <article class="card">
             <h3>Daemon owns state</h3>
@@ -170,7 +175,7 @@ propose the smallest safe fix, and capture any reusable workflow as a skill.</co
 
       <section>
         <h2>When not to use</h2>
-        <p>Use simple chat for short, disposable work without queueing, goals, approvals, or durable artifacts. tamux shines when continuity matters.</p>
+        <p>Use simple chat for short, disposable work without queueing, goals, approvals, or durable artifacts. Zorai shines when continuity matters.</p>
       </section>
     </article>
   </main>

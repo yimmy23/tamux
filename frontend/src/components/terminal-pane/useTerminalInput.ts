@@ -86,9 +86,9 @@ export function useTerminalInput({
 
   useEffect(() => {
     let disposed = false;
-    const amux = getBridge();
+    const zorai = getBridge();
 
-    void amux?.getPlatform?.().then((value: string) => {
+    void zorai?.getPlatform?.().then((value: string) => {
       if (!disposed && typeof value === "string" && value) {
         platformRef.current = value;
       }
@@ -201,11 +201,11 @@ export function useTerminalInput({
   ) => {
     if (!text) return false;
 
-    const amux = getBridge();
+    const zorai = getBridge();
     if (!sessionReadyRef.current) return false;
 
     if (options?.execute && options?.managed !== false) {
-      if (!amux?.executeManagedCommand) return false;
+      if (!zorai?.executeManagedCommand) return false;
       const managedPath = options?.source === "agent"
         ? "assistant-managed"
         : options?.source === "gateway"
@@ -221,7 +221,7 @@ export function useTerminalInput({
         surfaceId: paneSurfaceId ?? null,
         paneId,
       });
-      await amux.executeManagedCommand(paneId, {
+      await zorai.executeManagedCommand(paneId, {
         command: text,
         rationale: options?.rationale ?? "Managed execution requested from the terminal UI",
         allowNetwork: options?.allowNetwork ?? settings.sandboxNetworkEnabled,
@@ -234,7 +234,7 @@ export function useTerminalInput({
       return true;
     }
 
-    if (!amux?.sendTerminalInput) return false;
+    if (!zorai?.sendTerminalInput) return false;
 
     let payload = options?.execute ? `${text}\r` : text;
     if (options?.trackHistory !== false) {
@@ -244,7 +244,7 @@ export function useTerminalInput({
 
     const termBracketedPaste = bracketedPasteRef.current && (termRef.current?.modes.bracketedPasteMode ?? false);
     payload = options?.bracketed ? wrapBracketedPaste(payload, termBracketedPaste) : payload;
-    await amux.sendTerminalInput(paneId, encodeTextToBase64(payload));
+    await zorai.sendTerminalInput(paneId, encodeTextToBase64(payload));
     return true;
   }, [addCommandLogEntry, paneId, paneSurfaceId, paneWorkspaceCwd, paneWorkspaceId, sessionReadyRef, settings.sandboxEnabled, settings.sandboxNetworkEnabled, settings.securityLevel, termRef, trackInput]);
 

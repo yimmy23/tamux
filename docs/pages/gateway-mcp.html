@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gateway & MCP · tamux docs</title>
-  <meta name="description" content="How tamux connects to external chat platforms and MCP-capable clients while keeping the daemon as the shared execution authority." />
+  <title>Gateway & MCP · Zorai docs</title>
+  <meta name="description" content="How Zorai connects to external chat platforms and MCP-capable clients while keeping the daemon as the shared execution authority." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -30,23 +30,23 @@
 
       <section>
         <h2>Local webhook listener</h2>
-        <p>Separately from chat-platform gateways, <code>tamux-daemon</code> can expose a local HTTP webhook listener for event-trigger ingestion. This is a daemon-side localhost endpoint, not a Slack/Discord gateway replacement.</p>
+        <p>Separately from chat-platform gateways, <code>zorai-daemon</code> can expose a local HTTP webhook listener for event-trigger ingestion. This is a daemon-side localhost endpoint, not a Slack/Discord gateway replacement.</p>
         <ul class="check-list">
           <li>Enable it with <code>config.json</code> <code>extra.webhook_listener_enabled=true</code></li>
           <li>Bind address comes from <code>extra.webhook_listener_bind</code> and defaults to <code>127.0.0.1:8787</code></li>
           <li>Accepted route: <code>POST /webhook/event</code></li>
           <li>Accepted body fields: <code>event_family</code>, <code>event_kind</code>, optional <code>state</code>, <code>thread_id</code>, and <code>payload</code></li>
         </ul>
-        <p>When <code>extra.webhook_listener_secret</code> is set, requests must also include <code>x-tamux-timestamp-ms</code> and <code>x-tamux-signature-256</code>. tamux signs <code>&lt;timestamp_ms&gt; + "." + &lt;raw_body&gt;</code> with HMAC-SHA256 and rejects stale timestamps using <code>extra.webhook_listener_max_age_secs</code> (default <code>300</code> seconds).</p>
+        <p>When <code>extra.webhook_listener_secret</code> is set, requests must also include <code>x-zorai-timestamp-ms</code> and <code>x-zorai-signature-256</code>. Zorai signs <code>&lt;timestamp_ms&gt; + "." + &lt;raw_body&gt;</code> with HMAC-SHA256 and rejects stale timestamps using <code>extra.webhook_listener_max_age_secs</code> (default <code>300</code> seconds).</p>
       </section>
 
       <section>
         <h2>MCP access</h2>
-        <p><code>tamux-mcp</code> exposes daemon capabilities to MCP-capable agents and toolchains. This lets external agent environments treat tamux as a durable system component rather than reimplementing sessions, workspace tasks, execution queues, or goal runners on their own.</p>
+        <p><code>zorai-mcp</code> exposes daemon capabilities to MCP-capable agents and toolchains. This lets external agent environments treat Zorai as a durable system component rather than reimplementing sessions, workspace tasks, execution queues, or goal runners on their own.</p>
         <pre><code>{
   "mcpServers": {
-    "tamux": {
-      "command": "tamux-mcp"
+    "zorai": {
+      "command": "zorai-mcp"
     }
   }
 }</code></pre>
@@ -61,7 +61,7 @@
         <h2>Operational benefits</h2>
         <ul class="check-list">
           <li>Use Discord or Slack as a control channel without creating disconnected bot state.</li>
-          <li>Use MCP to let other agents drive tamux’s terminals, goals, and memory responsibly.</li>
+          <li>Use MCP to let other agents drive Zorai’s terminals, goals, and memory responsibly.</li>
           <li>Keep approvals and provenance in the same governance model regardless of entry channel.</li>
         </ul>
       </section>

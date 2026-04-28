@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Best Practices · tamux</title>
-  <meta name="description" content="Practical guidance for using tamux well: model roles, compaction, durable threads, goals, approvals, and client choice." />
+  <title>Best Practices · Zorai</title>
+  <meta name="description" content="Practical guidance for using Zorai well: model roles, compaction, durable threads, goals, approvals, and client choice." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -20,12 +20,12 @@
       <header class="page-header">
         <p class="eyebrow">Operator playbook</p>
         <h1>Best Practices</h1>
-        <p class="lead">Practical guidance for using tamux well every day: model roles, compaction, durable threads, goals, approvals, and client choice.</p>
+        <p class="lead">Practical guidance for using Zorai well every day: model roles, compaction, durable threads, goals, approvals, and client choice.</p>
       </header>
 
       <section>
         <h2>Start with the right mental model</h2>
-        <p>tamux works best when you treat it as a daemon-backed operating environment, not as a single chat box.</p>
+        <p>Zorai works best when you treat it as a daemon-backed operating environment, not as a single chat box.</p>
         <ul class="check-list">
           <li>Keep the daemon running and reconnect from whichever client is convenient.</li>
           <li>Use the desktop UI when you want broad visibility and settings control.</li>
@@ -33,7 +33,7 @@
           <li>Use the CLI and MCP server for automation and external-agent integration.</li>
         </ul>
         <div class="callout warning">
-          <strong>Common failure mode:</strong> Treating tamux like a disposable prompt window. The whole point is durable state, threads, workspace tasks, and goals.
+          <strong>Common failure mode:</strong> Treating Zorai like a disposable prompt window. The whole point is durable state, threads, workspace tasks, and goals.
         </div>
       </section>
 
@@ -60,7 +60,7 @@
           <li>Validating assumptions when the main thread moves fast</li>
         </ul>
         <p><strong>Recommended:</strong> GLM-5.*, MiniMax M2.7, Qwen 3.6 Plus, or similar tier.</p>
-        <p><strong>Do not starve Weles.</strong> If governance is too weak, tamux becomes noisier and less trustworthy exactly where it should be more disciplined.</p>
+        <p><strong>Do not starve Weles.</strong> If governance is too weak, Zorai becomes noisier and less trustworthy exactly where it should be more disciplined.</p>
 
         <h3>Rarog — The Concierge</h3>
         <p>Use a light, cheap, fast, tool-reliable model. Rarog handles:</p>
@@ -102,7 +102,7 @@
 
       <section>
         <h2>Prefer durable threads</h2>
-        <p>tamux gets stronger when a thread represents a real line of work.</p>
+        <p>Zorai gets stronger when a thread represents a real line of work.</p>
         
         <div class="card-grid two-up">
           <article class="card">
@@ -126,7 +126,7 @@
             </ul>
           </article>
         </div>
-        <p>Resetting too often destroys one of tamux's biggest advantages: continuity.</p>
+        <p>Resetting too often destroys one of Zorai's biggest advantages: continuity.</p>
       </section>
 
       <section>
@@ -148,7 +148,7 @@ locally.</code></pre>
             <p>Specific goal, constraints, success condition, verification.</p>
           </article>
         </div>
-        <p>tamux rewards operationally specific instructions.</p>
+        <p>Zorai rewards operationally specific instructions.</p>
       </section>
 
       <section>
@@ -173,7 +173,7 @@ locally.</code></pre>
 
       <section>
         <h2>Use the right interaction mode</h2>
-        <p>tamux gives you different ways to involve other fires. Use them intentionally.</p>
+        <p>Zorai gives you different ways to involve other fires. Use them intentionally.</p>
         
         <table>
           <thead>
@@ -203,7 +203,7 @@ locally.</code></pre>
 
       <section>
         <h2>Use approvals to protect the edges</h2>
-        <p>tamux is strongest when autonomy and operator control are both real.</p>
+        <p>Zorai is strongest when autonomy and operator control are both real.</p>
         
         <div class="card-grid two-up">
           <article class="card">
@@ -240,7 +240,7 @@ locally.</code></pre>
             <tr><td>Desktop app</td><td>Settings, visibility, chat, broad operational control</td></tr>
             <tr><td>TUI</td><td>Keyboard-first work, remote/SSH, daemon inspection in terminal</td></tr>
             <tr><td>CLI</td><td>Automation, scripted inspection</td></tr>
-            <tr><td>MCP</td><td>Another agent/toolchain driving tamux as a system component</td></tr>
+            <tr><td>MCP</td><td>Another agent/toolchain driving Zorai as a system component</td></tr>
           </tbody>
         </table>
         <p>There is no single correct frontend. The daemon is the product; clients are views into it.</p>
@@ -291,7 +291,7 @@ locally.</code></pre>
           </article>
         </div>
         
-        <p>That baseline is usually enough to get tamux feeling substantially better than a generic single-model terminal chat workflow.</p>
+        <p>That baseline is usually enough to get Zorai feeling substantially better than a generic single-model terminal chat workflow.</p>
       </section>
     </article>
   </main>

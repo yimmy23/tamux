@@ -7,7 +7,7 @@ description: Use when SynthLabs work must be driven through the visual app for v
 
 ## Overview
 
-Use this skill when SynthLabs is best operated as an application instead of a backend route. Assume `synthlabs-setup` already confirmed a healthy instance before you begin. This skill does not provide dedicated tamux SynthLabs tools; it maps the work onto tamux's existing browser workflow.
+Use this skill when SynthLabs is best operated as an application instead of a backend route. Assume `synthlabs-setup` already confirmed a healthy instance before you begin. This skill does not provide dedicated zorai SynthLabs tools; it maps the work onto zorai's existing browser workflow.
 
 ## When to Use
 
@@ -30,7 +30,7 @@ Do not use this skill when:
 - Use browser tools only after `synthlabs-setup` confirmed SynthLabs is healthy.
 - Prefer UI navigation for verifier review, data preview, settings changes, and DEEP mode.
 - Follow the browser workflow in `skills/operating/browser.md`: start by opening a browser pane, read the DOM before interacting, use element discovery instead of guessing selectors, prefer text-based clicks when possible, and read the DOM again after navigation.
-- Use existing browser tooling such as `open_canvas_browser`, `browser_read_dom`, `browser_get_elements`, `browser_click`, and `browser_type`; do not imply SynthLabs-specific tamux tools exist.
+- Use existing browser tooling such as `open_canvas_browser`, `browser_read_dom`, `browser_get_elements`, `browser_click`, and `browser_type`; do not imply SynthLabs-specific zorai tools exist.
 - Do not use the browser just to confirm data or trigger work that stable backend routes already cover.
 - Hand session CRUD and repeatable generation work back to `synthlabs-generation`.
 - Hand autoscore, rewrite, remove-items, migrate-reasoning, orphan checks, and job polling back to `synthlabs-curation`.

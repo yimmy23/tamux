@@ -125,11 +125,11 @@ export function createDefaultWorkspace(
 }
 
 export function stopPaneSessions(paneIds: string[], killSessions: boolean = true) {
-  const amux = getBridge();
-  if (!amux?.stopTerminalSession) return;
+  const zorai = getBridge();
+  if (!zorai?.stopTerminalSession) return;
 
   for (const paneId of paneIds) {
-    void amux.stopTerminalSession(paneId, killSessions);
+    void zorai.stopTerminalSession(paneId, killSessions);
   }
 }
 

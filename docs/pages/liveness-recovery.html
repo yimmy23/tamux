@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Liveness & Recovery · tamux</title>
-  <meta name="description" content="Checkpoints, health monitoring, stuck detection, recovery, and escalation for long-running work in tamux." />
+  <title>Liveness & Recovery · Zorai</title>
+  <meta name="description" content="Checkpoints, health monitoring, stuck detection, recovery, and escalation for long-running work in Zorai." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -26,7 +26,7 @@
 
 <section>
   <h2>Why liveness matters</h2>
-  <p>A system that can plan work but cannot detect degradation is not reliable autonomy. tamux treats liveness as a separate architectural layer above execution, with checkpointing, health monitoring, stuck-pattern analysis, and recovery planning.</p>
+  <p>A system that can plan work but cannot detect degradation is not reliable autonomy. Zorai treats liveness as a separate architectural layer above execution, with checkpointing, health monitoring, stuck-pattern analysis, and recovery planning.</p>
 </section>
 
 <section>
@@ -66,7 +66,7 @@
 
 <section>
   <h2>Stuck patterns</h2>
-  <p>tamux does not reduce “stuck” to a single timeout. It can classify several failure patterns:</p>
+  <p>Zorai does not reduce “stuck” to a single timeout. It can classify several failure patterns:</p>
   <table>
     <thead>
       <tr><th>Pattern</th><th>What it means</th></tr>
@@ -83,7 +83,7 @@
 
 <section>
   <h2>Recovery ladder</h2>
-  <p>When the runtime detects problems, it should not always jump directly to operator interruption. tamux uses a graduated escalation pathway:</p>
+  <p>When the runtime detects problems, it should not always jump directly to operator interruption. Zorai uses a graduated escalation pathway:</p>
   <ol class="numbered-list">
     <li><strong>Self-correction:</strong> retry, rotate strategy, compress context, or change local behavior.</li>
     <li><strong>Sub-agent help:</strong> use a narrower specialist or bounded child path.</li>
@@ -111,7 +111,7 @@
 
 <section>
   <h2>Operator expectation</h2>
-  <p>Operators should expect that tamux will sometimes pause, replan, ask for approval, or escalate rather than forcing forward motion. That is a sign of a more trustworthy autonomous environment, not a sign of weakness.</p>
+  <p>Operators should expect that Zorai will sometimes pause, replan, ask for approval, or escalate rather than forcing forward motion. That is a sign of a more trustworthy autonomous environment, not a sign of weakness.</p>
 </section>
     </article>
   </main>

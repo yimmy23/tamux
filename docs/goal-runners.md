@@ -1,6 +1,6 @@
 # Goal Runners
 
-Goal runners are tamux's durable autonomy layer. Instead of a single prompt/response exchange, you give the daemon a long-running objective and let it plan, execute, replan, reflect, and persist what it learns.
+Goal runners are Zorai's durable autonomy layer. Instead of a single prompt/response exchange, you give the daemon a long-running objective and let it plan, execute, replan, reflect, and persist what it learns.
 
 For the currently landed additive state-transition substrate that goal work can build on, see [state-transition-harness.md](./state-transition-harness.md).
 
@@ -106,7 +106,7 @@ Goal runners do not replace the daemon execution queue. They sit above it.
 - Child execution entries run through the existing queue, lane, approval, and retry machinery.
 - The goal runner watches those entries and decides whether to continue, replan, or fail.
 
-This means goal runners inherit the same safety controls as the rest of tamux:
+This means goal runners inherit the same safety controls as the rest of Zorai:
 
 - managed terminal execution
 - approval gating
@@ -130,7 +130,7 @@ When a child execution entry fails:
 
 ## Memory And Skill Output
 
-On successful completion, tamux can produce two durable outputs:
+On successful completion, Zorai can produce two durable outputs:
 
 - **Memory update**: appended to `MEMORY.md` only when the reflection identifies a stable fact or operator preference worth preserving
 - **Generated skill**: a reusable workflow document derived from the successful trajectory

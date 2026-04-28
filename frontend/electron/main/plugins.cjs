@@ -1,10 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const { ensureTamuxDataDir, readJsonFile } = require('./app-data.cjs');
+const { ensureZoraiDataDir, readJsonFile } = require('./app-data.cjs');
 
 function getPluginsRootDir() {
-    const pluginsDir = path.join(ensureTamuxDataDir(), 'plugins');
+    const pluginsDir = path.join(ensureZoraiDataDir(), 'plugins');
     fs.mkdirSync(pluginsDir, { recursive: true });
     return pluginsDir;
 }
@@ -42,7 +42,7 @@ function resolveInstalledPluginEntryPath(entryPath) {
     const resolvedPath = path.resolve(entryPath);
 
     if (resolvedPath !== pluginsRoot && !resolvedPath.startsWith(`${pluginsRoot}${path.sep}`)) {
-        throw new Error('Installed plugin entry path escapes the tamux plugins directory.');
+        throw new Error('Installed plugin entry path escapes the zorai plugins directory.');
     }
 
     return resolvedPath;

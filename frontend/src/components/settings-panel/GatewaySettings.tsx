@@ -99,9 +99,9 @@ export function GatewayConfigEditor() {
   async function loadConfig() {
     setLoading(true);
     try {
-      const amux = (window as unknown as Record<string, unknown>).tamux ?? (window as unknown as Record<string, unknown>).amux;
-      if (amux && typeof (amux as Record<string, unknown>).gatewayGetConfig === "function") {
-        const gw = await ((amux as Record<string, () => Promise<DaemonGatewayConfig>>).gatewayGetConfig)();
+      const zorai = (window as unknown as Record<string, unknown>).zorai ?? (window as unknown as Record<string, unknown>).zorai;
+      if (zorai && typeof (zorai as Record<string, unknown>).gatewayGetConfig === "function") {
+        const gw = await ((zorai as Record<string, () => Promise<DaemonGatewayConfig>>).gatewayGetConfig)();
         setConfig((gw ?? {}) as DaemonGatewayConfig);
       }
     } catch {
@@ -118,9 +118,9 @@ export function GatewayConfigEditor() {
   async function saveConfig() {
     setSaving(true);
     try {
-      const amux = (window as unknown as Record<string, unknown>).tamux ?? (window as unknown as Record<string, unknown>).amux;
-      if (amux && typeof (amux as Record<string, unknown>).agentSetConfigItem === "function") {
-        const setItem = (amux as Record<string, (keyPath: string, value: unknown) => Promise<unknown>>).agentSetConfigItem;
+      const zorai = (window as unknown as Record<string, unknown>).zorai ?? (window as unknown as Record<string, unknown>).zorai;
+      if (zorai && typeof (zorai as Record<string, unknown>).agentSetConfigItem === "function") {
+        const setItem = (zorai as Record<string, (keyPath: string, value: unknown) => Promise<unknown>>).agentSetConfigItem;
         // Write each gateway field back to daemon config
         await setItem("gateway.slack_token", config.slack_token ?? "");
         await setItem("gateway.discord_token", config.discord_token ?? "");

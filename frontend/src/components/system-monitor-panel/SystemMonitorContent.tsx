@@ -126,10 +126,10 @@ function ResourceCard({ title, value, subtitle, detail, meterValue }: { title: s
         <div style={{ display: "grid", gap: 10, borderRadius: 0, border: "1px solid rgba(255,255,255,0.06)", background: "rgba(18, 33, 47, 0.8)", padding: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                 <div style={{ display: "grid", gap: 4 }}>
-                    <span className="amux-panel-title">{title}</span>
+                    <span className="zorai-panel-title">{title}</span>
                     <span style={{ fontSize: 20, fontWeight: 800 }}>{value}</span>
                 </div>
-                <span className="amux-chip">{subtitle}</span>
+                <span className="zorai-chip">{subtitle}</span>
             </div>
             <div style={{ height: 8, borderRadius: 0, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
                 <div style={{ width: `${Math.max(0, Math.min(100, meterValue))}%`, height: "100%", background: "var(--bg-secondary)", borderRadius: 0 }} />

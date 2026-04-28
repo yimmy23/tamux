@@ -2,7 +2,7 @@ import { KNOWN_CODING_AGENT_DEFINITIONS, createUnavailableCodingAgents } from ".
 import type { DiscoveredCodingAgent } from "./types";
 
 type CodingAgentsBridge = {
-    discoverCodingAgents?: () => Promise<AmuxCodingAgentDiscoveryResult[]>;
+    discoverCodingAgents?: () => Promise<ZoraiCodingAgentDiscoveryResult[]>;
     sendTerminalInput?: (paneId: string | null, data: string) => Promise<boolean>;
 };
 
@@ -11,7 +11,7 @@ function getBridge(): CodingAgentsBridge | null {
         return null;
     }
 
-    return window.tamux ?? window.amux ?? null;
+    return window.zorai ?? window.zorai ?? null;
 }
 
 export function encodeTerminalInput(text: string): string {

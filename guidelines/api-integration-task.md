@@ -5,6 +5,8 @@ recommended_skills:
   - openai-docs
   - test-driven-development
   - security-best-practices
+recommended_guidelines:
+  - general-programming
 ---
 
 # API Integration Task Guideline

@@ -1,8 +1,8 @@
-# tamux Reference
+# Zorai Reference
 
 This document collects the practical reference material that used to live in the top-level README: providers, configuration, shortcuts, packaging, runtime integration, and development notes.
 
-For onboarding, see [getting-started.md](getting-started.md). For runtime architecture, see [how-tamux-works.md](how-tamux-works.md). For deeper agent internals, see [self-orchestrating-agent.md](self-orchestrating-agent.md). For the canonical memory architecture, see [tamux-memory.md](tamux-memory.md). For the canonical security and governance model, see [tamux-security.md](tamux-security.md).
+For onboarding, see [getting-started.md](getting-started.md). For runtime architecture, see [how-zorai-works.md](how-zorai-works.md). For deeper agent internals, see [self-orchestrating-agent.md](self-orchestrating-agent.md). For the canonical memory architecture, see [zorai-memory.md](zorai-memory.md). For the canonical security and governance model, see [zorai-security.md](zorai-security.md).
 
 ## Paths And Locations
 
@@ -10,16 +10,16 @@ For onboarding, see [getting-started.md](getting-started.md). For runtime archit
 
 | Platform | Path |
 |---|---|
-| Linux | `~/.config/tamux/config.json` |
-| macOS | `~/Library/Application Support/tamux/config.json` |
-| Windows | `%APPDATA%\tamux\config.json` |
+| Linux | `~/.config/zorai/config.json` |
+| macOS | `~/Library/Application Support/zorai/config.json` |
+| Windows | `%APPDATA%\zorai\config.json` |
 
-Data directory: `~/.tamux/` on Unix, `%LOCALAPPDATA%\tamux\` on Windows. Existing `amux` directories are migrated forward when possible.
+Data directory: `~/.zorai/` on Unix, `%LOCALAPPDATA%\zorai\` on Windows. Existing `zorai` directories are migrated forward when possible.
 
 ### Install Locations
 
 - Desktop app binaries (packaged): inside application resources, typically `resources/bin`
-- Runtime data directory: `~/.tamux` on Unix or `%LOCALAPPDATA%\tamux` on Windows
+- Runtime data directory: `~/.zorai` on Unix or `%LOCALAPPDATA%\zorai` on Windows
 - Source builds: binaries are produced in `target/debug` or `target/release`
 
 ## Supported Providers
@@ -57,7 +57,7 @@ Data directory: `~/.tamux/` on Unix, `%LOCALAPPDATA%\tamux\` on Windows. Existin
 
 Switch providers at any time from the Settings panel. Each provider's base URL, model, and API key are independently configurable, and models can be selected from a searchable list or entered manually.
 
-When OpenRouter is selected, tamux automatically sends app attribution headers using `https://tamux.app` and the `tamux` title so usage can appear in OpenRouter analytics and rankings.
+When OpenRouter is selected, Zorai automatically sends app attribution headers using `https://zorai.app` and the `zorai` title so usage can appear in OpenRouter analytics and rankings.
 
 ## Build And Run
 
@@ -68,11 +68,11 @@ When OpenRouter is selected, tamux automatically sends app attribution headers u
 cargo build --release
 
 # Individual Rust crates
-cargo build --release -p tamux-daemon
-cargo build --release -p tamux-cli
-cargo build --release -p tamux-gateway
-cargo build --release -p tamux-mcp
-cargo build --release -p tamux-protocol
+cargo build --release -p zorai-daemon
+cargo build --release -p zorai-cli
+cargo build --release -p zorai-gateway
+cargo build --release -p zorai-mcp
+cargo build --release -p zorai-protocol
 
 # Frontend web bundle
 cd frontend
@@ -95,18 +95,18 @@ Recommended slice:
 
 ```bash
 # Start the daemon
-cargo run --release --bin tamux-daemon
+cargo run --release --bin zorai-daemon
 
 # Launch the Electron app
 cd frontend
 npm run dev:electron
 
 # Or use the CLI directly
-cargo run --release --bin tamux -- list
-cargo run --release --bin tamux -- new --shell bash
-cargo run --release --bin tamux -- attach <session-id>
-cargo run --release --bin tamux -- kill <session-id>
-cargo run --release --bin tamux -- ping
+cargo run --release --bin zorai -- list
+cargo run --release --bin zorai -- new --shell bash
+cargo run --release --bin zorai -- attach <session-id>
+cargo run --release --bin zorai -- kill <session-id>
+cargo run --release --bin zorai -- ping
 ```
 
 ## Release Packaging
@@ -141,26 +141,26 @@ Typical output layout:
 ```text
 dist-release/
   linux/
-    tamux
-    tamux-daemon
-    tamux-gateway
-    tamux-mcp
+    zorai
+    zorai-daemon
+    zorai-gateway
+    zorai-mcp
     GETTING_STARTED.md
-    tamux-<version>.AppImage
-    tamux_<version>_amd64.deb
-    tamux-linux-x86_64.zip
-    tamux-linux-aarch64.zip
+    zorai-<version>.AppImage
+    zorai_<version>_amd64.deb
+    zorai-linux-x86_64.zip
+    zorai-linux-aarch64.zip
     SHA256SUMS.txt
     RELEASE_NOTES.md
   windows/
-    tamux.exe
-    tamux-daemon.exe
-    tamux-gateway.exe
-    tamux-mcp.exe
+    zorai.exe
+    zorai-daemon.exe
+    zorai-gateway.exe
+    zorai-mcp.exe
     GETTING_STARTED.md
-    tamux-portable.exe
-    tamux Setup <version>.exe
-    tamux-windows-x64.zip
+    zorai-portable.exe
+    zorai Setup <version>.exe
+    zorai-windows-x64.zip
     SHA256SUMS.txt
     RELEASE_NOTES.md
 ```
@@ -191,15 +191,15 @@ cd frontend && npm ci && cd ..
 
 Signing environment variables:
 
-- `TAMUX_SIGN_CERT` / `TAMUX_SIGN_PASSWORD` for PFX-based signing
-- `TAMUX_SIGN_THUMBPRINT` for Windows certificate store signing
-- `TAMUX_SIGN_IDENTITY` for macOS `codesign`
+- `ZORAI_SIGN_CERT` / `ZORAI_SIGN_PASSWORD` for PFX-based signing
+- `ZORAI_SIGN_THUMBPRINT` for Windows certificate store signing
+- `ZORAI_SIGN_IDENTITY` for macOS `codesign`
 
-Legacy `AMUX_*` signing variables are still accepted for compatibility.
+Legacy `ZORAI_*` signing variables are still accepted for compatibility.
 
 ## Notifications
 
-tamux supports in-app attention notifications emitted from terminal output using OSC sequences.
+Zorai supports in-app attention notifications emitted from terminal output using OSC sequences.
 
 Supported formats:
 
@@ -236,7 +236,7 @@ osc99() {
 
 ## Webhook Event Ingest
 
-The daemon can expose a narrow local HTTP webhook listener that feeds Pack 1 event payloads into the same trigger engine used by internal event ingestion. This is implemented today as a localhost listener inside `tamux-daemon`, not as a separate gateway service.
+The daemon can expose a narrow local HTTP webhook listener that feeds Pack 1 event payloads into the same trigger engine used by internal event ingestion. This is implemented today as a localhost listener inside `zorai-daemon`, not as a separate gateway service.
 
 Implemented behavior:
 
@@ -302,8 +302,8 @@ Accepted top-level fields:
 
 If `webhook_listener_secret` is set, requests must include:
 
-- `x-tamux-timestamp-ms`: Unix timestamp in milliseconds
-- `x-tamux-signature-256`: `sha256=<hex-hmac>`
+- `x-zorai-timestamp-ms`: Unix timestamp in milliseconds
+- `x-zorai-signature-256`: `sha256=<hex-hmac>`
 
 The daemon computes the expected signature over:
 
@@ -390,17 +390,17 @@ All keybindings are customizable from the Settings panel or by editing `keybindi
 
 ## Plugins And MCP
 
-Runtime-installed plugins are supported through `tamux install plugin <npm-package-or-local-path>`.
+Runtime-installed plugins are supported through `zorai install plugin <npm-package-or-local-path>`.
 
-External npm plugins should declare `tamuxPlugin.entry` in `package.json`. The legacy `amuxPlugin.entry` field is still accepted for compatibility. The entry should be a self-contained browser script that registers itself through `window.TamuxApi.registerPlugin(...)` or `window.AmuxApi.registerPlugin(...)`.
+External npm plugins should declare `zoraiPlugin.entry` in `package.json`. The entry should be a self-contained browser script that registers itself through `window.ZoraiApi.registerPlugin(...)`.
 
-Register `tamux-mcp` with Claude Code, Cursor, or any MCP-compatible client like this:
+Register `zorai-mcp` with Claude Code, Cursor, or any MCP-compatible client like this:
 
 ```json
 {
   "mcpServers": {
-    "tamux": {
-      "command": "tamux-mcp"
+    "zorai": {
+      "command": "zorai-mcp"
     }
   }
 }
@@ -414,12 +414,12 @@ For deeper plugin details, see [plugin-development.md](plugin-development.md). F
 
 | Crate | Role |
 |---|---|
-| `tamux-protocol` | Shared message types, length-prefixed bincode codec, and configuration |
-| `tamux-daemon` | Background daemon: PTY management, workspace tasks, execution queue, snapshots, policy engine, credential scrubbing, telemetry, and history |
-| `tamux-cli` | Command-line client that builds the `tamux` binary |
-| `tamux-gateway` | Chat platform bridge crate |
-| `tamux-mcp` | MCP server crate |
-| `tamux-tui` | Keyboard-first terminal UI client for the daemon |
+| `zorai-protocol` | Shared message types, length-prefixed bincode codec, and configuration |
+| `zorai-daemon` | Background daemon: PTY management, workspace tasks, execution queue, snapshots, policy engine, credential scrubbing, telemetry, and history |
+| `zorai-cli` | Command-line client that builds the `zorai` binary |
+| `zorai-gateway` | Chat platform bridge crate |
+| `zorai-mcp` | MCP server crate |
+| `zorai-tui` | Keyboard-first terminal UI client for the daemon |
 
 ### Key Dependencies
 
@@ -450,7 +450,7 @@ Frontend side:
 
 ### IPC Protocol
 
-The daemon and all clients communicate via length-prefixed bincode frames over Unix domain sockets on Linux/macOS or localhost TCP on Windows. The protocol lives in `amux-protocol` and is centered on two enums:
+The daemon and all clients communicate via length-prefixed bincode frames over Unix domain sockets on Linux/macOS or localhost TCP on Windows. The protocol lives in `zorai-protocol` and is centered on two enums:
 
 - `ClientMessage`: requests from clients to the daemon
 - `DaemonMessage`: responses and events from the daemon back to clients

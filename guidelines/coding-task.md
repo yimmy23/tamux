@@ -6,6 +6,8 @@ recommended_skills:
   - test-driven-development
   - systematic-debugging
   - verification-before-completion
+recommended_guidelines:
+  - general-programming
 ---
 
 # Coding Task Guideline
@@ -15,13 +17,14 @@ Use this guideline to orchestrate coding work. Skills remain the source of detai
 ## Workflow
 
 1. Read the project instructions and inspect the current implementation before choosing an approach.
-2. Identify the behavioral contract: inputs, outputs, state transitions, persistence, permissions, errors, and external integration points.
-3. Build a risk and test matrix before implementation. Cover happy path, boundary cases, invalid input, regression risk, concurrency or ordering, persistence, UI state, and integration contracts where relevant.
-4. Use `test-driven-development` unless the user explicitly asks for another technique or the change is purely generated/configuration-only.
-5. Write tests that represent meaningful behavior, not just one narrow success case.
-6. Implement the smallest coherent change that satisfies the matrix.
-7. Run focused tests first, then the broader relevant verification command.
-8. Before claiming completion, use `verification-before-completion` and report what was actually run.
+2. Apply `general-programming` as the baseline for code structure, SOLID checks, file size, and verification expectations.
+3. Identify the behavioral contract: inputs, outputs, state transitions, persistence, permissions, errors, and external integration points.
+4. Build a risk and test matrix before implementation. Cover happy path, boundary cases, invalid input, regression risk, concurrency or ordering, persistence, UI state, and integration contracts where relevant.
+5. Use `test-driven-development` unless the user explicitly asks for another technique or the change is purely generated/configuration-only.
+6. Write tests that represent meaningful behavior, not just one narrow success case.
+7. Implement the smallest coherent change that satisfies the matrix.
+8. Run focused tests first, then the broader relevant verification command.
+9. Before claiming completion, use `verification-before-completion` and report what was actually run.
 
 ## Quality Gate
 

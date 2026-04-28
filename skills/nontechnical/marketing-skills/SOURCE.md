@@ -6,4 +6,4 @@ Selected skills in this directory are vendored from:
 - License: MIT
 - Purpose: marketing, SEO, copywriting, channel, campaign, and creative-content workflows for agent skills.
 
-The upstream repository contains a much larger catalog. tamux bundles a focused subset to improve non-coding task support without adding excessive discovery noise.
+The upstream repository contains a much larger catalog. zorai bundles a focused subset to improve non-coding task support without adding excessive discovery noise.

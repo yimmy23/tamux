@@ -71,7 +71,7 @@ function resolveWorkspaceSurfacePane(args: Record<string, unknown>) {
 let registered = false;
 
 export function registerAITrainingPlugin() {
-    const pluginApi = window.TamuxApi ?? window.AmuxApi;
+    const pluginApi = window.ZoraiApi;
     if (registered || typeof window === "undefined" || !pluginApi) {
         return;
     }
@@ -84,7 +84,7 @@ export function registerAITrainingPlugin() {
     pluginApi.registerPlugin({
         id: "ai-training",
         name: "AI Training",
-        version: "0.7.1",
+        version: "0.8.0",
         assistantTools: [
             {
                 type: "function",

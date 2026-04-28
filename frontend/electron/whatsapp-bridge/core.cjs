@@ -6,8 +6,8 @@ const pino = require('pino');
 
 const AUTH_DIR = path.join(
     process.platform === 'win32' && process.env.LOCALAPPDATA
-        ? path.join(process.env.LOCALAPPDATA, 'tamux')
-        : path.join(os.homedir(), '.tamux'),
+        ? path.join(process.env.LOCALAPPDATA, 'zorai')
+        : path.join(os.homedir(), '.zorai'),
     'whatsapp-auth'
 );
 fs.mkdirSync(AUTH_DIR, { recursive: true });

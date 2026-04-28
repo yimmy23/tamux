@@ -92,10 +92,10 @@ export function ThreadList({
             />
 
             {filteredThreads.length === 0 && (
-                <div className="amux-empty-state">
-                    <div className="amux-empty-state__icon">💬</div>
-                    <div className="amux-empty-state__title">No conversations yet</div>
-                    <div className="amux-empty-state__description">Create a new thread to start collaborating with the agent</div>
+                <div className="zorai-empty-state">
+                    <div className="zorai-empty-state__icon">💬</div>
+                    <div className="zorai-empty-state__title">No conversations yet</div>
+                    <div className="zorai-empty-state__description">Create a new thread to start collaborating with the agent</div>
                 </div>
             )}
 

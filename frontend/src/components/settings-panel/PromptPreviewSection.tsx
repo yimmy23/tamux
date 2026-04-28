@@ -1,7 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { getBridge } from "@/lib/bridge";
 import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
-import type { AgentSettings } from "../../lib/agentStore";
 import { Section, smallBtnStyle } from "./shared";
 
 type PromptInspectionSection = {
@@ -43,10 +42,8 @@ function readonlyBlockStyle(minHeight: number): CSSProperties {
 }
 
 export function PromptPreviewSection({
-    backend,
     refreshKey,
 }: {
-    backend: AgentSettings["agent_backend"];
     refreshKey: string;
 }) {
     const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
@@ -63,13 +60,6 @@ export function PromptPreviewSection({
             setLoading(false);
             return;
         }
-        if (backend === "openclaw" || backend === "hermes") {
-            setInspection(null);
-            setError("Prompt preview currently shows daemon-managed tamux agents only.");
-            setLoading(false);
-            return;
-        }
-
         let cancelled = false;
         const timeoutId = window.setTimeout(() => {
             setLoading(true);
@@ -92,7 +82,7 @@ export function PromptPreviewSection({
             cancelled = true;
             window.clearTimeout(timeoutId);
         };
-    }, [backend, refreshKey, reloadTick, selectedAgent]);
+    }, [refreshKey, reloadTick, selectedAgent]);
 
     return (
         <Section title="Prompt Preview">

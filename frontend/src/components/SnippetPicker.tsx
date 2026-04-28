@@ -12,7 +12,7 @@ import { modalStyle, type SnippetPickerProps } from "./snippet-picker/shared";
 /**
  * Snippet Picker modal — Ctrl+S.
  * Search, create, edit, delete, favorites, template placeholder resolution.
- * Matches amux-windows SnippetPicker.
+ * Matches zorai-windows SnippetPicker.
  */
 export function SnippetPicker({ style, className }: SnippetPickerProps = {}) {
   const open = useWorkspaceStore((s) => s.snippetPickerOpen);

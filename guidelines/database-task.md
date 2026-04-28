@@ -5,6 +5,8 @@ recommended_skills:
   - systematic-debugging
   - test-driven-development
   - security-best-practices
+recommended_guidelines:
+  - general-programming
 ---
 
 # Database Task Guideline

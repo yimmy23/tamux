@@ -32,7 +32,7 @@ async function injectInstalledPluginScript(entry) {
 
     const script = document.createElement('script');
     script.type = 'text/javascript';
-    script.dataset.amuxExternalPlugin = entry.packageName;
+    script.dataset.zoraiExternalPlugin = entry.packageName;
     script.textContent = `${entry.source}\n//# sourceURL=${normalizedEntryPath.replace(/\\/g, '/')}`;
 
     try {
@@ -116,6 +116,8 @@ const bridgeApi = {
     pluginDaemonGet: (name) => ipcRenderer.invoke('plugin-daemon-get', name),
     pluginDaemonEnable: (name) => ipcRenderer.invoke('plugin-daemon-enable', name),
     pluginDaemonDisable: (name) => ipcRenderer.invoke('plugin-daemon-disable', name),
+    pluginDaemonInstall: (dirName, installSource) => ipcRenderer.invoke('plugin-daemon-install', dirName, installSource),
+    pluginDaemonUninstall: (name) => ipcRenderer.invoke('plugin-daemon-uninstall', name),
     pluginGetSettings: (name) => ipcRenderer.invoke('plugin-get-settings', name),
     pluginUpdateSettings: (pluginName, key, value, isSecret) => ipcRenderer.invoke('plugin-update-settings', pluginName, key, value, isSecret),
     pluginTestConnection: (name) => ipcRenderer.invoke('plugin-test-connection', name),
@@ -258,6 +260,18 @@ const bridgeApi = {
     agentListGoalRuns: () => ipcRenderer.invoke('agent-list-goal-runs'),
     agentGetGoalRun: (goalRunId) => ipcRenderer.invoke('agent-get-goal-run', goalRunId),
     agentControlGoalRun: (goalRunId, action, stepIndex) => ipcRenderer.invoke('agent-control-goal-run', goalRunId, action, stepIndex),
+    agentListWorkspaceSettings: () => ipcRenderer.invoke('agent-list-workspace-settings'),
+    agentGetWorkspaceSettings: (workspaceId) => ipcRenderer.invoke('agent-get-workspace-settings', workspaceId),
+    agentSetWorkspaceOperator: (workspaceId, operator) => ipcRenderer.invoke('agent-set-workspace-operator', workspaceId, operator),
+    agentListWorkspaceTasks: (workspaceId, includeDeleted) => ipcRenderer.invoke('agent-list-workspace-tasks', workspaceId, includeDeleted),
+    agentCreateWorkspaceTask: (request) => ipcRenderer.invoke('agent-create-workspace-task', request),
+    agentUpdateWorkspaceTask: (taskId, update) => ipcRenderer.invoke('agent-update-workspace-task', taskId, update),
+    agentMoveWorkspaceTask: (request) => ipcRenderer.invoke('agent-move-workspace-task', request),
+    agentRunWorkspaceTask: (taskId) => ipcRenderer.invoke('agent-run-workspace-task', taskId),
+    agentPauseWorkspaceTask: (taskId) => ipcRenderer.invoke('agent-pause-workspace-task', taskId),
+    agentStopWorkspaceTask: (taskId) => ipcRenderer.invoke('agent-stop-workspace-task', taskId),
+    agentDeleteWorkspaceTask: (taskId) => ipcRenderer.invoke('agent-delete-workspace-task', taskId),
+    agentListWorkspaceNotices: (workspaceId, taskId) => ipcRenderer.invoke('agent-list-workspace-notices', workspaceId, taskId),
     agentExplainAction: (actionId, stepIndex) => ipcRenderer.invoke('agent-explain-action', actionId, stepIndex),
     agentStartDivergentSession: (payload) => ipcRenderer.invoke('agent-start-divergent-session', payload),
     agentGetDivergentSession: (sessionId) => ipcRenderer.invoke('agent-get-divergent-session', sessionId),
@@ -323,5 +337,5 @@ const bridgeApi = {
     },
 };
 
-contextBridge.exposeInMainWorld('tamux', bridgeApi);
-contextBridge.exposeInMainWorld('amux', bridgeApi);
+contextBridge.exposeInMainWorld('zorai', bridgeApi);
+contextBridge.exposeInMainWorld('zorai', bridgeApi);

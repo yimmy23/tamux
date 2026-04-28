@@ -32,9 +32,9 @@ export function normalizeReactChatHistoryPageSize(value: unknown): number {
 
 export function resolveReactChatHistoryMessageLimit(
   pageSize: number,
-): number | undefined {
+): number {
   const normalized = normalizeReactChatHistoryPageSize(pageSize);
   return normalized === REACT_CHAT_HISTORY_PAGE_SIZE_ALL
-    ? undefined
+    ? DEFAULT_CHAT_HISTORY_PAGE_SIZE
     : normalized;
 }

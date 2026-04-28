@@ -9,7 +9,7 @@ test("development electron can explicitly load the built dist output", () => {
   const target = resolveRendererLoadTarget({
     app: { isPackaged: false },
     electronDir: "/repo/frontend/electron",
-    env: { TAMUX_ELECTRON_USE_DIST_IN_DEV: "1" },
+    env: { ZORAI_ELECTRON_USE_DIST_IN_DEV: "1" },
     path: require("node:path"),
   });
 

@@ -1,4 +1,4 @@
-import type { AmuxSettings, ShellProfile } from "../../lib/types";
+import type { ZoraiSettings, ShellProfile } from "../../lib/types";
 import { addBtnStyle, inputStyle, NumberInput, Section, SettingRow, type SettingsUpdater, SliderInput, smallBtnStyle, TextInput, Toggle } from "./shared";
 
 interface AvailableShell {
@@ -17,7 +17,7 @@ export function TerminalTab({
     updateProfile,
     setDefaultProfile,
 }: {
-    settings: AmuxSettings;
+    settings: ZoraiSettings;
     updateSetting: SettingsUpdater;
     availableShells: AvailableShell[];
     profiles: ShellProfile[];

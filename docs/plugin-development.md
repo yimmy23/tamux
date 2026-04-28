@@ -1,6 +1,6 @@
-# Creating Your Own tamux Plugin
+# Creating Your Own Zorai Plugin
 
-tamux plugins are frontend-registered extensions. A plugin can contribute:
+Zorai plugins are frontend-registered extensions. A plugin can contribute:
 
 - React components
 - command handlers
@@ -12,7 +12,7 @@ The core runtime is implemented in [frontend/src/plugins/PluginManager.ts](../fr
 
 ## Current Plugin Models
 
-tamux now supports two plugin paths.
+Zorai now supports two plugin paths.
 
 ### 1. In-Tree Plugins
 
@@ -27,13 +27,13 @@ This is the model used by the built-in coding-agents plugin.
 You can now install a packaged plugin with:
 
 ```bash
-tamux install plugin <npm-package>
+zorai install plugin <npm-package>
 ```
 
 You can also install from a local package directory:
 
 ```bash
-tamux install plugin ../my-tamux-plugin
+zorai install plugin ../my-zorai-plugin
 ```
 
 This packaged path is a distribution layer on top of the same runtime plugin contract described here.
@@ -71,16 +71,16 @@ Important behavior:
 
 ## package.json Contract For npm Plugins
 
-Externally installed packages should expose a `tamuxPlugin` field in `package.json`. The legacy `amuxPlugin` field is still accepted for compatibility.
+Externally installed packages should expose a `zoraiPlugin` field in `package.json`.
 
 Minimal example:
 
 ```json
 {
-  "name": "tamux-plugin-example",
-  "version": "0.7.1",
-  "tamuxPlugin": {
-    "entry": "dist/tamux-plugin.js",
+  "name": "zorai-plugin-example",
+  "version": "0.8.0",
+  "zoraiPlugin": {
+    "entry": "dist/zorai-plugin.js",
     "format": "script"
   }
 }
@@ -92,9 +92,9 @@ Current rules:
 - only `format: "script"` is currently supported.
 - the entry file must be self-contained and executable in the renderer without further bundling.
 - plugin installers are run with `npm install --ignore-scripts`, so published packages must already contain their built entry assets.
-- the script should register itself through `window.TamuxApi.registerPlugin(...)`. `window.AmuxApi.registerPlugin(...)` remains available as a compatibility alias.
+- the script should register itself through `window.ZoraiApi.registerPlugin(...)`.
 
-Installed package metadata is recorded under `~/.tamux/plugins/registry.json`, and Electron preload loads those entries on app startup.
+Installed package metadata is recorded under `~/.zorai/plugins/registry.json`, and Electron preload loads those entries on app startup.
 
 ## Minimal Plugin Example
 
@@ -105,7 +105,7 @@ import ExamplePanel from "./ExamplePanel";
 export const examplePlugin: Plugin = {
   id: "example",
   name: "Example Plugin",
-  version: "0.7.1",
+  version: "0.8.0",
   components: {
     ExamplePanel,
   },
@@ -130,15 +130,15 @@ export const examplePlugin: Plugin = {
 };
 
 export function registerExamplePlugin(): void {
-  if (typeof window === "undefined" || !(window.TamuxApi || window.AmuxApi)) {
+  if (typeof window === "undefined" || !window.ZoraiApi) {
     return;
   }
 
-  (window.TamuxApi ?? window.AmuxApi).registerPlugin(examplePlugin);
+  window.ZoraiApi.registerPlugin(examplePlugin);
 }
 ```
 
-For an externally installed plugin, bundle that registration path into the script referenced by `tamuxPlugin.entry` so the script self-registers when loaded.
+For an externally installed plugin, bundle that registration path into the script referenced by `zoraiPlugin.entry` so the script self-registers when loaded.
 
 ## Registering The Plugin
 
@@ -148,7 +148,7 @@ Pattern:
 
 1. Create a `registerMyPlugin()` function in your plugin module.
 2. Guard against duplicate registration.
-3. Call `window.TamuxApi.registerPlugin(...)`.
+3. Call `window.ZoraiApi.registerPlugin(...)`.
 4. Import and invoke the registration function from app initialization.
 
 The coding-agents implementation in [frontend/src/plugins/coding-agents/registerPlugin.ts](../frontend/src/plugins/coding-agents/registerPlugin.ts) is the best current reference.
@@ -221,7 +221,7 @@ Python manifest rules:
 - `run_path`, `source`, `env`, and `dependencies` can be inherited from the top-level `python` block.
 - `source` must be an `http(s)` URL or an absolute path.
 - `env` can be either a string path to an activation script or a boolean.
-- `env: true` tells tamux to prefer `uv` for `.venv` creation and fall back to `python -m venv`.
+- `env: true` tells Zorai to prefer `uv` for `.venv` creation and fall back to `python -m venv`.
 
 ## Plugin Views
 
@@ -230,7 +230,7 @@ Plugins can ship YAML view documents through the `views` field.
 Runtime behavior:
 
 - each view entry is serialized to YAML,
-- stored under `~/.tamux/views/plugins`,
+- stored under `~/.zorai/views/plugins`,
 - loaded by the CDUI loader after the base stack,
 - assigned an id of the form `plugin:<filename-without-extension>`.
 
@@ -300,13 +300,13 @@ Use the smallest validation loop that matches the plugin surface area:
 For an npm-distributed plugin package, also validate:
 
 - `npm pack` produces the expected bundle,
-- the published package contains the file referenced by `tamuxPlugin.entry` or the legacy `amuxPlugin.entry`,
-- `tamux install plugin <path-or-package>` records the plugin in `~/.tamux/plugins/registry.json`,
+- the published package contains the file referenced by `zoraiPlugin.entry`,
+- `zorai install plugin <path-or-package>` records the plugin in `~/.zorai/plugins/registry.json`,
 - Electron startup loads the script without console errors.
 
 For YAML-backed plugin views, also verify that:
 
-- the persisted YAML appears under `~/.tamux/views/plugins`,
+- the persisted YAML appears under `~/.zorai/views/plugins`,
 - the plugin view renders in CDUI mode,
 - every referenced component type resolves.
 

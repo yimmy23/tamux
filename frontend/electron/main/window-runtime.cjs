@@ -12,6 +12,7 @@ function createWindowRuntime(options) {
         stopAllTerminalBridges,
     } = options;
     const { resolveRendererLoadTarget } = require("./load-target.cjs");
+    const appName = 'Zorai';
 
     function sendAppCommand(command) {
         getMainWindow()?.webContents.send('app-command', command);
@@ -86,7 +87,7 @@ function createWindowRuntime(options) {
                 contextIsolation: true,
                 webviewTag: true,
             },
-            title: 'tamux',
+            title: appName,
             icon: path.join(options.electronDir, '..', 'assets', 'icon.ico'),
             backgroundColor: '#1e1e2e',
             show: false,

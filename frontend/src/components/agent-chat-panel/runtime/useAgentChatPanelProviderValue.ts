@@ -21,6 +21,7 @@ import { useDaemonAgentActions } from "./useDaemonAgentActions";
 import { useDaemonAgentEvents } from "./useDaemonAgentEvents";
 import {
   hydrateDaemonThreadIntoLocalState,
+  loadDaemonThreadPageIntoLocalState,
   reloadDaemonThreadIntoLocalState,
 } from "./daemonHelpers";
 import { useLegacyAgentMessaging } from "./useLegacyAgentMessaging";
@@ -336,6 +337,7 @@ export function useAgentChatPanelProviderValue(): {
   const daemonLocalThreadRef = useRef<string | null>(null);
   const pendingGatewayMessagesRef = useRef<Array<{ role: "user"; content: string; inputTokens: number; outputTokens: number; totalTokens: number; isCompactionSummary: boolean }>>([]);
   const goalRunWorkspacesRef = useRef<Record<string, string>>({});
+  const threadPageLoadChainRef = useRef<Promise<unknown>>(Promise.resolve());
 
   useDaemonAgentEvents({
     agentBackend: agentSettings.agent_backend,
@@ -367,10 +369,10 @@ export function useAgentChatPanelProviderValue(): {
     if (!targetThreadId) return;
 
     if (shouldUseDaemonRuntime(agentSettings.agent_backend)) {
-      const amux = getAgentBridge();
+      const zorai = getAgentBridge();
       const daemonThreadId = daemonThreadIdRef.current;
-      if (daemonThreadId && amux?.agentStopStream) {
-        void amux.agentStopStream(daemonThreadId);
+      if (daemonThreadId && zorai?.agentStopStream) {
+        void zorai.agentStopStream(daemonThreadId);
       }
     }
 
@@ -449,12 +451,12 @@ export function useAgentChatPanelProviderValue(): {
   }, [refreshSpawnedAgentRuns]);
 
   useEffect(() => {
-    const amux = getAgentBridge();
-    if (!amux?.onAgentEvent) {
+    const zorai = getAgentBridge();
+    if (!zorai?.onAgentEvent) {
       return;
     }
 
-    const unsubscribe = amux.onAgentEvent((event: any) => {
+    const unsubscribe = zorai.onAgentEvent((event: any) => {
       if (event?.type === "task_update") {
         void refreshSpawnedAgentRuns();
       }
@@ -525,11 +527,11 @@ export function useAgentChatPanelProviderValue(): {
       window.setTimeout(() => inputRef.current?.focus(), 50);
     };
 
-    window.addEventListener("tamux-agent-compose-image", handleComposeImage);
-    window.addEventListener("amux-agent-compose-image", handleComposeImage);
+    window.addEventListener("zorai-agent-compose-image", handleComposeImage);
+    window.addEventListener("zorai-agent-compose-image", handleComposeImage);
     return () => {
-      window.removeEventListener("tamux-agent-compose-image", handleComposeImage);
-      window.removeEventListener("amux-agent-compose-image", handleComposeImage);
+      window.removeEventListener("zorai-agent-compose-image", handleComposeImage);
+      window.removeEventListener("zorai-agent-compose-image", handleComposeImage);
     };
   }, []);
 
@@ -555,16 +557,16 @@ export function useAgentChatPanelProviderValue(): {
     return Boolean(getAgentBridge()?.agentGetThread);
   }, [activeThreadId, threads]);
   const openSpawnedThread = useCallback(async (run: AgentRun) => {
-    const amux = getAgentBridge();
+    const zorai = getAgentBridge();
     return openSpawnedAgentThreadFromRun({
       activeThreadId,
       threads,
       workspaces,
       run,
       messageLimit: resolveReactChatHistoryMessageLimit(agentSettings.react_chat_history_page_size) ?? null,
-      getRemoteThread: amux?.agentGetThread
+      getRemoteThread: zorai?.agentGetThread
         ? async (threadId, options): Promise<RemoteAgentThread | null> => {
-          const result = await amux.agentGetThread?.(threadId, options);
+          const result = await zorai.agentGetThread?.(threadId, options);
           return (result as RemoteAgentThread | null | undefined) ?? null;
         }
         : undefined,
@@ -588,12 +590,12 @@ export function useAgentChatPanelProviderValue(): {
   ]);
 
   const refreshThreadList = useCallback(async () => {
-    const amux = getAgentBridge();
-    if (!amux?.agentListThreads) {
+    const zorai = getAgentBridge();
+    if (!zorai?.agentListThreads) {
       return;
     }
 
-    const remoteThreads = await amux.agentListThreads().catch(() => []);
+    const remoteThreads = await zorai.agentListThreads().catch(() => []);
     if (!Array.isArray(remoteThreads)) {
       return;
     }
@@ -654,6 +656,14 @@ export function useAgentChatPanelProviderValue(): {
           nextThreads.push(localThread);
         }
       }
+      const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId);
+      if (
+        activeThread?.daemonThreadId
+        && !seenDaemonThreadIds.has(activeThread.daemonThreadId)
+        && !nextThreads.some((thread) => thread.id === activeThread.id)
+      ) {
+        nextThreads.push(activeThread);
+      }
 
       nextThreads.sort((left, right) => right.updatedAt - left.updatedAt);
       const validThreadIds = new Set(nextThreads.map((thread) => thread.id));
@@ -684,6 +694,69 @@ export function useAgentChatPanelProviderValue(): {
     });
   }, []);
 
+  const loadThreadPage = useCallback((
+    threadId: string,
+    direction: "latest" | "older",
+  ): Promise<boolean> => {
+    const runThreadPageLoad = async (): Promise<boolean> => {
+      const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
+      const daemonThreadId = thread?.daemonThreadId;
+      if (!daemonThreadId || !getAgentBridge()?.agentGetThread) {
+        return false;
+      }
+      const messageLimit = resolveReactChatHistoryMessageLimit(agentSettings.react_chat_history_page_size) ?? null;
+      if (direction === "latest") {
+        return loadDaemonThreadPageIntoLocalState({
+          daemonThreadId,
+          localThreadId: threadId,
+          messageLimit,
+          messageOffset: 0,
+          mergeMode: "replace",
+          setThreadTodos,
+          setDaemonTodosByThread,
+        });
+      }
+
+      const currentThread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
+      const loadedStart = currentThread?.loadedMessageStart ?? 0;
+      const totalMessages = currentThread?.messageCount ?? messages.length;
+      if (loadedStart <= 0 || totalMessages <= 0) {
+        return false;
+      }
+
+      return loadDaemonThreadPageIntoLocalState({
+        daemonThreadId,
+        localThreadId: threadId,
+        messageLimit,
+        messageOffset: Math.max(0, totalMessages - loadedStart),
+        mergeMode: "prepend",
+        setThreadTodos,
+        setDaemonTodosByThread,
+      });
+    };
+
+    const nextLoad = threadPageLoadChainRef.current
+      .catch(() => undefined)
+      .then(runThreadPageLoad);
+    threadPageLoadChainRef.current = nextLoad.catch(() => undefined);
+    return nextLoad;
+  }, [agentSettings.react_chat_history_page_size, messages.length, setThreadTodos]);
+
+  const openThread = useCallback((threadId: string) => {
+    const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
+    daemonLocalThreadRef.current = threadId;
+    daemonThreadIdRef.current = thread?.daemonThreadId ?? null;
+    setActiveThread(threadId);
+    setChatBackView("threads");
+    setView("chat");
+    void loadThreadPage(threadId, "latest");
+  }, [loadThreadPage, setActiveThread]);
+
+  const loadOlderThreadMessages = useCallback(async () => {
+    if (!activeThreadId) return false;
+    return loadThreadPage(activeThreadId, "older");
+  }, [activeThreadId, loadThreadPage]);
+
   const sendMessage = useCallback((payload: { text: string; contentBlocksJson?: string | null; localContentBlocks?: import("@/lib/agentStore/types").AgentContentBlock[] }) => {
     if (!payload.text) return;
     if (shouldUseDaemonRuntime(agentSettings.agent_backend) && sendDaemonMessage(payload)) {
@@ -693,31 +766,31 @@ export function useAgentChatPanelProviderValue(): {
   }, [agentSettings.agent_backend, sendDaemonMessage, sendMessageLegacy]);
 
   const sendParticipantSuggestion = useCallback(async (threadId: string, suggestionId: string, forceSend = false) => {
-    const amux = getAgentBridge();
-    if (!amux?.agentSendParticipantSuggestion) {
+    const zorai = getAgentBridge();
+    if (!zorai?.agentSendParticipantSuggestion) {
       return;
     }
     if (forceSend && activeThreadId) {
       stopStreaming(activeThreadId);
     }
-    await amux.agentSendParticipantSuggestion({ threadId, suggestionId, sessionId: null });
+    await zorai.agentSendParticipantSuggestion({ threadId, suggestionId, sessionId: null });
   }, [activeThreadId, stopStreaming]);
 
   const dismissParticipantSuggestion = useCallback(async (threadId: string, suggestionId: string) => {
-    const amux = getAgentBridge();
-    if (!amux?.agentDismissParticipantSuggestion) {
+    const zorai = getAgentBridge();
+    if (!zorai?.agentDismissParticipantSuggestion) {
       return;
     }
-    await amux.agentDismissParticipantSuggestion({ threadId, suggestionId, sessionId: null });
+    await zorai.agentDismissParticipantSuggestion({ threadId, suggestionId, sessionId: null });
   }, []);
 
   const pinMessageForCompaction = useCallback(async (threadId: string, messageId: string) => {
     const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
     const daemonThreadId = thread?.daemonThreadId ?? (threadId === activeThreadId ? daemonThreadIdRef.current : null);
-    const amux = getAgentBridge();
+    const zorai = getAgentBridge();
 
-    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && amux?.agentPinThreadMessageForCompaction) {
-      const result = await amux.agentPinThreadMessageForCompaction(daemonThreadId, messageId) as AmuxThreadMessagePinResult;
+    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && zorai?.agentPinThreadMessageForCompaction) {
+      const result = await zorai.agentPinThreadMessageForCompaction(daemonThreadId, messageId) as ZoraiThreadMessagePinResult;
       if (result?.ok) {
         await reloadDaemonThreadIntoLocalState({
           daemonThreadId,
@@ -741,16 +814,16 @@ export function useAgentChatPanelProviderValue(): {
       message_id: messageId,
       current_pinned_chars: 0,
       pinned_budget_chars: 0,
-    } satisfies AmuxThreadMessagePinResult;
+    } satisfies ZoraiThreadMessagePinResult;
   }, [activeThreadId, agentSettings.agent_backend, setThreadTodos]);
 
   const unpinMessageForCompaction = useCallback(async (threadId: string, messageId: string) => {
     const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
     const daemonThreadId = thread?.daemonThreadId ?? (threadId === activeThreadId ? daemonThreadIdRef.current : null);
-    const amux = getAgentBridge();
+    const zorai = getAgentBridge();
 
-    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && amux?.agentUnpinThreadMessageForCompaction) {
-      const result = await amux.agentUnpinThreadMessageForCompaction(daemonThreadId, messageId) as AmuxThreadMessagePinResult;
+    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && zorai?.agentUnpinThreadMessageForCompaction) {
+      const result = await zorai.agentUnpinThreadMessageForCompaction(daemonThreadId, messageId) as ZoraiThreadMessagePinResult;
       if (result?.ok) {
         await reloadDaemonThreadIntoLocalState({
           daemonThreadId,
@@ -774,7 +847,7 @@ export function useAgentChatPanelProviderValue(): {
       message_id: messageId,
       current_pinned_chars: 0,
       pinned_budget_chars: 0,
-    } satisfies AmuxThreadMessagePinResult;
+    } satisfies ZoraiThreadMessagePinResult;
   }, [activeThreadId, agentSettings.agent_backend, setThreadTodos]);
 
   const handleSend = useCallback(() => {
@@ -825,11 +898,13 @@ export function useAgentChatPanelProviderValue(): {
     createThread,
     deleteThread,
     setActiveThread,
+    openThread,
     agentSettings,
     updateAgentSetting,
     searchQuery,
     setSearchQuery,
     refreshThreadList,
+    loadOlderThreadMessages,
     messages,
     todos,
     daemonTodosByThread,
@@ -933,6 +1008,8 @@ export function useAgentChatPanelProviderValue(): {
     searchQuery,
     canOpenSpawnedThread,
     openSpawnedThread,
+    loadOlderThreadMessages,
+    openThread,
     refreshThreadList,
     setActiveThread,
     setSearchQuery,

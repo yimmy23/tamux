@@ -2,8 +2,8 @@ import type { AgentProviderId } from "../agentStore";
 import { getProviderDefinition } from "../agentStore";
 import type { ApiChatMessage, ChatRequest } from "./types";
 
-const OPENROUTER_ATTRIBUTION_URL = "https://tamux.app";
-const OPENROUTER_ATTRIBUTION_TITLE = "tamux";
+const OPENROUTER_ATTRIBUTION_URL = "https://zorai.app";
+const OPENROUTER_ATTRIBUTION_TITLE = "zorai";
 const OPENROUTER_ATTRIBUTION_CATEGORIES = "cli-agent";
 
 export class TransportCompatibilityError extends Error {
@@ -42,10 +42,10 @@ export function applyDashScopeCodingPlanHeaders(
 ): void {
   if (provider !== "alibaba-coding-plan") return;
   headers["User-Agent"] =
-    apiType === "anthropic" ? "Anthropic/JS tamux" : "OpenAI/JS tamux";
+    apiType === "anthropic" ? "Anthropic/JS zorai" : "OpenAI/JS zorai";
   if (apiType === "openai" && !isDashScopeCodingPlanAnthropicBaseUrl(baseUrl)) {
     headers["x-stainless-lang"] = "js";
-    headers["x-stainless-package-version"] = "tamux";
+    headers["x-stainless-package-version"] = "zorai";
   }
 }
 
@@ -120,7 +120,7 @@ export function buildChatGptCodexHeaders(
     "Content-Type": "application/json",
     Authorization: `Bearer ${api_key}`,
     "OpenAI-Beta": "responses=experimental",
-    originator: "tamux",
+    originator: "zorai",
   };
   if (accountId) {
     headers["chatgpt-account-id"] = accountId;

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Plugins · tamux docs</title>
+  <title>Plugins · Zorai docs</title>
   <meta name="description" content="Plugin system overview, in-tree and runtime-installed plugins, interface shape, assistant tools, and publishing model." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,7 +44,7 @@
           </article>
           <article class="card">
             <h3>Runtime-installed npm plugins</h3>
-            <p>Installed with <code>tamux install plugin &lt;npm-package-or-local-path&gt;</code>. They ship as self-contained browser scripts that register themselves through <code>window.TamuxApi.registerPlugin(...)</code>.</p>
+            <p>Installed with <code>zorai install plugin &lt;npm-package-or-local-path&gt;</code>. They ship as self-contained browser scripts that register themselves through <code>window.ZoraiApi.registerPlugin(...)</code>.</p>
           </article>
         </div>
       </section>
@@ -68,12 +68,12 @@
 
       <section>
         <h2>Packaging contract</h2>
-        <p>Runtime-installed plugins should expose a <code>tamuxPlugin</code> field in <code>package.json</code> (the older <code>amuxPlugin</code> alias is still accepted for compatibility).</p>
+        <p>Runtime-installed plugins should expose a <code>zoraiPlugin</code> field in <code>package.json</code>.</p>
         <pre><code>{
-  "name": "tamux-plugin-example",
+  "name": "zorai-plugin-example",
   "version": "0.6.3",
-  "tamuxPlugin": {
-    "entry": "dist/tamux-plugin.js",
+  "zoraiPlugin": {
+    "entry": "dist/zorai-plugin.js",
     "format": "script"
   }
 }</code></pre>
@@ -120,7 +120,7 @@
           <li>Create views and components only where the plugin truly owns a workflow.</li>
           <li>Add assistant tools only when the built-in assistant should invoke the plugin directly.</li>
           <li>Package as a self-contained script if you want runtime installation.</li>
-          <li>Install with <code>tamux install plugin</code> and validate in the actual UI runtime.</li>
+          <li>Install with <code>zorai install plugin</code> and validate in the actual UI runtime.</li>
         </ol>
       </section>
 
@@ -141,8 +141,8 @@
 
       <section>
         <h2>Pattern 1: API plugin (Gmail / Calendar example)</h2>
-        <p>The Gmail and Calendar plugins show the shape of an API-first tamux plugin. At the package level, the published npm package simply ships plugin directories plus a README:</p>
-        <pre><code>tamux-plugin-gmail-calendar/
+        <p>The Gmail and Calendar plugins show the shape of an API-first Zorai plugin. At the package level, the published npm package simply ships plugin directories plus a README:</p>
+        <pre><code>zorai-plugin-gmail-calendar/
 ├── package.json
 ├── README.md
 ├── gmail/
@@ -158,7 +158,7 @@
         <h3>Step 1: package your plugin for distribution</h3>
         <p>The outer <code>package.json</code> is simple. It mainly declares the npm package metadata and which plugin directories are published:</p>
         <pre><code>{
-  "name": "tamux-plugin-gmail-calendar",
+  "name": "zorai-plugin-gmail-calendar",
   "version": "1.0.0",
   "files": [
     "gmail/",
@@ -175,12 +175,12 @@
   "version": "1.1.0",
   "schema_version": 1,
   "description": "Gmail integration — read, search, send, trash, and manage emails",
-  "tamux_version": ">=2.0.0"
+  "zorai_version": ">=2.0.0"
 }</code></pre>
-        <p>At minimum, give the plugin a stable name, schema version, description, and tamux compatibility range.</p>
+        <p>At minimum, give the plugin a stable name, schema version, description, and Zorai compatibility range.</p>
 
         <h3>Step 3: define authentication</h3>
-        <p>Gmail and Calendar both use OAuth2 with PKCE. The manifest-level auth block is what tells tamux how to obtain and refresh tokens:</p>
+        <p>Gmail and Calendar both use OAuth2 with PKCE. The manifest-level auth block is what tells Zorai how to obtain and refresh tokens:</p>
         <pre><code>{
   "auth": {
     "type": "oauth2",
@@ -193,7 +193,7 @@
     "pkce": true
   }
 }</code></pre>
-        <p>Use the auth block when the plugin needs tamux to manage API credentials interactively instead of relying on a separate external login step.</p>
+        <p>Use the auth block when the plugin needs Zorai to manage API credentials interactively instead of relying on a separate external login step.</p>
 
         <h3>Step 4: expose settings to the operator</h3>
         <p>The Gmail and Calendar plugins declare user-editable settings for OAuth credentials and runtime defaults:</p>
@@ -273,7 +273,7 @@
         <p>Those skill files teach the assistant how to turn natural-language requests into the right plugin commands and parameters.</p>
 
         <h3>Step 8: install and validate</h3>
-        <pre><code>tamux plugin add tamux-plugin-gmail-calendar</code></pre>
+        <pre><code>zorai plugin add zorai-plugin-gmail-calendar</code></pre>
         <p>After installation, validate three things:</p>
         <ul class="check-list">
           <li>settings fields show up correctly,</li>
@@ -288,7 +288,7 @@
       <section>
         <h2>Pattern 2: Python executable plugin (AutoResearch example)</h2>
         <p>The AutoResearch plugin shows the local-executable pattern. Instead of OAuth and HTTP endpoints, it drives a workspace-local Python workflow.</p>
-        <pre><code>tamux-plugin-autosearch/
+        <pre><code>zorai-plugin-autosearch/
 ├── package.json
 ├── README.md
 └── autosearch/
@@ -297,12 +297,12 @@
     │   └── autosearch_helper.py
     └── skills/
         └── autosearch-train.md</code></pre>
-        <p>This plugin is ideal when tamux should orchestrate a local toolchain instead of a remote API.</p>
+        <p>This plugin is ideal when Zorai should orchestrate a local toolchain instead of a remote API.</p>
 
         <h3>Step 1: package the plugin</h3>
         <p>The outer npm package again just ships the plugin directory:</p>
         <pre><code>{
-  "name": "tamux-plugin-autosearch",
+  "name": "zorai-plugin-autosearch",
   "version": "1.0.0",
   "files": [
     "autosearch/",
@@ -317,7 +317,7 @@
   "version": "1.0.0",
   "schema_version": 1,
   "description": "AutoResearch workflow integration — validate workspace, prepare data, and run training",
-  "tamux_version": ">=2.0.0"
+  "zorai_version": ">=2.0.0"
 }</code></pre>
 
         <h3>Step 3: expose runtime settings</h3>
@@ -346,7 +346,7 @@
     "env": true
   }
 }</code></pre>
-        <p>This tells tamux the plugin expects a Python environment bootstrap. The plugin docs also support richer inherited defaults such as:</p>
+        <p>This tells Zorai the plugin expects a Python environment bootstrap. The plugin docs also support richer inherited defaults such as:</p>
         <ul class="check-list">
           <li><code>run_path</code> for workspace-relative execution,</li>
           <li><code>source</code> for bootstrap/download location,</li>
@@ -398,7 +398,7 @@
         <p>The skill is what teaches the assistant when to run <code>/autosearch.check</code>, <code>/autosearch.prepare</code>, and <code>/autosearch.train</code> rather than guessing blindly.</p>
 
         <h3>Step 8: install and validate</h3>
-        <pre><code>tamux plugin add tamux-plugin-autosearch</code></pre>
+        <pre><code>zorai plugin add zorai-plugin-autosearch</code></pre>
         <p>Then validate:</p>
         <ul class="check-list">
           <li>the workspace path setting is visible,</li>
@@ -417,7 +417,7 @@
           <thead><tr><th>Need</th><th>Prefer</th><th>Why</th></tr></thead>
           <tbody>
             <tr><td>OAuth-backed HTTP service</td><td>API plugin</td><td>Manifest can express auth, endpoints, and actions directly</td></tr>
-            <tr><td>Remote REST/JSON operations</td><td>API plugin</td><td>Response templates let tamux shape results cleanly</td></tr>
+            <tr><td>Remote REST/JSON operations</td><td>API plugin</td><td>Response templates let Zorai shape results cleanly</td></tr>
             <tr><td>Local repository workflow</td><td>Python plugin</td><td>Commands can wrap local tools and helper scripts</td></tr>
             <tr><td>Workspace validation and shell execution</td><td>Python plugin</td><td>Executable commands fit better than HTTP endpoints</td></tr>
             <tr><td>Complex local orchestration</td><td>Python plugin</td><td>Helper scripts keep the manifest simple</td></tr>
@@ -428,10 +428,10 @@
       <section>
         <h2>Plugin vs. core</h2>
         <div class="callout success">
-          <strong>Use a plugin</strong> when the feature is a domain-specific extension, owns its own UI/workflow, or adds commands/tools that should stay decoupled from tamux core.
+          <strong>Use a plugin</strong> when the feature is a domain-specific extension, owns its own UI/workflow, or adds commands/tools that should stay decoupled from Zorai core.
         </div>
         <div class="callout warning">
-          <strong>Use core</strong> when the feature belongs to tamux itself: daemon state, built-in mission control, native task/goals flows, or platform-wide primitives.
+          <strong>Use core</strong> when the feature belongs to Zorai itself: daemon state, built-in mission control, native task/goals flows, or platform-wide primitives.
         </div>
       </section>
     </article>
@@ -440,4 +440,3 @@
   <script src="assets/site.js"></script>
 </body>
 </html>
-

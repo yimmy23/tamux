@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import { CONCIERGE_AGENT_NAME, PRIMARY_AGENT_NAME } from "../lib/agentNames";
+import { ZORAI_APP_DESCRIPTION, ZORAI_APP_NAME } from "../zorai/branding";
 
-const SETUP_PANEL_STATE_KEY = "tamux-setup-onboarding-state-v1";
+const SETUP_PANEL_STATE_KEY = "zorai-setup-onboarding-state-v1";
 const SETUP_PANEL_VERSION = "1";
-const OPEN_EVENTS = ["tamux-open-setup-onboarding", "amux-open-setup-onboarding"] as const;
+const OPEN_EVENTS = ["zorai-open-setup-onboarding", "zorai-open-setup-onboarding"] as const;
 
 type SetupPanelState = {
   seenVersion?: string;
@@ -31,20 +32,20 @@ function writeSetupPanelState(next: SetupPanelState): void {
   }
 }
 
-function bridge(): AmuxBridge | null {
-  return (window.tamux ?? window.amux) ?? null;
+function bridge(): ZoraiBridge | null {
+  return (window.zorai ?? window.zorai) ?? null;
 }
 
 export function SetupOnboardingPanel() {
-  const [report, setReport] = useState<AmuxSetupPrereqReport | null>(null);
+  const [report, setReport] = useState<ZoraiSetupPrereqReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [forcedOpen, setForcedOpen] = useState(false);
   const [panelState, setPanelState] = useState<SetupPanelState>(() => readSetupPanelState());
 
   const refresh = useCallback(async () => {
-    const amux = bridge();
-    if (!amux?.checkSetupPrereqs) {
+    const zorai = bridge();
+    if (!zorai?.checkSetupPrereqs) {
       setLoading(false);
       setReport(null);
       return;
@@ -52,7 +53,7 @@ export function SetupOnboardingPanel() {
     setLoading(true);
     setError(null);
     try {
-      const next = await amux.checkSetupPrereqs("desktop");
+      const next = await zorai.checkSetupPrereqs("desktop");
       setReport(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -91,9 +92,9 @@ export function SetupOnboardingPanel() {
 
   const openGuide = useCallback(async () => {
     if (!report?.gettingStartedPath) return;
-    const amux = bridge() as any;
-    if (typeof amux?.openFsPath === "function") {
-      await amux.openFsPath(report.gettingStartedPath);
+    const zorai = bridge() as any;
+    if (typeof zorai?.openFsPath === "function") {
+      await zorai.openFsPath(report.gettingStartedPath);
     }
   }, [report?.gettingStartedPath]);
 
@@ -129,9 +130,9 @@ export function SetupOnboardingPanel() {
           <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-secondary)" }}>
             First-run setup
           </div>
-          <h2 style={{ margin: 0, fontSize: 24 }}>tamux Setup Assistant</h2>
+          <h2 style={{ margin: 0, fontSize: 24 }}>{ZORAI_APP_NAME} Setup Assistant</h2>
           <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            {report?.whatIsTamux ?? "tamux is an AI-native terminal multiplexer with a Rust daemon and agent workflows."}
+            {report?.whatIsZorai ?? ZORAI_APP_DESCRIPTION}
           </div>
         </div>
 

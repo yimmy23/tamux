@@ -156,9 +156,9 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
 
   const sendResize = useCallback(() => {
     const term = termRef.current;
-    const amux = getBridge();
-    if (!term || !amux?.resizeTerminalSession) return;
-    void amux.resizeTerminalSession(paneId, term.cols, term.rows);
+    const zorai = getBridge();
+    if (!term || !zorai?.resizeTerminalSession) return;
+    void zorai.resizeTerminalSession(paneId, term.cols, term.rows);
   }, [paneId]);
 
   const {

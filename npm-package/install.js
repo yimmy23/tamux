@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// install.js -- download platform-specific tamux binaries on npm install
+// install.js -- download platform-specific zorai binaries on npm install
 "use strict";
 
 const https = require("https");
@@ -15,33 +15,33 @@ const BIN_DIR = path.join(__dirname, "bin");
 
 // GitHub owner/repo for release asset downloads.
 const GITHUB_OWNER = "mkurman";
-const GITHUB_REPO = "tamux";
+const GITHUB_REPO = "zorai";
 
 const PLATFORM_MAP = {
   "linux-x64": {
     archivePlatform: "linux-x86_64",
     checksumPlatform: "linux-x86_64",
-    requiredBinaries: ["tamux", "tamux-daemon", "tamux-tui", "tamux-gateway", "tamux-mcp"],
+    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp"],
   },
   "linux-arm64": {
     archivePlatform: "linux-aarch64",
     checksumPlatform: "linux-aarch64",
-    requiredBinaries: ["tamux", "tamux-daemon", "tamux-tui", "tamux-gateway", "tamux-mcp"],
+    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp"],
   },
   "darwin-arm64": {
     archivePlatform: "darwin-arm64",
     checksumPlatform: "darwin-arm64",
-    requiredBinaries: ["tamux", "tamux-daemon", "tamux-tui", "tamux-gateway", "tamux-mcp"],
+    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp"],
   },
   "darwin-x64": {
     archivePlatform: "darwin-x86_64",
     checksumPlatform: "darwin-x86_64",
-    requiredBinaries: ["tamux", "tamux-daemon", "tamux-tui", "tamux-gateway", "tamux-mcp"],
+    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp"],
   },
   "win32-x64": {
     archivePlatform: "windows-x64",
     checksumPlatform: "windows-x64",
-    requiredBinaries: ["tamux.exe", "tamux-daemon.exe", "tamux-tui.exe", "tamux-gateway.exe", "tamux-mcp.exe"],
+    requiredBinaries: ["zorai.exe", "zorai-daemon.exe", "zorai-tui.exe", "zorai-gateway.exe", "zorai-mcp.exe"],
   },
 };
 
@@ -145,34 +145,77 @@ function getArchiveChecksum(checksumsData, releaseInfo) {
   return parseChecksumFile(checksumsData, releaseInfo.archiveName);
 }
 
-function getRuntimeTamuxRoot(platform, env) {
+function getRuntimeZoraiRoot(platform, env) {
   var sourceEnv = env || process.env;
   if (platform === "win32") {
     var localAppData = sourceEnv.LOCALAPPDATA;
     if (localAppData) {
-      return path.win32.join(localAppData, "tamux");
+      return path.win32.join(localAppData, "zorai");
     }
 
     var userProfile = sourceEnv.USERPROFILE || "";
-    return path.win32.join(userProfile, "AppData", "Local", "tamux");
+    return path.win32.join(userProfile, "AppData", "Local", "zorai");
   }
 
-  return path.posix.join(sourceEnv.HOME || "", ".tamux");
+  return path.posix.join(sourceEnv.HOME || "", ".zorai");
+}
+
+function getLegacyTamuxRoot(platform, env) {
+  var sourceEnv = env || process.env;
+  if (platform === "win32") {
+    var localAppData = sourceEnv.LOCALAPPDATA;
+    if (localAppData) {
+      return path.join(localAppData, "tamux");
+    }
+
+    var userProfile = sourceEnv.USERPROFILE || "";
+    return path.join(userProfile, "AppData", "Local", "tamux");
+  }
+
+  return path.join(sourceEnv.HOME || "", ".tamux");
+}
+
+function getNativeRuntimeZoraiRoot(platform, env) {
+  var sourceEnv = env || process.env;
+  if (platform === "win32") {
+    var localAppData = sourceEnv.LOCALAPPDATA;
+    if (localAppData) {
+      return path.join(localAppData, "zorai");
+    }
+
+    var userProfile = sourceEnv.USERPROFILE || "";
+    return path.join(userProfile, "AppData", "Local", "zorai");
+  }
+
+  return path.join(sourceEnv.HOME || "", ".zorai");
+}
+
+function migrateLegacyTamuxRoot(platform, env) {
+  var sourceEnv = env || process.env;
+  var legacyRoot = getLegacyTamuxRoot(platform, sourceEnv);
+  var targetRoot = getNativeRuntimeZoraiRoot(platform, sourceEnv);
+
+  if (!fs.existsSync(legacyRoot) || fs.existsSync(targetRoot)) {
+    return targetRoot;
+  }
+
+  fs.renameSync(legacyRoot, targetRoot);
+  return targetRoot;
 }
 
 function getRuntimeSkillsDir(platform, env) {
   var pathModule = platform === "win32" ? path.win32 : path.posix;
-  return pathModule.join(getRuntimeTamuxRoot(platform, env), "skills");
+  return pathModule.join(getRuntimeZoraiRoot(platform, env), "skills");
 }
 
 function getRuntimeGuidelinesDir(platform, env) {
   var pathModule = platform === "win32" ? path.win32 : path.posix;
-  return pathModule.join(getRuntimeTamuxRoot(platform, env), "guidelines");
+  return pathModule.join(getRuntimeZoraiRoot(platform, env), "guidelines");
 }
 
 function getRuntimeCustomAuthPath(platform, env) {
   var pathModule = platform === "win32" ? path.win32 : path.posix;
-  return pathModule.join(getRuntimeTamuxRoot(platform, env), "custom-auth.yaml");
+  return pathModule.join(getRuntimeZoraiRoot(platform, env), "custom-auth.yaml");
 }
 
 function ensureCustomAuthTemplate(platform, env) {
@@ -213,7 +256,7 @@ function getReleaseAssetInfo(platform, arch, version) {
   }
 
   return {
-    archiveName: "tamux-" + target.archivePlatform + ".zip",
+    archiveName: "zorai-" + target.archivePlatform + ".zip",
     checksumName: "SHA256SUMS-" + target.checksumPlatform + ".txt",
     bundleChecksumName: "SHA256SUMS.txt",
     requiredBinaries: target.requiredBinaries.slice(),
@@ -238,16 +281,16 @@ function getInstallUsageHint(isGlobalInstall, globalBinDir) {
   if (isGlobalInstall) {
     if (globalBinDir) {
       return (
-        "tamux: if 'tamux' is not found, add '" +
+        "zorai: if 'zorai' is not found, add '" +
         globalBinDir +
-        "' to PATH, then open a new shell and run 'tamux --help'"
+        "' to PATH, then open a new shell and run 'zorai --help'"
       );
     }
 
-    return "tamux: run 'tamux --help' once your npm global bin directory is on PATH, and open a new shell if it is not recognized immediately";
+    return "zorai: run 'zorai --help' once your npm global bin directory is on PATH, and open a new shell if it is not recognized immediately";
   }
 
-  return "tamux: run with 'npx tamux --help' (or 'npm exec tamux -- --help') after a local install";
+  return "zorai: run with 'npx zorai --help' (or 'npm exec zorai -- --help') after a local install";
 }
 
 function prependDirectoryToPath(env, directory) {
@@ -344,11 +387,11 @@ function isManagedProcessRunning(platform, target, execFileSyncImpl) {
   }
 }
 
-async function stopManagedTamuxProcesses(platform, deps) {
+async function stopManagedZoraiProcesses(platform, deps) {
   var options = deps || {};
   var execFileSync = options.execFileSync || childProcess.execFileSync;
   var sleepImpl = options.sleep || sleep;
-  var targets = ["tamux-gateway", "tamux-daemon"];
+  var targets = ["zorai-gateway", "zorai-daemon"];
 
   for (var i = 0; i < targets.length; i++) {
     var target = targets[i];
@@ -382,7 +425,7 @@ async function stopManagedTamuxProcesses(platform, deps) {
 
 function startManagedDaemon(platform, binDir, spawnImpl) {
   var spawn = spawnImpl || childProcess.spawn;
-  var daemonPath = path.join(binDir, getManagedProcessName("tamux-daemon", platform));
+  var daemonPath = path.join(binDir, getManagedProcessName("zorai-daemon", platform));
   var child = spawn(daemonPath, [], {
     detached: true,
     stdio: "ignore",
@@ -399,18 +442,18 @@ function startManagedDaemon(platform, binDir, spawnImpl) {
 async function maybeRefreshDaemonAfterInstall(options, installWork, deps) {
   var settings = options || {};
   var helpers = deps || {};
-  var stopProcesses = helpers.stopProcesses || stopManagedTamuxProcesses;
+  var stopProcesses = helpers.stopProcesses || stopManagedZoraiProcesses;
   var startDaemon = helpers.startDaemon || startManagedDaemon;
 
   if (!settings.isGlobalInstall) {
     return installWork();
   }
 
-  console.log("tamux: stopping existing daemon before replacing binaries...");
+  console.log("zorai: stopping existing daemon before replacing binaries...");
   await stopProcesses(settings.platform);
   var result = await installWork();
   var daemonPath = startDaemon(settings.platform, settings.binDir);
-  console.log("tamux: restarted daemon from " + daemonPath);
+  console.log("zorai: restarted daemon from " + daemonPath);
   return result;
 }
 
@@ -513,13 +556,13 @@ async function main() {
   var platformKey = os.platform() + "-" + os.arch();
   var targetLabel = releaseInfo
     ? releaseInfo.archiveName
-        .replace("tamux-", "")
+        .replace("zorai-", "")
         .replace(/\.zip$/, "")
     : "unsupported";
 
   // --dry-run: print platform detection info and exit without downloading
   if (process.argv.includes("--dry-run")) {
-    console.log("tamux install.js dry-run");
+    console.log("zorai install.js dry-run");
     console.log("  platform key: " + platformKey);
     console.log("  target:       " + targetLabel);
     console.log("  version:      " + VERSION);
@@ -533,7 +576,7 @@ async function main() {
 
   if (!releaseInfo) {
     console.warn(
-      "tamux: unsupported platform " + platformKey + ", skipping binary download"
+      "zorai: unsupported platform " + platformKey + ", skipping binary download"
     );
     process.exit(0);
   }
@@ -542,6 +585,7 @@ async function main() {
   var checksumsUrl = BASE_URL + "/" + releaseInfo.checksumName;
   var isGlobalInstall = process.env.npm_config_global === "true";
   var globalBinDir = getGlobalBinDir(process.env.npm_config_prefix, os.platform());
+  migrateLegacyTamuxRoot(os.platform(), process.env);
   var runtimeSkillsDir = getRuntimeSkillsDir(os.platform(), process.env);
   var runtimeGuidelinesDir = getRuntimeGuidelinesDir(os.platform(), process.env);
 
@@ -549,21 +593,21 @@ async function main() {
   fs.mkdirSync(BIN_DIR, { recursive: true });
 
   // 2. Download SHA256SUMS file
-  console.log("tamux: downloading checksums...");
+  console.log("zorai: downloading checksums...");
   var checksumsData = await download(checksumsUrl);
 
   // 3. Download bundle zip
-  console.log("tamux: downloading binaries for " + releaseInfo.archiveName + "...");
+  console.log("zorai: downloading binaries for " + releaseInfo.archiveName + "...");
   try {
     var archiveData = await download(archiveUrl);
     var archiveChecksum = getArchiveChecksum(checksumsData, releaseInfo);
 
     if (archiveChecksum) {
-      console.log("tamux: verifying SHA256 checksum...");
+      console.log("zorai: verifying SHA256 checksum...");
       if (!verifyBufferChecksum(archiveData, archiveChecksum)) {
         throw new Error("SHA256 checksum mismatch for " + releaseInfo.archiveName);
       }
-      console.log("tamux: checksum OK");
+      console.log("zorai: checksum OK");
     }
 
     await maybeRefreshDaemonAfterInstall(
@@ -573,19 +617,19 @@ async function main() {
         binDir: BIN_DIR,
       },
       async function () {
-        console.log("tamux: extracting binaries, skills, and guidelines...");
+        console.log("zorai: extracting binaries, skills, and guidelines...");
         extractRequiredBinaries(archiveData, releaseInfo);
         extractBundledSkills(archiveData, releaseInfo, runtimeSkillsDir);
         extractBundledGuidelines(archiveData, releaseInfo, runtimeGuidelinesDir);
         console.log(
-          "tamux: custom provider template ready at " +
+          "zorai: custom provider template ready at " +
             ensureCustomAuthTemplate(os.platform(), process.env)
         );
 
         if (!archiveChecksum) {
-          console.log("tamux: verifying SHA256 checksum...");
+          console.log("zorai: verifying SHA256 checksum...");
           await verifyExtractedBinaries(checksumsData, releaseInfo);
-          console.log("tamux: checksum OK");
+          console.log("zorai: checksum OK");
         }
 
         if (os.platform() !== "win32") {
@@ -603,7 +647,7 @@ async function main() {
     throw err;
   }
 
-  console.log("tamux: installation complete");
+  console.log("zorai: installation complete");
   console.log(getInstallUsageHint(isGlobalInstall, globalBinDir));
 }
 
@@ -620,22 +664,24 @@ module.exports.getProbeCommand = getProbeCommand;
 module.exports.getRuntimeGuidelinesDir = getRuntimeGuidelinesDir;
 module.exports.getRuntimeSkillsDir = getRuntimeSkillsDir;
 module.exports.getRuntimeCustomAuthPath = getRuntimeCustomAuthPath;
-module.exports.getRuntimeTamuxRoot = getRuntimeTamuxRoot;
+module.exports.getRuntimeZoraiRoot = getRuntimeZoraiRoot;
 module.exports.ensureCustomAuthTemplate = ensureCustomAuthTemplate;
 module.exports.extractBundledGuidelines = extractBundledGuidelines;
+module.exports.getLegacyTamuxRoot = getLegacyTamuxRoot;
+module.exports.migrateLegacyTamuxRoot = migrateLegacyTamuxRoot;
 module.exports.isManagedProcessRunning = isManagedProcessRunning;
 module.exports.maybeRefreshDaemonAfterInstall = maybeRefreshDaemonAfterInstall;
 module.exports.parseChecksumFile = parseChecksumFile;
 module.exports.prependDirectoryToPath = prependDirectoryToPath;
 module.exports.startManagedDaemon = startManagedDaemon;
-module.exports.stopManagedTamuxProcesses = stopManagedTamuxProcesses;
+module.exports.stopManagedZoraiProcesses = stopManagedZoraiProcesses;
 
 // Auto-run only when executed directly (postinstall) or via tryFallbackDownload,
 // not when required just for the exported constants.
 if (require.main === module) {
   main().catch(function (err) {
-    console.warn("tamux: postinstall binary download failed: " + err.message);
-    console.warn("tamux: binaries will be downloaded on first run");
+    console.warn("zorai: postinstall binary download failed: " + err.message);
+    console.warn("zorai: binaries will be downloaded on first run");
     process.exit(0);
   });
 }

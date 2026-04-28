@@ -1,6 +1,6 @@
 /**
- * Core type definitions for the amux application.
- * Maps to the amux-windows data models: Workspace, Surface, Notification,
+ * Core type definitions for the zorai application.
+ * Maps to the zorai-windows data models: Workspace, Surface, Notification,
  * CommandLog, Settings, ShellProfile, Transcript.
  */
 
@@ -35,6 +35,7 @@ export interface CanvasPanel {
   id: string;
   paneId: PaneId;
   panelType: CanvasPanelType;
+  profileId?: string | null;
   title: string;
   icon: string;
   x: number;
@@ -226,9 +227,9 @@ export interface TranscriptEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Settings (mirrors AmuxConfig in Rust)
+// Settings (mirrors ZoraiConfig in Rust)
 // ---------------------------------------------------------------------------
-export interface AmuxSettings {
+export interface ZoraiSettings {
   // Appearance
   fontFamily: string;
   fontSize: number;
@@ -283,7 +284,7 @@ export interface AmuxSettings {
 
 }
 
-export const DEFAULT_SETTINGS: AmuxSettings = {
+export const DEFAULT_SETTINGS: ZoraiSettings = {
   fontFamily: "Cascadia Code",
   fontSize: 14,
   themeName: "Catppuccin Mocha",
@@ -323,7 +324,7 @@ export const DEFAULT_SETTINGS: AmuxSettings = {
   snapshotAutoCleanup: false,
   wormIntegrityEnabled: true,
   cerbosEndpoint: "",
-  mcpServersJson: "{\n  \"tamux\": {\n    \"command\": \"tamux-mcp\"\n  }\n}",
+  mcpServersJson: "{\n  \"zorai\": {\n    \"command\": \"zorai-mcp\"\n  }\n}",
 };
 
 // ---------------------------------------------------------------------------
@@ -402,6 +403,7 @@ export interface PersistedCanvasPanel {
   id: string;
   paneId: PaneId;
   panelType?: CanvasPanelType;
+  profileId?: string | null;
   title: string;
   icon: string;
   x: number;

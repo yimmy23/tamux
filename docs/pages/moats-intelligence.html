@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Moats & Intelligence · tamux docs</title>
-  <meta name="description" content="The higher-order capabilities and strategic moats that differentiate tamux as a daemon-first agent runtime with continuity, provenance, learning, and extensibility." />
+  <title>Moats & Intelligence · Zorai docs</title>
+  <meta name="description" content="The higher-order capabilities and strategic moats that differentiate Zorai as a daemon-first agent runtime with continuity, provenance, learning, and extensibility." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -20,13 +20,13 @@
       <header class="page-header">
         <p class="eyebrow">Strategic differentiation</p>
         <h1>Moats &amp; Intelligence</h1>
-        <p class="lead">The deeper story behind tamux: not just a model in a terminal, but a daemon-first agent runtime where continuity, memory, provenance, orchestration, and extensibility compound into durable advantage.</p>
+        <p class="lead">The deeper story behind Zorai: not just a model in a terminal, but a daemon-first agent runtime where continuity, memory, provenance, orchestration, and extensibility compound into durable advantage.</p>
       </header>
 
       <section>
         <h2>The core thesis</h2>
         <p>Most “AI terminal” products are still fundamentally prompt wrappers. They may have a shell, a chat box, and a few tools, but the intelligence layer is shallow: little durable state, weak continuity, minimal auditability, and almost no real system memory beyond the current context window.</p>
-        <p>tamux is different because the daemon owns the runtime. Terminal sessions, threads, workspace tasks, goals, memory, provenance, collaboration state, and learning loops all live in one durable substrate. That matters because the highest-value moats in agent systems are not just model quality. They are <strong>system moats</strong>: what the runtime can remember, explain, verify, recover, and improve over time.</p>
+        <p>Zorai is different because the daemon owns the runtime. Terminal sessions, threads, workspace tasks, goals, memory, provenance, collaboration state, and learning loops all live in one durable substrate. That matters because the highest-value moats in agent systems are not just model quality. They are <strong>system moats</strong>: what the runtime can remember, explain, verify, recover, and improve over time.</p>
         <div class="callout info">
           <strong>Short version:</strong> the moat is not “we call a strong model.” The moat is “the runtime compounds intelligence across work, time, tools, and operators.”
         </div>
@@ -65,7 +65,7 @@
 
       <section>
         <h2>The M1–M10 moat set</h2>
-        <p>The current moat framing is a useful way to describe the higher-order capabilities tamux is building around the core runtime.</p>
+        <p>The current moat framing is a useful way to describe the higher-order capabilities Zorai is building around the core runtime.</p>
         <table>
           <thead>
             <tr>
@@ -202,7 +202,7 @@
       <section>
         <h2>Concrete example: why this is more than a feature list</h2>
         <p>Imagine an operator says: <em>“Find why the release build is failing on Linux, make the smallest safe fix, verify it, and tell me what changed.”</em></p>
-        <p>In a shallow shell-plus-LLM tool, that is mostly one model run plus some shell commands. In tamux, the runtime can layer much richer capability around the same objective:</p>
+        <p>In a shallow shell-plus-LLM tool, that is mostly one model run plus some shell commands. In Zorai, the runtime can layer much richer capability around the same objective:</p>
         <ul class="check-list">
           <li><strong>M1 Operator Model:</strong> knows whether the operator prefers concise action-first updates or fuller reasoning.</li>
           <li><strong>M5 Semantic Environment:</strong> identifies likely packages, build graph edges, service boundaries, repo conventions, and now bounded infra reverse-edge relations such as which infra resources depend on a target service.</li>
@@ -240,7 +240,7 @@
       <section>
         <h2>Semantic understanding is leverage, not decoration</h2>
         <p>Workspace semantics are powerful because they reduce the gap between “the model saw some files” and “the runtime understands the actual project topology.”</p>
-        <p>In practice, this means tamux can answer bounded questions like:</p>
+        <p>In practice, this means Zorai can answer bounded questions like:</p>
         <ul class="check-list">
           <li>Which package depends on this module?</li>
           <li>What services are defined in this workspace and how do they relate?</li>
@@ -275,7 +275,7 @@
             <p>Anyone can bolt on random scripts, hidden credentials, and ad hoc shell wrappers. That expands capability, but also expands fragility and blast radius.</p>
           </article>
           <article class="card">
-            <h3>tamux extension story</h3>
+            <h3>Zorai extension story</h3>
             <p>Plugins, runtime tool synthesis, policy gates, rate limiting, and promotion paths create an extensibility layer that can grow without becoming chaos.</p>
           </article>
         </div>
@@ -331,7 +331,7 @@
 
       <section>
         <h2>Bottom line</h2>
-        <p>The strongest interpretation of tamux is not “terminal UI plus LLM.” It is “persistent agent operating environment.” That distinction matters because the deepest moats in AI systems come from continuity, memory, execution semantics, trust, and compounding workflow learning — not from frontend polish alone.</p>
+        <p>The strongest interpretation of Zorai is not “terminal UI plus LLM.” It is “persistent agent operating environment.” That distinction matters because the deepest moats in AI systems come from continuity, memory, execution semantics, trust, and compounding workflow learning — not from frontend polish alone.</p>
         <p>If this architecture keeps maturing, the long-term advantage is clear: the runtime becomes harder to replace because it knows the operator better, understands the workspace better, preserves working strategies better, and can prove more about what it did and why.</p>
       </section>
     </article>

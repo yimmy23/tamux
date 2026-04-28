@@ -67,10 +67,10 @@ export function AgentExecutionGraph({ paneId }: { paneId?: string | null }) {
 
   if (recent.length === 0) {
     return (
-      <div className="amux-empty-state">
-        <div className="amux-empty-state__icon">◈</div>
-        <div className="amux-empty-state__title">No execution graph yet</div>
-        <div className="amux-empty-state__description">Run a few commands in this pane to build the pipeline visualization</div>
+      <div className="zorai-empty-state">
+        <div className="zorai-empty-state__icon">◈</div>
+        <div className="zorai-empty-state__title">No execution graph yet</div>
+        <div className="zorai-empty-state__description">Run a few commands in this pane to build the pipeline visualization</div>
       </div>
     );
   }

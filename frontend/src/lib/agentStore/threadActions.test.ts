@@ -11,7 +11,7 @@ function makeThread(id: string): AgentThread {
     workspaceId: null,
     surfaceId: null,
     paneId: null,
-    agent_name: "tamux",
+    agent_name: "zorai",
     title: id,
     createdAt: now,
     updatedAt: now,

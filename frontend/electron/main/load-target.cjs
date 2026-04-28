@@ -1,5 +1,5 @@
 function shouldUseBuiltDistInDev(env = {}) {
-    return String(env.TAMUX_ELECTRON_USE_DIST_IN_DEV ?? "").trim() === "1";
+    return String(env.ZORAI_ELECTRON_USE_DIST_IN_DEV ?? "").trim() === "1";
 }
 
 function resolveRendererLoadTarget(options) {

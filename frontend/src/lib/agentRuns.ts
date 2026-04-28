@@ -37,13 +37,13 @@ export interface AgentRun {
 }
 
 export async function fetchAgentRuns(): Promise<AgentRun[]> {
-    const amux = getBridge();
-    if (!amux?.agentListRuns) {
+    const zorai = getBridge();
+    if (!zorai?.agentListRuns) {
         return [];
     }
 
     try {
-        const result = await amux.agentListRuns();
+        const result = await zorai.agentListRuns();
         return Array.isArray(result) ? (result as AgentRun[]) : [];
     } catch {
         return [];

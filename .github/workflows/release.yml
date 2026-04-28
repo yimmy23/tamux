@@ -8,10 +8,10 @@ on:
 env:
   NODE_VERSION: '22'
   RUST_VERSION: stable
-  TAMUX_LOG: error
-  AMUX_LOG: error
-  TAMUX_TUI_LOG: error
-  AMUX_GATEWAY_LOG: error
+  ZORAI_LOG: error
+  ZORAI_LOG: error
+  ZORAI_TUI_LOG: error
+  ZORAI_GATEWAY_LOG: error
   RUST_LOG: error
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
       - name: Collect Linux binaries
         run: |
           mkdir -p dist-release/linux
-          for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
+          for bin in zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway; do
             cp target/x86_64-unknown-linux-gnu/release/$bin dist-release/linux/
           done
 
@@ -61,11 +61,12 @@ jobs:
 
       - name: Copy binaries to frontend/dist
         run: |
-          cp dist-release/linux/tamux-daemon frontend/dist/
-          cp dist-release/linux/tamux frontend/dist/
-          cp dist-release/linux/tamux-tui frontend/dist/
-          cp dist-release/linux/tamux-mcp frontend/dist/
-          cp dist-release/linux/tamux-gateway frontend/dist/
+          cp dist-release/linux/zorai-daemon frontend/dist/
+          cp dist-release/linux/zorai frontend/dist/
+          cp dist-release/linux/zoi frontend/dist/
+          cp dist-release/linux/zorai-tui frontend/dist/
+          cp dist-release/linux/zorai-mcp frontend/dist/
+          cp dist-release/linux/zorai-gateway frontend/dist/
 
       - name: Electron package (Linux AppImage + deb)
         run: npx electron-builder --linux AppImage deb
@@ -81,8 +82,8 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           cd dist-release/linux
-          ZIP="tamux-linux-x86_64.zip"
-          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills guidelines
+          ZIP="zorai-linux-x86_64.zip"
+          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines
           sha256sum "$ZIP" > "SHA256SUMS-linux-x86_64.txt"
 
       - name: Upload Linux artifacts
@@ -126,7 +127,7 @@ jobs:
       - name: Collect Linux arm64 binaries
         run: |
           mkdir -p dist-release/linux-arm64
-          for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
+          for bin in zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway; do
             cp target/aarch64-unknown-linux-gnu/release/$bin dist-release/linux-arm64/
           done
 
@@ -138,8 +139,8 @@ jobs:
       - name: Package Linux arm64 binaries
         run: |
           cd dist-release/linux-arm64
-          ZIP="tamux-linux-aarch64.zip"
-          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills guidelines
+          ZIP="zorai-linux-aarch64.zip"
+          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines
           sha256sum "$ZIP" > "SHA256SUMS-linux-aarch64.txt"
 
       - name: Upload Linux arm64 artifacts
@@ -179,7 +180,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist-release/windows | Out-Null
-          foreach ($bin in "tamux-daemon", "tamux", "tamux-tui", "tamux-mcp", "tamux-gateway") {
+          foreach ($bin in "zorai-daemon", "zorai", "zoi", "zorai-tui", "zorai-mcp", "zorai-gateway") {
             Copy-Item "target/release/$bin.exe" "dist-release/windows/$bin.exe"
           }
 
@@ -201,11 +202,12 @@ jobs:
       - name: Copy binaries to frontend/dist
         shell: pwsh
         run: |
-          Copy-Item dist-release/windows/tamux-daemon.exe frontend/dist/
-          Copy-Item dist-release/windows/tamux.exe frontend/dist/
-          Copy-Item dist-release/windows/tamux-tui.exe frontend/dist/
-          Copy-Item dist-release/windows/tamux-mcp.exe frontend/dist/
-          Copy-Item dist-release/windows/tamux-gateway.exe frontend/dist/
+          Copy-Item dist-release/windows/zorai-daemon.exe frontend/dist/
+          Copy-Item dist-release/windows/zorai.exe frontend/dist/
+          Copy-Item dist-release/windows/zoi.exe frontend/dist/
+          Copy-Item dist-release/windows/zorai-tui.exe frontend/dist/
+          Copy-Item dist-release/windows/zorai-mcp.exe frontend/dist/
+          Copy-Item dist-release/windows/zorai-gateway.exe frontend/dist/
 
       - name: Electron package (Windows portable + nsis)
         shell: pwsh
@@ -224,8 +226,8 @@ jobs:
         shell: pwsh
         working-directory: dist-release/windows
         run: |
-          $zip = "tamux-windows-x64.zip"
-          Compress-Archive -Path tamux-daemon.exe, tamux.exe, tamux-tui.exe, tamux-mcp.exe, tamux-gateway.exe, skills, guidelines -DestinationPath $zip -Force
+          $zip = "zorai-windows-x64.zip"
+          Compress-Archive -Path zorai-daemon.exe, zorai.exe, zoi.exe, zorai-tui.exe, zorai-mcp.exe, zorai-gateway.exe, skills, guidelines -DestinationPath $zip -Force
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $zip" | Out-File -FilePath SHA256SUMS-windows-x64.txt -Encoding ascii
 
@@ -266,7 +268,7 @@ jobs:
       - name: Collect macOS Intel binaries
         run: |
           mkdir -p dist-release/macos
-          for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
+          for bin in zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway; do
             cp target/x86_64-apple-darwin/release/$bin dist-release/macos/
           done
 
@@ -283,11 +285,12 @@ jobs:
 
       - name: Copy binaries to frontend/dist
         run: |
-          cp dist-release/macos/tamux-daemon frontend/dist/
-          cp dist-release/macos/tamux frontend/dist/
-          cp dist-release/macos/tamux-tui frontend/dist/
-          cp dist-release/macos/tamux-mcp frontend/dist/
-          cp dist-release/macos/tamux-gateway frontend/dist/
+          cp dist-release/macos/zorai-daemon frontend/dist/
+          cp dist-release/macos/zorai frontend/dist/
+          cp dist-release/macos/zoi frontend/dist/
+          cp dist-release/macos/zorai-tui frontend/dist/
+          cp dist-release/macos/zorai-mcp frontend/dist/
+          cp dist-release/macos/zorai-gateway frontend/dist/
 
       - name: Electron package (macOS dmg + zip)
         run: npx electron-builder --mac dmg zip
@@ -303,8 +306,8 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           cd dist-release/macos
-          ZIP="tamux-darwin-x86_64.zip"
-          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills guidelines
+          ZIP="zorai-darwin-x86_64.zip"
+          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines
           shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-x86_64.txt"
 
       - name: Upload macOS Intel artifacts
@@ -345,7 +348,7 @@ jobs:
       - name: Collect macOS ARM64 binaries
         run: |
           mkdir -p dist-release/macos
-          for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
+          for bin in zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway; do
             cp target/aarch64-apple-darwin/release/$bin dist-release/macos/
           done
 
@@ -362,11 +365,12 @@ jobs:
 
       - name: Copy binaries to frontend/dist
         run: |
-          cp dist-release/macos/tamux-daemon frontend/dist/
-          cp dist-release/macos/tamux frontend/dist/
-          cp dist-release/macos/tamux-tui frontend/dist/
-          cp dist-release/macos/tamux-mcp frontend/dist/
-          cp dist-release/macos/tamux-gateway frontend/dist/
+          cp dist-release/macos/zorai-daemon frontend/dist/
+          cp dist-release/macos/zorai frontend/dist/
+          cp dist-release/macos/zoi frontend/dist/
+          cp dist-release/macos/zorai-tui frontend/dist/
+          cp dist-release/macos/zorai-mcp frontend/dist/
+          cp dist-release/macos/zorai-gateway frontend/dist/
 
       - name: Electron package (macOS dmg + zip)
         run: npx electron-builder --mac dmg zip
@@ -382,8 +386,8 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           cd dist-release/macos
-          ZIP="tamux-darwin-arm64.zip"
-          zip -r "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway skills guidelines
+          ZIP="zorai-darwin-arm64.zip"
+          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines
           shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-arm64.txt"
 
       - name: Upload macOS ARM64 artifacts
@@ -422,7 +426,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           {
-            echo "# SHA256SUMS for tamux v${VERSION}"
+            echo "# SHA256SUMS for zorai v${VERSION}"
             echo ""
           } > SHA256SUMS.txt
           for f in $(find artifacts -name 'SHA256SUMS*.txt' | sort); do

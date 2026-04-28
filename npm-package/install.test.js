@@ -12,17 +12,17 @@ test("getReleaseAssetInfo maps linux x64 to published zip asset names", function
   const info = install.getReleaseAssetInfo("linux", "x64", "0.2.0");
 
   assert.deepEqual(info, {
-    archiveName: "tamux-linux-x86_64.zip",
+    archiveName: "zorai-linux-x86_64.zip",
     checksumName: "SHA256SUMS-linux-x86_64.txt",
     bundleChecksumName: "SHA256SUMS.txt",
     skillsArchiveRoot: "skills",
     guidelinesArchiveRoot: "guidelines",
     requiredBinaries: [
-      "tamux",
-      "tamux-daemon",
-      "tamux-tui",
-      "tamux-gateway",
-      "tamux-mcp",
+      "zorai",
+      "zorai-daemon",
+      "zorai-tui",
+      "zorai-gateway",
+      "zorai-mcp",
     ],
   });
 });
@@ -31,17 +31,17 @@ test("getReleaseAssetInfo maps linux arm64 to published zip asset names", functi
   const info = install.getReleaseAssetInfo("linux", "arm64", "0.2.0");
 
   assert.deepEqual(info, {
-    archiveName: "tamux-linux-aarch64.zip",
+    archiveName: "zorai-linux-aarch64.zip",
     checksumName: "SHA256SUMS-linux-aarch64.txt",
     bundleChecksumName: "SHA256SUMS.txt",
     skillsArchiveRoot: "skills",
     guidelinesArchiveRoot: "guidelines",
     requiredBinaries: [
-      "tamux",
-      "tamux-daemon",
-      "tamux-tui",
-      "tamux-gateway",
-      "tamux-mcp",
+      "zorai",
+      "zorai-daemon",
+      "zorai-tui",
+      "zorai-gateway",
+      "zorai-mcp",
     ],
   });
 });
@@ -50,17 +50,17 @@ test("getReleaseAssetInfo maps windows x64 to published zip asset names", functi
   const info = install.getReleaseAssetInfo("win32", "x64", "0.2.0");
 
   assert.deepEqual(info, {
-    archiveName: "tamux-windows-x64.zip",
+    archiveName: "zorai-windows-x64.zip",
     checksumName: "SHA256SUMS-windows-x64.txt",
     bundleChecksumName: "SHA256SUMS.txt",
     skillsArchiveRoot: "skills",
     guidelinesArchiveRoot: "guidelines",
     requiredBinaries: [
-      "tamux.exe",
-      "tamux-daemon.exe",
-      "tamux-tui.exe",
-      "tamux-gateway.exe",
-      "tamux-mcp.exe",
+      "zorai.exe",
+      "zorai-daemon.exe",
+      "zorai-tui.exe",
+      "zorai-gateway.exe",
+      "zorai-mcp.exe",
     ],
   });
 });
@@ -69,17 +69,24 @@ test("getReleaseAssetInfo returns null for unsupported targets", function () {
   assert.equal(install.getReleaseAssetInfo("linux", "ppc64"), null);
 });
 
+test("npm package exposes zoi as an alias for the zorai launcher", function () {
+  const pkg = require("./package.json");
+
+  assert.equal(pkg.bin.zorai, "bin/zorai.js");
+  assert.equal(pkg.bin.zoi, "bin/zorai.js");
+});
+
 test("getInstallUsageHint recommends npx for local installs", function () {
   assert.equal(
     install.getInstallUsageHint(false),
-    "tamux: run with 'npx tamux --help' (or 'npm exec tamux -- --help') after a local install"
+    "zorai: run with 'npx zorai --help' (or 'npm exec zorai -- --help') after a local install"
   );
 });
 
-test("getInstallUsageHint recommends tamux for global installs", function () {
+test("getInstallUsageHint recommends zorai for global installs", function () {
   assert.equal(
     install.getInstallUsageHint(true),
-    "tamux: run 'tamux --help' once your npm global bin directory is on PATH, and open a new shell if it is not recognized immediately"
+    "zorai: run 'zorai --help' once your npm global bin directory is on PATH, and open a new shell if it is not recognized immediately"
   );
 });
 
@@ -94,70 +101,114 @@ test("getGlobalBinDir appends bin on unix platforms", function () {
 test("getInstallUsageHint includes explicit global bin directory when known", function () {
   assert.equal(
     install.getInstallUsageHint(true, "/opt/homebrew/bin"),
-    "tamux: if 'tamux' is not found, add '/opt/homebrew/bin' to PATH, then open a new shell and run 'tamux --help'"
+    "zorai: if 'zorai' is not found, add '/opt/homebrew/bin' to PATH, then open a new shell and run 'zorai --help'"
   );
 });
 
 test("prependDirectoryToPath prefixes PATH values", function () {
   const updated = install.prependDirectoryToPath(
     { PATH: "/usr/bin" },
-    "/tmp/tamux-bin"
+    "/tmp/zorai-bin"
   );
 
-  assert.equal(updated.PATH, "/tmp/tamux-bin:/usr/bin");
+  assert.equal(updated.PATH, "/tmp/zorai-bin:/usr/bin");
 });
 
 test("prependDirectoryToPath preserves existing PATH key casing", function () {
   const updated = install.prependDirectoryToPath(
     { Path: "C:\\Windows\\System32" },
-    "C:\\tamux\\bin"
+    "C:\\zorai\\bin"
   );
 
-  const expected = ["C:\\tamux\\bin", "C:\\Windows\\System32"].join(path.delimiter);
+  const expected = ["C:\\zorai\\bin", "C:\\Windows\\System32"].join(path.delimiter);
   assert.equal(updated.Path, expected);
   assert.equal(updated.PATH, expected);
 });
 
-test("getRuntimeTamuxRoot uses home on unix hosts", function () {
+test("getRuntimeZoraiRoot uses home on unix hosts", function () {
   assert.equal(
-    install.getRuntimeTamuxRoot("linux", {
+    install.getRuntimeZoraiRoot("linux", {
       HOME: "/home/aline",
     }),
-    "/home/aline/.tamux"
+    "/home/aline/.zorai"
   );
 });
 
-test("getRuntimeTamuxRoot uses LOCALAPPDATA on windows hosts", function () {
+test("getRuntimeZoraiRoot uses LOCALAPPDATA on windows hosts", function () {
   assert.equal(
-    install.getRuntimeTamuxRoot("win32", {
+    install.getRuntimeZoraiRoot("win32", {
       LOCALAPPDATA: "C:\\Users\\aline\\AppData\\Local",
     }),
-    "C:\\Users\\aline\\AppData\\Local\\tamux"
+    "C:\\Users\\aline\\AppData\\Local\\zorai"
   );
 });
 
-test("getRuntimeSkillsDir resolves to the canonical tamux skills root", function () {
+test("migrateLegacyTamuxRoot renames .tamux to .zorai on unix when zorai root is absent", function () {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "zorai-tamux-migrate-"));
+  const legacyRoot = path.join(home, ".tamux");
+  const nextRoot = path.join(home, ".zorai");
+  fs.mkdirSync(legacyRoot, { recursive: true });
+  fs.writeFileSync(path.join(legacyRoot, "state.txt"), "legacy state\n");
+
+  const result = install.migrateLegacyTamuxRoot("linux", { HOME: home });
+
+  assert.equal(result, nextRoot);
+  assert.equal(fs.existsSync(legacyRoot), false);
+  assert.equal(fs.readFileSync(path.join(nextRoot, "state.txt"), "utf8"), "legacy state\n");
+});
+
+test("migrateLegacyTamuxRoot leaves .tamux in place when .zorai already exists", function () {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "zorai-tamux-keep-"));
+  const legacyRoot = path.join(home, ".tamux");
+  const nextRoot = path.join(home, ".zorai");
+  fs.mkdirSync(legacyRoot, { recursive: true });
+  fs.mkdirSync(nextRoot, { recursive: true });
+  fs.writeFileSync(path.join(legacyRoot, "state.txt"), "legacy state\n");
+  fs.writeFileSync(path.join(nextRoot, "state.txt"), "zorai state\n");
+
+  const result = install.migrateLegacyTamuxRoot("linux", { HOME: home });
+
+  assert.equal(result, nextRoot);
+  assert.equal(fs.readFileSync(path.join(legacyRoot, "state.txt"), "utf8"), "legacy state\n");
+  assert.equal(fs.readFileSync(path.join(nextRoot, "state.txt"), "utf8"), "zorai state\n");
+});
+
+test("migrateLegacyTamuxRoot renames LOCALAPPDATA tamux root on windows", function () {
+  const localAppData = fs.mkdtempSync(path.join(os.tmpdir(), "zorai-tamux-win-"));
+  const legacyRoot = path.join(localAppData, "tamux");
+  const nextRoot = path.join(localAppData, "zorai");
+  fs.mkdirSync(legacyRoot, { recursive: true });
+  fs.writeFileSync(path.join(legacyRoot, "state.txt"), "legacy windows state\n");
+
+  const result = install.migrateLegacyTamuxRoot("win32", { LOCALAPPDATA: localAppData });
+
+  assert.equal(result, nextRoot);
+  assert.equal(fs.existsSync(legacyRoot), false);
+  assert.equal(fs.readFileSync(path.join(nextRoot, "state.txt"), "utf8"), "legacy windows state\n");
+});
+
+test("getRuntimeSkillsDir resolves to the canonical zorai skills root", function () {
   assert.equal(
     install.getRuntimeSkillsDir("linux", {
       HOME: "/home/aline",
     }),
-    "/home/aline/.tamux/skills"
+    "/home/aline/.zorai/skills"
   );
 });
 
-test("getRuntimeGuidelinesDir resolves beside the canonical tamux skills root", function () {
+test("getRuntimeGuidelinesDir resolves beside the canonical zorai skills root", function () {
   assert.equal(
     install.getRuntimeGuidelinesDir("linux", {
       HOME: "/home/aline",
     }),
-    "/home/aline/.tamux/guidelines"
+    "/home/aline/.zorai/guidelines"
   );
 
   assert.equal(
     install.getRuntimeGuidelinesDir("win32", {
       LOCALAPPDATA: "C:\\Users\\aline\\AppData\\Local",
     }),
-    "C:\\Users\\aline\\AppData\\Local\\tamux\\guidelines"
+    "C:\\Users\\aline\\AppData\\Local\\zorai\\guidelines"
   );
 });
 
@@ -166,19 +217,19 @@ test("getRuntimeCustomAuthPath resolves beside daemon runtime data", function ()
     install.getRuntimeCustomAuthPath("linux", {
       HOME: "/home/aline",
     }),
-    "/home/aline/.tamux/custom-auth.yaml"
+    "/home/aline/.zorai/custom-auth.yaml"
   );
 
   assert.equal(
     install.getRuntimeCustomAuthPath("win32", {
       LOCALAPPDATA: "C:\\Users\\aline\\AppData\\Local",
     }),
-    "C:\\Users\\aline\\AppData\\Local\\tamux\\custom-auth.yaml"
+    "C:\\Users\\aline\\AppData\\Local\\zorai\\custom-auth.yaml"
   );
 });
 
 test("ensureCustomAuthTemplate creates default yaml without overwriting", function () {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamux-custom-auth-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zorai-custom-auth-"));
   const customAuthPath = install.getRuntimeCustomAuthPath("linux", { HOME: root });
 
   install.ensureCustomAuthTemplate("linux", { HOME: root });
@@ -219,7 +270,7 @@ test("extractBundledGuidelines copies missing defaults without overwriting user 
   zip.addFile("guidelines/coding-task.md", Buffer.from("# bundled coding\n"));
   zip.addFile("guidelines/research-task.md", Buffer.from("# bundled research\n"));
 
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamux-guidelines-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zorai-guidelines-"));
   const guidelinesDir = path.join(root, "guidelines");
   fs.mkdirSync(guidelinesDir, { recursive: true });
   fs.writeFileSync(path.join(guidelinesDir, "coding-task.md"), "# user coding\n");
@@ -247,7 +298,7 @@ test("global npm install stops processes before replacing binaries and restarts 
     {
       isGlobalInstall: true,
       platform: "linux",
-      binDir: "/tmp/tamux-bin",
+      binDir: "/tmp/zorai-bin",
     },
     async function () {
       events.push("install");
@@ -258,7 +309,7 @@ test("global npm install stops processes before replacing binaries and restarts 
       },
       startDaemon: function (platform, binDir) {
         events.push("start:" + platform + ":" + binDir);
-        return path.join(binDir, "tamux-daemon");
+        return path.join(binDir, "zorai-daemon");
       },
     }
   );
@@ -266,7 +317,7 @@ test("global npm install stops processes before replacing binaries and restarts 
   assert.deepEqual(events, [
     "stop:linux",
     "install",
-    "start:linux:/tmp/tamux-bin",
+    "start:linux:/tmp/zorai-bin",
   ]);
 });
 
@@ -277,7 +328,7 @@ test("local npm install does not stop or restart daemon", async function () {
     {
       isGlobalInstall: false,
       platform: "linux",
-      binDir: "/tmp/tamux-bin",
+      binDir: "/tmp/zorai-bin",
     },
     async function () {
       events.push("install");

@@ -214,7 +214,7 @@ export const useAuditStore = create<AuditState>((set) => ({
     }));
     // Send dismiss to daemon via IPC bridge
     const w = window as unknown as Record<string, unknown>;
-    const bridge = w.tamux ?? w.amux;
+    const bridge = w.zorai ?? w.zorai;
     if (bridge && typeof (bridge as Record<string, unknown>).dismissAuditEntry === "function") {
       (bridge as Record<string, (...args: unknown[]) => unknown>).dismissAuditEntry(entryId);
     }

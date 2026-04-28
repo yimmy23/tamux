@@ -78,7 +78,7 @@ export function ChatView({
   const [searchQuery, setSearchQuery] = useState("");
   const [todoExpanded, setTodoExpanded] = useState(true);
   const [participantsModalOpen, setParticipantsModalOpen] = useState(false);
-  const [pinLimitResult, setPinLimitResult] = useState<AmuxThreadMessagePinResult | null>(null);
+  const [pinLimitResult, setPinLimitResult] = useState<ZoraiThreadMessagePinResult | null>(null);
   const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
   const [autoSpeakReplies, setAutoSpeakReplies] = useState(agentSettings.audio_tts_auto_speak);
   const [isSynthesizingSpeech, setIsSynthesizingSpeech] = useState(false);
@@ -138,7 +138,7 @@ export function ChatView({
   };
 
   const speakMessage = async (message: AgentMessage) => {
-    const bridge = window.amux ?? window.tamux;
+    const bridge = window.zorai ?? window.zorai;
     if (!bridge?.agentTextToSpeech || !agentSettings.audio_tts_enabled) {
       return;
     }
@@ -326,12 +326,12 @@ export function ChatView({
         )}
 
         {filteredDisplayItems.length === 0 && (
-          <div className="amux-empty-state">
-            <div className="amux-empty-state__icon">✨</div>
-            <div className="amux-empty-state__title">
+          <div className="zorai-empty-state">
+            <div className="zorai-empty-state__icon">✨</div>
+            <div className="zorai-empty-state__title">
               {messages.length === 0 ? "Start a conversation" : "No chat items match filters"}
             </div>
-            <div className="amux-empty-state__description">
+            <div className="zorai-empty-state__description">
               {messages.length === 0 ? "Send a message to begin collaborating with the agent" : "Try a different search term."}
             </div>
           </div>

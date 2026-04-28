@@ -35,7 +35,7 @@ function makeThread(id: string, title: string, daemonThreadId: string | null): A
     workspaceId: null,
     surfaceId: null,
     paneId: null,
-    agent_name: "tamux",
+    agent_name: "zorai",
     title,
     createdAt: 1,
     updatedAt: 1,

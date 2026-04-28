@@ -1,10 +1,10 @@
-import type { AmuxSettings } from "../../lib/types";
+import type { ZoraiSettings } from "../../lib/types";
 import { ColorInput, FontSelector, Section, SelectInput, SettingRow, type SettingsUpdater, SliderInput, ThemePicker, Toggle } from "./shared";
 
 export function AppearanceTab({
     settings, updateSetting, systemFonts,
 }: {
-    settings: AmuxSettings;
+    settings: ZoraiSettings;
     updateSetting: SettingsUpdater;
     systemFonts: string[];
 }) {
@@ -86,7 +86,7 @@ export function AppearanceTab({
                 <SettingRow label="Cursor Style">
                     <SelectInput value={settings.cursorStyle}
                         options={["bar", "block", "underline"]}
-                        onChange={(value) => updateSetting("cursorStyle", value as AmuxSettings["cursorStyle"])} />
+                        onChange={(value) => updateSetting("cursorStyle", value as ZoraiSettings["cursorStyle"])} />
                 </SettingRow>
                 <SettingRow label="Cursor Blink">
                     <Toggle value={settings.cursorBlink}

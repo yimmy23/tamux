@@ -12,6 +12,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import {
   appendDaemonSystemMessage,
   recordDaemonWorkflowNotice,
+  refreshDaemonThreadMetadataIntoLocalState,
   reloadDaemonThreadIntoLocalState,
   syncWelesHealth,
 } from "./daemonHelpers";
@@ -26,6 +27,24 @@ import {
   handleTodoUpdateEvent,
   handleWorkspaceCommand,
 } from "./daemonEventHandlers";
+
+export function resolveDaemonEventLocalThreadId(
+  event: any,
+  fallbackLocalThreadId: string | null,
+  fallbackDaemonThreadId: string | null,
+): string | null {
+  const daemonThreadId = typeof event?.thread_id === "string" ? event.thread_id : null;
+  if (!daemonThreadId) {
+    return fallbackLocalThreadId;
+  }
+
+  const matchingThread = useAgentStore.getState().threads.find((thread) => thread.daemonThreadId === daemonThreadId);
+  if (matchingThread) {
+    return matchingThread.id;
+  }
+
+  return daemonThreadId === fallbackDaemonThreadId ? fallbackLocalThreadId : null;
+}
 
 export function useDaemonAgentEvents({
   agentBackend,
@@ -111,8 +130,8 @@ export function useDaemonAgentEvents({
   useEffect(() => {
     if (!shouldUseDaemonRuntime(agentBackend)) return;
 
-    const amux = getAgentBridge();
-    if (!amux?.onAgentEvent) return;
+    const zorai = getAgentBridge();
+    if (!zorai?.onAgentEvent) return;
 
     const ensureStreamingAssistantMessage = (threadId: string) => {
       const messages = useAgentStore.getState().getThreadMessages(threadId);
@@ -121,15 +140,12 @@ export function useDaemonAgentEvents({
         return last;
       }
 
-      const isExternalAgent = agentBackend === "openclaw" || agentBackend === "hermes";
       const agentSettings = useAgentStore.getState().agentSettings;
       addMessage(threadId, {
         role: "assistant",
         content: "",
-        provider: isExternalAgent ? agentBackend : agentSettings.active_provider,
-        model: isExternalAgent
-          ? agentBackend
-          : ((agentSettings[agentSettings.active_provider] as any)?.model || ""),
+        provider: agentSettings.active_provider,
+        model: ((agentSettings[agentSettings.active_provider] as any)?.model || ""),
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
@@ -153,10 +169,10 @@ export function useDaemonAgentEvents({
       }, 3000);
     };
 
-    const unsubscribe = amux.onAgentEvent((event: any) => {
+    const unsubscribe = zorai.onAgentEvent((event: any) => {
       if (!event?.type) return;
 
-      const tid = daemonLocalThreadRef.current;
+      const tid = resolveDaemonEventLocalThreadId(event, daemonLocalThreadRef.current, daemonThreadIdRef.current);
 
       switch (event.type) {
         case "delta": {
@@ -231,13 +247,12 @@ export function useDaemonAgentEvents({
             totalTokens: 0,
             isCompactionSummary: false,
           });
-          const isExternalAgent = agentBackend === "openclaw" || agentBackend === "hermes";
           const agentSettings = useAgentStore.getState().agentSettings;
           addMessage(tid, {
             role: "assistant",
             content: "",
-            provider: isExternalAgent ? agentBackend : agentSettings.active_provider,
-            model: isExternalAgent ? agentBackend : ((agentSettings[agentSettings.active_provider] as any)?.model || ""),
+            provider: agentSettings.active_provider,
+            model: ((agentSettings[agentSettings.active_provider] as any)?.model || ""),
             inputTokens: 0,
             outputTokens: 0,
             totalTokens: 0,
@@ -273,7 +288,7 @@ export function useDaemonAgentEvents({
         case "thread_reload_required": {
           const reloadThreadId = typeof event.thread_id === "string" ? event.thread_id : null;
           if (reloadThreadId) {
-            void reloadDaemonThreadIntoLocalState({
+            void refreshDaemonThreadMetadataIntoLocalState({
               daemonThreadId: reloadThreadId,
               setThreadTodos,
               setDaemonTodosByThread,

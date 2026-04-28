@@ -81,7 +81,7 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
     const [collaborationSessions, setCollaborationSessions] = useState<CollaborationSessionRecord[]>([]);
     const [collaborationStatus, setCollaborationStatus] = useState<string | null>(null);
     const [loadingCollaboration, setLoadingCollaboration] = useState(false);
-    const amux = getBridge();
+    const zorai = getBridge();
     const workspaces = useWorkspaceStore((state) => state.workspaces);
     const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace);
     const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface);
@@ -101,13 +101,13 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
     }, []);
 
     const loadCollaborationSessions = useCallback(async () => {
-        if (!amux?.agentGetCollaborationSessions) {
+        if (!zorai?.agentGetCollaborationSessions) {
             setCollaborationStatus("Collaboration bridge unavailable.");
             return;
         }
         setLoadingCollaboration(true);
         try {
-            const result = await amux.agentGetCollaborationSessions(null) as CollaborationSessionRecord[] | { error?: string };
+            const result = await zorai.agentGetCollaborationSessions(null) as CollaborationSessionRecord[] | { error?: string };
             if (!Array.isArray(result)) {
                 throw new Error(result?.error || "Failed to load collaboration sessions.");
             }
@@ -118,7 +118,7 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
         } finally {
             setLoadingCollaboration(false);
         }
-    }, [amux]);
+    }, [zorai]);
 
     useEffect(() => {
         void refreshRuns();
@@ -168,7 +168,7 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
     }, [focusCanvasPanel, setActivePaneId, setActiveSurface, setActiveWorkspace, workspaces]);
 
     const openRunThread = useCallback(async (run: AgentRun) => {
-        if (!run.thread_id || !amux?.agentGetThread) {
+        if (!run.thread_id || !zorai?.agentGetThread) {
             return;
         }
 
@@ -179,7 +179,7 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
             return;
         }
 
-        const remoteThread = await amux.agentGetThread(run.thread_id, {
+        const remoteThread = await zorai.agentGetThread(run.thread_id, {
             messageLimit: resolveReactChatHistoryMessageLimit(reactChatHistoryPageSize) ?? null,
         }) as RemoteAgentThread | null;
         if (!remoteThread) {
@@ -203,20 +203,20 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
         setThreadTodos(localThreadId, todos);
         setActiveThread(localThreadId);
         onOpenThreadView?.();
-    }, [addMessage, amux, createThread, onOpenThreadView, reactChatHistoryPageSize, setActiveThread, setThreadDaemonId, setThreadTodos, threads, workspaces]);
+    }, [addMessage, zorai, createThread, onOpenThreadView, reactChatHistoryPageSize, setActiveThread, setThreadDaemonId, setThreadTodos, threads, workspaces]);
 
     const voteOnDisagreement = useCallback(async (
         session: CollaborationSessionRecord,
         disagreement: CollaborationDisagreement,
         position: string,
     ) => {
-        if (!amux?.agentVoteOnCollaborationDisagreement || !session.parent_task_id || !disagreement.id) {
+        if (!zorai?.agentVoteOnCollaborationDisagreement || !session.parent_task_id || !disagreement.id) {
             setCollaborationStatus("Collaboration vote bridge unavailable.");
             return;
         }
         setLoadingCollaboration(true);
         try {
-            const result = await amux.agentVoteOnCollaborationDisagreement(
+            const result = await zorai.agentVoteOnCollaborationDisagreement(
                 session.parent_task_id,
                 disagreement.id,
                 "operator",
@@ -232,7 +232,7 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
             setCollaborationStatus(error instanceof Error ? error.message : "Failed to vote on collaboration disagreement.");
             setLoadingCollaboration(false);
         }
-    }, [amux, loadCollaborationSessions]);
+    }, [zorai, loadCollaborationSessions]);
 
     return (
         <div style={{ padding: "var(--space-4)", overflow: "auto", height: "100%" }}>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# tamux release build for Windows via WSL cross-compilation
+# zorai release build for Windows via WSL cross-compilation
 #
 # This script cross-compiles from WSL to Windows (x86_64-pc-windows-gnu),
 # then builds the Electron app with optional code signing.
@@ -10,9 +10,9 @@
 #   ./scripts/build-release-wsl.sh --sign       Build and sign all binaries
 #
 # Signing options (env vars):
-#   TAMUX_SIGN_CERT       Path to PFX certificate file
-#   TAMUX_SIGN_PASSWORD   PFX certificate password
-#   TAMUX_SIGN_THUMBPRINT Certificate thumbprint (alternative to PFX)
+#   ZORAI_SIGN_CERT       Path to PFX certificate file
+#   ZORAI_SIGN_PASSWORD   PFX certificate password
+#   ZORAI_SIGN_THUMBPRINT Certificate thumbprint (alternative to PFX)
 #
 # Prerequisites:
 #   - WSL2 with Rust toolchain
@@ -27,10 +27,10 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 OUT_DIR="$PROJECT_ROOT/dist-release/windows"
 TARGET="x86_64-pc-windows-gnu"
 
-export TAMUX_LOG=error
-export AMUX_LOG=error
-export TAMUX_TUI_LOG=error
-export AMUX_GATEWAY_LOG=error
+export ZORAI_LOG=error
+export ZORAI_LOG=error
+export ZORAI_TUI_LOG=error
+export ZORAI_GATEWAY_LOG=error
 export RUST_LOG=error
 
 APP_VERSION="$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$PROJECT_ROOT/frontend/package.json" | head -1)"
@@ -68,7 +68,7 @@ generate_release_notes_if_missing() {
     [[ -f "$notes_file" ]] && return 0
 
     {
-        echo "# tamux ${APP_VERSION} Windows Release Notes"
+        echo "# zorai ${APP_VERSION} Windows Release Notes"
         echo ""
         echo "Built on $(date -u +"%Y-%m-%d %H:%M UTC") via WSL cross-compilation."
         echo ""
@@ -134,7 +134,7 @@ PY
 
 echo ""
 echo "============================================================"
-echo " tamux Windows release build (WSL cross-compilation)"
+echo " zorai Windows release build (WSL cross-compilation)"
 echo "============================================================"
 
 # -----------------------------------------------------------
@@ -157,7 +157,7 @@ fi
 echo "  Rust target: $TARGET OK"
 
 echo ""
-echo "  Running tamux setup preflight..."
+echo "  Running zorai setup preflight..."
 "$SCRIPT_DIR/setup.sh" --check --profile source --format text
 
 # -----------------------------------------------------------
@@ -185,11 +185,11 @@ echo "  Done."
 echo ""
 echo "[3/6] Collecting artifacts..."
 mkdir -p "$OUT_DIR"
-find "$OUT_DIR" -maxdepth 1 -type f \( -name "tamux*" -o -name "amux*" -o -name "SHA256SUMS*.txt" -o -name "RELEASE_NOTES*.md" \) -delete 2>/dev/null || true
+find "$OUT_DIR" -maxdepth 1 -type f \( -name "zorai*" -o -name "zorai*" -o -name "SHA256SUMS*.txt" -o -name "RELEASE_NOTES*.md" \) -delete 2>/dev/null || true
 
 TARGET_DIR="$PROJECT_ROOT/target/$TARGET/release"
 
-for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
+for bin in zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway; do
     if [[ -f "$TARGET_DIR/${bin}.exe" ]]; then
         cp "$TARGET_DIR/${bin}.exe" "$OUT_DIR/"
         echo "  Collected ${bin}.exe"
@@ -197,11 +197,12 @@ for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
 done
 
 # Copy daemon + CLI to frontend/dist for Electron
-cp "$OUT_DIR/tamux-daemon.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
-cp "$OUT_DIR/tamux.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
-cp "$OUT_DIR/tamux-tui.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
-cp "$OUT_DIR/tamux-mcp.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
-cp "$OUT_DIR/tamux-gateway.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
+cp "$OUT_DIR/zorai-daemon.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
+cp "$OUT_DIR/zorai.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
+cp "$OUT_DIR/zoi.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
+cp "$OUT_DIR/zorai-tui.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
+cp "$OUT_DIR/zorai-mcp.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
+cp "$OUT_DIR/zorai-gateway.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
 if [[ -f "$PROJECT_ROOT/docs/getting-started.md" ]]; then
     cp "$PROJECT_ROOT/docs/getting-started.md" "$OUT_DIR/GETTING_STARTED.md"
     cp "$PROJECT_ROOT/docs/getting-started.md" "$PROJECT_ROOT/frontend/dist/GETTING_STARTED.md"
@@ -240,18 +241,18 @@ if [[ $SIGN -eq 1 ]]; then
             return
         fi
 
-        if [[ -n "${TAMUX_SIGN_CERT:-${AMUX_SIGN_CERT:-}}" ]]; then
-            "$SIGNTOOL" sign /f "${TAMUX_SIGN_CERT:-${AMUX_SIGN_CERT:-}}" /p "${TAMUX_SIGN_PASSWORD:-${AMUX_SIGN_PASSWORD:-}}" \
+        if [[ -n "${ZORAI_SIGN_CERT:-${ZORAI_SIGN_CERT:-}}" ]]; then
+            "$SIGNTOOL" sign /f "${ZORAI_SIGN_CERT:-${ZORAI_SIGN_CERT:-}}" /p "${ZORAI_SIGN_PASSWORD:-${ZORAI_SIGN_PASSWORD:-}}" \
                 /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$file"
             echo "  Signed $name (PFX)"
-        elif [[ -n "${TAMUX_SIGN_THUMBPRINT:-${AMUX_SIGN_THUMBPRINT:-}}" ]]; then
-            "$SIGNTOOL" sign /sha1 "${TAMUX_SIGN_THUMBPRINT:-${AMUX_SIGN_THUMBPRINT:-}}" \
+        elif [[ -n "${ZORAI_SIGN_THUMBPRINT:-${ZORAI_SIGN_THUMBPRINT:-}}" ]]; then
+            "$SIGNTOOL" sign /sha1 "${ZORAI_SIGN_THUMBPRINT:-${ZORAI_SIGN_THUMBPRINT:-}}" \
                 /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$file"
             echo "  Signed $name (cert store)"
         else
             echo "  WARNING: No signing cert configured for $name."
-            echo "           Set TAMUX_SIGN_CERT + TAMUX_SIGN_PASSWORD"
-            echo "           or TAMUX_SIGN_THUMBPRINT."
+            echo "           Set ZORAI_SIGN_CERT + ZORAI_SIGN_PASSWORD"
+            echo "           or ZORAI_SIGN_THUMBPRINT."
         fi
     }
 
@@ -269,11 +270,11 @@ fi
 echo ""
 echo "[5/6] Building Electron app..."
 cd "$PROJECT_ROOT/frontend"
-find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "tamux*" -o -name "amux*" \) -delete 2>/dev/null || true
+find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "zorai*" -o -name "zorai*" \) -delete 2>/dev/null || true
 
-if [[ $SIGN -eq 1 && -n "${TAMUX_SIGN_CERT:-${AMUX_SIGN_CERT:-}}" ]]; then
-    export CSC_LINK="${TAMUX_SIGN_CERT:-${AMUX_SIGN_CERT:-}}"
-    export CSC_KEY_PASSWORD="${TAMUX_SIGN_PASSWORD:-${AMUX_SIGN_PASSWORD:-}}"
+if [[ $SIGN -eq 1 && -n "${ZORAI_SIGN_CERT:-${ZORAI_SIGN_CERT:-}}" ]]; then
+    export CSC_LINK="${ZORAI_SIGN_CERT:-${ZORAI_SIGN_CERT:-}}"
+    export CSC_KEY_PASSWORD="${ZORAI_SIGN_PASSWORD:-${ZORAI_SIGN_PASSWORD:-}}"
 fi
 
 npx electron-builder --win portable nsis
@@ -281,7 +282,7 @@ npx electron-builder --win portable nsis
 # Collect Electron artifacts
 RELEASE_DIR="$PROJECT_ROOT/frontend/release"
 if [[ -d "$RELEASE_DIR" ]]; then
-    for f in "$RELEASE_DIR"/tamux*.exe; do
+    for f in "$RELEASE_DIR"/zorai*.exe; do
         [[ -f "$f" ]] || continue
         cp "$f" "$OUT_DIR/"
         echo "  Collected $(basename "$f")"
@@ -307,7 +308,7 @@ done
 if [[ ${#bundle_artifacts[@]} -gt 0 ]]; then
     notes_file="$OUT_DIR/RELEASE_NOTES.md"
     checksums_file="$OUT_DIR/SHA256SUMS-windows-${ARCH}.txt"
-    bundle_file="$OUT_DIR/tamux-windows-${ARCH}.zip"
+    bundle_file="$OUT_DIR/zorai-windows-${ARCH}.zip"
 
     generate_release_notes_if_missing "$notes_file" "${bundle_artifacts[@]}"
     write_checksums_file "$checksums_file" "${bundle_artifacts[@]}"

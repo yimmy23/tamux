@@ -671,7 +671,7 @@ Workspace:
 
 ### Daemon Communication
 
-- Reuse existing `amux-protocol` codec
+- Reuse existing `zorai-protocol` codec
 - Unix socket on Linux/macOS, named pipe on Windows
 - Message framing via bincode
 

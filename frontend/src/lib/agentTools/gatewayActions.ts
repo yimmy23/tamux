@@ -19,8 +19,8 @@ export async function executeGatewayMessage(
   target: string,
   message: string,
 ): Promise<ToolResult> {
-  const amux = getBridge();
-  if (!amux?.executeManagedCommand) {
+  const zorai = getBridge();
+  if (!zorai?.executeManagedCommand) {
     return {
       toolCallId: callId,
       name,
@@ -28,7 +28,7 @@ export async function executeGatewayMessage(
     };
   }
   try {
-    const result = await amux.executeManagedCommand(null, { type: "gateway-send", platform, target, message });
+    const result = await zorai.executeManagedCommand(null, { type: "gateway-send", platform, target, message });
     return {
       toolCallId: callId,
       name,
@@ -52,12 +52,12 @@ export async function executeDiscordMessage(
 ): Promise<ToolResult> {
   const settings = useAgentStore.getState().agentSettings;
   const token = settings.discord_token;
-  const amux = getBridge();
+  const zorai = getBridge();
 
   if (!token) {
     return { toolCallId: callId, name, content: "Error: Discord bot token not configured. Set it in Settings > Gateway > Discord." };
   }
-  if (!amux?.sendDiscordMessage) {
+  if (!zorai?.sendDiscordMessage) {
     return { toolCallId: callId, name, content: "Error: Discord bridge not available in this environment." };
   }
 
@@ -83,7 +83,7 @@ export async function executeDiscordMessage(
       return { toolCallId: callId, name, content: "Error: No channel_id/user_id provided and none configured. Add IDs in Settings > Gateway > Discord." };
     }
 
-    const result = await amux.sendDiscordMessage({ token, channelId: targetChannelId, userId: targetUserId, message });
+    const result = await zorai.sendDiscordMessage({ token, channelId: targetChannelId, userId: targetUserId, message });
     if (!result?.ok) {
       return { toolCallId: callId, name, content: `Error sending Discord message: ${result?.error || "unknown error"}` };
     }
@@ -102,14 +102,14 @@ export async function executeWhatsAppMessage(
   phone: string,
   message: string,
 ): Promise<ToolResult> {
-  const amux = getBridge();
-  if (!amux?.whatsappSend) {
+  const zorai = getBridge();
+  if (!zorai?.whatsappSend) {
     return { toolCallId: callId, name, content: "Error: WhatsApp bridge not available. Connect via Settings > Gateway > WhatsApp." };
   }
 
   const jid = phone.includes("@") ? phone : `${phone.replace(/\+/g, "")}@s.whatsapp.net`;
   try {
-    await amux.whatsappSend(jid, message);
+    await zorai.whatsappSend(jid, message);
     return { toolCallId: callId, name, content: `WhatsApp message sent to ${phone}` };
   } catch (error: any) {
     return { toolCallId: callId, name, content: `Error sending WhatsApp message: ${error.message || String(error)}` };

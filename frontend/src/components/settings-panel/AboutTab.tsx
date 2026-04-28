@@ -1,25 +1,8 @@
-import { useEffect, useState } from "react";
-import { getBridge } from "@/lib/bridge";
-import { isCDUIEnabled, setCDUIEnabled } from "../../lib/cduiMode";
+import { useEffect } from "react";
 import { useAgentStore } from "../../lib/agentStore";
 import { Section, SettingRow, Toggle, smallBtnStyle } from "./shared";
 
-function defaultViewsPathLabel(): string {
-    if (typeof navigator !== "undefined") {
-        const ua = navigator.userAgent.toLowerCase();
-        if (ua.includes("windows")) {
-            return "%LOCALAPPDATA%\\tamux\\views";
-        }
-        if (ua.includes("mac")) {
-            return "~/Library/Application Support/tamux/views";
-        }
-    }
-    return "~/.tamux/views";
-}
-
 export function AboutTab() {
-    const [cduiEnabled, setCduiEnabledState] = useState<boolean>(() => isCDUIEnabled());
-    const [viewsPathLabel, setViewsPathLabel] = useState<string>(() => defaultViewsPathLabel());
     const operatorProfile = useAgentStore((s) => s.operatorProfile);
     const getOperatorProfileSummary = useAgentStore((s) => s.getOperatorProfileSummary);
     const setOperatorProfileConsent = useAgentStore((s) => s.setOperatorProfileConsent);
@@ -36,18 +19,6 @@ export function AboutTab() {
         .filter((entry) => typeof entry.scheduled_at === "number" && entry.scheduled_at > Date.now())
         .sort((a, b) => (a.scheduled_at ?? 0) - (b.scheduled_at ?? 0))[0] ?? null;
     const lastCheckin = sortedCheckins[0] ?? null;
-
-    useEffect(() => {
-        const bridge = getBridge();
-        if (!bridge?.getDataDir) return;
-        bridge.getDataDir()
-            .then((dataDir: string) => {
-                if (typeof dataDir !== "string" || !dataDir.trim()) return;
-                const separator = dataDir.includes("\\") ? "\\" : "/";
-                setViewsPathLabel(`${dataDir}${separator}views`);
-            })
-            .catch(() => { });
-    }, []);
 
     useEffect(() => {
         void getOperatorProfileSummary();
@@ -82,65 +53,15 @@ export function AboutTab() {
         }
     };
 
-    const applyRuntimeMode = () => {
-        setCDUIEnabled(cduiEnabled);
-        window.location.reload();
-    };
-
     return (
         <>
-            <Section title="Runtime Mode">
-                <SettingRow label="Use New CDUI (this will reload the app immediately!)">
-                    <Toggle value={cduiEnabled} onChange={() => {
-                        setCduiEnabledState((prev) => !prev);
-                        setCDUIEnabled(!cduiEnabled);
-                    }} />
-                </SettingRow>
-                <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                    <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                        CDUI is now the default interface. Turn it off here to reload into the legacy UI, or turn it back on to use YAML-driven views from {viewsPathLabel}.
-                    </span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <button
-                            onClick={() => {
-                                void (getBridge())?.revealDataPath?.("views");
-                            }}
-                            style={smallBtnStyle}
-                        >
-                            Open {viewsPathLabel}
-                        </button>
-                        <button
-                            onClick={() => {
-                                window.dispatchEvent(new Event("tamux-cdui-views-reload"));
-                                window.dispatchEvent(new Event("amux-cdui-views-reload"));
-                            }}
-                            style={smallBtnStyle}
-                        >
-                            Reload Views
-                        </button>
-                        <button onClick={applyRuntimeMode} style={smallBtnStyle}>
-                            Apply & Reload
-                        </button>
-                        <button
-                            onClick={() => {
-                                window.dispatchEvent(new Event("tamux-open-setup-onboarding"));
-                                window.dispatchEvent(new Event("amux-open-setup-onboarding"));
-                            }}
-                            style={smallBtnStyle}
-                        >
-                            Open Setup Assistant
-                        </button>
-                    </div>
-                </div>
-            </Section>
-
             <Section title="About">
                 <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-                    <p style={{ fontWeight: 600, marginBottom: 8 }}>tamux - Terminal Multiplexer</p>
-                    <p>Version 0.7.1</p>
+                    <p style={{ fontWeight: 600, marginBottom: 8 }}>Zorai - Agent Orchestration Workspace</p>
+                    <p>Version 0.8.0</p>
                     <p style={{ marginTop: 8, color: "var(--text-secondary)" }}>
-                        A cross-platform terminal multiplexer with workspaces, surfaces, pane management,
-                        AI agent integration, snippet library, and session persistence.
+                        A thread-first agent orchestration workspace with durable goals, workspace boards,
+                        approvals, tools, and daemon-backed runtime state.
                     </p>
                     <p style={{ marginTop: 12, color: "var(--text-secondary)" }}>
                         Built with Electron, React, xterm.js, and a Rust daemon.

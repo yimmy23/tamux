@@ -2,21 +2,21 @@
 
 ## Project Structure & Module Organization
 This repository is a Rust workspace with a desktop frontend:
-- `crates/amux-daemon`: core daemon (IPC server, session/state, policy, snapshots).
-- `crates/amux-cli`: CLI client (`amux`) for daemon operations.
-- `crates/amux-gateway`: chat platform bridge (Slack/Discord/Telegram routing).
-- `crates/amux-mcp`: MCP JSON-RPC server.
-- `crates/amux-protocol`: shared protocol/messages/config.
-- `crates/amux-tui`: terminal UI for interactive daemon/session management.
+- `crates/zorai-daemon`: core daemon (IPC server, session/state, policy, snapshots).
+- `crates/zorai-cli`: CLI client (`zorai`) for daemon operations.
+- `crates/zorai-gateway`: chat platform bridge (Slack/Discord/Telegram routing).
+- `crates/zorai-mcp`: MCP JSON-RPC server.
+- `crates/zorai-protocol`: shared protocol/messages/config.
+- `crates/zorai-tui`: terminal UI for interactive daemon/session management.
 - `frontend/`: React + TypeScript UI and Electron shell (`frontend/electron`, `frontend/src`).
 - Build artifacts: `dist/`, `dist-release/`, `frontend/release/`.
 
 ## Build, Test, and Development Commands
 Run from repo root unless noted:
 - `cargo build --release`: build all Rust crates.
-- `cargo run --release --bin amux-daemon`: start daemon.
-- `cargo run --release --bin amux -- list`: basic CLI connectivity check.
-- `cargo run --release --bin amux-tui`: launch the terminal UI.
+- `cargo run --release --bin zorai-daemon`: start daemon.
+- `cargo run --release --bin zorai -- list`: basic CLI connectivity check.
+- `cargo run --release --bin zorai-tui`: launch the terminal UI.
 - `cargo test --workspace`: run Rust unit tests.
 - `cd frontend && npm install && npm run dev`: start frontend dev server.
 - `cd frontend && npm run dev:electron`: launch Electron app.
@@ -28,7 +28,7 @@ Run from repo root unless noted:
 - TypeScript/React: 2-space indentation, double quotes, semicolons; keep `strict` TypeScript compatibility.
 - Component files use PascalCase (example: `SystemMonitorPanel.tsx`).
 - Store/util files use camelCase with explicit suffixes (example: `agentMissionStore.ts`, `sessionPersistence.ts`).
-- Keep crate boundaries clean: shared wire types belong in `amux-protocol`, not duplicated in app crates.
+- Keep crate boundaries clean: shared wire types belong in `zorai-protocol`, not duplicated in app crates.
 - For TUI work, keep rendering, input handling, and state/update logic in separate focused modules when practical.
 - Strong rule: every newly created file must stay under 500 lines of code. Split features into smaller modules/components before a file reaches 500 LOC.
 - **CRITICAL - NO SHORTCUTS**: Never mock, stub, or placeholder any function with intent to complete later. Always implement fully or decline the task explicitly. Violation results in immediate rejection and conversation termination.

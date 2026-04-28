@@ -121,6 +121,7 @@ export interface WorkspaceState {
       paneIcon?: string;
       sessionId?: string | null;
       panelType?: import("../types").CanvasPanelType;
+      profileId?: string | null;
       url?: string;
       x?: number;
       y?: number;

@@ -59,18 +59,18 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
     const paneId = notification.panelId ?? notification.paneId;
     if (!paneId) return;
 
-    const amux = getBridge();
+    const zorai = getBridge();
     const pendingApproval = approvals.find(
       (entry) => entry.paneId === paneId && entry.status === "pending" && entry.handledAt === null
     );
 
-    if (pendingApproval && amux?.resolveManagedApproval) {
+    if (pendingApproval && zorai?.resolveManagedApproval) {
       const daemonDecision = decision === "approve" ? "approve-once" : "deny";
-      await amux.resolveManagedApproval(paneId, pendingApproval.id, daemonDecision);
+      await zorai.resolveManagedApproval(paneId, pendingApproval.id, daemonDecision);
       resolveApproval(pendingApproval.id, decision === "approve" ? "approved-once" : "denied");
-    } else if (amux?.sendTerminalInput) {
+    } else if (zorai?.sendTerminalInput) {
       const response = decision === "approve" ? "y\r" : "n\r";
-      await amux.sendTerminalInput(paneId, encodeTextToBase64(response));
+      await zorai.sendTerminalInput(paneId, encodeTextToBase64(response));
     }
 
     clearPaneNotifications(paneId, "approval");
@@ -89,8 +89,8 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
       if (!useWorkspaceStore.getState().settingsOpen) {
         toggleSettings();
       }
-      window.dispatchEvent(new CustomEvent("tamux-open-settings-tab", { detail: { tab: "plugins" } }));
-      window.dispatchEvent(new CustomEvent("amux-open-settings-tab", { detail: { tab: "plugins" } }));
+      window.dispatchEvent(new CustomEvent("zorai-open-settings-tab", { detail: { tab: "plugins" } }));
+      window.dispatchEvent(new CustomEvent("zorai-open-settings-tab", { detail: { tab: "plugins" } }));
       await selectPlugin(action.target);
       markRead(notification.id);
       return;

@@ -109,7 +109,7 @@ export function ExecutionCanvas({ style, className }: ExecutionCanvasProps = {})
           display: "flex",
           flexDirection: "column",
         }}
-        className="amux-shell-card"
+        className="zorai-shell-card"
       >
         {/* Header */}
         <div
@@ -122,7 +122,7 @@ export function ExecutionCanvas({ style, className }: ExecutionCanvasProps = {})
           }}
         >
           <div style={{ display: "grid", gap: 4 }}>
-            <span className="amux-panel-title" style={{ color: "var(--agent)" }}>
+            <span className="zorai-panel-title" style={{ color: "var(--agent)" }}>
               Execution Graph
             </span>
             <span style={{ fontSize: 20, fontWeight: 800 }}>Infinite Canvas</span>

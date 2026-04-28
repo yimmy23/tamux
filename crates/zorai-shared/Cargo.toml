@@ -1,0 +1,10 @@
+[package]
+name = "zorai-shared"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "zorai_shared"
+
+[dependencies]
+serde_json = { workspace = true }

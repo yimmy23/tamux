@@ -1,12 +1,12 @@
 @echo off
 REM ============================================================================
-REM tamux release build for Windows (native)
+REM zorai release build for Windows (native)
 REM
 REM Prerequisites:
 REM   - Rust toolchain (rustup)
 REM   - Node.js + npm
 REM   - (Optional) signtool.exe in PATH for code signing
-REM   - (Optional) Set TAMUX_SIGN_CERT and TAMUX_SIGN_PASSWORD for signing
+REM   - (Optional) Set ZORAI_SIGN_CERT and ZORAI_SIGN_PASSWORD for signing
 REM
 REM Usage:
 REM   scripts\build-release.bat              Build without signing
@@ -19,15 +19,15 @@ if "%~1"=="--sign" set SIGN=1
 
 set PROJECT_ROOT=%~dp0..
 set OUT_DIR=%PROJECT_ROOT%\dist-release
-set TAMUX_LOG=error
-set AMUX_LOG=error
-set TAMUX_TUI_LOG=error
-set AMUX_GATEWAY_LOG=error
+set ZORAI_LOG=error
+set ZORAI_LOG=error
+set ZORAI_TUI_LOG=error
+set ZORAI_GATEWAY_LOG=error
 set RUST_LOG=error
 
 echo.
 echo ============================================================
-echo  tamux release build
+echo  zorai release build
 echo ============================================================
 echo.
 
@@ -72,21 +72,23 @@ REM Step 3: Collect binaries
 REM -----------------------------------------------------------
 echo [3/5] Collecting artifacts...
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
-del /Q "%OUT_DIR%\tamux*" >nul 2>nul
-del /Q "%OUT_DIR%\amux*" >nul 2>nul
+del /Q "%OUT_DIR%\zorai*" >nul 2>nul
+del /Q "%OUT_DIR%\zorai*" >nul 2>nul
 
-copy /Y "%PROJECT_ROOT%\target\release\tamux-daemon.exe" "%OUT_DIR%\" >nul
-copy /Y "%PROJECT_ROOT%\target\release\tamux.exe"        "%OUT_DIR%\" >nul
-copy /Y "%PROJECT_ROOT%\target\release\tamux-tui.exe"    "%OUT_DIR%\" >nul 2>nul
-copy /Y "%PROJECT_ROOT%\target\release\tamux-mcp.exe"    "%OUT_DIR%\" >nul 2>nul
-copy /Y "%PROJECT_ROOT%\target\release\tamux-gateway.exe" "%OUT_DIR%\" >nul 2>nul
+copy /Y "%PROJECT_ROOT%\target\release\zorai-daemon.exe" "%OUT_DIR%\" >nul
+copy /Y "%PROJECT_ROOT%\target\release\zorai.exe"        "%OUT_DIR%\" >nul
+copy /Y "%PROJECT_ROOT%\target\release\zoi.exe"          "%OUT_DIR%\" >nul
+copy /Y "%PROJECT_ROOT%\target\release\zorai-tui.exe"    "%OUT_DIR%\" >nul 2>nul
+copy /Y "%PROJECT_ROOT%\target\release\zorai-mcp.exe"    "%OUT_DIR%\" >nul 2>nul
+copy /Y "%PROJECT_ROOT%\target\release\zorai-gateway.exe" "%OUT_DIR%\" >nul 2>nul
 
 REM Copy daemon + CLI into frontend/dist for Electron bundling
-copy /Y "%OUT_DIR%\tamux-daemon.exe" "%PROJECT_ROOT%\frontend\dist\" >nul
-copy /Y "%OUT_DIR%\tamux.exe"        "%PROJECT_ROOT%\frontend\dist\" >nul
-copy /Y "%OUT_DIR%\tamux-tui.exe"    "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
-copy /Y "%OUT_DIR%\tamux-mcp.exe"    "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
-copy /Y "%OUT_DIR%\tamux-gateway.exe" "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
+copy /Y "%OUT_DIR%\zorai-daemon.exe" "%PROJECT_ROOT%\frontend\dist\" >nul
+copy /Y "%OUT_DIR%\zorai.exe"        "%PROJECT_ROOT%\frontend\dist\" >nul
+copy /Y "%OUT_DIR%\zoi.exe"          "%PROJECT_ROOT%\frontend\dist\" >nul
+copy /Y "%OUT_DIR%\zorai-tui.exe"    "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
+copy /Y "%OUT_DIR%\zorai-mcp.exe"    "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
+copy /Y "%OUT_DIR%\zorai-gateway.exe" "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
 if exist "%PROJECT_ROOT%\docs\getting-started.md" (
     copy /Y "%PROJECT_ROOT%\docs\getting-started.md" "%OUT_DIR%\GETTING_STARTED.md" >nul
     copy /Y "%PROJECT_ROOT%\docs\getting-started.md" "%PROJECT_ROOT%\frontend\dist\GETTING_STARTED.md" >nul
@@ -98,10 +100,11 @@ REM Step 4: Sign Rust binaries (if requested)
 REM -----------------------------------------------------------
 if %SIGN%==1 (
     echo [4/5] Signing Rust binaries...
-    call :sign_file "%OUT_DIR%\tamux-daemon.exe"
-    call :sign_file "%OUT_DIR%\tamux.exe"
-    if exist "%OUT_DIR%\tamux-mcp.exe"     call :sign_file "%OUT_DIR%\tamux-mcp.exe"
-    if exist "%OUT_DIR%\tamux-gateway.exe"  call :sign_file "%OUT_DIR%\tamux-gateway.exe"
+    call :sign_file "%OUT_DIR%\zorai-daemon.exe"
+    call :sign_file "%OUT_DIR%\zorai.exe"
+    call :sign_file "%OUT_DIR%\zoi.exe"
+    if exist "%OUT_DIR%\zorai-mcp.exe"     call :sign_file "%OUT_DIR%\zorai-mcp.exe"
+    if exist "%OUT_DIR%\zorai-gateway.exe"  call :sign_file "%OUT_DIR%\zorai-gateway.exe"
     echo       Done.
 ) else (
     echo [4/5] Skipping code signing (pass --sign to enable).
@@ -112,23 +115,23 @@ REM Step 5: Build Electron installer (portable + NSIS)
 REM -----------------------------------------------------------
 echo [5/5] Building Electron app...
 cd /d "%PROJECT_ROOT%\frontend"
-del /Q "%PROJECT_ROOT%\frontend\release\tamux*" >nul 2>nul
-del /Q "%PROJECT_ROOT%\frontend\release\amux*" >nul 2>nul
+del /Q "%PROJECT_ROOT%\frontend\release\zorai*" >nul 2>nul
+del /Q "%PROJECT_ROOT%\frontend\release\zorai*" >nul 2>nul
 
 if %SIGN%==1 (
     REM electron-builder reads CSC_LINK and CSC_KEY_PASSWORD for signing
-    if defined TAMUX_SIGN_CERT (
-        set CSC_LINK=%TAMUX_SIGN_CERT%
+    if defined ZORAI_SIGN_CERT (
+        set CSC_LINK=%ZORAI_SIGN_CERT%
     ) else (
-        if defined AMUX_SIGN_CERT (
-        set CSC_LINK=%AMUX_SIGN_CERT%
+        if defined ZORAI_SIGN_CERT (
+        set CSC_LINK=%ZORAI_SIGN_CERT%
         )
     )
-    if defined TAMUX_SIGN_PASSWORD (
-        set CSC_KEY_PASSWORD=%TAMUX_SIGN_PASSWORD%
+    if defined ZORAI_SIGN_PASSWORD (
+        set CSC_KEY_PASSWORD=%ZORAI_SIGN_PASSWORD%
     ) else (
-        if defined AMUX_SIGN_PASSWORD (
-        set CSC_KEY_PASSWORD=%AMUX_SIGN_PASSWORD%
+        if defined ZORAI_SIGN_PASSWORD (
+        set CSC_KEY_PASSWORD=%ZORAI_SIGN_PASSWORD%
         )
     )
 )
@@ -140,10 +143,10 @@ if errorlevel 1 (
 )
 
 REM Copy Electron artifacts to dist-release
-if exist "%PROJECT_ROOT%\frontend\release\tamux-portable.exe" (
-    copy /Y "%PROJECT_ROOT%\frontend\release\tamux-portable.exe" "%OUT_DIR%\" >nul
+if exist "%PROJECT_ROOT%\frontend\release\zorai-portable.exe" (
+    copy /Y "%PROJECT_ROOT%\frontend\release\zorai-portable.exe" "%OUT_DIR%\" >nul
 )
-for %%f in ("%PROJECT_ROOT%\frontend\release\tamux Setup*.exe") do (
+for %%f in ("%PROJECT_ROOT%\frontend\release\zorai Setup*.exe") do (
     copy /Y "%%f" "%OUT_DIR%\" >nul
 )
 echo       Done.
@@ -159,15 +162,16 @@ echo.
 echo  Output:   %OUT_DIR%\
 echo.
 echo  Binaries:
-echo    tamux.exe             CLI
-echo    tamux-daemon.exe      Daemon
-echo    tamux-tui.exe         TUI
-echo    tamux-mcp.exe         MCP server
-echo    tamux-gateway.exe     Chat gateway
+echo    zorai.exe             CLI
+echo    zoi.exe               CLI alias
+echo    zorai-daemon.exe      Daemon
+echo    zorai-tui.exe         TUI
+echo    zorai-mcp.exe         MCP server
+echo    zorai-gateway.exe     Chat gateway
 echo.
 echo  Electron:
-echo    tamux-portable.exe    Portable app
-echo    tamux Setup *.exe     NSIS installer
+echo    zorai-portable.exe    Portable app
+echo    zorai Setup *.exe     NSIS installer
 echo.
 if %SIGN%==0 (
     echo  NOTE: Binaries are NOT signed. Run with --sign to sign.
@@ -193,30 +197,30 @@ if errorlevel 1 (
     goto :eof
 )
 
-if defined TAMUX_SIGN_CERT (
+if defined ZORAI_SIGN_CERT (
     REM PFX file signing
-    signtool sign /f "%TAMUX_SIGN_CERT%" /p "%TAMUX_SIGN_PASSWORD%" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%FILE%"
+    signtool sign /f "%ZORAI_SIGN_CERT%" /p "%ZORAI_SIGN_PASSWORD%" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%FILE%"
     goto :eof
 )
 
-if defined AMUX_SIGN_CERT (
+if defined ZORAI_SIGN_CERT (
     REM Legacy PFX file signing
-    signtool sign /f "%AMUX_SIGN_CERT%" /p "%AMUX_SIGN_PASSWORD%" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%FILE%"
+    signtool sign /f "%ZORAI_SIGN_CERT%" /p "%ZORAI_SIGN_PASSWORD%" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%FILE%"
     goto :eof
 )
 
-if defined TAMUX_SIGN_THUMBPRINT (
+if defined ZORAI_SIGN_THUMBPRINT (
     REM Certificate store signing (hardware token / cert store)
-    signtool sign /sha1 "%TAMUX_SIGN_THUMBPRINT%" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%FILE%"
+    signtool sign /sha1 "%ZORAI_SIGN_THUMBPRINT%" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%FILE%"
     goto :eof
 )
 
-if defined AMUX_SIGN_THUMBPRINT (
+if defined ZORAI_SIGN_THUMBPRINT (
     REM Legacy certificate store signing (hardware token / cert store)
-    signtool sign /sha1 "%AMUX_SIGN_THUMBPRINT%" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%FILE%"
+    signtool sign /sha1 "%ZORAI_SIGN_THUMBPRINT%" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "%FILE%"
     goto :eof
 )
 
 echo       WARNING: No signing certificate configured.
-echo       Set TAMUX_SIGN_CERT + TAMUX_SIGN_PASSWORD (PFX file)
-echo       or TAMUX_SIGN_THUMBPRINT (certificate store).
+echo       Set ZORAI_SIGN_CERT + ZORAI_SIGN_PASSWORD (PFX file)
+echo       or ZORAI_SIGN_THUMBPRINT (certificate store).

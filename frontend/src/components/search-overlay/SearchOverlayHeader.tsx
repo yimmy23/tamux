@@ -10,7 +10,7 @@ export function SearchOverlayHeader({
     return (
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
             <div style={{ display: "grid", gap: 2 }}>
-                <span className="amux-panel-title" style={{ color: "var(--mission)" }}>Live Search</span>
+                <span className="zorai-panel-title" style={{ color: "var(--mission)" }}>Live Search</span>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>Buffer Recall</span>
             </div>
             {query ? (

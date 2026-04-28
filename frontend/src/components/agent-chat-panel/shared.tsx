@@ -23,7 +23,7 @@ export function MetricRibbon({ items }: { items: Array<{ label: string; value: s
                         background: "var(--bg-secondary)",
                     }}
                 >
-                    <div className="amux-panel-title">{item.label}</div>
+                    <div className="zorai-panel-title">{item.label}</div>
                     <div
                         style={{
                             fontSize: "var(--text-md)",
@@ -77,7 +77,7 @@ export function ContextCard({ label, value, href }: { label: string; value: stri
                 background: "var(--bg-secondary)",
             }}
         >
-            <div className="amux-panel-title">{label}</div>
+            <div className="zorai-panel-title">{label}</div>
             {href ? (
                 <a
                     href={href}

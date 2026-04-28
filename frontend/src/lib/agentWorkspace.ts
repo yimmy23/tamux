@@ -204,7 +204,7 @@ export async function provisionAgentWorkspaceTerminals(opts: {
     const workspaceDirSlug = shouldSandbox ? buildWorkspaceDirSlug(trimmedTitle) : null;
     // Use $HOME expansion — the actual absolute path will be resolved in the shell
     let workspaceDir: string | null = workspaceDirSlug
-        ? `$HOME/.tamux/workspaces/${workspaceDirSlug}`
+        ? `$HOME/.zorai/workspaces/${workspaceDirSlug}`
         : null;
 
     // Don't use workspaceDir as cwd yet — it doesn't exist. Use opts.cwd for session start.

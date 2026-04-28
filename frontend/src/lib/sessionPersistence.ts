@@ -97,6 +97,7 @@ export function captureSession(): PersistedSession {
                 height: panel.height,
                 status: panel.status,
                 sessionId: panel.sessionId,
+                profileId: panel.profileId,
                 url: panel.url,
                 cwd: panel.cwd,
                 userRenamed: panel.userRenamed || undefined,
@@ -175,14 +176,14 @@ export function saveWorkspaceTopology(): void {
   scheduleJsonWrite(TOPOLOGY_FILE, data, 200);
 }
 
-/** Save the current session to the amux data directory. */
+/** Save the current session to the zorai data directory. */
 export function saveSession(): void {
   const data = captureSession();
   scheduleJsonWrite(SESSION_FILE, data, 300);
   saveWorkspaceTopology();
 }
 
-/** Load a persisted session from the amux data directory. Returns null if nothing stored. */
+/** Load a persisted session from the zorai data directory. Returns null if nothing stored. */
 export async function loadSession(): Promise<PersistedSession | null> {
   const diskSession = await readPersistedJson<PersistedSession>(SESSION_FILE);
   if (diskSession?.version === VERSION) {

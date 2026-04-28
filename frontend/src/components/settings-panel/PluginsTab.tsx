@@ -361,7 +361,7 @@ export function PluginsTab() {
           No plugins installed
         </div>
         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-          Run <code style={{ fontFamily: "var(--font-mono)" }}>tamux plugin add &lt;name&gt;</code> to install a plugin, then configure it here.
+          Run <code style={{ fontFamily: "var(--font-mono)" }}>zorai plugin add &lt;name&gt;</code> to install a plugin, then configure it here.
         </div>
       </div>
     );

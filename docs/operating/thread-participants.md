@@ -86,4 +86,4 @@ Current UI behavior:
 ## Related Docs
 
 - [Agent Directives](../tui/agent-directives.md)
-- [How tamux Works](../how-tamux-works.md)
+- [How Zorai Works](../how-zorai-works.md)
