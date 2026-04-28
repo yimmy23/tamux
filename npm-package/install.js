@@ -290,7 +290,7 @@ function getInstallUsageHint(isGlobalInstall, globalBinDir) {
     return "zorai: run 'zorai --help' once your npm global bin directory is on PATH, and open a new shell if it is not recognized immediately";
   }
 
-  return "zorai: run with 'npx zorai --help' (or 'npm exec zorai -- --help') after a local install";
+  return "zorai: run with 'npx zor-ai --help' (or 'npm exec zor-ai -- --help') after a local install";
 }
 
 function prependDirectoryToPath(env, directory) {

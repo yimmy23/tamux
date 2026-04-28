@@ -386,12 +386,12 @@ fn spawn_direct_upgrade(
 
 fn run_npm_upgrade() -> Result<()> {
     let status = Command::new(npm_command())
-        .args(["install", "-g", "zorai@latest"])
+        .args(["install", "-g", "zor-ai@latest"])
         .status()
         .context("failed to launch npm; ensure Node.js and npm are installed and on PATH")?;
 
     if !status.success() {
-        bail!("npm install -g zorai@latest failed");
+        bail!("npm install -g zor-ai@latest failed");
     }
 
     Ok(())

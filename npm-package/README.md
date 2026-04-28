@@ -13,7 +13,7 @@ Project homepage:
 Quick start:
 
 ```bash
-npm install -g zorai
+npm install -g zor-ai
 zorai --help
 ```
 

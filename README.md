@@ -45,15 +45,15 @@ After a quick-install or direct-binary install, `zorai upgrade` reuses the direc
 ### NPM
 
 ```bash
-npm install -g zorai
+npm install -g zor-ai
 zorai --help
 
 # or install locally in a project:
-npm install zorai
-npx zorai --help
+npm install zor-ai
+npx zor-ai --help
 ```
 
-If `npm install -g zorai` succeeds but `zorai` is still not found on macOS, your npm global bin directory is not on `PATH` yet:
+If `npm install -g zor-ai` succeeds but `zorai` is still not found on macOS, your npm global bin directory is not on `PATH` yet:
 
 ```bash
 export PATH="$(npm config get prefix)/bin:$PATH"

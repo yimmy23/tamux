@@ -79,7 +79,7 @@ test("npm package exposes zoi as an alias for the zorai launcher", function () {
 test("getInstallUsageHint recommends npx for local installs", function () {
   assert.equal(
     install.getInstallUsageHint(false),
-    "zorai: run with 'npx zorai --help' (or 'npm exec zorai -- --help') after a local install"
+    "zor-ai: run with 'npx zor-ai --help' (or 'npm exec zor-ai -- --help') after a local install"
   );
 });
 

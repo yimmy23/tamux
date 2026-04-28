@@ -256,9 +256,9 @@ release:create:
 
       ### Install
       \`\`\`
-      npx zorai
+      npm install -g zor-ai
       # or
-      curl -fsSL https://zorai.dev/install.sh | sh
+      curl -fsSL https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.sh | sh
       \`\`\`
       "
   rules:
