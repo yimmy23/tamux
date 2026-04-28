@@ -2,8 +2,10 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::time::Duration;
 
-use zorai_protocol::{parse_npm_latest_version, ZoraiUpdateStatus, ZORAI_NPM_LATEST_URL};
 use anyhow::{anyhow, bail, Context, Result};
+use zorai_protocol::{
+    parse_npm_latest_version, ZoraiUpdateStatus, ZORAI_NPM_LATEST_URL, ZORAI_NPM_PACKAGE,
+};
 
 use crate::commands::common::find_sibling_binary;
 
@@ -287,9 +289,9 @@ fn looks_like_npm_install(exe_path: &Path) -> bool {
         .map(|component| component.as_os_str().to_string_lossy().to_ascii_lowercase())
         .collect();
 
-    lowered
-        .windows(3)
-        .any(|window| window[0] == "node_modules" && window[1] == "zorai" && window[2] == "bin")
+    lowered.windows(3).any(|window| {
+        window[0] == "node_modules" && window[1] == ZORAI_NPM_PACKAGE && window[2] == "bin"
+    })
 }
 
 fn looks_like_source_build(exe_path: &Path) -> bool {
@@ -385,13 +387,15 @@ fn spawn_direct_upgrade(
 }
 
 fn run_npm_upgrade() -> Result<()> {
+    let package = format!("{ZORAI_NPM_PACKAGE}@latest");
     let status = Command::new(npm_command())
-        .args(["install", "-g", "zor-ai@latest"])
+        .args(["install", "-g"])
+        .arg(&package)
         .status()
         .context("failed to launch npm; ensure Node.js and npm are installed and on PATH")?;
 
     if !status.success() {
-        bail!("npm install -g zor-ai@latest failed");
+        bail!("npm install -g {package} failed");
     }
 
     Ok(())
@@ -518,7 +522,7 @@ mod tests {
     fn detects_npm_install_source_from_node_modules_path() {
         let source = detect_install_source(
             None,
-            Path::new("/usr/local/lib/node_modules/zorai/bin/zorai"),
+            Path::new("/usr/local/lib/node_modules/zor-ai/bin/zorai"),
         );
 
         assert!(matches!(source, InstallSource::Npm));

@@ -2,8 +2,8 @@ use semver::Version;
 
 use crate::InboxNotification;
 
-pub const ZORAI_NPM_PACKAGE: &str = "zorai";
-pub const ZORAI_NPM_LATEST_URL: &str = "https://registry.npmjs.org/zorai/latest";
+pub const ZORAI_NPM_PACKAGE: &str = "zor-ai";
+pub const ZORAI_NPM_LATEST_URL: &str = "https://registry.npmjs.org/zor-ai/latest";
 pub const ZORAI_UPDATE_NOTIFICATION_ID: &str = "zorai-update-available";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +117,15 @@ mod tests {
     }
 
     #[test]
+    fn npm_update_metadata_uses_published_package_name() {
+        assert_eq!(ZORAI_NPM_PACKAGE, "zor-ai");
+        assert_eq!(
+            ZORAI_NPM_LATEST_URL,
+            "https://registry.npmjs.org/zor-ai/latest"
+        );
+    }
+
+    #[test]
     fn accepts_versions_with_v_prefix() {
         let status = ZoraiUpdateStatus::from_versions("v0.2.3", "v0.2.4")
             .expect("status should normalize v-prefixed versions");
@@ -165,7 +174,7 @@ mod tests {
 
         assert!(notice.contains("Run `zorai upgrade`"));
         assert!(!notice.contains("npm"));
-        assert!(!notice.contains("zorai@latest"));
+        assert!(!notice.contains("zor-ai@latest"));
     }
 
     #[test]
