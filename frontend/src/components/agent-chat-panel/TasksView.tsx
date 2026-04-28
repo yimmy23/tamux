@@ -99,7 +99,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
   const [historyMinApprovals, setHistoryMinApprovals] = useState(0);
   const [historyMinDurationMinutes, setHistoryMinDurationMinutes] = useState(0);
 
-  const amux = getBridge();
+  const zorai = getBridge();
   const goalRunsSupported = goalRunSupportAvailable();
   const activeWorkspace = useWorkspaceStore((state) => state.activeWorkspace());
   const createThread = useAgentStore((state) => state.createThread);
@@ -135,17 +135,17 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
   }, [goalRunsSupported]);
 
   const refreshHeartbeat = useCallback(async () => {
-    if (!amux?.agentHeartbeatGetItems) {
+    if (!zorai?.agentHeartbeatGetItems) {
       return;
     }
 
     try {
-      const result = await amux.agentHeartbeatGetItems();
+      const result = await zorai.agentHeartbeatGetItems();
       setHeartbeatItems(Array.isArray(result) ? (result as HeartbeatItem[]) : []);
     } catch {
       /* silent */
     }
-  }, [amux]);
+  }, [zorai]);
 
   useEffect(() => {
     void refreshTasks();
@@ -164,11 +164,11 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
   }, [refreshGoalRuns, refreshHeartbeat, refreshRuns, refreshTasks]);
 
   useEffect(() => {
-    if (!amux?.onAgentEvent) {
+    if (!zorai?.onAgentEvent) {
       return;
     }
 
-    const unsubscribe = amux.onAgentEvent((event: any) => {
+    const unsubscribe = zorai.onAgentEvent((event: any) => {
       if (!event?.type) {
         return;
       }
@@ -186,14 +186,14 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
     });
 
     return () => unsubscribe?.();
-  }, [amux, refreshGoalRuns, refreshRuns, refreshTasks]);
+  }, [zorai, refreshGoalRuns, refreshRuns, refreshTasks]);
 
   const addTask = async () => {
-    if (!newTaskTitle.trim() || !amux?.agentAddTask) {
+    if (!newTaskTitle.trim() || !zorai?.agentAddTask) {
       return;
     }
 
-    await amux.agentAddTask({
+    await zorai.agentAddTask({
       title: newTaskTitle.trim(),
       description: (newTaskDescription || newTaskTitle).trim(),
       priority: "normal",
@@ -262,17 +262,17 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
   };
 
   const cancelTask = async (taskId: string) => {
-    if (!amux?.agentCancelTask) {
+    if (!zorai?.agentCancelTask) {
       return;
     }
-    await amux.agentCancelTask(taskId);
+    await zorai.agentCancelTask(taskId);
     void refreshTasks();
     void refreshRuns();
   };
 
   const openTaskThread = useCallback(
     async (task: ThreadTarget) => {
-      if (!task.thread_id || !amux?.agentGetThread) {
+      if (!task.thread_id || !zorai?.agentGetThread) {
         return;
       }
 
@@ -285,7 +285,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
         return;
       }
 
-      const remoteThread = (await amux.agentGetThread(
+      const remoteThread = (await zorai.agentGetThread(
         task.thread_id,
         {
           messageLimit:
@@ -319,7 +319,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
     },
     [
       addMessage,
-      amux,
+      zorai,
       createThread,
       onOpenThreadView,
       reactChatHistoryPageSize,

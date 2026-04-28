@@ -62,7 +62,7 @@ export function SearchOverlay({ style, className }: SearchOverlayProps = {}) {
   }, [activePaneId, open]);
 
   if (!open) return null;
-  const rootClassName = className ? `amux-shell-card ${className}` : "amux-shell-card";
+  const rootClassName = className ? `zorai-shell-card ${className}` : "zorai-shell-card";
   const clearAndClose = () => {
     clearTerminalSearch(activePaneId);
     toggle();

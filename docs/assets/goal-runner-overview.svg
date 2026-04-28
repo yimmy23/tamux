@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820" fill="none">
   <rect width="1280" height="820" rx="28" fill="#0E1726"/>
   <rect x="24" y="24" width="1232" height="772" rx="24" fill="#101C2E" stroke="#24415E"/>
-  <text x="52" y="78" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="32" font-weight="700">tamux Goal Runner Operator View</text>
+  <text x="52" y="78" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="32" font-weight="700">Zorai Goal Runner Operator View</text>
   <text x="52" y="108" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="18">Schematic: queue metrics, approval-aware state, and step-level controls in one surface.</text>
 
   <rect x="48" y="146" width="336" height="610" rx="20" fill="#15253C" stroke="#2A4A6B"/>

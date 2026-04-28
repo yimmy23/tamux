@@ -101,33 +101,33 @@ export function registerPaneTerminalController({
       searchAddon.clearDecorations();
     },
     searchHistory: async (query, limit = 8) => {
-      const amux = getBridge();
-      if (!amux?.searchManagedHistory || !sessionReadyRef.current) return false;
-      await amux.searchManagedHistory(paneId, query, limit);
+      const zorai = getBridge();
+      if (!zorai?.searchManagedHistory || !sessionReadyRef.current) return false;
+      await zorai.searchManagedHistory(paneId, query, limit);
       return true;
     },
     generateSkill: async (query, title) => {
-      const amux = getBridge();
-      if (!amux?.generateManagedSkill || !sessionReadyRef.current) return false;
-      await amux.generateManagedSkill(paneId, query ?? null, title ?? null);
+      const zorai = getBridge();
+      if (!zorai?.generateManagedSkill || !sessionReadyRef.current) return false;
+      await zorai.generateManagedSkill(paneId, query ?? null, title ?? null);
       return true;
     },
     findSymbol: async (workspaceRoot, symbol, limit = 16) => {
-      const amux = getBridge();
-      if (!amux?.findManagedSymbol || !sessionReadyRef.current) return false;
-      await amux.findManagedSymbol(paneId, workspaceRoot, symbol, limit);
+      const zorai = getBridge();
+      if (!zorai?.findManagedSymbol || !sessionReadyRef.current) return false;
+      await zorai.findManagedSymbol(paneId, workspaceRoot, symbol, limit);
       return true;
     },
     listSnapshots: async (workspaceId) => {
-      const amux = getBridge();
-      if (!amux?.listSnapshots || !sessionReadyRef.current) return false;
-      await amux.listSnapshots(paneId, workspaceId ?? null);
+      const zorai = getBridge();
+      if (!zorai?.listSnapshots || !sessionReadyRef.current) return false;
+      await zorai.listSnapshots(paneId, workspaceId ?? null);
       return true;
     },
     restoreSnapshot: async (snapshotId) => {
-      const amux = getBridge();
-      if (!amux?.restoreSnapshot || !sessionReadyRef.current) return false;
-      await amux.restoreSnapshot(paneId, snapshotId);
+      const zorai = getBridge();
+      if (!zorai?.restoreSnapshot || !sessionReadyRef.current) return false;
+      await zorai.restoreSnapshot(paneId, snapshotId);
       return true;
     },
   });

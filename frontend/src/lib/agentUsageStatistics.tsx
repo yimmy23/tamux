@@ -3,7 +3,7 @@ import { getBridge } from "./bridge";
 import type React from "react";
 import { ActionButton, EmptyPanel, MetricRibbon, SectionTitle } from "../components/agent-chat-panel/shared";
 
-const STATISTICS_WINDOWS: Array<{ value: AmuxStatisticsWindow; label: string }> = [
+const STATISTICS_WINDOWS: Array<{ value: ZoraiStatisticsWindow; label: string }> = [
     { value: "today", label: "Today" },
     { value: "7d", label: "7d" },
     { value: "30d", label: "30d" },
@@ -13,8 +13,8 @@ const STATISTICS_WINDOWS: Array<{ value: AmuxStatisticsWindow; label: string }> 
 const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 
 export function AgentStatisticsView() {
-    const [window, setWindow] = useState<AmuxStatisticsWindow>("all");
-    const [snapshot, setSnapshot] = useState<AmuxAgentStatisticsSnapshot | null>(null);
+    const [window, setWindow] = useState<ZoraiStatisticsWindow>("all");
+    const [snapshot, setSnapshot] = useState<ZoraiAgentStatisticsSnapshot | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -38,7 +38,7 @@ export function AgentStatisticsView() {
             .agentGetStatistics(window)
             .then((result) => {
                 if (cancelled) return;
-                setSnapshot((result ?? null) as AmuxAgentStatisticsSnapshot | null);
+                setSnapshot((result ?? null) as ZoraiAgentStatisticsSnapshot | null);
             })
             .catch((fetchError) => {
                 if (cancelled) return;

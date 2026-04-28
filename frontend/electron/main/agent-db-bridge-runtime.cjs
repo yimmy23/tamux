@@ -18,7 +18,7 @@ function createAgentDbBridgeRuntime(options) {
     let agentBridgeRestartCooldownUntil = 0;
 
     function getCliPath() {
-        return getDaemonPath().replace(/tamux-daemon/, 'tamux').replace(/tamux-daemon\.exe/, 'tamux.exe');
+        return getDaemonPath().replace(/zorai-daemon/, 'zorai').replace(/zorai-daemon\.exe/, 'zorai.exe');
     }
 
     function resolveOldestPending(pending, matcher = null) {
@@ -53,7 +53,7 @@ function createAgentDbBridgeRuntime(options) {
 
         const cliPath = getCliPath();
         if (!fs.existsSync(cliPath)) {
-            logToFile('warn', 'agent bridge: tamux CLI not found', { cliPath });
+            logToFile('warn', 'agent bridge: zorai CLI not found', { cliPath });
             return null;
         }
 
@@ -210,7 +210,7 @@ function createAgentDbBridgeRuntime(options) {
         if (dbBridge && !dbBridge.process.killed) return dbBridge;
         const cliPath = getCliPath();
         if (!fs.existsSync(cliPath)) {
-            logToFile('warn', 'db bridge: tamux CLI not found', { cliPath });
+            logToFile('warn', 'db bridge: zorai CLI not found', { cliPath });
             return null;
         }
 

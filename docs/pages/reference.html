@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Reference · tamux</title>
+  <title>Reference · Zorai</title>
   <meta name="description" content="Reference for paths, providers, build and run commands, packaging, notifications, and static-site publishing." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -30,11 +30,11 @@
             <tr><th>Thing</th><th>Path</th></tr>
           </thead>
           <tbody>
-            <tr><td>Linux config</td><td><code>~/.config/tamux/config.json</code></td></tr>
-            <tr><td>macOS config</td><td><code>~/Library/Application Support/tamux/config.json</code></td></tr>
-            <tr><td>Windows config</td><td><code>%APPDATA%\tamux\config.json</code></td></tr>
-            <tr><td>Unix runtime data</td><td><code>~/.tamux/</code></td></tr>
-            <tr><td>Windows runtime data</td><td><code>%LOCALAPPDATA%\tamux\</code></td></tr>
+            <tr><td>Linux config</td><td><code>~/.config/zorai/config.json</code></td></tr>
+            <tr><td>macOS config</td><td><code>~/Library/Application Support/zorai/config.json</code></td></tr>
+            <tr><td>Windows config</td><td><code>%APPDATA%\zorai\config.json</code></td></tr>
+            <tr><td>Unix runtime data</td><td><code>~/.zorai/</code></td></tr>
+            <tr><td>Windows runtime data</td><td><code>%LOCALAPPDATA%\zorai\</code></td></tr>
             <tr><td>Source build outputs</td><td><code>target/debug</code> or <code>target/release</code></td></tr>
           </tbody>
         </table>
@@ -42,7 +42,7 @@
 
       <section>
         <h2>Providers</h2>
-        <p>tamux supports multiple upstream provider types, including OpenAI-compatible, Anthropic Messages, Alibaba Coding Plan, and custom endpoints. See <a href="providers.html">Providers</a> for the daemon-backed provider catalog and <a href="custom-providers.html">Custom Providers</a> for <code>custom-auth.yaml</code> setup.</p>
+        <p>Zorai supports multiple upstream provider types, including OpenAI-compatible, Anthropic Messages, Alibaba Coding Plan, and custom endpoints. See <a href="providers.html">Providers</a> for the daemon-backed provider catalog and <a href="custom-providers.html">Custom Providers</a> for <code>custom-auth.yaml</code> setup.</p>
         <table>
           <thead>
             <tr><th>Provider</th><th>ID</th><th>Default model</th><th>Base URL</th></tr>
@@ -79,11 +79,11 @@
 cargo build --release
 
 # Individual crates
-cargo build --release -p tamux-daemon
-cargo build --release -p tamux-cli
-cargo build --release -p tamux-gateway
-cargo build --release -p tamux-mcp
-cargo build --release -p tamux-protocol
+cargo build --release -p zorai-daemon
+cargo build --release -p zorai-cli
+cargo build --release -p zorai-gateway
+cargo build --release -p zorai-mcp
+cargo build --release -p zorai-protocol
 
 # Frontend bundle
 cd frontend
@@ -98,17 +98,17 @@ npm run build:electron</code></pre>
       <section>
         <h2>Run</h2>
         <pre><code># Start the daemon
-cargo run --release --bin tamux-daemon
+cargo run --release --bin zorai-daemon
 
 # Launch Electron
 cd frontend
 npm run dev:electron
 
 # CLI examples
-cargo run --release --bin tamux -- list
-cargo run --release --bin tamux -- new --shell bash
-cargo run --release --bin tamux -- attach &lt;session-id&gt;
-cargo run --release --bin tamux -- ping</code></pre>
+cargo run --release --bin zorai -- list
+cargo run --release --bin zorai -- new --shell bash
+cargo run --release --bin zorai -- attach &lt;session-id&gt;
+cargo run --release --bin zorai -- ping</code></pre>
       </section>
 
       <section>
@@ -138,12 +138,12 @@ cargo run --release --bin tamux -- ping</code></pre>
     "webhook_listener_max_age_secs": 300
   }
 }</code></pre>
-        <p>Signed requests must include <code>x-tamux-timestamp-ms</code> and <code>x-tamux-signature-256</code>. The signature is computed as HMAC-SHA256 over <code>&lt;timestamp_ms&gt; + "." + &lt;raw_request_body&gt;</code>. Valid requests return <code>202 Accepted</code>; stale, missing, or invalid signatures return <code>401 Unauthorized</code>.</p>
+        <p>Signed requests must include <code>x-zorai-timestamp-ms</code> and <code>x-zorai-signature-256</code>. The signature is computed as HMAC-SHA256 over <code>&lt;timestamp_ms&gt; + "." + &lt;raw_request_body&gt;</code>. Valid requests return <code>202 Accepted</code>; stale, missing, or invalid signatures return <code>401 Unauthorized</code>.</p>
       </section>
 
       <section>
         <h2>Notifications &amp; voice</h2>
-        <p>tamux supports in-app attention notifications via OSC sequences and voice workflows through STT/TTS integrations.</p>
+        <p>Zorai supports in-app attention notifications via OSC sequences and voice workflows through STT/TTS integrations.</p>
         <pre><code>printf ']9;Claude needs attention'
 printf ']777;notify;Claude;Waiting for your input'
 printf ']99;Codex finished task'</code></pre>

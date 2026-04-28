@@ -1,6 +1,6 @@
 ---
 name: plugin-extension-task
-description: Use for creating, installing, configuring, testing, or troubleshooting Tamux plugins and extensions.
+description: Use for creating, installing, configuring, testing, or troubleshooting Zorai plugins and extensions.
 recommended_skills:
   - plugin-creator
   - skill-creator

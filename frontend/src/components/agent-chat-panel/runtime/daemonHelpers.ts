@@ -157,8 +157,8 @@ export async function loadDaemonThreadPageIntoLocalState({
   setThreadTodos: (threadId: string, todos: AgentTodoItem[]) => void;
   setDaemonTodosByThread: Dispatch<SetStateAction<Record<string, AgentTodoItem[]>>>;
 }): Promise<boolean> {
-  const amux = getAgentBridge();
-  if (!amux?.agentGetThread) return false;
+  const zorai = getAgentBridge();
+  if (!zorai?.agentGetThread) return false;
 
   const stateBeforeLoad = useAgentStore.getState();
   const localThreadId = requestedLocalThreadId
@@ -170,7 +170,7 @@ export async function loadDaemonThreadPageIntoLocalState({
     )?.id;
   if (!localThreadId) return false;
 
-  const remotePayload = await amux.agentGetThread(daemonThreadId, {
+  const remotePayload = await zorai.agentGetThread(daemonThreadId, {
     messageLimit: messageLimit ?? resolveReactChatHistoryMessageLimit(
       useAgentStore.getState().agentSettings.react_chat_history_page_size,
     ) ?? null,

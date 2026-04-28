@@ -50,8 +50,8 @@ export type ChatViewProps = {
   onDismissParticipantSuggestion: (threadId: string, suggestionId: string) => void | Promise<void>;
   onStopStreaming: () => void;
   onDeleteMessage?: (messageId: string) => void;
-  onPinMessage?: (messageId: string) => Promise<AmuxThreadMessagePinResult | null>;
-  onUnpinMessage?: (messageId: string) => Promise<AmuxThreadMessagePinResult | null>;
+  onPinMessage?: (messageId: string) => Promise<ZoraiThreadMessagePinResult | null>;
+  onUnpinMessage?: (messageId: string) => Promise<ZoraiThreadMessagePinResult | null>;
   onUpdateReasoningEffort: (value: string) => void;
   canStartGoalRun: boolean;
   onStartGoalRun: (text: string) => Promise<boolean>;

@@ -13,9 +13,9 @@ const {
 const {
     configureChromiumRuntimePaths,
     deleteDataPath,
-    ensureTamuxDataDir,
+    ensureZoraiDataDir,
     installBundledGuidelines,
-    getTamuxDataDir,
+    getZoraiDataDir,
     logToFile,
     openDataPath,
     readJsonFile,
@@ -57,8 +57,8 @@ const { createWhatsAppRuntime } = require('./main/whatsapp-runtime.cjs');
 const { createWindowRuntime } = require('./main/window-runtime.cjs');
 const { createChildLogEnv } = require('./main/log-env.cjs');
 
-const DAEMON_NAME = 'tamux-daemon';
-const CLI_NAME = 'tamux';
+const DAEMON_NAME = 'zorai-daemon';
+const CLI_NAME = 'zorai';
 const DAEMON_TCP_HOST = '127.0.0.1';
 const DAEMON_TCP_PORT = 17563;
 const CLONE_SESSION_PREFIX = 'clone:';
@@ -207,7 +207,7 @@ const SETUP_DEPENDENCY_DEFS = {
     git: { name: 'git', label: 'git', command: 'git' },
     uv: { name: 'uv', label: 'uv', command: 'uv' },
     aline: { name: 'aline', label: 'Aline CLI', command: 'aline' },
-    'tamux-mcp': { name: 'tamux-mcp', label: 'tamux-mcp', command: 'tamux-mcp' },
+    'zorai-mcp': { name: 'zorai-mcp', label: 'zorai-mcp', command: 'zorai-mcp' },
 };
 
 const SETUP_REQUIRED_BY_PROFILE = {
@@ -215,7 +215,7 @@ const SETUP_REQUIRED_BY_PROFILE = {
     desktop: [],
 };
 
-const SETUP_OPTIONAL = ['aline', 'tamux-mcp'];
+const SETUP_OPTIONAL = ['aline', 'zorai-mcp'];
 
 function setupInstallHint(depName) {
     const platform = process.platform;
@@ -240,8 +240,8 @@ function setupInstallHint(depName) {
             return ['curl -LsSf https://astral.sh/uv/install.sh | sh'];
         case 'aline':
             return ['uv tool install aline-ai'];
-        case 'tamux-mcp':
-            return ['cargo build --release -p tamux-mcp'];
+        case 'zorai-mcp':
+            return ['cargo build --release -p zorai-mcp'];
         default:
             return [];
     }
@@ -296,9 +296,9 @@ function checkSetupPrereqs(_event, profile = 'desktop') {
         daemonPath,
         cliPath: getCliPath(),
         installRoot: path.dirname(daemonPath),
-        dataDir: ensureTamuxDataDir(),
+        dataDir: ensureZoraiDataDir(),
         gettingStartedPath: resolveGettingStartedPath(),
-        whatIsTamux: 'Zorai is an agent-first orchestration shell with threads, goals, workspaces, and operator tools backed by the existing daemon runtime.',
+        whatIsZorai: 'Zorai is an agent-first orchestration shell with threads, goals, workspaces, and operator tools backed by the existing daemon runtime.',
     };
 }
 
@@ -317,9 +317,9 @@ function checkMcpHealth(_event, servers = {}) {
         : [];
 
     checks.push({
-        name: 'tamux',
-        command: 'tamux-mcp',
-        exists: commandExists('tamux-mcp'),
+        name: 'zorai',
+        command: 'zorai-mcp',
+        exists: commandExists('zorai-mcp'),
     });
 
     for (const [name, value] of entries) {
@@ -343,7 +343,7 @@ function getDaemonEndpoint() {
         return { host: DAEMON_TCP_HOST, port: DAEMON_TCP_PORT };
     }
     const runtimeDir = process.env.XDG_RUNTIME_DIR || '/tmp';
-    return { path: path.join(runtimeDir, 'tamux-daemon.sock') };
+    return { path: path.join(runtimeDir, 'zorai-daemon.sock') };
 }
 
 async function checkDaemonRunning() {
@@ -361,24 +361,24 @@ async function checkDaemonRunning() {
 
 async function spawnDaemon() {
     const isRunning = await checkDaemonRunning();
-    if (isRunning) { console.log('[tamux] Daemon already running'); return true; }
+    if (isRunning) { console.log('[zorai] Daemon already running'); return true; }
 
     const daemonPath = getDaemonPath();
-    console.log('[tamux] Spawning daemon:', daemonPath);
+    console.log('[zorai] Spawning daemon:', daemonPath);
     logToFile('info', 'spawning daemon', { daemonPath });
 
     if (!fs.existsSync(daemonPath)) {
-        console.error('[tamux] Daemon binary not found at:', daemonPath);
+        console.error('[zorai] Daemon binary not found at:', daemonPath);
         logToFile('error', 'daemon binary missing', { daemonPath });
         return false;
     }
 
     const daemonEnv = getChildProcessEnv();
-    if (!daemonEnv.TAMUX_WHATSAPP_NODE_BIN || !String(daemonEnv.TAMUX_WHATSAPP_NODE_BIN).trim()) {
-        daemonEnv.TAMUX_WHATSAPP_NODE_BIN = process.execPath;
+    if (!daemonEnv.ZORAI_WHATSAPP_NODE_BIN || !String(daemonEnv.ZORAI_WHATSAPP_NODE_BIN).trim()) {
+        daemonEnv.ZORAI_WHATSAPP_NODE_BIN = process.execPath;
     }
-    if (!daemonEnv.TAMUX_WHATSAPP_BRIDGE_PATH || !String(daemonEnv.TAMUX_WHATSAPP_BRIDGE_PATH).trim()) {
-        daemonEnv.TAMUX_WHATSAPP_BRIDGE_PATH = path.join(__dirname, 'whatsapp-bridge.cjs');
+    if (!daemonEnv.ZORAI_WHATSAPP_BRIDGE_PATH || !String(daemonEnv.ZORAI_WHATSAPP_BRIDGE_PATH).trim()) {
+        daemonEnv.ZORAI_WHATSAPP_BRIDGE_PATH = path.join(__dirname, 'whatsapp-bridge.cjs');
     }
 
     const daemon = spawn(daemonPath, [], {
@@ -387,7 +387,7 @@ async function spawnDaemon() {
         env: daemonEnv,
     });
     daemon.on('error', (err) => {
-        console.error('[tamux] Daemon error:', err);
+        console.error('[zorai] Daemon error:', err);
         logToFile('error', 'daemon process error', { message: err.message });
     });
     daemon.unref();
@@ -395,12 +395,12 @@ async function spawnDaemon() {
     for (let i = 0; i < 20; i++) {
         await new Promise(r => setTimeout(r, 250));
         if (await checkDaemonRunning()) {
-            console.log('[tamux] Daemon ready');
+            console.log('[zorai] Daemon ready');
             logToFile('info', 'daemon ready');
             return true;
         }
     }
-    console.warn('[tamux] Daemon did not become ready');
+    console.warn('[zorai] Daemon did not become ready');
     logToFile('error', 'daemon did not become ready');
     return false;
 }
@@ -423,7 +423,7 @@ function registerIpcHandlers() {
         deleteDataPath,
         deleteFsPath,
         discordSendMessage: sendDiscordMessage,
-        ensureTamuxDataDir,
+        ensureZoraiDataDir,
         getAvailableShells,
         getDaemonPath,
         getFsPathInfo,

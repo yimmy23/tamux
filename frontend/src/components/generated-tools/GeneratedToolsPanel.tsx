@@ -74,15 +74,15 @@ export function GeneratedToolsPanel({ enabled }: { enabled: boolean }) {
     );
 
     const refreshTools = async (statusOverride?: string) => {
-        const amux = getBridge();
-        if (!amux?.agentListGeneratedTools) {
+        const zorai = getBridge();
+        if (!zorai?.agentListGeneratedTools) {
             setStatusText("Generated tool bridge is unavailable in this runtime.");
             return;
         }
 
         setBusyAction("refresh");
         try {
-            const result = await amux.agentListGeneratedTools();
+            const result = await zorai.agentListGeneratedTools();
             if (isErrorResult(result)) {
                 throw new Error(result.error);
             }
@@ -113,8 +113,8 @@ export function GeneratedToolsPanel({ enabled }: { enabled: boolean }) {
     };
 
     const runTool = async (tool: GeneratedToolRecord) => {
-        const amux = getBridge();
-        if (!amux?.agentRunGeneratedTool) {
+        const zorai = getBridge();
+        if (!zorai?.agentRunGeneratedTool) {
             setStatusText("Generated tool bridge is unavailable in this runtime.");
             return;
         }
@@ -129,7 +129,7 @@ export function GeneratedToolsPanel({ enabled }: { enabled: boolean }) {
 
         setBusyAction(`run:${tool.id}`);
         try {
-            const result = await amux.agentRunGeneratedTool(tool.id, argsJson) as GeneratedToolActionResult;
+            const result = await zorai.agentRunGeneratedTool(tool.id, argsJson) as GeneratedToolActionResult;
             if (isErrorResult(result)) {
                 throw new Error(result.error);
             }
@@ -147,15 +147,15 @@ export function GeneratedToolsPanel({ enabled }: { enabled: boolean }) {
     };
 
     const activateTool = async (tool: GeneratedToolRecord) => {
-        const amux = getBridge();
-        if (!amux?.agentActivateGeneratedTool) {
+        const zorai = getBridge();
+        if (!zorai?.agentActivateGeneratedTool) {
             setStatusText("Generated tool bridge is unavailable in this runtime.");
             return;
         }
 
         setBusyAction(`activate:${tool.id}`);
         try {
-            const result = await amux.agentActivateGeneratedTool(tool.id) as GeneratedToolActionResult;
+            const result = await zorai.agentActivateGeneratedTool(tool.id) as GeneratedToolActionResult;
             if (isErrorResult(result)) {
                 throw new Error(result.error);
             }
@@ -172,15 +172,15 @@ export function GeneratedToolsPanel({ enabled }: { enabled: boolean }) {
     };
 
     const promoteTool = async (tool: GeneratedToolRecord) => {
-        const amux = getBridge();
-        if (!amux?.agentPromoteGeneratedTool) {
+        const zorai = getBridge();
+        if (!zorai?.agentPromoteGeneratedTool) {
             setStatusText("Generated tool bridge is unavailable in this runtime.");
             return;
         }
 
         setBusyAction(`promote:${tool.id}`);
         try {
-            const result = await amux.agentPromoteGeneratedTool(tool.id) as GeneratedToolActionResult;
+            const result = await zorai.agentPromoteGeneratedTool(tool.id) as GeneratedToolActionResult;
             if (isErrorResult(result)) {
                 throw new Error(result.error);
             }
@@ -197,15 +197,15 @@ export function GeneratedToolsPanel({ enabled }: { enabled: boolean }) {
     };
 
     const retireTool = async (tool: GeneratedToolRecord) => {
-        const amux = getBridge();
-        if (!amux?.agentRetireGeneratedTool) {
+        const zorai = getBridge();
+        if (!zorai?.agentRetireGeneratedTool) {
             setStatusText("Generated tool bridge is unavailable in this runtime.");
             return;
         }
 
         setBusyAction(`retire:${tool.id}`);
         try {
-            const result = await amux.agentRetireGeneratedTool(tool.id) as GeneratedToolActionResult;
+            const result = await zorai.agentRetireGeneratedTool(tool.id) as GeneratedToolActionResult;
             if (isErrorResult(result)) {
                 throw new Error(result.error);
             }

@@ -30,8 +30,8 @@ function createManagedCommandAwaiter(
 ): { promise: Promise<ManagedAwaitResult>; cancel: () => void } {
   let cancel = () => {};
   const promise = new Promise<ManagedAwaitResult>((resolve) => {
-    const amux = getBridge();
-    if (!amux?.onTerminalEvent) {
+    const zorai = getBridge();
+    if (!zorai?.onTerminalEvent) {
       resolve({ status: "timeout" });
       return;
     }
@@ -51,7 +51,7 @@ function createManagedCommandAwaiter(
       resolve(result);
     };
 
-    const unsubscribe = amux.onTerminalEvent((event: any) => {
+    const unsubscribe = zorai.onTerminalEvent((event: any) => {
       if (!event || event.paneId !== paneId) return;
       if (event.type === "approval-required") {
         const approvalCommand = String(event.approval?.command ?? "").trim();
@@ -150,8 +150,8 @@ export async function executeReadTerminalContent(
 }
 
 export async function executeTerminalCommand(callId: string, name: string, command: string, paneId?: string): Promise<ToolResult> {
-  const amux = getBridge();
-  if (!amux?.sendTerminalInput && !amux?.executeManagedCommand) {
+  const zorai = getBridge();
+  if (!zorai?.sendTerminalInput && !zorai?.executeManagedCommand) {
     return { toolCallId: callId, name, content: "Error: Terminal bridge not available." };
   }
   const targetPaneId = resolvePaneIdByRef(paneId);
@@ -168,10 +168,10 @@ export async function executeTerminalCommand(callId: string, name: string, comma
     const securityLevel = useSettingsStore.getState().settings.securityLevel;
     const risk = assessCommandRisk(normalizedCommand, securityLevel);
 
-    if (amux?.executeManagedCommand) {
+    if (zorai?.executeManagedCommand) {
       const managedAwaiter = createManagedCommandAwaiter(targetPaneId, normalizedCommand, "agent");
       try {
-        await amux.executeManagedCommand(targetPaneId, {
+        await zorai.executeManagedCommand(targetPaneId, {
           command: normalizedCommand,
           rationale: "Agent requested terminal tool execution",
           allowNetwork: useSettingsStore.getState().settings.sandboxNetworkEnabled,
@@ -203,8 +203,8 @@ export async function executeTerminalCommand(callId: string, name: string, comma
     if (risk.requiresApproval) {
       return { toolCallId: callId, name, content: `Error: Managed execution unavailable; blocked risky command (${risk.riskLevel}): ${risk.reasons.join(", ")}` };
     }
-    if (amux?.sendTerminalInput) {
-      await amux.sendTerminalInput(targetPaneId, encodeBase64(`${normalizedCommand}\r`));
+    if (zorai?.sendTerminalInput) {
+      await zorai.sendTerminalInput(targetPaneId, encodeBase64(`${normalizedCommand}\r`));
       return { toolCallId: callId, name, content: `Command sent directly to pane ${targetPaneId} (managed policy unavailable).` };
     }
     return { toolCallId: callId, name, content: "Error: No terminal execution path available." };
@@ -222,12 +222,12 @@ function formatBytes(bytes: number | null | undefined): string {
 }
 
 export async function executeGetSystemInfo(callId: string, name: string): Promise<ToolResult> {
-  const amux = getBridge();
-  if (!amux?.getSystemMonitorSnapshot) {
+  const zorai = getBridge();
+  if (!zorai?.getSystemMonitorSnapshot) {
     return { toolCallId: callId, name, content: "Error: System monitor not available." };
   }
   try {
-    const snapshot = await amux.getSystemMonitorSnapshot({ processLimit: 5 });
+    const snapshot = await zorai.getSystemMonitorSnapshot({ processLimit: 5 });
     const info = [
       `CPU: ${snapshot.cpu?.usagePercent?.toFixed(1) ?? "N/A"}%`,
       `RAM: ${formatBytes(snapshot.memory?.usedBytes)} / ${formatBytes(snapshot.memory?.totalBytes)}`,

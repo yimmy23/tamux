@@ -7,7 +7,7 @@ description: Use when you need to drive SynthLabs generation through backend rou
 
 ## Overview
 
-Use this skill for repeatable, backend-first SynthLabs workflows such as listing sessions, creating sessions, and calling generation routes from a healthy local instance. This skill documents existing SynthLabs HTTP routes and tamux workflow guidance only. Do not assume dedicated tamux SynthLabs tools exist.
+Use this skill for repeatable, backend-first SynthLabs workflows such as listing sessions, creating sessions, and calling generation routes from a healthy local instance. This skill documents existing SynthLabs HTTP routes and zorai workflow guidance only. Do not assume dedicated zorai SynthLabs tools exist.
 
 ## When to Use
 
@@ -16,7 +16,7 @@ Use this skill when:
 - the task can stay in HTTP-driven session or generation flows,
 - the operator wants scripted or repeatable dataset-generation steps,
 - a healthy SynthLabs backend already exists,
-- or long-running generation work should be attached to a tamux task or goal.
+- or long-running generation work should be attached to a zorai task or goal.
 
 Do not use this skill when:
 
@@ -29,7 +29,7 @@ Do not use this skill when:
 - Start backend-first: list or create sessions over HTTP before opening the browser.
 - Prefer `GET /api/sessions` and `POST /api/sessions` for repeatable session discovery and session setup.
 - Hand DEEP-mode, verifier review, data preview, and other visually inspected flows to `synthlabs-ui-operator`.
-- Use tamux tasks or goals for long-running generation work so retries, notes, and follow-up review stay attached to the run.
+- Use zorai tasks or goals for long-running generation work so retries, notes, and follow-up review stay attached to the run.
 
 ## Backend vs. UI Routing
 
@@ -58,8 +58,8 @@ Create a minimal session shell before generation work:
 curl -fsS -X POST "http://localhost:8787/api/sessions" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "tamux generation run",
-    "source": "tamux"
+    "name": "zorai generation run",
+    "source": "zorai"
   }'
 ```
 
@@ -85,7 +85,7 @@ curl -fsS -X POST "http://localhost:8787/api/ai/generate" \
 
 ## Long-Running Work
 
-- For large dataset batches, queue the work in a tamux task or goal instead of treating it as a single chat turn.
+- For large dataset batches, queue the work in a zorai task or goal instead of treating it as a single chat turn.
 - Record the backend URL, session ID, model, and whether the run stayed backend-only or required a UI handoff.
 - Use the UI operator skill for post-run verification, DEEP-mode continuation, or manual review of generated data.
 
@@ -94,4 +94,4 @@ curl -fsS -X POST "http://localhost:8787/api/ai/generate" \
 - Calling AI generation routes with a plaintext provider key instead of a SynthLabs-compatible encrypted `apiKey` value.
 - Opening the browser for session creation or listing even though the backend routes already cover the task.
 - Treating DEEP mode or verifier review as backend-only workflows.
-- Running a large generation batch in one ad hoc turn instead of attaching it to a tamux task or goal.
+- Running a large generation batch in one ad hoc turn instead of attaching it to a zorai task or goal.

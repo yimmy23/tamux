@@ -11,9 +11,9 @@ export function useTerminalClipboard({
     sendTextInput: (text: string, options?: { bracketed?: boolean; trackHistory?: boolean }) => Promise<boolean>;
 }) {
     const writeClipboardText = useCallback(async (text: string) => {
-        const amux = getBridge();
-        if (amux?.writeClipboardText) {
-            await amux.writeClipboardText(text);
+        const zorai = getBridge();
+        if (zorai?.writeClipboardText) {
+            await zorai.writeClipboardText(text);
             return;
         }
 
@@ -23,9 +23,9 @@ export function useTerminalClipboard({
     }, []);
 
     const readClipboardText = useCallback(async (): Promise<string> => {
-        const amux = getBridge();
-        if (amux?.readClipboardText) {
-            return (await amux.readClipboardText()) ?? "";
+        const zorai = getBridge();
+        if (zorai?.readClipboardText) {
+            return (await zorai.readClipboardText()) ?? "";
         }
 
         if (navigator.clipboard?.readText) {

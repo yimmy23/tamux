@@ -71,7 +71,7 @@ async function createClient(settings: AgentSettings): Promise<any | null> {
 
     const options: Record<string, string> = {
         api_key: settings.honcho_api_key.trim(),
-        workspaceId: settings.honcho_workspace_id.trim() || "tamux",
+        workspaceId: settings.honcho_workspace_id.trim() || "zorai",
     };
     if (settings.honcho_base_url.trim()) {
         options.base_url = settings.honcho_base_url.trim();

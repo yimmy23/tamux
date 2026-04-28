@@ -25,21 +25,21 @@ function WhatsAppConnector({ allowlistState }: { allowlistState: WhatsAppAllowli
     useEffect(() => {
         checkStatus();
 
-        const amux = getBridge();
-        const unsubWhatsAppQr = amux?.onWhatsAppQR?.((dataUrl: string | null) => {
+        const zorai = getBridge();
+        const unsubWhatsAppQr = zorai?.onWhatsAppQR?.((dataUrl: string | null) => {
             if (dataUrl && dataUrl.trim()) {
                 setQrDataUrl(dataUrl);
                 setStatus("qr_ready");
                 setError(null);
             }
         });
-        const unsubWhatsAppConnected = amux?.onWhatsAppConnected?.((info: { phone?: string | null }) => {
+        const unsubWhatsAppConnected = zorai?.onWhatsAppConnected?.((info: { phone?: string | null }) => {
             setPhoneInfo(info?.phone ?? null);
             setStatus("connected");
             setQrDataUrl(null);
             setError(null);
         });
-        const unsubWhatsAppDisconnected = amux?.onWhatsAppDisconnected?.((payload: { reason?: string | null } | null | undefined) => {
+        const unsubWhatsAppDisconnected = zorai?.onWhatsAppDisconnected?.((payload: { reason?: string | null } | null | undefined) => {
             setStatus("disconnected");
             setQrDataUrl(null);
             setPhoneInfo(null);
@@ -49,7 +49,7 @@ function WhatsAppConnector({ allowlistState }: { allowlistState: WhatsAppAllowli
                 setError(null);
             }
         });
-        const unsubWhatsAppError = amux?.onWhatsAppError?.((message: string) => {
+        const unsubWhatsAppError = zorai?.onWhatsAppError?.((message: string) => {
             setError(typeof message === "string" ? message : "WhatsApp link error");
             setStatus("error");
         });
@@ -64,9 +64,9 @@ function WhatsAppConnector({ allowlistState }: { allowlistState: WhatsAppAllowli
 
     async function checkStatus() {
         try {
-            const amux = getBridge();
-            if (!amux?.whatsappStatus) return;
-            const result = await amux.whatsappStatus();
+            const zorai = getBridge();
+            if (!zorai?.whatsappStatus) return;
+            const result = await zorai.whatsappStatus();
             const nextStatus = normalizeWhatsAppStatus(result.status);
             setStatus(nextStatus);
             if (result.phone) setPhoneInfo(result.phone);
@@ -89,13 +89,13 @@ function WhatsAppConnector({ allowlistState }: { allowlistState: WhatsAppAllowli
         setStatus("connecting");
         setError(null);
         try {
-            const amux = getBridge();
-            if (!amux?.whatsappConnect) {
+            const zorai = getBridge();
+            if (!zorai?.whatsappConnect) {
                 setError("WhatsApp link bridge is not available.");
                 setStatus("error");
                 return;
             }
-            const result = await amux.whatsappConnect();
+            const result = await zorai.whatsappConnect();
             if (result && !result.ok) {
                 setError(result.error || "Failed to start WhatsApp bridge");
                 setStatus("error");
@@ -243,7 +243,7 @@ function WhatsAppConnector({ allowlistState }: { allowlistState: WhatsAppAllowli
                     background: "rgba(166, 227, 161, 0.05)", border: "1px solid rgba(166, 227, 161, 0.15)",
                     fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5,
                 }}>
-                    Session is active. Messages from allowed contacts will be forwarded to amux.
+                    Session is active. Messages from allowed contacts will be forwarded to zorai.
                     The session persists across restarts — no need to re-scan.
                 </div>
             ) : null}
@@ -286,11 +286,11 @@ export function GatewayTab({
                 <SettingRow label="Command Prefix">
                     <TextInput value={settings.gateway_command_prefix}
                         onChange={(value) => updateSetting("gateway_command_prefix", value)}
-                        placeholder="!tamux" />
+                        placeholder="!zorai" />
                 </SettingRow>
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, marginBottom: 12, lineHeight: 1.5 }}>
-                    The gateway bridges chat platforms to {ZORAI_APP_NAME}. The <code style={{ color: "var(--accent)" }}>tamux-gateway</code> binary
-                    reads tokens from environment variables (<code>TAMUX_SLACK_TOKEN</code>, <code>TAMUX_TELEGRAM_TOKEN</code>, etc.)
+                    The gateway bridges chat platforms to {ZORAI_APP_NAME}. The <code style={{ color: "var(--accent)" }}>zorai-gateway</code> binary
+                    reads tokens from environment variables (<code>ZORAI_SLACK_TOKEN</code>, <code>ZORAI_TELEGRAM_TOKEN</code>, etc.)
                     or from the values configured below.
                 </div>
             </Section>

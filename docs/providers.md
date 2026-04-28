@@ -1,9 +1,9 @@
-# tamux Providers
+# Zorai Providers
 
-tamux loads providers in two layers:
+Zorai loads providers in two layers:
 
 1. Built-in providers compiled into the daemon.
-2. Additional custom providers from `custom-auth.yaml` in the tamux runtime directory.
+2. Additional custom providers from `custom-auth.yaml` in the Zorai runtime directory.
 
 The daemon is the source of truth. TUI and React request the hydrated provider catalog from the daemon so model fetch, validation, main agents, and sub-agents all use the same provider definitions.
 

@@ -3,7 +3,7 @@
 Status: proposed RFC for implementation planning
 Last updated: 2026-04-09
 
-This RFC defines the governance semantics for orchestrated execution in tamux.
+This RFC defines the governance semantics for orchestrated execution in Zorai.
 
 For shared concepts and invariants, see [orchestration-safety-architecture.md](./orchestration-safety-architecture.md). For execution semantics, see [pty-fanout-orchestration-spec.md](./pty-fanout-orchestration-spec.md).
 
@@ -290,7 +290,7 @@ For every material transition, the audit path MUST capture at least:
 - intervention, containment, rollback, or compensation events
 - final disposition
 
-Execution provenance SHOULD be tamper-evident or hash-linked in a way that is compatible with tamux's broader WORM direction.
+Execution provenance SHOULD be tamper-evident or hash-linked in a way that is compatible with Zorai's broader WORM direction.
 
 If provenance completeness is below the required threshold for a side-effecting step, governance SHOULD block advancement.
 
@@ -356,7 +356,7 @@ The UX SHOULD explain the governing reason, not merely show a generic denial.
 The following questions should be resolved before implementation crosses subsystem boundaries:
 
 1. **Policy ownership boundary**
-   - Which policy inputs are computed inside `amux-daemon` versus supplied by higher-level callers?
+   - Which policy inputs are computed inside `zorai-daemon` versus supplied by higher-level callers?
 2. **Risk scoring determinism**
    - Do we want a purely rule-based classifier first, or a weighted score with rule overrides?
 3. **Approval persistence model**

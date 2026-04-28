@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Security · tamux</title>
-  <meta name="description" content="How tamux secures autonomous work through governance, structured verdicts, approvals, provenance, critique, and containment." />
+  <title>Security · Zorai</title>
+  <meta name="description" content="How Zorai secures autonomous work through governance, structured verdicts, approvals, provenance, critique, and containment." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -20,12 +20,12 @@
       <header class="page-header">
         <p class="eyebrow">Trust boundary</p>
         <h1>Security</h1>
-        <p class="lead">How tamux secures autonomous work through governance, structured verdicts, approvals, provenance, critique, and containment.</p>
+        <p class="lead">How Zorai secures autonomous work through governance, structured verdicts, approvals, provenance, critique, and containment.</p>
       </header>
 
       <section>
         <h2>What security means</h2>
-        <p>tamux security is not a thin approval prompt in front of shell execution. It is a governance and trust architecture around transitions, side effects, provenance, isolation, critique, operator authority, and auditability.</p>
+        <p>Zorai security is not a thin approval prompt in front of shell execution. It is a governance and trust architecture around transitions, side effects, provenance, isolation, critique, operator authority, and auditability.</p>
         <div class="callout info">
           <strong>Short version:</strong> security governs transitions, risk is structural, approvals are bound to scope, provenance is a safety dependency, and risky actions can be critiqued before they run.
         </div>
@@ -43,12 +43,12 @@
 
       <section>
         <h2>Security starts before execution</h2>
-        <p>tamux evaluates risk before side effects occur. Policy inputs, sandbox availability, critique preflight, approval requirements, and provenance readiness checks all happen before the system treats a risky action as admissible.</p>
+        <p>Zorai evaluates risk before side effects occur. Policy inputs, sandbox availability, critique preflight, approval requirements, and provenance readiness checks all happen before the system treats a risky action as admissible.</p>
       </section>
 
       <section>
         <h2>Governance acts on transitions</h2>
-        <p>One of the most important design ideas in tamux security is that governance applies to transitions, not only to raw commands.</p>
+        <p>One of the most important design ideas in Zorai security is that governance applies to transitions, not only to raw commands.</p>
         <ul class="check-list">
           <li>run admission</li>
           <li>lane admission</li>
@@ -62,7 +62,7 @@
 
       <section>
         <h2>Risk and blast radius</h2>
-        <p>Risk is structural rather than cosmetic. tamux considers destructiveness, scope, reversibility, privilege, externality, and concurrency. Blast radius is compositional: lane-local, stage-wide, and run-wide.</p>
+        <p>Risk is structural rather than cosmetic. Zorai considers destructiveness, scope, reversibility, privilege, externality, and concurrency. Blast radius is compositional: lane-local, stage-wide, and run-wide.</p>
       </section>
 
       <section>
@@ -88,13 +88,13 @@
 
       <section>
         <h2>Sandboxing, containment, and compensation</h2>
-        <p>Sandboxing is part of governance, not an afterthought. The policy layer can require sandbox use, network restriction, narrowed filesystem scope, serial-only execution, restricted retries, or manual resume. When constraints cannot be honored, tamux should escalate rather than silently proceed.</p>
+        <p>Sandboxing is part of governance, not an afterthought. The policy layer can require sandbox use, network restriction, narrowed filesystem scope, serial-only execution, restricted retries, or manual resume. When constraints cannot be honored, Zorai should escalate rather than silently proceed.</p>
         <p>The runtime is also designed to express more realistic outcomes than simple success/failure: blocked, contained, compensated, partially compensated, or break-glass execution under elevated scrutiny.</p>
       </section>
 
       <section>
         <h2>Critique and provenance</h2>
-        <p>tamux already ships an adversarial self-critique layer with advocate, critic, and arbiter roles. It can challenge risky plans before execution, propose safer rewrites, or require explicit confirmation when risk remains high.</p>
+        <p>Zorai already ships an adversarial self-critique layer with advocate, critic, and arbiter roles. It can challenge risky plans before execution, propose safer rewrites, or require explicit confirmation when risk remains high.</p>
         <p>Provenance is also part of admissibility. The system should be able to show who initiated the action, what policy inputs were evaluated, what verdict was returned, what approval authorized it, and what actually ran.</p>
       </section>
 

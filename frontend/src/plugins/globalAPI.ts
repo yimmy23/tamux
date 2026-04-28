@@ -3,15 +3,14 @@ import { CommandRegistryAPI } from "../registry/commandRegistry";
 import { PluginManager, type Plugin } from "./PluginManager";
 
 const getPluginManager = (): PluginManager => {
-  if (!window.__tamuxPluginManager && !window.__amuxPluginManager) {
-    window.__tamuxPluginManager = new PluginManager();
-    window.__amuxPluginManager = window.__tamuxPluginManager;
+  if (!window.__zoraiPluginManager) {
+    window.__zoraiPluginManager = new PluginManager();
   }
 
-  return window.__tamuxPluginManager ?? window.__amuxPluginManager!;
+  return window.__zoraiPluginManager!;
 };
 
-export interface AmuxPluginAPI {
+export interface ZoraiPluginAPI {
   registerComponent: typeof ComponentRegistryAPI.register;
   registerCommand: typeof CommandRegistryAPI.register;
   registerPlugin: (plugin: Plugin) => void;
@@ -23,16 +22,14 @@ export interface AmuxPluginAPI {
 
 declare global {
   interface Window {
-    TamuxApi?: AmuxPluginAPI;
-    AmuxApi?: AmuxPluginAPI;
-    __tamuxPluginManager?: PluginManager;
-    __amuxPluginManager?: PluginManager;
+    ZoraiApi?: ZoraiPluginAPI;
+    __zoraiPluginManager?: PluginManager;
   }
 }
 
 const pluginManager = getPluginManager();
 
-const pluginApi: AmuxPluginAPI = {
+const pluginApi: ZoraiPluginAPI = {
   registerComponent: ComponentRegistryAPI.register,
   registerCommand: CommandRegistryAPI.register,
   registerPlugin: (plugin: Plugin) => {
@@ -46,7 +43,6 @@ const pluginApi: AmuxPluginAPI = {
   getPlugins: () => pluginManager.listPlugins(),
 };
 
-window.TamuxApi = pluginApi;
-window.AmuxApi = pluginApi;
+window.ZoraiApi = pluginApi;
 
 export { pluginManager };

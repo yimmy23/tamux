@@ -1,5 +1,5 @@
 /**
- * Terminal theme definitions — 8 built-in themes matching amux-windows.
+ * Terminal theme definitions — 8 built-in themes matching zorai-windows.
  * Each theme has a 16-color ANSI palette + background/foreground/cursor/selection.
  */
 
@@ -84,7 +84,7 @@ function withAlpha(color: string, alpha: number): string {
 export const BUILTIN_THEMES: TerminalTheme[] = [
   {
     name: "Default Dark",
-    author: "tamux",
+    author: "zorai",
     colors: {
       background: "#1e1e1e",
       foreground: "#cccccc",

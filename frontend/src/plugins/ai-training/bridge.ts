@@ -3,7 +3,7 @@ import { KNOWN_AI_TRAINING_DEFINITIONS, createUnavailableAITraining } from "./de
 import type { DiscoveredAITraining } from "./types";
 
 type AITrainingBridge = {
-    discoverAITraining?: (workspacePath?: string | null) => Promise<AmuxAITrainingDiscoveryResult[]>;
+    discoverAITraining?: (workspacePath?: string | null) => Promise<ZoraiAITrainingDiscoveryResult[]>;
 };
 
 function getBridge(): AITrainingBridge | null {
@@ -11,7 +11,7 @@ function getBridge(): AITrainingBridge | null {
         return null;
     }
 
-    return window.tamux ?? window.amux ?? null;
+    return window.zorai ?? window.zorai ?? null;
 }
 
 export async function discoverAITrainingProfiles(workspacePath?: string | null): Promise<DiscoveredAITraining[]> {

@@ -369,10 +369,10 @@ export function useAgentChatPanelProviderValue(): {
     if (!targetThreadId) return;
 
     if (shouldUseDaemonRuntime(agentSettings.agent_backend)) {
-      const amux = getAgentBridge();
+      const zorai = getAgentBridge();
       const daemonThreadId = daemonThreadIdRef.current;
-      if (daemonThreadId && amux?.agentStopStream) {
-        void amux.agentStopStream(daemonThreadId);
+      if (daemonThreadId && zorai?.agentStopStream) {
+        void zorai.agentStopStream(daemonThreadId);
       }
     }
 
@@ -451,12 +451,12 @@ export function useAgentChatPanelProviderValue(): {
   }, [refreshSpawnedAgentRuns]);
 
   useEffect(() => {
-    const amux = getAgentBridge();
-    if (!amux?.onAgentEvent) {
+    const zorai = getAgentBridge();
+    if (!zorai?.onAgentEvent) {
       return;
     }
 
-    const unsubscribe = amux.onAgentEvent((event: any) => {
+    const unsubscribe = zorai.onAgentEvent((event: any) => {
       if (event?.type === "task_update") {
         void refreshSpawnedAgentRuns();
       }
@@ -527,11 +527,11 @@ export function useAgentChatPanelProviderValue(): {
       window.setTimeout(() => inputRef.current?.focus(), 50);
     };
 
-    window.addEventListener("tamux-agent-compose-image", handleComposeImage);
-    window.addEventListener("amux-agent-compose-image", handleComposeImage);
+    window.addEventListener("zorai-agent-compose-image", handleComposeImage);
+    window.addEventListener("zorai-agent-compose-image", handleComposeImage);
     return () => {
-      window.removeEventListener("tamux-agent-compose-image", handleComposeImage);
-      window.removeEventListener("amux-agent-compose-image", handleComposeImage);
+      window.removeEventListener("zorai-agent-compose-image", handleComposeImage);
+      window.removeEventListener("zorai-agent-compose-image", handleComposeImage);
     };
   }, []);
 
@@ -557,16 +557,16 @@ export function useAgentChatPanelProviderValue(): {
     return Boolean(getAgentBridge()?.agentGetThread);
   }, [activeThreadId, threads]);
   const openSpawnedThread = useCallback(async (run: AgentRun) => {
-    const amux = getAgentBridge();
+    const zorai = getAgentBridge();
     return openSpawnedAgentThreadFromRun({
       activeThreadId,
       threads,
       workspaces,
       run,
       messageLimit: resolveReactChatHistoryMessageLimit(agentSettings.react_chat_history_page_size) ?? null,
-      getRemoteThread: amux?.agentGetThread
+      getRemoteThread: zorai?.agentGetThread
         ? async (threadId, options): Promise<RemoteAgentThread | null> => {
-          const result = await amux.agentGetThread?.(threadId, options);
+          const result = await zorai.agentGetThread?.(threadId, options);
           return (result as RemoteAgentThread | null | undefined) ?? null;
         }
         : undefined,
@@ -590,12 +590,12 @@ export function useAgentChatPanelProviderValue(): {
   ]);
 
   const refreshThreadList = useCallback(async () => {
-    const amux = getAgentBridge();
-    if (!amux?.agentListThreads) {
+    const zorai = getAgentBridge();
+    if (!zorai?.agentListThreads) {
       return;
     }
 
-    const remoteThreads = await amux.agentListThreads().catch(() => []);
+    const remoteThreads = await zorai.agentListThreads().catch(() => []);
     if (!Array.isArray(remoteThreads)) {
       return;
     }
@@ -766,31 +766,31 @@ export function useAgentChatPanelProviderValue(): {
   }, [agentSettings.agent_backend, sendDaemonMessage, sendMessageLegacy]);
 
   const sendParticipantSuggestion = useCallback(async (threadId: string, suggestionId: string, forceSend = false) => {
-    const amux = getAgentBridge();
-    if (!amux?.agentSendParticipantSuggestion) {
+    const zorai = getAgentBridge();
+    if (!zorai?.agentSendParticipantSuggestion) {
       return;
     }
     if (forceSend && activeThreadId) {
       stopStreaming(activeThreadId);
     }
-    await amux.agentSendParticipantSuggestion({ threadId, suggestionId, sessionId: null });
+    await zorai.agentSendParticipantSuggestion({ threadId, suggestionId, sessionId: null });
   }, [activeThreadId, stopStreaming]);
 
   const dismissParticipantSuggestion = useCallback(async (threadId: string, suggestionId: string) => {
-    const amux = getAgentBridge();
-    if (!amux?.agentDismissParticipantSuggestion) {
+    const zorai = getAgentBridge();
+    if (!zorai?.agentDismissParticipantSuggestion) {
       return;
     }
-    await amux.agentDismissParticipantSuggestion({ threadId, suggestionId, sessionId: null });
+    await zorai.agentDismissParticipantSuggestion({ threadId, suggestionId, sessionId: null });
   }, []);
 
   const pinMessageForCompaction = useCallback(async (threadId: string, messageId: string) => {
     const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
     const daemonThreadId = thread?.daemonThreadId ?? (threadId === activeThreadId ? daemonThreadIdRef.current : null);
-    const amux = getAgentBridge();
+    const zorai = getAgentBridge();
 
-    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && amux?.agentPinThreadMessageForCompaction) {
-      const result = await amux.agentPinThreadMessageForCompaction(daemonThreadId, messageId) as AmuxThreadMessagePinResult;
+    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && zorai?.agentPinThreadMessageForCompaction) {
+      const result = await zorai.agentPinThreadMessageForCompaction(daemonThreadId, messageId) as ZoraiThreadMessagePinResult;
       if (result?.ok) {
         await reloadDaemonThreadIntoLocalState({
           daemonThreadId,
@@ -814,16 +814,16 @@ export function useAgentChatPanelProviderValue(): {
       message_id: messageId,
       current_pinned_chars: 0,
       pinned_budget_chars: 0,
-    } satisfies AmuxThreadMessagePinResult;
+    } satisfies ZoraiThreadMessagePinResult;
   }, [activeThreadId, agentSettings.agent_backend, setThreadTodos]);
 
   const unpinMessageForCompaction = useCallback(async (threadId: string, messageId: string) => {
     const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
     const daemonThreadId = thread?.daemonThreadId ?? (threadId === activeThreadId ? daemonThreadIdRef.current : null);
-    const amux = getAgentBridge();
+    const zorai = getAgentBridge();
 
-    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && amux?.agentUnpinThreadMessageForCompaction) {
-      const result = await amux.agentUnpinThreadMessageForCompaction(daemonThreadId, messageId) as AmuxThreadMessagePinResult;
+    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && zorai?.agentUnpinThreadMessageForCompaction) {
+      const result = await zorai.agentUnpinThreadMessageForCompaction(daemonThreadId, messageId) as ZoraiThreadMessagePinResult;
       if (result?.ok) {
         await reloadDaemonThreadIntoLocalState({
           daemonThreadId,
@@ -847,7 +847,7 @@ export function useAgentChatPanelProviderValue(): {
       message_id: messageId,
       current_pinned_chars: 0,
       pinned_budget_chars: 0,
-    } satisfies AmuxThreadMessagePinResult;
+    } satisfies ZoraiThreadMessagePinResult;
   }, [activeThreadId, agentSettings.agent_backend, setThreadTodos]);
 
   const handleSend = useCallback(() => {

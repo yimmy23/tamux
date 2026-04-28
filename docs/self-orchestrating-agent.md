@@ -1,10 +1,10 @@
 # Self-Orchestrating Agent Architecture
 
-tamux's daemon agent is a **self-orchestrating system** — it can autonomously decompose goals, manage sub-agents, monitor its own health, recover from failures, learn from execution patterns, and escalate when it gets stuck. This document describes the architecture in detail.
+Zorai's daemon agent is a **self-orchestrating system** — it can autonomously decompose goals, manage sub-agents, monitor its own health, recover from failures, learn from execution patterns, and escalate when it gets stuck. This document describes the architecture in detail.
 
-For the broader current-system view covering daemon ownership, memory layers, persistence, clients, and self-orchestrating capabilities, see [how-tamux-works.md](./how-tamux-works.md).
+For the broader current-system view covering daemon ownership, memory layers, persistence, clients, and self-orchestrating capabilities, see [how-zorai-works.md](./how-zorai-works.md).
 
-> **Quick orientation:** The agent module lives at `crates/amux-daemon/src/agent/` and is split across many focused files and submodules organized by responsibility. The entry point is `engine.rs` (struct definition) with the main execution loop in `agent_loop.rs`.
+> **Quick orientation:** The agent module lives at `crates/zorai-daemon/src/agent/` and is split across many focused files and submodules organized by responsibility. The entry point is `engine.rs` (struct definition) with the main execution loop in `agent_loop.rs`.
 
 ---
 

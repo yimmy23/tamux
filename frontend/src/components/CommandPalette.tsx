@@ -45,8 +45,8 @@ export function CommandPalette({ style, className }: CommandPaletteProps = {}) {
     useWorkspaceStore.setState({ agentPanelOpen: true, commandPaletteOpen: false });
     window.setTimeout(() => {
       const detail = prompt.trim() ? { prompt: prompt.trim() } : {};
-      window.dispatchEvent(new CustomEvent("tamux-agent-compose-image", { detail }));
-      window.dispatchEvent(new CustomEvent("amux-agent-compose-image", { detail }));
+      window.dispatchEvent(new CustomEvent("zorai-agent-compose-image", { detail }));
+      window.dispatchEvent(new CustomEvent("zorai-agent-compose-image", { detail }));
     }, 0);
   };
 

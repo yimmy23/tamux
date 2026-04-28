@@ -170,14 +170,14 @@ describe("goalWorkspaceModel", () => {
       projectionFiles: [
         {
           relativePath: "dossier.json",
-          absolutePath: "/home/example/.tamux/goals/goal-1/dossier.json",
+          absolutePath: "/home/example/.zorai/goals/goal-1/dossier.json",
           sizeBytes: 42,
         },
       ],
     });
     expect(files.centerRows[0]).toMatchObject({
       text: "dossier.json",
-      targetFilePath: "/home/example/.tamux/goals/goal-1/dossier.json",
+      targetFilePath: "/home/example/.zorai/goals/goal-1/dossier.json",
     });
     expect(files.detailSections[0].rows.map((row) => row.text)).toContain("Size 42 bytes");
   });

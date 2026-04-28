@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Custom Providers · tamux</title>
-  <meta name="description" content="Configure additional tamux model providers with custom-auth.yaml." />
+  <title>Custom Providers · Zorai</title>
+  <meta name="description" content="Configure additional Zorai model providers with custom-auth.yaml." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -18,17 +18,17 @@
       <header class="page-header">
         <p class="eyebrow">Provider setup</p>
         <h1>Custom Providers</h1>
-        <p class="lead">Add named OpenAI-compatible or Anthropic-compatible providers without rebuilding tamux.</p>
+        <p class="lead">Add named OpenAI-compatible or Anthropic-compatible providers without rebuilding Zorai.</p>
       </header>
 
       <section>
         <h2>Location</h2>
-        <p>Create <code>custom-auth.yaml</code> in the tamux runtime directory:</p>
+        <p>Create <code>custom-auth.yaml</code> in the Zorai runtime directory:</p>
         <table>
           <thead><tr><th>Platform</th><th>Path</th></tr></thead>
           <tbody>
-            <tr><td>Linux/macOS</td><td><code>~/.tamux/custom-auth.yaml</code></td></tr>
-            <tr><td>Windows</td><td><code>%LOCALAPPDATA%\tamux\custom-auth.yaml</code></td></tr>
+            <tr><td>Linux/macOS</td><td><code>~/.zorai/custom-auth.yaml</code></td></tr>
+            <tr><td>Windows</td><td><code>%LOCALAPPDATA%\zorai\custom-auth.yaml</code></td></tr>
           </tbody>
         </table>
         <p>The daemon reloads this file before it sends provider catalog data to TUI or React and before model fetch or provider validation paths use a provider definition.</p>

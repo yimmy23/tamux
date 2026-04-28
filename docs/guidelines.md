@@ -1,4 +1,4 @@
-# tamux Guidelines
+# Zorai Guidelines
 
 Guidelines are local Markdown playbooks that sit above skills. A guideline does not replace a skill and does not execute anything by itself. It tells the agent what kind of task it is handling, which skills are likely relevant, what order to follow, and which failure modes to consider before work starts.
 
@@ -6,17 +6,17 @@ Use guidelines for task-shape decisions such as coding, debugging, research, bus
 
 ## How Guidelines Work
 
-tamux installs guideline documents into the runtime guidelines directory:
+Zorai installs guideline documents into the runtime guidelines directory:
 
 | Platform | Guidelines directory |
 |---|---|
-| Linux/macOS | `~/.tamux/guidelines` |
-| Windows | `%LOCALAPPDATA%\tamux\guidelines` |
+| Linux/macOS | `~/.zorai/guidelines` |
+| Windows | `%LOCALAPPDATA%\zorai\guidelines` |
 
 At startup and during packaged installation, bundled guidelines are copied into that directory without overwriting user-created files. The guidelines directory is a sibling of the skills directory:
 
 ```text
-~/.tamux/
+~/.zorai/
   guidelines/
   skills/
 ```
@@ -74,32 +74,32 @@ The body should stay concise and operational. A useful guideline normally has a 
 Install a custom guideline:
 
 ```bash
-tamux guideline install ./my-guideline.md
+zorai guideline install ./my-guideline.md
 ```
 
 Install with a different destination filename:
 
 ```bash
-tamux guideline install ./my-guideline.md --name team-coding.md
+zorai guideline install ./my-guideline.md --name team-coding.md
 ```
 
 Overwrite an existing guideline:
 
 ```bash
-tamux guideline install ./my-guideline.md --force
+zorai guideline install ./my-guideline.md --force
 ```
 
 The top-level install command also supports guidelines:
 
 ```bash
-tamux install guideline ./my-guideline.md
+zorai install guideline ./my-guideline.md
 ```
 
 List installed guidelines:
 
 ```bash
-tamux guideline list
-tamux guidelines list --json
+zorai guideline list
+zorai guidelines list --json
 ```
 
 The install command accepts Markdown files only and writes to the canonical runtime guidelines directory. It refuses to overwrite by default.
@@ -126,7 +126,7 @@ Use `discover_guidelines` for task selection and `list_guidelines` only when you
 
 ## Bundled Starter Catalog
 
-tamux ships starter guidelines for common everyday work:
+Zorai ships starter guidelines for common everyday work:
 
 - coding, debugging, refactoring, code review, frontend UI, CI failures, and testing
 - research, documentation, communication writing, content transformation, and explanation
@@ -150,7 +150,7 @@ The non-technical starter guidelines also route to bundled MIT-licensed skills s
 | [`coreyhaines31/marketingskills`](https://github.com/coreyhaines31/marketingskills) | CRO, analytics, lifecycle email, RevOps, sales enablement, growth loops, social content, SEO audits, and marketing experimentation. |
 | [`AbsolutelySkilled/AbsolutelySkilled`](https://github.com/AbsolutelySkilled/AbsolutelySkilled) | Spreadsheets, finance, support operations, customer success, product analytics, project execution, HR, legal operations, video production, and presentation design. |
 
-tamux bundles a focused subset rather than the full upstream catalogs to keep skill discovery useful for day-to-day business, marketing, creative, HR, sales, and operations tasks.
+Zorai bundles a focused subset rather than the full upstream catalogs to keep skill discovery useful for day-to-day business, marketing, creative, HR, sales, and operations tasks.
 
 ## When To Create A New Guideline
 

@@ -32,10 +32,10 @@ export function AuditPanel() {
 
   const handleCancelEscalation = () => {
     // Send cancel to daemon via IPC bridge
-    const amux = (window as unknown as Record<string, unknown>).tamux ??
-      (window as unknown as Record<string, unknown>).amux;
-    if (amux && typeof (amux as Record<string, unknown>).cancelEscalation === "function") {
-      void (amux as Record<string, (...args: unknown[]) => Promise<void>>).cancelEscalation(
+    const zorai = (window as unknown as Record<string, unknown>).zorai ??
+      (window as unknown as Record<string, unknown>).zorai;
+    if (zorai && typeof (zorai as Record<string, unknown>).cancelEscalation === "function") {
+      void (zorai as Record<string, (...args: unknown[]) => Promise<void>>).cancelEscalation(
         currentEscalation?.threadId,
       );
     }

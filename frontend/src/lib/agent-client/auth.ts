@@ -5,12 +5,12 @@ import type { ChatRequest, OpenAICodexAuthStatus, ResolvedProviderAuth } from ".
 export async function resolveProviderAuth(
   req: ChatRequest,
 ): Promise<ResolvedProviderAuth> {
-  const amux = getBridge();
+  const zorai = getBridge();
   const isChatGptSubscription =
     req.provider === "openai" && req.config.auth_source === "chatgpt_subscription";
   const status =
-    isChatGptSubscription && amux?.openAICodexAuthStatus
-      ? (await amux.openAICodexAuthStatus({
+    isChatGptSubscription && zorai?.openAICodexAuthStatus
+      ? (await zorai.openAICodexAuthStatus({
           refresh: true,
         })) as OpenAICodexAuthStatus
       : undefined;
@@ -18,8 +18,8 @@ export async function resolveProviderAuth(
     provider: req.provider,
     authSource: req.config.auth_source,
     configuredApiKey: req.config.api_key,
-    hasCodexStatusBridge: Boolean(amux?.openAICodexAuthStatus),
-    usesDaemonExecution: Boolean(amux?.agentSendMessage),
+    hasCodexStatusBridge: Boolean(zorai?.openAICodexAuthStatus),
+    usesDaemonExecution: Boolean(zorai?.agentSendMessage),
     status,
   });
 

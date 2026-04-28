@@ -18,11 +18,11 @@ export function AgentApprovalOverlay({ style, className }: AgentApprovalOverlayP
   async function handleDecision(status: ApprovalDecision) {
     if (!approval) return;
 
-    const amux = getBridge();
-    if (amux?.resolveManagedApproval) {
+    const zorai = getBridge();
+    if (zorai?.resolveManagedApproval) {
       const decision =
         status === "approved-session" ? "approve-session" : status === "denied" ? "deny" : "approve-once";
-      await amux.resolveManagedApproval(approval.paneId, approval.id, decision);
+      await zorai.resolveManagedApproval(approval.paneId, approval.id, decision);
     }
 
     resolveApproval(approval.id, status);

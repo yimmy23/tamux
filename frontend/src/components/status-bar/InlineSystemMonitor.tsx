@@ -11,8 +11,8 @@ export function InlineSystemMonitor() {
 
     useEffect(() => {
         let active = true;
-        const amux = getBridge();
-        const getSnapshot = amux?.getSystemMonitorSnapshot;
+        const zorai = getBridge();
+        const getSnapshot = zorai?.getSystemMonitorSnapshot;
         if (!getSnapshot) return;
 
         const fetchStats = async () => {

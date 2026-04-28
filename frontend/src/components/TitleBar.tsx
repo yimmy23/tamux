@@ -67,10 +67,10 @@ export function TitleBar() {
       toggleSettings();
     }
     window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent("tamux-open-settings-tab", {
+      window.dispatchEvent(new CustomEvent("zorai-open-settings-tab", {
         detail: { tab: "about" },
       }));
-      window.dispatchEvent(new CustomEvent("amux-open-settings-tab", {
+      window.dispatchEvent(new CustomEvent("zorai-open-settings-tab", {
         detail: { tab: "about" },
       }));
     }, 50);
@@ -138,16 +138,16 @@ export function TitleBar() {
   ]);
 
   useEffect(() => {
-    const amux = getBridge();
-    if (!amux?.onWindowState) return;
+    const zorai = getBridge();
+    if (!zorai?.onWindowState) return;
 
-    amux.getPlatform?.().then((value: string) => setPlatform(value));
+    zorai.getPlatform?.().then((value: string) => setPlatform(value));
 
-    const cleanup = amux.onWindowState((state: string) => {
+    const cleanup = zorai.onWindowState((state: string) => {
       setMaximized(state === "maximized");
     });
 
-    amux.windowIsMaximized?.().then((m: boolean) => setMaximized(m));
+    zorai.windowIsMaximized?.().then((m: boolean) => setMaximized(m));
 
     return cleanup;
   }, []);
@@ -177,12 +177,12 @@ export function TitleBar() {
     };
   }, [openMenuId]);
 
-  const hasAmux = typeof window !== "undefined" && ("tamux" in window || "amux" in window);
-  if (!hasAmux) return null;
+  const hasZorai = typeof window !== "undefined" && ("zorai" in window || "zorai" in window);
+  if (!hasZorai) return null;
   if (platform === null) return null;
   if (platform === "win32") return null;
 
-  const amux = getBridge();
+  const zorai = getBridge();
 
   return (
     <div
@@ -217,15 +217,15 @@ export function TitleBar() {
 
         {workspace && (
           <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
-            <span className="amux-chip" style={{ color: workspace.accentColor }}>
+            <span className="zorai-chip" style={{ color: workspace.accentColor }}>
               {workspace.name}
               {surface && <span style={{ color: "var(--text-muted)" }}>/{surface.name}</span>}
             </span>
 
-            <span className="amux-chip">provider {active_provider}</span>
+            <span className="zorai-chip">provider {active_provider}</span>
 
             <span
-              className="amux-chip"
+              className="zorai-chip"
               style={{
                 color: approvalCount > 0 ? "var(--approval)" : "var(--success)",
                 background: approvalCount > 0 ? "var(--approval-soft)" : "var(--success-soft)",
@@ -234,7 +234,7 @@ export function TitleBar() {
               {approvalCount > 0 ? `${approvalCount} approvals` : "safe lane"}
             </span>
 
-            <span className="amux-chip">trace {traceCount}</span>
+            <span className="zorai-chip">trace {traceCount}</span>
           </div>
         )}
       </div>
@@ -378,9 +378,9 @@ export function TitleBar() {
             </span>
           ) : null}
         </button>
-        <WindowButton label="─" onClick={() => amux?.windowMinimize?.()} />
-        <WindowButton label={maximized ? "❐" : "□"} onClick={() => amux?.windowMaximize?.()} />
-        <WindowButton label="✕" onClick={() => amux?.windowClose?.()} isClose />
+        <WindowButton label="─" onClick={() => zorai?.windowMinimize?.()} />
+        <WindowButton label={maximized ? "❐" : "□"} onClick={() => zorai?.windowMaximize?.()} />
+        <WindowButton label="✕" onClick={() => zorai?.windowClose?.()} isClose />
       </div>
     </div>
   );

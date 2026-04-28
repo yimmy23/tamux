@@ -36,7 +36,7 @@ type SettingsPanelProps = {
 };
 
 /**
- * Full settings panel matching tamux-windows SettingsWindow.
+ * Full settings panel matching zorai-windows SettingsWindow.
  * 6 sections: Appearance, Terminal, Behavior, Agent, Keyboard, About.
  */
 export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
@@ -79,7 +79,7 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
   useEffect(() => {
     if (open && systemFonts.length === 0) {
       // Load system fonts via Electron IPC
-      if (typeof window !== "undefined" && ("tamux" in window || "amux" in window)) {
+      if (typeof window !== "undefined" && ("zorai" in window || "zorai" in window)) {
         const bridge = getBridge();
         bridge?.getSystemFonts?.().then((fonts: string[]) => {
           setSystemFonts(fonts);
@@ -161,11 +161,11 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
       }
     };
 
-    window.addEventListener("tamux-open-settings-tab", handleOpenTab as EventListener);
-    window.addEventListener("amux-open-settings-tab", handleOpenTab as EventListener);
+    window.addEventListener("zorai-open-settings-tab", handleOpenTab as EventListener);
+    window.addEventListener("zorai-open-settings-tab", handleOpenTab as EventListener);
     return () => {
-      window.removeEventListener("tamux-open-settings-tab", handleOpenTab as EventListener);
-      window.removeEventListener("amux-open-settings-tab", handleOpenTab as EventListener);
+      window.removeEventListener("zorai-open-settings-tab", handleOpenTab as EventListener);
+      window.removeEventListener("zorai-open-settings-tab", handleOpenTab as EventListener);
     };
   }, []);
 
@@ -231,7 +231,7 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
         }}>
           <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 16 }}>
             <div style={{ display: "grid", gap: 6 }}>
-              <span className="amux-panel-title" style={{ color: "var(--mission)" }}>Operator Configuration</span>
+              <span className="zorai-panel-title" style={{ color: "var(--mission)" }}>Operator Configuration</span>
               <span style={{ fontSize: 22, fontWeight: 800 }}>Mission Runtime Settings</span>
               <span style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
                 Tune visual hierarchy, terminal execution, providers, bindings, and runtime ergonomics from one control plane.
@@ -358,7 +358,7 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
 function SettingsMetric({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ borderRadius: 0, padding: "10px 12px", border: "1px solid rgba(255,255,255,0.06)", background: "rgba(18, 33, 47, 0.8)", display: "grid", gap: 4 }}>
-      <span className="amux-panel-title">{label}</span>
+      <span className="zorai-panel-title">{label}</span>
       <span style={{ fontSize: 15, fontWeight: 700 }}>{value}</span>
     </div>
   );

@@ -101,7 +101,7 @@ function matchesThreadTab(thread: AgentThread, tab: ThreadFilterTab, goalThreadI
 
 function normalizeAgentTabId(value: string | null | undefined): string | null {
   const normalized = (value ?? "").trim().toLowerCase();
-  if (!normalized || ["svarog", "swarog", "main", "tamux", "zorai", "rarog", "concierge", "weles"].includes(normalized)) {
+  if (!normalized || ["svarog", "swarog", "main", "zorai", "zorai", "rarog", "concierge", "weles"].includes(normalized)) {
     return null;
   }
   return normalized.replace(/_builtin$/, "");

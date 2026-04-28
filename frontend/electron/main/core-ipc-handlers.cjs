@@ -10,7 +10,7 @@ function registerCoreIpcHandlers(ipcMain, options) {
         deleteDataPath,
         deleteFsPath,
         discordSendMessage,
-        ensureTamuxDataDir,
+        ensureZoraiDataDir,
         getAvailableShells,
         getDaemonPath,
         getFsPathInfo,
@@ -68,7 +68,7 @@ function registerCoreIpcHandlers(ipcMain, options) {
     ipcMain.handle('plugin-oauth-start', pluginHandlers.startOAuth);
     ipcMain.handle('diagnostics-check-lsp', options.checkLspHealth);
     ipcMain.handle('diagnostics-check-mcp', checkMcpHealth);
-    ipcMain.handle('persistence-get-data-dir', () => ensureTamuxDataDir());
+    ipcMain.handle('persistence-get-data-dir', () => ensureZoraiDataDir());
     ipcMain.handle('persistence-read-json', (_event, relativePath) => readJsonFile(relativePath));
     ipcMain.handle('persistence-write-json', (_event, relativePath, data) => writeJsonFile(relativePath, data));
     ipcMain.handle('persistence-read-text', (_event, relativePath) => readTextFile(relativePath));

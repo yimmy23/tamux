@@ -1,6 +1,6 @@
-# Speech to Text (STT) and Text to Speech (TTS) in tamux
+# Speech to Text (STT) and Text to Speech (TTS) in Zorai
 
-This guide shows how to use voice input/output in tamux across the TUI and desktop app, how to configure providers/models, and how to troubleshoot common failures.
+This guide shows how to use voice input/output in Zorai across the TUI and desktop app, how to configure providers/models, and how to troubleshoot common failures.
 
 ---
 
@@ -8,7 +8,7 @@ This guide shows how to use voice input/output in tamux across the TUI and deskt
 
 - **Speech to Text (STT):** record audio and convert it to text
 - **Text to Speech (TTS):** synthesize assistant responses to audio
-- Configure STT/TTS provider/model/voice from tamux settings (persisted in daemon config)
+- Configure STT/TTS provider/model/voice from Zorai settings (persisted in daemon config)
 
 Voice settings are persisted in daemon config under `extra.audio_*`, so they survive restarts.
 
@@ -61,10 +61,10 @@ Expected behavior:
 
 Behavior:
 
-- If an assistant message is selected, tamux speaks that message
-- If no message is selected, tamux speaks the latest assistant message
+- If an assistant message is selected, Zorai speaks that message
+- If no message is selected, Zorai speaks the latest assistant message
 - Footer shows `🔊 PLAYING` while playback process is alive
-- If selected message is not speakable assistant text, tamux shows a warning
+- If selected message is not speakable assistant text, Zorai shows a warning
 
 ### 4) Stop playback
 

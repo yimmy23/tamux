@@ -1,15 +1,16 @@
 {
-  "name": "tamux",
+  "name": "zorai",
   "version": "0.7.1",
   "description": "The Agent That Lives - daemon-first AI agent runtime",
   "license": "MIT",
-  "homepage": "https://tamux.app",
+  "homepage": "https://zorai.app",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mkurman/tamux.git"
+    "url": "git+https://github.com/mkurman/zorai.git"
   },
   "bin": {
-    "tamux": "bin/tamux.js"
+    "zorai": "bin/zorai.js",
+    "zoi": "bin/zorai.js"
   },
   "scripts": {
     "postinstall": "node install.js"

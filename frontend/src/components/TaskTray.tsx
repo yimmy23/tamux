@@ -217,13 +217,13 @@ export function TaskTrayButton() {
 
 function TaskDetail({ task, onCancelled }: { task: AgentQueueTask; onCancelled: () => void }) {
     const color = taskStatusColor(task.status);
-    const amux = getBridge();
+    const zorai = getBridge();
     const canCancel = task.status === "queued" || task.status === "in_progress" || task.status === "blocked" || task.status === "failed_analyzing";
     const logs = [...(task.logs ?? [])].slice(-6).reverse();
 
     const handleCancel = async () => {
-        if (!amux?.agentCancelTask) return;
-        await amux.agentCancelTask(task.id);
+        if (!zorai?.agentCancelTask) return;
+        await zorai.agentCancelTask(task.id);
         onCancelled();
     };
 

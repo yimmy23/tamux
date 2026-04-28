@@ -142,14 +142,14 @@ export function AgentTab({
             return;
         }
 
-        const amux = getBridge();
-        if (!amux?.openAICodexAuthStatus) {
+        const zorai = getBridge();
+        if (!zorai?.openAICodexAuthStatus) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
         }
 
         let cancelled = false;
-        void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
+        void zorai.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
             if (!cancelled) {
                 setSubscriptionAuthStatus(status);
             }
@@ -170,11 +170,11 @@ export function AgentTab({
         }
 
         const timer = window.setInterval(() => {
-            const amux = getBridge();
-            if (!amux?.openAICodexAuthStatus) {
+            const zorai = getBridge();
+            if (!zorai?.openAICodexAuthStatus) {
                 return;
             }
-            void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
+            void zorai.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
                 setSubscriptionAuthStatus(status);
             }).catch(() => { });
         }, 2000);
@@ -193,15 +193,15 @@ export function AgentTab({
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT subscription auth requires daemon-backed execution" });
             return;
         }
-        const amux = getBridge();
-        if (!amux?.openAICodexAuthLogin) {
+        const zorai = getBridge();
+        if (!zorai?.openAICodexAuthLogin) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
         }
 
         setSubscriptionAuthBusy(true);
         try {
-            const result = await amux.openAICodexAuthLogin();
+            const result = await zorai.openAICodexAuthLogin();
             setSubscriptionAuthStatus(result);
             const authUrl = deriveOpenAICodexAuthUi(result).authUrl;
             if (authUrl) {
@@ -219,15 +219,15 @@ export function AgentTab({
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT subscription auth requires daemon-backed execution" });
             return;
         }
-        const amux = getBridge();
-        if (!amux?.openAICodexAuthLogout) {
+        const zorai = getBridge();
+        if (!zorai?.openAICodexAuthLogout) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
         }
 
         setSubscriptionAuthBusy(true);
         try {
-            await amux.openAICodexAuthLogout();
+            await zorai.openAICodexAuthLogout();
             setSubscriptionAuthStatus({ available: false, status: null, authMode: "chatgpt_subscription", error: "No ChatGPT subscription auth found" });
         } catch (error: any) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: error?.message || "Failed to clear ChatGPT auth" });
@@ -265,8 +265,8 @@ export function AgentTab({
                 </span>
                 <button
                     onClick={() => {
-                        window.dispatchEvent(new CustomEvent("tamux-open-settings-tab", { detail: { tab: "auth" } }));
-                        window.dispatchEvent(new CustomEvent("amux-open-settings-tab", { detail: { tab: "auth" } }));
+                        window.dispatchEvent(new CustomEvent("zorai-open-settings-tab", { detail: { tab: "auth" } }));
+                        window.dispatchEvent(new CustomEvent("zorai-open-settings-tab", { detail: { tab: "auth" } }));
                     }}
                     style={{ ...smallBtnStyle, fontSize: 10, marginLeft: "auto" }}
                 >
@@ -616,7 +616,7 @@ export function AgentTab({
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
                                     <span style={{ fontSize: 11, color: subscriptionAuthStatus?.available ? "var(--success, #6ee7b7)" : "var(--text-secondary)" }}>
                                         {subscriptionAuthStatus?.available
-                                            ? `Connected (${subscriptionAuthStatus.source || subscriptionAuthStatus.authMode || "tamux"})`
+                                            ? `Connected (${subscriptionAuthStatus.source || subscriptionAuthStatus.authMode || "zorai"})`
                                             : subscriptionAuthStatus?.error || "No ChatGPT subscription auth found"}
                                     </span>
                                     {subscriptionAuthStatus?.available ? (
@@ -654,9 +654,9 @@ export function AgentTab({
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    const amux = getBridge();
-                                                    if (amux?.writeClipboardText) {
-                                                        void amux.writeClipboardText(subscriptionAuthUi.authUrl!);
+                                                    const zorai = getBridge();
+                                                    if (zorai?.writeClipboardText) {
+                                                        void zorai.writeClipboardText(subscriptionAuthUi.authUrl!);
                                                         return;
                                                     }
                                                     void navigator.clipboard?.writeText(subscriptionAuthUi.authUrl!).catch(() => { });
@@ -821,7 +821,7 @@ export function AgentTab({
                             <TextInput value={settings.honcho_base_url} onChange={(value) => updateSetting("honcho_base_url", value)} placeholder="Leave blank for managed cloud" />
                         </SettingRow>
                         <SettingRow label="Honcho Workspace">
-                            <TextInput value={settings.honcho_workspace_id} onChange={(value) => updateSetting("honcho_workspace_id", value)} placeholder="tamux" />
+                            <TextInput value={settings.honcho_workspace_id} onChange={(value) => updateSetting("honcho_workspace_id", value)} placeholder="zorai" />
                         </SettingRow>
                     </>
                 ) : null}

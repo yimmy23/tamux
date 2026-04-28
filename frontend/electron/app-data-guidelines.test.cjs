@@ -9,9 +9,9 @@ const path = require("node:path");
 const { installBundledGuidelines } = require("./main/app-data.cjs");
 
 test("installBundledGuidelines copies missing files without overwriting user guidelines", function () {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tamux-electron-guidelines-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zorai-electron-guidelines-"));
     const source = path.join(root, "resources", "guidelines");
-    const targetRoot = path.join(root, "tamux");
+    const targetRoot = path.join(root, "zorai");
     const target = path.join(targetRoot, "guidelines");
 
     fs.mkdirSync(source, { recursive: true });

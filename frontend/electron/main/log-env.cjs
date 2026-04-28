@@ -1,8 +1,8 @@
 const ERROR_ONLY_LOG_ENV = Object.freeze({
-    TAMUX_LOG: 'error',
-    AMUX_LOG: 'error',
-    TAMUX_TUI_LOG: 'error',
-    AMUX_GATEWAY_LOG: 'error',
+    ZORAI_LOG: 'error',
+    ZORAI_LOG: 'error',
+    ZORAI_TUI_LOG: 'error',
+    ZORAI_GATEWAY_LOG: 'error',
     RUST_LOG: 'error',
 });
 

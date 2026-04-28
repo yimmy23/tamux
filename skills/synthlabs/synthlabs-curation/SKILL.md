@@ -7,7 +7,7 @@ description: Use when SynthLabs dataset curation should run as repeatable backgr
 
 ## Overview
 
-Use this skill for SynthLabs dataset curation that runs through existing HTTP job routes instead of manual UI-first work. This is workflow guidance for an external app; do not assume tamux exposes dedicated SynthLabs tools.
+Use this skill for SynthLabs dataset curation that runs through existing HTTP job routes instead of manual UI-first work. This is workflow guidance for an external app; do not assume zorai exposes dedicated SynthLabs tools.
 
 ## When to Use
 
@@ -15,7 +15,7 @@ Use this skill when:
 
 - the task is to autoscore, rewrite, remove items, or migrate reasoning content through background jobs,
 - the operator wants a repeatable polling loop instead of row-by-row browser actions,
-- the run should leave a verification trail in the active tamux session, task, or goal notes,
+- the run should leave a verification trail in the active zorai session, task, or goal notes,
 - or maintenance checks such as logs stats, tag cleanup, or orphan scans help validate the dataset state.
 
 Do not use this skill when:
@@ -38,7 +38,7 @@ Do not use this skill when:
 2. Start exactly one curation route with the narrowest safe payload.
 3. Poll `GET /api/jobs/:id` until the job is `completed` or `failed`.
 4. Review `progress`, `result`, and `error` fields before declaring success.
-5. Update the active tamux session, task, or goal notes with the session ID, job ID, filters used, final counts, and whether UI verification is still pending.
+5. Update the active zorai session, task, or goal notes with the session ID, job ID, filters used, final counts, and whether UI verification is still pending.
 6. If any rows need human judgment or visual approval, hand that follow-up to `synthlabs-ui-operator` instead of continuing in blind HTTP mode.
 
 ## Polling And Discovery

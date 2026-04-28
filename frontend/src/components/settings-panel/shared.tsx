@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
 import { getBridge } from "@/lib/bridge";
 import { BUILTIN_THEMES } from "../../lib/themes";
-import type { AmuxSettings } from "../../lib/types";
+import type { ZoraiSettings } from "../../lib/types";
 import type { AgentProviderId, AuthSource, ModelDefinition } from "../../lib/agentStore";
 import { getProviderDefinition, getProviderModels } from "../../lib/agentStore";
 import { buildModelSelectorMetadata } from "./modelSelectorMetadata";
@@ -10,7 +10,7 @@ import {
     type FetchedRemoteModel,
 } from "../../lib/providerModels";
 
-export type SettingsUpdater = <K extends keyof AmuxSettings>(key: K, value: AmuxSettings[K]) => void;
+export type SettingsUpdater = <K extends keyof ZoraiSettings>(key: K, value: ZoraiSettings[K]) => void;
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
     return (
@@ -349,8 +349,8 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     }, [filteredModels, search, value]);
 
     const handleFetchModels = async () => {
-        const amux = getBridge();
-        if (!amux?.agentFetchModels) {
+        const zorai = getBridge();
+        if (!zorai?.agentFetchModels) {
             setFetchError("API not available");
             return;
         }
@@ -359,7 +359,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
         setFetchError(null);
 
         try {
-            const result = await amux.agentFetchModels(
+            const result = await zorai.agentFetchModels(
                 providerId,
                 base_url || definition?.defaultBaseUrl || "",
                 api_key || ""

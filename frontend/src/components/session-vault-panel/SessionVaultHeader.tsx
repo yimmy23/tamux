@@ -28,7 +28,7 @@ export function SessionVaultHeader({
         >
             <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 16 }}>
                 <div style={{ display: "grid", gap: 6 }}>
-                    <span className="amux-panel-title" style={{ color: "var(--timeline)" }}>Recall Archive</span>
+                    <span className="zorai-panel-title" style={{ color: "var(--timeline)" }}>Recall Archive</span>
                     <span style={{ fontSize: 22, fontWeight: 800 }}>Session Vault</span>
                     <span style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
                         Capture transcripts, scrub execution history, and recover terminal state from checkpoints and replayable command timelines.
@@ -59,7 +59,7 @@ export function SessionVaultHeader({
 function MetricCard({ label, value }: { label: string; value: string }) {
     return (
         <div style={{ borderRadius: 0, padding: "10px 12px", border: "1px solid rgba(255,255,255,0.06)", background: "rgba(18, 33, 47, 0.8)", display: "grid", gap: 4 }}>
-            <span className="amux-panel-title">{label}</span>
+            <span className="zorai-panel-title">{label}</span>
             <span style={{ fontSize: 15, fontWeight: 700, wordBreak: "break-word" }}>{value}</span>
         </div>
     );

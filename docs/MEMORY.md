@@ -1,10 +1,10 @@
-# tamux MEMORY — Validated Core Facts
+# Zorai MEMORY — Validated Core Facts
 
 ## Project Scale & Structure
 - **Daemon LOC**: ~101,000 lines of Rust across 596 source files.
 - **Agent Module**: 429 files dedicated to agent runtime logic.
 - **Workspace Root**: `/home/mkurman/gitlab/it/cmux-next`
-- **Daemon Package Name**: `tamux-daemon` (crate path is `crates/amux-daemon`, but use the Cargo package name for `cargo -p` invocations).
+- **Daemon Package Name**: `zorai-daemon` (crate path is `crates/zorai-daemon`, but use the Cargo package name for `cargo -p` invocations).
 - **Build System**: Cargo workspace, Node.js frontend, uv for Python tooling.
 - **Agent Personas**: The system hosts **8 distinct agent personas** sharing a common daemon runtime and memory infrastructure.
 
@@ -55,7 +55,7 @@
 6. **8 Agent Personas**: The system routes work to specialized agents (Svarog, Rarog, Weles, etc.) based on capability tags. Handoffs preserve context.
 
 ## Active Conventions & Constraints
-- Use `tamux-daemon` as the Cargo package name, not the path name.
+- Use `zorai-daemon` as the Cargo package name, not the path name.
 - MEMORY.md updates must be validated against codebase reality, not assumptions.
 - Memory provenance is desktop-first; TUI lacks direct confirm/retract controls currently.
 - All core systems verified functional — no major structural gaps in architecture.

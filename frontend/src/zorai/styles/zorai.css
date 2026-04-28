@@ -1359,26 +1359,26 @@
   cursor: pointer;
 }
 
-.zorai-embedded-tool-panel > .amux-shell-card {
+.zorai-embedded-tool-panel > .zorai-shell-card {
   width: 100% !important;
   max-width: 100% !important;
   height: 100% !important;
   max-height: none !important;
 }
 
-.zorai-embedded-tool-panel > .amux-shell-card > div:first-child > div:first-child {
+.zorai-embedded-tool-panel > .zorai-shell-card > div:first-child > div:first-child {
   flex-wrap: wrap;
 }
 
-.zorai-embedded-tool-panel > .amux-shell-card > div:first-child > div:first-child > div {
+.zorai-embedded-tool-panel > .zorai-shell-card > div:first-child > div:first-child > div {
   min-width: 0;
 }
 
-.zorai-embedded-tool-panel > .amux-shell-card > div:first-child > div:first-child > div:last-child {
+.zorai-embedded-tool-panel > .zorai-shell-card > div:first-child > div:first-child > div:last-child {
   flex-wrap: wrap;
 }
 
-.zorai-embedded-tool-panel > .amux-shell-card > div:first-child > div:nth-child(2) {
+.zorai-embedded-tool-panel > .zorai-shell-card > div:first-child > div:nth-child(2) {
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)) !important;
 }
 
@@ -1418,7 +1418,7 @@
     min-height: 420px;
   }
 
-  .zorai-embedded-tool-panel > .amux-shell-card > div:first-child {
+  .zorai-embedded-tool-panel > .zorai-shell-card > div:first-child {
     padding: 14px !important;
   }
 }

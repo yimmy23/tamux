@@ -1,21 +1,23 @@
-![Tamux Slavic Mythology](docs/assets/og_image.jpg)
-<div align="center" style="display: flex; flex-direction: column; justify-content: center; gap: 8px">
+<div align="center" style="display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 32px">
+  <img src="docs/assets/banner.png" width=320/>
   <b style="font-size: 22px">Read our docs</b>
   <div class="display: flex; flex-direction: row; gap: 4px">
-    <a href="https://docs.tamux.app" style="text-decoration: none">🌐</a>
-    <a style="font-size: 16px; text-decoration: none" href="https://docs.tamux.app">docs.tamux.app</a>
+    <a href="https://docs.zorai.app" style="text-decoration: none">🌐</a>
+    <a style="font-size: 16px; text-decoration: none" href="https://docs.zorai.app">docs.zorai.app</a>
   </div>
 </div>
 
-# tamux
+# zorai
 
-**Terminal Agentic Multiplexer and TUI with a super-powerful agent** - a daemon-first environment for long-running AI work.
->Tamux is not a CLI tool. It's a full autonomous agent platform. The mental model gap is huge - most people see "terminal multiplexer with AI" but the architecture underneath is a persistent, multi-agent, self-healing, auditable, learning agent
-platform.
+**Fully agentic daemon runtime for durable AI work.**
 
-Official website: [https://tamux.app](https://tamux.app)
+Zorai is a persistent, multi-agent, auditable, learning execution platform where the daemon owns work, memory, approvals, tools, and long-running goals.
 
-tamux keeps the terminal, the agent, and the runtime in one place. Sessions, threads, workspace tasks, approvals, and goal runs live in the daemon, so work can keep moving even when the UI closes.
+Official website: [https://zorai.app](https://zorai.app)
+
+Zorai keeps the agent runtime, operator surfaces, tools, memory, and governed execution in one place. Threads, workspace tasks, approvals, and goal runs live in the daemon, so work can keep moving even when the UI closes.
+
+The name comes from **Zora**: mythic but clean, suggesting dawn, awakening, watchfulness, and beginnings. It nods to Slavic dawn and light motifs without leaning on a brittle one-to-one mythological claim. The final **i** completes the AI identity.
 
 In practice that means:
 
@@ -25,59 +27,59 @@ In practice that means:
 
 ## Best Practices
 
-Before you jump into installation and setup, read the operational guidance in [`docs/best-practices.md`](docs/best-practices.md). It covers model role selection, compaction strategy, governance usage, cost control, and the day-to-day habits that make tamux work well.
+Before you jump into installation and setup, read the operational guidance in [`docs/best-practices.md`](docs/best-practices.md). It covers model role selection, compaction strategy, governance usage, cost control, and the day-to-day habits that make zorai work well.
 
 ## Quick Start
 
 ### Quick Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mkurman/tamux/main/scripts/install.sh | sh
-tamux --help
+curl -fsSL https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.sh | sh
+zorai --help
 ```
 
 The quick installer downloads the same native release bundle family that the npm package uses, installs the binaries into `~/.local/bin` by default, and works without Node.js or npm.
 
-After a quick-install or direct-binary install, `tamux upgrade` reuses the direct installer path for the current install directory. If you installed through npm, `tamux upgrade` continues to use npm.
+After a quick-install or direct-binary install, `zorai upgrade` reuses the direct installer path for the current install directory. If you installed through npm, `zorai upgrade` continues to use npm.
 
 ### NPM
 
 ```bash
-npm install -g tamux
-tamux --help
+npm install -g zorai
+zorai --help
 
 # or install locally in a project:
-npm install tamux
-npx tamux --help
+npm install zorai
+npx zorai --help
 ```
 
-If `npm install -g tamux` succeeds but `tamux` is still not found on macOS, your npm global bin directory is not on `PATH` yet:
+If `npm install -g zorai` succeeds but `zorai` is still not found on macOS, your npm global bin directory is not on `PATH` yet:
 
 ```bash
 export PATH="$(npm config get prefix)/bin:$PATH"
 exec $SHELL -l
-tamux --help
+zorai --help
 ```
 
 If the bin directory is already on `PATH`, opening a new shell is still useful because `zsh` and `bash` can cache command lookups.
 
-When tamux is installed through npm, `tamux upgrade` upgrades through npm as well.
+When zorai is installed through npm, `zorai upgrade` upgrades through npm as well.
 
 ### From sources
 
 ```bash
-git clone https://github.com/mkurman/tamux.git
+git clone https://github.com/mkurman/zorai.git
 
-cd tamux
+cd zorai
 
 # 1. Start the daemon
-cargo run --release --bin tamux-daemon
+cargo run --release --bin zorai-daemon
 
 # 2. Launch the TUI in another terminal
-cargo run --release --bin tamux setup
+cargo run --release --bin zorai setup
 
 # or
-cargo run --release --bin tamux-tui
+cargo run --release --bin zorai-tui
 
 # 3. Or launch the desktop app
 cd frontend && npm install && npm run dev:electron
@@ -87,9 +89,9 @@ If you want to test the core loop fast, start a goal run and give Swarog a concr
 
 ## What It Feels Like
 
-tamux is for operators who want a terminal that remembers, an agent that can stay with durable work, and a control surface that makes long-running work visible instead of mysterious.
+zorai is for operators who want agents that stay with durable work and control surfaces that make long-running execution visible instead of mysterious.
 
-It is still a real terminal multiplexer. It just has a daemon beneath it, durable autonomy above it, and enough structure to let automation run without turning into fog.
+Terminals remain first-class tools, especially for engineering work, but they are no longer the product's core premise. The center is the agentic runtime: planning, governed tool use, memory, collaboration, review, and durable goal execution.
 
 ## The TUI
 
@@ -103,7 +105,7 @@ Thread command reference: [`docs/tui/agent-directives.md`](docs/tui/agent-direct
 
 ## The Fires
 
-tamux gives its daemon-side agents a slightly mythic face, but the work stays concrete.
+zorai gives its daemon-side agents a slightly mythic face, but the work stays concrete.
 
 - **Swarog** is the main working fire: planning, tool use, sub-agent orchestration, memory, and durable goal runs
 - **Rarog** is the guiding flame: onboarding, check-ins, operator context, and the gentler edge of the system
@@ -157,7 +159,7 @@ Behavior:
 
 - a handoff changes the active responder for the thread
 - future operator messages route to that agent until a return handoff
-- tamux records the switch as a visible system event while keeping linked handoff context hidden
+- zorai records the switch as a visible system event while keeping linked handoff context hidden
 
 ### Registration And Setup
 
@@ -167,7 +169,7 @@ If one of those personas is available but not configured yet:
 
 - the desktop app opens a provider then model setup flow
 - the TUI opens the same provider then model picker flow
-- after setup, tamux retries the original `@agent ...` or `!agent ...` request automatically
+- after setup, zorai retries the original `@agent ...` or `!agent ...` request automatically
 
 `@veles` is accepted as an alias for `@weles`, matching the existing `swarog` and `svarog` alias handling.
 
@@ -178,7 +180,7 @@ Together they give the system a little presence without hiding what it is doing.
 
 ## 🔊 Speech to Text / Text to Speech (Pinned)
 
-Tamux supports voice workflows in both TUI and desktop app.
+Zorai supports voice workflows in both TUI and desktop app.
 
 - **TUI:** `Ctrl+L` (record/transcribe), `Ctrl+P` (speak selected/latest assistant message), `Ctrl+S` (stop playback)
 - **Desktop app:** mic/speak controls with daemon-backed STT/TTS settings
@@ -196,7 +198,7 @@ Tamux supports voice workflows in both TUI and desktop app.
 - [Getting Started](docs/getting-started.md)
 - [Providers](docs/pages/providers.html)
 - [Custom Providers](docs/pages/custom-providers.html)
-- [How tamux Works](docs/how-tamux-works.md)
+- [How zorai Works](docs/how-zorai-works.md)
 - [Thread Participants](docs/operating/thread-participants.md)
 - [Workspaces](docs/workspaces.md)
 - [Speech to Text / Text to Speech](docs/speech-to-text-and-text-to-speech.md)
@@ -204,9 +206,8 @@ Tamux supports voice workflows in both TUI and desktop app.
 - [Self-Orchestrating Agent Architecture](docs/self-orchestrating-agent.md)
 - [Agentic Mission Control](docs/agentic-mission-control.md)
 - [TUI Capabilities Map](docs/tui/capabilities-map.md)
-- [TUI README](crates/amux-tui/README.md)
+- [TUI README](crates/zorai-tui/README.md)
 - [Speech-to-text / Text-to-speech](docs/speech-to-text-and-text-to-speech.md)
-- [CDUI YAML Views](docs/cdui-yaml-views.md)
 - [Plugin Development](docs/plugin-development.md)
 
 ## License

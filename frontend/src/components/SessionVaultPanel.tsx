@@ -238,7 +238,7 @@ export function SessionVaultPanel({ style, className }: SessionVaultPanelProps =
           display: "flex",
           flexDirection: "column",
         }}
-        className="amux-shell-card"
+        className="zorai-shell-card"
       >
         <SessionVaultHeader
           visibleCount={display.length}

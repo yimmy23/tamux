@@ -126,7 +126,7 @@ function threadHistoryLabel(thread: AgentThread): string {
 
 export function ThreadsView() {
   const runtime = useAgentChatPanelRuntime();
-  const [pinLimitResult, setPinLimitResult] = useState<AmuxThreadMessagePinResult | null>(null);
+  const [pinLimitResult, setPinLimitResult] = useState<ZoraiThreadMessagePinResult | null>(null);
   const displayItems = useMemo(() => buildDisplayItems(runtime.messages), [runtime.messages]);
 
   if (!runtime.activeThread) {
@@ -327,7 +327,7 @@ function PinLimitModal({
   result,
   onClose,
 }: {
-  result: AmuxThreadMessagePinResult;
+  result: ZoraiThreadMessagePinResult;
   onClose: () => void;
 }) {
   const attempted = Math.max(0, (result.candidate_pinned_chars ?? 0) - result.current_pinned_chars);

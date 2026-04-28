@@ -1,14 +1,14 @@
 @echo off
-REM tamux development script for Windows
+REM zorai development script for Windows
 REM Usage: scripts\dev.bat [daemon|ui|cli|all]
 
 set CMD=%1
 if "%CMD%"=="" set CMD=all
 
 if "%CMD%"=="daemon" (
-    echo Starting tamux-daemon in development mode...
-    set AMUX_LOG=debug
-    cargo run --bin tamux-daemon
+    echo Starting zorai-daemon in development mode...
+    set ZORAI_LOG=debug
+    cargo run --bin zorai-daemon
     goto :eof
 )
 
@@ -30,8 +30,8 @@ if "%CMD%"=="frontend" (
 
 if "%CMD%"=="cli" (
     echo Building CLI...
-    cargo build --bin tamux
-    echo CLI built: target\debug\tamux.exe
+    cargo build --bin zorai
+    echo CLI built: target\debug\zorai.exe
     goto :eof
 )
 

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Continuity & Provenance · tamux</title>
-  <meta name="description" content="How tamux preserves continuity across turns, clients, agents, goals, and time through persistence, memory, and provenance." />
+  <title>Continuity & Provenance · Zorai</title>
+  <meta name="description" content="How Zorai preserves continuity across turns, clients, agents, goals, and time through persistence, memory, and provenance." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -26,7 +26,7 @@
 
 <section>
   <h2>Continuity is core</h2>
-  <p>Many AI tools lose context the moment the UI closes, the tab refreshes, or the operator starts a new thread. tamux is built to avoid that failure mode. The daemon owns the enduring state, so a line of work can survive disconnects and reconnect from another client surface.</p>
+  <p>Many AI tools lose context the moment the UI closes, the tab refreshes, or the operator starts a new thread. Zorai is built to avoid that failure mode. The daemon owns the enduring state, so a line of work can survive disconnects and reconnect from another client surface.</p>
 </section>
 
 <section>
@@ -53,7 +53,7 @@
 
 <section>
   <h2>The persistence split</h2>
-  <p>tamux deliberately uses a persistence split:</p>
+  <p>Zorai deliberately uses a persistence split:</p>
   <ul class="check-list">
     <li><strong>Structured state:</strong> SQLite for threads, workspace tasks, execution queue entries, goals, provenance, telemetry, and runtime records.</li>
     <li><strong>Editable artifacts:</strong> markdown memory, skills, ledgers, and selected on-disk outputs.</li>
@@ -63,7 +63,7 @@
 
 <section>
   <h2>Provenance-backed memory</h2>
-  <p>Durable memory writes in tamux are provenance-backed. The system can track where a fact came from, when it was written, which thread or goal produced it, whether it has been confirmed or retracted, and what later event invalidated it.</p>
+  <p>Durable memory writes in Zorai are provenance-backed. The system can track where a fact came from, when it was written, which thread or goal produced it, whether it has been confirmed or retracted, and what later event invalidated it.</p>
   <div class="callout success">
     <strong>Why that matters:</strong> memory becomes inspectable and correctable rather than an opaque pile of auto-summaries.
   </div>
@@ -90,7 +90,7 @@
 
 <section>
   <h2>Operator continuity</h2>
-  <p>USER memory is not just a note file. tamux learns structured operator profile state from onboarding, explicit profile edits, behavior patterns, revision history, and interaction signals. That gives future sessions a better model of how the operator works.</p>
+  <p>USER memory is not just a note file. Zorai learns structured operator profile state from onboarding, explicit profile edits, behavior patterns, revision history, and interaction signals. That gives future sessions a better model of how the operator works.</p>
 </section>
 
 <section>
@@ -111,12 +111,12 @@
 
 <section>
   <h2>Deep storage direction</h2>
-  <p>A more advanced continuity model is that memory should not only remember facts, but know what it knows: source, confidence, lifecycle state, and explicit retraction relationships. tamux is already close to that direction through provenance-backed memory.</p>
+  <p>A more advanced continuity model is that memory should not only remember facts, but know what it knows: source, confidence, lifecycle state, and explicit retraction relationships. Zorai is already close to that direction through provenance-backed memory.</p>
 </section>
 
 <section>
   <h2>What breaks continuity</h2>
-  <p>Continuity gets weaker when operators constantly start fresh threads for the same mission, use chat turns for work that should be a goal run, or treat memory as a dumping ground rather than a curated layer. tamux is designed to preserve continuity, but the workflow still needs to respect the model.</p>
+  <p>Continuity gets weaker when operators constantly start fresh threads for the same mission, use chat turns for work that should be a goal run, or treat memory as a dumping ground rather than a curated layer. Zorai is designed to preserve continuity, but the workflow still needs to respect the model.</p>
 </section>
     </article>
   </main>

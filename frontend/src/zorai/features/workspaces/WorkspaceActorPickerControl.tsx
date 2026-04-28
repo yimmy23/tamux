@@ -67,12 +67,12 @@ export function WorkspaceActorPickerControl({
 
   const saveRuntimeSetup = async (providerId: AgentProviderId, model: string) => {
     if (!pendingSetup?.option.targetAgentId) return;
-    const amux = getAgentBridge();
-    if (!amux?.agentSetTargetAgentProviderModel) {
+    const zorai = getAgentBridge();
+    if (!zorai?.agentSetTargetAgentProviderModel) {
       setPendingSetup({ ...pendingSetup, error: "Builtin agent runtime setup is not available in this runtime." });
       return;
     }
-    const response = await amux.agentSetTargetAgentProviderModel(
+    const response = await zorai.agentSetTargetAgentProviderModel(
       pendingSetup.option.targetAgentId,
       providerId,
       model,

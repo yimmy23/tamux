@@ -39,7 +39,7 @@ export function PaneView({
             <div style={{ padding: "var(--space-2)", borderBottom: "1px solid var(--border)", display: "grid", gap: "var(--space-1)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <strong style={{ fontSize: "var(--text-sm)" }}>{title} Pane</strong>
-                    {pane.loading ? <span className="amux-chip">loading</span> : null}
+                    {pane.loading ? <span className="zorai-chip">loading</span> : null}
                 </div>
 
                 <div style={{ display: "flex", gap: "var(--space-1)" }}>

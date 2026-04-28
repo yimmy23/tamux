@@ -1,12 +1,12 @@
 {
-  "name": "tamux",
+  "name": "zorai",
   "private": true,
   "version": "0.7.1",
-  "description": "Agentic terminal multiplexer with AI-native workflows",
-  "homepage": "https://tamux.app",
+  "description": "Daemon-first agentic runtime with AI-native workflows",
+  "homepage": "https://zorai.app",
   "author": {
-    "name": "tamux contributors",
-    "email": "noreply@tamux.app"
+    "name": "zorai contributors",
+    "email": "noreply@zorai.app"
   },
   "type": "module",
   "main": "electron/main.cjs",
@@ -65,8 +65,8 @@
     "vitest": "^3.2.4"
   },
   "build": {
-    "appId": "app.tamux.desktop",
-    "productName": "tamux",
+    "appId": "app.zorai.desktop",
+    "productName": "zorai",
     "directories": {
       "output": "release"
     },
@@ -91,24 +91,28 @@
       ],
       "extraResources": [
         {
-          "from": "dist/tamux-daemon.exe",
-          "to": "bin/tamux-daemon.exe"
+          "from": "dist/zorai-daemon.exe",
+          "to": "bin/zorai-daemon.exe"
         },
         {
-          "from": "dist/tamux.exe",
-          "to": "bin/tamux.exe"
+          "from": "dist/zorai.exe",
+          "to": "bin/zorai.exe"
         },
         {
-          "from": "dist/tamux-tui.exe",
-          "to": "bin/tamux-tui.exe"
+          "from": "dist/zoi.exe",
+          "to": "bin/zoi.exe"
         },
         {
-          "from": "dist/tamux-mcp.exe",
-          "to": "bin/tamux-mcp.exe"
+          "from": "dist/zorai-tui.exe",
+          "to": "bin/zorai-tui.exe"
         },
         {
-          "from": "dist/tamux-gateway.exe",
-          "to": "bin/tamux-gateway.exe"
+          "from": "dist/zorai-mcp.exe",
+          "to": "bin/zorai-mcp.exe"
+        },
+        {
+          "from": "dist/zorai-gateway.exe",
+          "to": "bin/zorai-gateway.exe"
         }
       ],
       "icon": "assets/icon.ico"
@@ -120,24 +124,28 @@
       ],
       "extraResources": [
         {
-          "from": "dist/tamux-daemon",
-          "to": "bin/tamux-daemon"
+          "from": "dist/zorai-daemon",
+          "to": "bin/zorai-daemon"
         },
         {
-          "from": "dist/tamux",
-          "to": "bin/tamux"
+          "from": "dist/zorai",
+          "to": "bin/zorai"
         },
         {
-          "from": "dist/tamux-tui",
-          "to": "bin/tamux-tui"
+          "from": "dist/zoi",
+          "to": "bin/zoi"
         },
         {
-          "from": "dist/tamux-mcp",
-          "to": "bin/tamux-mcp"
+          "from": "dist/zorai-tui",
+          "to": "bin/zorai-tui"
         },
         {
-          "from": "dist/tamux-gateway",
-          "to": "bin/tamux-gateway"
+          "from": "dist/zorai-mcp",
+          "to": "bin/zorai-mcp"
+        },
+        {
+          "from": "dist/zorai-gateway",
+          "to": "bin/zorai-gateway"
         }
       ]
     },
@@ -149,29 +157,33 @@
       "icon": "assets/icon.png",
       "extraResources": [
         {
-          "from": "dist/tamux-daemon",
-          "to": "bin/tamux-daemon"
+          "from": "dist/zorai-daemon",
+          "to": "bin/zorai-daemon"
         },
         {
-          "from": "dist/tamux",
-          "to": "bin/tamux"
+          "from": "dist/zorai",
+          "to": "bin/zorai"
         },
         {
-          "from": "dist/tamux-tui",
-          "to": "bin/tamux-tui"
+          "from": "dist/zoi",
+          "to": "bin/zoi"
         },
         {
-          "from": "dist/tamux-mcp",
-          "to": "bin/tamux-mcp"
+          "from": "dist/zorai-tui",
+          "to": "bin/zorai-tui"
         },
         {
-          "from": "dist/tamux-gateway",
-          "to": "bin/tamux-gateway"
+          "from": "dist/zorai-mcp",
+          "to": "bin/zorai-mcp"
+        },
+        {
+          "from": "dist/zorai-gateway",
+          "to": "bin/zorai-gateway"
         }
       ]
     },
     "portable": {
-      "artifactName": "tamux-portable.exe"
+      "artifactName": "zorai-portable.exe"
     }
   }
 }

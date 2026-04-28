@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# tamux release build (Linux / macOS / WSL)
+# zorai release build (Linux / macOS / WSL)
 #
 # Usage:
 #   ./scripts/build-release.sh                    Build without signing
@@ -15,10 +15,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-export TAMUX_LOG=error
-export AMUX_LOG=error
-export TAMUX_TUI_LOG=error
-export AMUX_GATEWAY_LOG=error
+export ZORAI_LOG=error
+export ZORAI_LOG=error
+export ZORAI_TUI_LOG=error
+export ZORAI_GATEWAY_LOG=error
 export RUST_LOG=error
 
 SIGN=0
@@ -88,7 +88,7 @@ generate_release_notes_if_missing() {
     [[ -f "$notes_file" ]] && return 0
 
     {
-        echo "# tamux ${APP_VERSION} Release Notes"
+        echo "# zorai ${APP_VERSION} Release Notes"
         echo ""
         echo "Built on $(date -u +"%Y-%m-%d %H:%M UTC") for ${OS} (${ARCH})."
         echo ""
@@ -170,7 +170,7 @@ OUT_DIR="$PROJECT_ROOT/dist-release/$PLATFORM_DIR"
 
 echo ""
 echo "============================================================"
-echo " tamux release build"
+echo " zorai release build"
 echo "============================================================"
 
 # -----------------------------------------------------------
@@ -215,7 +215,7 @@ fi
 # -----------------------------------------------------------
 step_msg "Collecting artifacts..."
 mkdir -p "$OUT_DIR"
-find "$OUT_DIR" -maxdepth 1 -type f \( -name "tamux*" -o -name "amux*" -o -name "*.asc" -o -name "SHA256SUMS*.txt" -o -name "RELEASE_NOTES*.md" \) -delete 2>/dev/null || true
+find "$OUT_DIR" -maxdepth 1 -type f \( -name "zorai*" -o -name "zorai*" -o -name "*.asc" -o -name "SHA256SUMS*.txt" -o -name "RELEASE_NOTES*.md" \) -delete 2>/dev/null || true
 
 if [[ -n "$TARGET" ]]; then
     TARGET_DIR="$PROJECT_ROOT/target/$TARGET/release"
@@ -223,7 +223,7 @@ else
     TARGET_DIR="$PROJECT_ROOT/target/release"
 fi
 
-for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
+for bin in zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway; do
     if [[ -f "$TARGET_DIR/${bin}${EXE}" ]]; then
         cp "$TARGET_DIR/${bin}${EXE}" "$OUT_DIR/"
         ok_msg "Collected ${bin}${EXE}"
@@ -232,7 +232,7 @@ done
 
 # Copy to frontend/dist for Electron bundling
 if [[ -d "$PROJECT_ROOT/frontend/dist" ]]; then
-    for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
+    for bin in zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway; do
         if [[ -f "$OUT_DIR/${bin}${EXE}" ]]; then
             cp "$OUT_DIR/${bin}${EXE}" "$PROJECT_ROOT/frontend/dist/"
         fi
@@ -262,12 +262,12 @@ if [[ $SIGN -eq 1 ]]; then
 
         if [[ -n "$EXE" ]] && command -v signtool &>/dev/null; then
             # Windows signing via signtool
-            if [[ -n "${TAMUX_SIGN_CERT:-${AMUX_SIGN_CERT:-}}" ]]; then
-                signtool sign /f "${TAMUX_SIGN_CERT:-${AMUX_SIGN_CERT:-}}" /p "${TAMUX_SIGN_PASSWORD:-${AMUX_SIGN_PASSWORD:-}}" \
+            if [[ -n "${ZORAI_SIGN_CERT:-${ZORAI_SIGN_CERT:-}}" ]]; then
+                signtool sign /f "${ZORAI_SIGN_CERT:-${ZORAI_SIGN_CERT:-}}" /p "${ZORAI_SIGN_PASSWORD:-${ZORAI_SIGN_PASSWORD:-}}" \
                     /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$file"
                 ok_msg "Signed $name (signtool/PFX)"
-            elif [[ -n "${TAMUX_SIGN_THUMBPRINT:-${AMUX_SIGN_THUMBPRINT:-}}" ]]; then
-                signtool sign /sha1 "${TAMUX_SIGN_THUMBPRINT:-${AMUX_SIGN_THUMBPRINT:-}}" \
+            elif [[ -n "${ZORAI_SIGN_THUMBPRINT:-${ZORAI_SIGN_THUMBPRINT:-}}" ]]; then
+                signtool sign /sha1 "${ZORAI_SIGN_THUMBPRINT:-${ZORAI_SIGN_THUMBPRINT:-}}" \
                     /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$file"
                 ok_msg "Signed $name (signtool/store)"
             else
@@ -279,12 +279,12 @@ if [[ $SIGN -eq 1 ]]; then
             ok_msg "Signed $name (GPG detached sig: ${name}.asc)"
         elif command -v codesign &>/dev/null && [[ "$OS" == "Darwin" ]]; then
             # macOS signing
-            local identity="${TAMUX_SIGN_IDENTITY:-${AMUX_SIGN_IDENTITY:-}}"
+            local identity="${ZORAI_SIGN_IDENTITY:-${ZORAI_SIGN_IDENTITY:-}}"
             if [[ -n "$identity" ]]; then
                 codesign --sign "$identity" --timestamp --options runtime "$file"
                 ok_msg "Signed $name (codesign)"
             else
-                warn_msg "Set AMUX_SIGN_IDENTITY for macOS codesign"
+                warn_msg "Set ZORAI_SIGN_IDENTITY for macOS codesign"
             fi
         else
             warn_msg "No signing tool available for $name"
@@ -310,21 +310,21 @@ else
 
     if [[ $SIGN -eq 1 ]]; then
         # Pass signing certs to electron-builder
-        export CSC_LINK="${TAMUX_SIGN_CERT:-${AMUX_SIGN_CERT:-}}"
-        export CSC_KEY_PASSWORD="${TAMUX_SIGN_PASSWORD:-${AMUX_SIGN_PASSWORD:-}}"
+        export CSC_LINK="${ZORAI_SIGN_CERT:-${ZORAI_SIGN_CERT:-}}"
+        export CSC_KEY_PASSWORD="${ZORAI_SIGN_PASSWORD:-${ZORAI_SIGN_PASSWORD:-}}"
     fi
 
     case "$OS" in
         Linux*)
-            find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "tamux*" -o -name "amux*" \) -delete 2>/dev/null || true
+            find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "zorai*" -o -name "zorai*" \) -delete 2>/dev/null || true
             npx electron-builder --linux AppImage deb || warn_msg "Electron Linux build failed (non-fatal)"
             ;;
         Darwin*)
-            find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "tamux*" -o -name "amux*" \) -delete 2>/dev/null || true
+            find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "zorai*" -o -name "zorai*" \) -delete 2>/dev/null || true
             npx electron-builder --mac dmg || warn_msg "Electron macOS build failed (non-fatal)"
             ;;
         *)
-            find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "tamux*" -o -name "amux*" \) -delete 2>/dev/null || true
+            find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "zorai*" -o -name "zorai*" \) -delete 2>/dev/null || true
             npx electron-builder --win portable nsis || warn_msg "Electron Windows build failed (non-fatal)"
             ;;
     esac
@@ -332,7 +332,7 @@ else
     # Collect Electron artifacts
     RELEASE_DIR="$PROJECT_ROOT/frontend/release"
     if [[ -d "$RELEASE_DIR" ]]; then
-        find "$RELEASE_DIR" -maxdepth 1 -type f \( -name "tamux*.exe" -o -name "tamux*.AppImage" -o -name "tamux*.deb" -o -name "tamux*.dmg" -o -name "tamux*.rpm" -o -name "tamux*.zip" \) 2>/dev/null | while read -r f; do
+        find "$RELEASE_DIR" -maxdepth 1 -type f \( -name "zorai*.exe" -o -name "zorai*.AppImage" -o -name "zorai*.deb" -o -name "zorai*.dmg" -o -name "zorai*.rpm" -o -name "zorai*.zip" \) 2>/dev/null | while read -r f; do
             cp "$f" "$OUT_DIR/"
             ok_msg "Electron: $(basename "$f")"
         done
@@ -373,7 +373,7 @@ if [[ ${#bundle_artifacts[@]} -gt 0 ]]; then
         esac
     fi
     checksums_file="$OUT_DIR/SHA256SUMS-${artifact_os_name}-${artifact_arch_name}.txt"
-    bundle_file="$OUT_DIR/tamux-${artifact_os_name}-${artifact_arch_name}.zip"
+    bundle_file="$OUT_DIR/zorai-${artifact_os_name}-${artifact_arch_name}.zip"
 
     generate_release_notes_if_missing "$notes_file" "${bundle_artifacts[@]}"
     write_checksums_file "$checksums_file" "${bundle_artifacts[@]}"

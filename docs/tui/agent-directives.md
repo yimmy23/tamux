@@ -1,6 +1,6 @@
 # Agent Directives
 
-tamux supports two agent-targeting prefixes in chat input.
+Zorai supports two agent-targeting prefixes in chat input.
 
 ## Hidden Delegation
 
@@ -50,4 +50,4 @@ Leading `@agent` is treated as an agent directive when it matches a known agent 
 File references still work everywhere else:
 
 - `Review @src/main.rs`
-- `@weles inspect @crates/amux-daemon/src/server/dispatch_part3.rs`
+- `@weles inspect @crates/zorai-daemon/src/server/dispatch_part3.rs`

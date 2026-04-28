@@ -172,8 +172,8 @@ pre code {
 }
 
 .brand-logo-img {
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: var(--radius-xs);
   object-fit: cover;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);

@@ -1,0 +1,20 @@
+{
+  "name": "zorai-plugin-jira",
+  "version": "1.0.0",
+  "description": "Jira integration for zorai",
+  "author": "zorai",
+  "license": "MIT",
+  "keywords": [
+    "zorai",
+    "plugin",
+    "jira"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/anthropic/cmux-next"
+  },
+  "files": [
+    "jira/",
+    "README.md"
+  ]
+}

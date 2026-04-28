@@ -8,12 +8,12 @@ const child = spawn(electronBinary, ["."], {
     stdio: "inherit",
     env: {
         ...process.env,
-        TAMUX_ELECTRON_USE_DIST_IN_DEV: "1",
+        ZORAI_ELECTRON_USE_DIST_IN_DEV: "1",
     },
 });
 
 child.on("error", (error) => {
-    console.error("[tamux] Failed to launch Electron:", error?.message || String(error));
+    console.error("[zorai] Failed to launch Electron:", error?.message || String(error));
     process.exit(1);
 });
 

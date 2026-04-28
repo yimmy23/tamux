@@ -1,4 +1,4 @@
-import type { AmuxSettings } from "../types";
+import type { ZoraiSettings } from "../types";
 
 export type RiskLevel = "medium" | "high" | "critical";
 
@@ -201,4 +201,4 @@ export const MAX_APPROVALS = 120;
 export const MEMORY_MAX_CHARS = 3600;
 export const USER_MAX_CHARS = 1800;
 
-export type SecurityLevel = AmuxSettings["securityLevel"];
+export type SecurityLevel = ZoraiSettings["securityLevel"];

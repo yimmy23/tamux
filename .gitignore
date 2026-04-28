@@ -5,7 +5,7 @@
 /frontend/node_modules/
 /frontend/release/
 /dist-release/
-crates/amux-daemon/target/
+crates/zorai-daemon/target/
 .history
 /docs/superpowers/
 node_modules
@@ -40,10 +40,10 @@ PUBLISH.md
 # Logs
 *.log
 *.tsbuildinfo
-dist-release/tamux Setup 0.1.0.exe
-dist-release/tamux-daemon.exe
-dist-release/tamux-gateway.exe
-dist-release/tamux-mcp.exe
-dist-release/tamux-portable.exe
-dist-release/tamux.exe
+dist-release/zorai Setup 0.1.0.exe
+dist-release/zorai-daemon.exe
+dist-release/zorai-gateway.exe
+dist-release/zorai-mcp.exe
+dist-release/zorai-portable.exe
+dist-release/zorai.exe
 .planning/

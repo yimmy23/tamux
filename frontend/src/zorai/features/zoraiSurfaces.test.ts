@@ -95,7 +95,7 @@ describe("Zorai feature surfaces", () => {
 
     expect(source).toContain("zorai-approval-overlay");
     expect(source).toContain("zorai-approval-dialog");
-    expect(source).not.toContain("amux-panel-title");
+    expect(source).not.toContain("zorai-panel-title");
     expect(source).not.toContain("onMouseEnter");
   });
 

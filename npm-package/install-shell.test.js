@@ -24,7 +24,7 @@ test("shell installer dry-run targets GitHub release zip assets", { skip: proces
     cwd: path.join(__dirname, ".."),
     env: {
       ...process.env,
-      TAMUX_VERSION: "0.4.2",
+      ZORAI_VERSION: "0.4.2",
     },
     encoding: "utf8",
   });
@@ -33,35 +33,38 @@ test("shell installer dry-run targets GitHub release zip assets", { skip: proces
 
   assert.match(output, new RegExp(expectedUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.doesNotMatch(output, /gitlab\.com\/api\/v4\/projects/);
-  assert.doesNotMatch(output, /tamux-binaries-/);
+  assert.doesNotMatch(output, /zorai-binaries-/);
 });
 
-test("shell installer provisions bundled skills into canonical tamux root", function () {
+test("shell installer provisions bundled skills into canonical zorai root", function () {
   const scriptPath = path.join(__dirname, "..", "scripts", "install.sh");
   const script = childProcess.execFileSync("sed", ["-n", "1,380p", scriptPath], {
     cwd: path.join(__dirname, ".."),
     encoding: "utf8",
   });
 
-  assert.match(script, /SKILLS_DIR="\$\{TAMUX_SKILLS_DIR:-\$HOME\/\.tamux\/skills\}"/);
-  assert.match(script, /GUIDELINES_DIR="\$\{TAMUX_GUIDELINES_DIR:-\$HOME\/\.tamux\/guidelines\}"/);
+  assert.match(script, /SKILLS_DIR="\$\{ZORAI_SKILLS_DIR:-\$HOME\/\.zorai\/skills\}"/);
+  assert.match(script, /GUIDELINES_DIR="\$\{ZORAI_GUIDELINES_DIR:-\$HOME\/\.zorai\/guidelines\}"/);
   assert.match(script, /Extracting binaries, skills, and guidelines/);
   assert.match(script, /verify_extracted_binaries="\$\{1:-true\}"/);
   assert.match(script, /cp -R "\$EXTRACT_DIR\/skills\/\." "\$SKILLS_DIR\/"/);
   assert.match(script, /install_guidelines\(\)/);
   assert.match(script, /if \[ -e "\$target_path" \]; then/);
+  assert.match(script, /install_cli_alias\(\)/);
+  assert.match(script, /ln -sf "zorai" "\$alias_path"/);
 });
 
 test("computeSha256Hex returns stable hex digests without shelling out", function () {
   assert.equal(
-    computeSha256Hex("tamux"),
-    "c013ad25f34616a8c97f18e00b0d33e56e05d8ffe4e1321c6536721e72c10f31"
+    computeSha256Hex("zorai"),
+    "a47a7bbc4af7e59491d05570cb4dacc6c185c8702ef8c65b931ae436027aba8b"
   );
 });
 
 test("shell installer accepts archive-only checksum manifests", { skip: process.platform === "win32" }, function () {
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tamux-install-shell-"));
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zorai-install-shell-"));
   const homeDir = path.join(tmpRoot, "home");
+  const legacyDataDir = path.join(homeDir, ".tamux");
   const installDir = path.join(tmpRoot, "bin");
   const skillsDir = path.join(tmpRoot, "skills");
   const guidelinesDir = path.join(tmpRoot, "guidelines");
@@ -70,6 +73,7 @@ test("shell installer accepts archive-only checksum manifests", { skip: process.
   const payloadSkillsDir = path.join(payloadDir, "skills", "demo");
   const payloadGuidelinesDir = path.join(payloadDir, "guidelines");
   fs.mkdirSync(homeDir, { recursive: true });
+  fs.mkdirSync(legacyDataDir, { recursive: true });
   fs.mkdirSync(installDir, { recursive: true });
   fs.mkdirSync(skillsDir, { recursive: true });
   fs.mkdirSync(guidelinesDir, { recursive: true });
@@ -78,11 +82,11 @@ test("shell installer accepts archive-only checksum manifests", { skip: process.
   fs.mkdirSync(payloadGuidelinesDir, { recursive: true });
 
   const binaries = [
-    "tamux",
-    "tamux-daemon",
-    "tamux-tui",
-    "tamux-gateway",
-    "tamux-mcp",
+    "zorai",
+    "zorai-daemon",
+    "zorai-tui",
+    "zorai-gateway",
+    "zorai-mcp",
   ];
   const binaryHashes = new Map();
   for (const name of binaries) {
@@ -95,8 +99,9 @@ test("shell installer accepts archive-only checksum manifests", { skip: process.
   fs.writeFileSync(path.join(payloadGuidelinesDir, "coding-task.md"), "# bundled coding\n");
   fs.writeFileSync(path.join(payloadGuidelinesDir, "research-task.md"), "# bundled research\n");
   fs.writeFileSync(path.join(guidelinesDir, "coding-task.md"), "# user coding\n");
+  fs.writeFileSync(path.join(legacyDataDir, "state.txt"), "legacy tamux state\n");
 
-  const archivePath = path.join(tmpRoot, "tamux-linux-aarch64.zip");
+  const archivePath = path.join(tmpRoot, "zorai-linux-aarch64.zip");
   const archiveContents = "mock archive payload\n";
   fs.writeFileSync(archivePath, archiveContents);
   const archiveHash = computeSha256Hex(archiveContents);
@@ -128,9 +133,9 @@ done
 
 case "$url" in
   *SHA256SUMS-linux-aarch64.txt)
-    printf '%s  %s\\n' '${archiveHash}' 'tamux-linux-aarch64.zip' > "$output"
+    printf '%s  %s\\n' '${archiveHash}' 'zorai-linux-aarch64.zip' > "$output"
     ;;
-  *tamux-linux-aarch64.zip)
+  *zorai-linux-aarch64.zip)
     cp '${archivePath}' "$output"
     ;;
   *)
@@ -188,7 +193,7 @@ cp -R '${payloadDir}/.' "$dest/"
     `#!/bin/sh
 set -eu
 case "$1" in
-  *tamux-linux-aarch64.zip) printf '%s  %s\\n' '${archiveHash}' "$1" ;;
+  *zorai-linux-aarch64.zip) printf '%s  %s\\n' '${archiveHash}' "$1" ;;
 ${shaCases}
   *) echo "unexpected mock sha256sum target: $1" >&2; exit 1 ;;
 esac
@@ -203,10 +208,10 @@ esac
       ...process.env,
       HOME: homeDir,
       PATH: `${mockBinDir}:${process.env.PATH}`,
-      TAMUX_VERSION: "0.5.2",
-      TAMUX_INSTALL_DIR: installDir,
-      TAMUX_SKILLS_DIR: skillsDir,
-      TAMUX_GUIDELINES_DIR: guidelinesDir,
+      ZORAI_VERSION: "0.5.2",
+      ZORAI_INSTALL_DIR: installDir,
+      ZORAI_SKILLS_DIR: skillsDir,
+      ZORAI_GUIDELINES_DIR: guidelinesDir,
     },
     encoding: "utf8",
   });
@@ -214,6 +219,7 @@ esac
   for (const name of binaries) {
     assert.ok(fs.existsSync(path.join(installDir, name)), `expected ${name} to be installed`);
   }
+  assert.ok(fs.existsSync(path.join(installDir, "zoi")), "expected zoi alias to be installed");
   assert.ok(fs.existsSync(path.join(skillsDir, "demo", "SKILL.md")));
   assert.equal(
     fs.readFileSync(path.join(guidelinesDir, "coding-task.md"), "utf8"),
@@ -222,5 +228,10 @@ esac
   assert.equal(
     fs.readFileSync(path.join(guidelinesDir, "research-task.md"), "utf8"),
     "# bundled research\n"
+  );
+  assert.equal(fs.existsSync(legacyDataDir), false);
+  assert.equal(
+    fs.readFileSync(path.join(homeDir, ".zorai", "state.txt"), "utf8"),
+    "legacy tamux state\n"
   );
 });

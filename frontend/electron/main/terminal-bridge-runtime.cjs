@@ -265,7 +265,7 @@ function createTerminalBridgeRuntime(options) {
 
         const cliPath = getCliPath();
         if (!fs.existsSync(cliPath)) {
-            throw new Error(`tamux CLI not found at ${cliPath}`);
+            throw new Error(`zorai CLI not found at ${cliPath}`);
         }
 
         const args = ['clone', '--source', sourceSessionId];
@@ -290,13 +290,13 @@ function createTerminalBridgeRuntime(options) {
                 child.on('error', reject);
                 child.on('exit', (code) => {
                     if (code !== 0) {
-                        reject(new Error((stderr || stdout || `tamux clone exited with code ${code}`).trim()));
+                        reject(new Error((stderr || stdout || `zorai clone exited with code ${code}`).trim()));
                         return;
                     }
                     const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
                     const sessionId = lines[0] ?? '';
                     if (!sessionId) {
-                        reject(new Error('tamux clone did not return a session id'));
+                        reject(new Error('zorai clone did not return a session id'));
                         return;
                     }
                     const cmdLine = lines.find((line) => line.startsWith('active_command:'));
@@ -339,7 +339,7 @@ function createTerminalBridgeRuntime(options) {
         const cliPath = getCliPath();
         if (!fs.existsSync(cliPath)) {
             logToFile('error', 'cli binary missing', { cliPath });
-            throw new Error(`tamux CLI not found at ${cliPath}`);
+            throw new Error(`zorai CLI not found at ${cliPath}`);
         }
 
         const cols = Number.isFinite(options.cols) ? Math.max(2, Math.trunc(options.cols)) : 80;

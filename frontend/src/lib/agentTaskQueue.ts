@@ -61,13 +61,13 @@ export interface AgentQueueTask {
 }
 
 export async function fetchAgentTasks(): Promise<AgentQueueTask[]> {
-    const amux = getBridge();
-    if (!amux?.agentListTasks) {
+    const zorai = getBridge();
+    if (!zorai?.agentListTasks) {
         return [];
     }
 
     try {
-        const result = await amux.agentListTasks();
+        const result = await zorai.agentListTasks();
         return Array.isArray(result) ? (result as AgentQueueTask[]) : [];
     } catch {
         return [];

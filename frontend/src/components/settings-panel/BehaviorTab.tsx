@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { getBridge } from "@/lib/bridge";
-import type { AmuxSettings } from "../../lib/types";
+import type { ZoraiSettings } from "../../lib/types";
 import { NumberInput, Section, SelectInput, SettingRow, type SettingsUpdater, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
 type McpServerRow = {
@@ -12,7 +12,7 @@ type McpServerRow = {
 export function BehaviorTab({
     settings, updateSetting,
 }: {
-    settings: AmuxSettings;
+    settings: ZoraiSettings;
     updateSetting: SettingsUpdater;
 }) {
     const [lspHealth, setLspHealth] = useState<Record<string, boolean> | null>(null);
@@ -176,7 +176,7 @@ export function BehaviorTab({
                     <SelectInput
                         value={settings.securityLevel}
                         options={["highest", "moderate", "lowest", "yolo"]}
-                        onChange={(value) => updateSetting("securityLevel", value as AmuxSettings["securityLevel"])}
+                        onChange={(value) => updateSetting("securityLevel", value as ZoraiSettings["securityLevel"])}
                     />
                 </SettingRow>
                 <SettingRow label="Sandbox Isolation">

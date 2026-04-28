@@ -5,7 +5,7 @@ export const GATEWAY_TOOLS: ToolDefinition[] = [
     type: "function",
     function: {
       name: "send_slack_message",
-      description: "Send a message to a Slack channel via the amux gateway.",
+      description: "Send a message to a Slack channel via the zorai gateway.",
       parameters: {
         type: "object",
         properties: {
@@ -36,7 +36,7 @@ export const GATEWAY_TOOLS: ToolDefinition[] = [
     type: "function",
     function: {
       name: "send_telegram_message",
-      description: "Send a message to a Telegram chat via the amux gateway.",
+      description: "Send a message to a Telegram chat via the zorai gateway.",
       parameters: {
         type: "object",
         properties: {
@@ -51,7 +51,7 @@ export const GATEWAY_TOOLS: ToolDefinition[] = [
     type: "function",
     function: {
       name: "send_whatsapp_message",
-      description: "Send a message to a WhatsApp contact via the amux gateway.",
+      description: "Send a message to a WhatsApp contact via the zorai gateway.",
       parameters: {
         type: "object",
         properties: {

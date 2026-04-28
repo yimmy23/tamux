@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Threads & Handoffs · tamux</title>
-  <meta name="description" content="How tamux models durable threads, participants, hidden delegation, and ownership handoffs without losing continuity." />
+  <title>Threads & Handoffs · Zorai</title>
+  <meta name="description" content="How Zorai models durable threads, participants, hidden delegation, and ownership handoffs without losing continuity." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -26,7 +26,7 @@
 
       <section>
         <h2>Durable work containers</h2>
-        <p>A thread is a persisted ordered conversation with messages, tool results, model metadata, and timestamps. Threads are where the operator-facing history actually lives. Good tamux usage keeps one thread per real mission and continues it while that mission remains the same.</p>
+        <p>A thread is a persisted ordered conversation with messages, tool results, model metadata, and timestamps. Threads are where the operator-facing history actually lives. Good Zorai usage keeps one thread per real mission and continues it while that mission remains the same.</p>
       </section>
 
       <section>
@@ -93,12 +93,12 @@
 
       <section>
         <h2>File references and directives</h2>
-        <p>Leading <code>@agent</code> is treated as an agent directive only when it matches a known agent alias. File references still work in other positions, which lets tamux preserve ordinary workspace mention behavior without breaking the directive model.</p>
+        <p>Leading <code>@agent</code> is treated as an agent directive only when it matches a known agent alias. File references still work in other positions, which lets Zorai preserve ordinary workspace mention behavior without breaking the directive model.</p>
       </section>
 
       <section>
         <h2>Continuity through handoffs</h2>
-        <p>Because threads are daemon-owned and memory is shared, handoffs do not reset context. The receiving persona inherits durable thread history, linked runtime state, and the same goal/task associations. This is one of the reasons tamux can function as a real multi-agent environment instead of separate personas living in disconnected chat silos.</p>
+        <p>Because threads are daemon-owned and memory is shared, handoffs do not reset context. The receiving persona inherits durable thread history, linked runtime state, and the same goal/task associations. This is one of the reasons Zorai can function as a real multi-agent environment instead of separate personas living in disconnected chat silos.</p>
       </section>
     </article>
   </main>

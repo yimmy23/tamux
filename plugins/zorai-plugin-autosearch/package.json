@@ -1,0 +1,16 @@
+{
+  "name": "zorai-plugin-autosearch",
+  "version": "1.0.0",
+  "description": "AutoResearch workflow plugin for zorai",
+  "author": "zorai",
+  "license": "MIT",
+  "keywords": ["zorai", "plugin", "autoresearch", "autosearch", "research"],
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/anthropic/cmux-next"
+  },
+  "files": [
+    "autosearch/",
+    "README.md"
+  ]
+}

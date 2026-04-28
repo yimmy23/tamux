@@ -369,14 +369,14 @@ export function FileManagerPanel({ style, className }: FileManagerPanelProps = {
                 }}
             >
                 <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
-                    <span className="amux-agent-indicator">Dual Pane Commander</span>
-                    <span className="amux-chip">F5 Copy</span>
-                    <span className="amux-chip">F6 Move</span>
-                    <span className="amux-chip">F7 Mkdir</span>
-                    <span className="amux-chip">F8 Delete</span>
-                    <span className="amux-chip">Arrows Navigate</span>
-                    <span className="amux-chip">Enter Open</span>
-                    <span className="amux-chip">Tab Switch Pane</span>
+                    <span className="zorai-agent-indicator">Dual Pane Commander</span>
+                    <span className="zorai-chip">F5 Copy</span>
+                    <span className="zorai-chip">F6 Move</span>
+                    <span className="zorai-chip">F7 Mkdir</span>
+                    <span className="zorai-chip">F8 Delete</span>
+                    <span className="zorai-chip">Arrows Navigate</span>
+                    <span className="zorai-chip">Enter Open</span>
+                    <span className="zorai-chip">Tab Switch Pane</span>
                 </div>
 
                 <div style={{ display: "flex", gap: "var(--space-2)" }}>

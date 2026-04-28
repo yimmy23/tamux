@@ -11,7 +11,7 @@ const usageTabs: Array<{ id: UsageTab; label: string }> = [
   { id: "rankings", label: "Rankings" },
 ];
 
-const windows: Array<{ id: AmuxStatisticsWindow; label: string }> = [
+const windows: Array<{ id: ZoraiStatisticsWindow; label: string }> = [
   { id: "today", label: "Today" },
   { id: "7d", label: "7d" },
   { id: "30d", label: "30d" },
@@ -20,8 +20,8 @@ const windows: Array<{ id: AmuxStatisticsWindow; label: string }> = [
 
 export function UsagePanel({ stats }: { stats: UsageStats }) {
   const [tab, setTab] = useState<UsageTab>("overview");
-  const [windowId, setWindowId] = useState<AmuxStatisticsWindow>("all");
-  const [snapshot, setSnapshot] = useState<AmuxAgentStatisticsSnapshot | null>(null);
+  const [windowId, setWindowId] = useState<ZoraiStatisticsWindow>("all");
+  const [snapshot, setSnapshot] = useState<ZoraiAgentStatisticsSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +37,7 @@ export function UsagePanel({ stats }: { stats: UsageStats }) {
     setLoading(true);
     setError(null);
     void bridge.agentGetStatistics(windowId).then((result) => {
-      if (!cancelled) setSnapshot((result ?? null) as AmuxAgentStatisticsSnapshot | null);
+      if (!cancelled) setSnapshot((result ?? null) as ZoraiAgentStatisticsSnapshot | null);
     }).catch((fetchError) => {
       if (!cancelled) {
         setSnapshot(null);
@@ -76,7 +76,7 @@ export function UsagePanel({ stats }: { stats: UsageStats }) {
   );
 }
 
-function StatisticsBody({ snapshot, tab }: { snapshot: AmuxAgentStatisticsSnapshot; tab: UsageTab }) {
+function StatisticsBody({ snapshot, tab }: { snapshot: ZoraiAgentStatisticsSnapshot; tab: UsageTab }) {
   if (tab === "providers") return <ProviderTable rows={snapshot.providers} />;
   if (tab === "models") return <ModelTable rows={snapshot.models} />;
   if (tab === "rankings") return <Rankings snapshot={snapshot} />;
@@ -104,7 +104,7 @@ function StatisticsBody({ snapshot, tab }: { snapshot: AmuxAgentStatisticsSnapsh
   );
 }
 
-function ProviderTable({ rows }: { rows: AmuxProviderStatisticsRow[] }) {
+function ProviderTable({ rows }: { rows: ZoraiProviderStatisticsRow[] }) {
   return (
     <UsageTable title="Providers" columns={["Provider", "In", "Out", "Total", "Cost"]} empty="No provider statistics for this window.">
       {rows.map((row) => (
@@ -114,7 +114,7 @@ function ProviderTable({ rows }: { rows: AmuxProviderStatisticsRow[] }) {
   );
 }
 
-function ModelTable({ rows }: { rows: AmuxModelStatisticsRow[] }) {
+function ModelTable({ rows }: { rows: ZoraiModelStatisticsRow[] }) {
   return (
     <UsageTable title="Provider / Model" columns={["Provider / Model", "In", "Out", "Total", "Cost"]} empty="No model statistics for this window.">
       {rows.map((row) => (
@@ -124,7 +124,7 @@ function ModelTable({ rows }: { rows: AmuxModelStatisticsRow[] }) {
   );
 }
 
-function Rankings({ snapshot }: { snapshot: AmuxAgentStatisticsSnapshot }) {
+function Rankings({ snapshot }: { snapshot: ZoraiAgentStatisticsSnapshot }) {
   return (
     <div className="zorai-usage-grid">
       <TopModelList title="Top Models By Tokens" rows={snapshot.top_models_by_tokens} value={(row) => `${formatTokenValue(row.total_tokens)} tok  ${formatCost(row.cost_usd)}`} />
@@ -152,7 +152,7 @@ function SessionUsageTable({ rows }: { rows: SessionUsageRow[] }) {
   );
 }
 
-function TopModelList({ title, rows, value }: { title: string; rows: AmuxModelStatisticsRow[]; value: (row: AmuxModelStatisticsRow) => string }) {
+function TopModelList({ title, rows, value }: { title: string; rows: ZoraiModelStatisticsRow[]; value: (row: ZoraiModelStatisticsRow) => string }) {
   return (
     <div className="zorai-panel">
       <div className="zorai-section-label">{title}</div>

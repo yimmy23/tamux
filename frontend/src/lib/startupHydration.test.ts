@@ -32,7 +32,7 @@ describe("startup daemon config hydration", () => {
 
     Object.assign(globalThis, {
       window: {
-        tamux: {
+        zorai: {
           agentGetConfig,
         },
       },

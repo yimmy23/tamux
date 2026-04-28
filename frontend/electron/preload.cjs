@@ -32,7 +32,7 @@ async function injectInstalledPluginScript(entry) {
 
     const script = document.createElement('script');
     script.type = 'text/javascript';
-    script.dataset.amuxExternalPlugin = entry.packageName;
+    script.dataset.zoraiExternalPlugin = entry.packageName;
     script.textContent = `${entry.source}\n//# sourceURL=${normalizedEntryPath.replace(/\\/g, '/')}`;
 
     try {
@@ -337,5 +337,5 @@ const bridgeApi = {
     },
 };
 
-contextBridge.exposeInMainWorld('tamux', bridgeApi);
-contextBridge.exposeInMainWorld('amux', bridgeApi);
+contextBridge.exposeInMainWorld('zorai', bridgeApi);
+contextBridge.exposeInMainWorld('zorai', bridgeApi);

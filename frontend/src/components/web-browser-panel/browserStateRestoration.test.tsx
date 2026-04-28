@@ -39,7 +39,7 @@ describe("browser state restoration", () => {
       />,
     );
 
-    expect(html).toContain('partition="persist:amux-browser"');
+    expect(html).toContain('partition="persist:zorai-browser"');
     expect(html).toContain('src="https://example.com"');
   });
 
@@ -48,7 +48,7 @@ describe("browser state restoration", () => {
       <CanvasBrowserPane paneId="pane-1" initialUrl="https://example.com" />,
     );
 
-    expect(html).toContain('partition="persist:amux-browser"');
+    expect(html).toContain('partition="persist:zorai-browser"');
     expect(html).toContain('src="https://example.com"');
   });
 });

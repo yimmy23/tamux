@@ -25,8 +25,8 @@ const authSources: AuthSource[] = ["api_key", "chatgpt_subscription", "github_co
 const reasoningEfforts: AgentSettings["reasoning_effort"][] = ["none", "minimal", "low", "medium", "high", "xhigh"];
 const APP_VERSION = "0.7.1";
 const APP_AUTHOR = "Mariusz Kurman";
-const APP_GITHUB = "mkurman/tamux";
-const APP_HOMEPAGE = "tamux.app";
+const APP_GITHUB = "mkurman/zorai";
+const APP_HOMEPAGE = "zorai.app";
 
 const toolToggles: ToggleSetting[] = [
   { key: "enable_bash_tool", label: "Terminal tool", description: "Allow agents to execute managed shell commands." },

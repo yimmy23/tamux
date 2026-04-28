@@ -30,7 +30,7 @@ export interface SnippetState {
 }
 
 // ---------------------------------------------------------------------------
-// Seed defaults (matching amux-windows)
+// Seed defaults (matching zorai-windows)
 // ---------------------------------------------------------------------------
 const SEED_SNIPPETS: Array<Omit<Snippet, "owner">> = [
   {

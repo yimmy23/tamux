@@ -46,9 +46,9 @@ export async function hydrateAgentStore(): Promise<void> {
   useAgentStore.setState({ agentSettingsHydrated });
 
   if (!shouldPersistHistory(configuredBackend)) {
-    const amux = getBridge();
-    if (amux?.agentListThreads) {
-      const remoteThreads = await amux.agentListThreads().catch(() => []);
+    const zorai = getBridge();
+    if (zorai?.agentListThreads) {
+      const remoteThreads = await zorai.agentListThreads().catch(() => []);
       if (Array.isArray(remoteThreads) && remoteThreads.length > 0) {
         const messages: AgentChatState["messages"] = {};
         const threads = [];

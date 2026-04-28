@@ -98,8 +98,8 @@ This document defines the visual layout, interaction patterns, and component hie
 │ ● session:abc123 ~ ~/projects/cmux-next                       [x] [split]│
 ├─────────────────────────────────────────────────────────────────────────┤
 │ $ cargo build --release                                                  │
-│    Compiling amux-daemon v0.1.10                                         │
-│    Compiling amux-protocol v0.1.10                                       │
+│    Compiling zorai-daemon v0.1.10                                         │
+│    Compiling zorai-protocol v0.1.10                                       │
 │    Finished release [optimized] target(s) in 42.5s                      │
 │ $ _                                                                      │
 └─────────────────────────────────────────────────────────────────────────┘

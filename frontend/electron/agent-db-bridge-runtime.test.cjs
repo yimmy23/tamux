@@ -58,7 +58,7 @@ function createRuntimeHarness() {
   const spawned = [];
   const runtime = createAgentDbBridgeRuntime({
     fs: { existsSync: () => true },
-    getDaemonPath: () => path.join("/tmp", "tamux-daemon"),
+    getDaemonPath: () => path.join("/tmp", "zorai-daemon"),
     getMainWindow: () => null,
     logToFile: () => {},
     pendingHandlerMatchesResponseType,

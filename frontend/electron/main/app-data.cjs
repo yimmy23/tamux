@@ -2,23 +2,23 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-function getLegacyAmuxDataDir() {
+function getLegacyZoraiDataDir() {
     if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
-        return path.join(process.env.LOCALAPPDATA, 'amux');
+        return path.join(process.env.LOCALAPPDATA, 'zorai');
     }
-    return path.join(os.homedir(), '.amux');
+    return path.join(os.homedir(), '.zorai');
 }
 
-function getTamuxDataDir() {
+function getZoraiDataDir() {
     if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
-        return path.join(process.env.LOCALAPPDATA, 'tamux');
+        return path.join(process.env.LOCALAPPDATA, 'zorai');
     }
-    return path.join(os.homedir(), '.tamux');
+    return path.join(os.homedir(), '.zorai');
 }
 
-function ensureTamuxDataDir() {
-    const dataDir = getTamuxDataDir();
-    const legacyDir = getLegacyAmuxDataDir();
+function ensureZoraiDataDir() {
+    const dataDir = getZoraiDataDir();
+    const legacyDir = getLegacyZoraiDataDir();
     if (!fs.existsSync(dataDir) && fs.existsSync(legacyDir)) {
         try {
             fs.mkdirSync(path.dirname(dataDir), { recursive: true });
@@ -32,7 +32,7 @@ function ensureTamuxDataDir() {
 }
 
 function installBundledGuidelines(options = {}) {
-    const targetRoot = options.targetRoot || ensureTamuxDataDir();
+    const targetRoot = options.targetRoot || ensureZoraiDataDir();
     const sourceCandidates = Array.isArray(options.sourceCandidates) ? options.sourceCandidates : [];
     const source = sourceCandidates.find((candidate) => {
         try {
@@ -79,13 +79,13 @@ function installBundledGuidelines(options = {}) {
 }
 
 function getVisionTempDir() {
-    const dir = path.join(ensureTamuxDataDir(), 'tmp', 'vision');
+    const dir = path.join(ensureZoraiDataDir(), 'tmp', 'vision');
     fs.mkdirSync(dir, { recursive: true });
     return dir;
 }
 
 function getAudioTempDir() {
-    const dir = path.join(ensureTamuxDataDir(), 'tmp', 'audio');
+    const dir = path.join(ensureZoraiDataDir(), 'tmp', 'audio');
     fs.mkdirSync(dir, { recursive: true });
     return dir;
 }
@@ -204,7 +204,7 @@ function configureChromiumRuntimePaths(options = {}) {
     const { app, logToFile } = options;
 
     try {
-        const dataDir = ensureTamuxDataDir();
+        const dataDir = ensureZoraiDataDir();
         const userDataDir = path.join(dataDir, 'electron-profile');
         const cacheDir = path.join(dataDir, 'chromium-cache');
 
@@ -220,7 +220,7 @@ function configureChromiumRuntimePaths(options = {}) {
         });
     }
 
-    const settingsPath = path.join(getTamuxDataDir(), 'settings.json');
+    const settingsPath = path.join(getZoraiDataDir(), 'settings.json');
     let gpuEnabled = true;
     try {
         const raw = fs.readFileSync(settingsPath, 'utf-8');
@@ -244,12 +244,12 @@ function resolveDataPath(relativePath) {
         throw new Error('A relative path is required.');
     }
 
-    const baseDir = path.resolve(ensureTamuxDataDir());
+    const baseDir = path.resolve(ensureZoraiDataDir());
     const normalized = path.normalize(relativePath).replace(/^(\.\.(\\|\/|$))+/, '');
     const targetPath = path.resolve(baseDir, normalized);
 
     if (targetPath !== baseDir && !targetPath.startsWith(`${baseDir}${path.sep}`)) {
-        throw new Error('Path escapes the tamux data directory.');
+        throw new Error('Path escapes the zorai data directory.');
     }
 
     return targetPath;
@@ -307,7 +307,7 @@ function listDataDir(relativeDir = '') {
         const absolutePath = path.join(dirPath, entry.name);
         return {
             name: entry.name,
-            path: path.relative(ensureTamuxDataDir(), absolutePath).replace(/\\/g, '/'),
+            path: path.relative(ensureZoraiDataDir(), absolutePath).replace(/\\/g, '/'),
             isDirectory: entry.isDirectory(),
         };
     });
@@ -340,7 +340,7 @@ function datedLogFileName(fileName, date = new Date()) {
 
 function logToFile(level, message, details) {
     try {
-        const logDir = getTamuxDataDir();
+        const logDir = getZoraiDataDir();
         fs.mkdirSync(logDir, { recursive: true });
         const now = new Date();
         const line = [
@@ -349,7 +349,7 @@ function logToFile(level, message, details) {
             message,
             details ? JSON.stringify(details) : '',
         ].filter(Boolean).join(' ') + '\n';
-        fs.appendFileSync(path.join(logDir, datedLogFileName('tamux-electron.log', now)), line, 'utf8');
+        fs.appendFileSync(path.join(logDir, datedLogFileName('zorai-electron.log', now)), line, 'utf8');
     } catch {
         // Ignore logging failures.
     }
@@ -360,10 +360,10 @@ module.exports = {
     configureChromiumRuntimePaths,
     datedLogFileName,
     deleteDataPath,
-    ensureTamuxDataDir,
+    ensureZoraiDataDir,
     installBundledGuidelines,
-    getLegacyAmuxDataDir,
-    getTamuxDataDir,
+    getLegacyZoraiDataDir,
+    getZoraiDataDir,
     getVisionTempDir,
     getAudioTempDir,
     listDataDir,

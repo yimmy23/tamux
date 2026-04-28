@@ -79,7 +79,7 @@ export function CommandLogPanel({ style, className }: CommandLogPanelProps = {})
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `amux-command-log-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+    anchor.download = `zorai-command-log-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -115,7 +115,7 @@ export function CommandLogPanel({ style, className }: CommandLogPanelProps = {})
           display: "flex",
           flexDirection: "column",
         }}
-        className="amux-shell-card"
+        className="zorai-shell-card"
       >
         <CommandLogHeader
           visibleCount={filteredEntries.length}

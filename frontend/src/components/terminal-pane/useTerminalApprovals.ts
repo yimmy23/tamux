@@ -127,12 +127,12 @@ export function useTerminalApprovals({
     const approval = resolvedApprovals.find((entry) => entry.id === pendingId) ?? resolvedApprovals[0];
     if (!approval) return;
 
-    const amux = getBridge();
+    const zorai = getBridge();
     if (approval.status === "approved-once" || approval.status === "approved-session") {
-      void amux?.sendTerminalInput?.(paneId, encodeTextToBase64("\r"));
+      void zorai?.sendTerminalInput?.(paneId, encodeTextToBase64("\r"));
     } else if (approval.status === "denied") {
       commandBufferRef.current = "";
-      void amux?.sendTerminalInput?.(paneId, encodeTextToBase64("\u0003"));
+      void zorai?.sendTerminalInput?.(paneId, encodeTextToBase64("\u0003"));
     }
 
     pendingApprovalIdRef.current = null;

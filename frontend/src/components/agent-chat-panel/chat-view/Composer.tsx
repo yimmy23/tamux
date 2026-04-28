@@ -178,7 +178,7 @@ export function ChatComposer({
     && typeof window !== "undefined"
     && typeof MediaRecorder !== "undefined"
     && !!navigator.mediaDevices?.getUserMedia
-    && !!(window.amux?.agentSpeechToText || window.tamux?.agentSpeechToText);
+    && !!(window.zorai?.agentSpeechToText || window.zorai?.agentSpeechToText);
   const { isImageMode, displayValue } = deriveImageComposerState(input);
   const composerPlaceholder = !agentSettings.enabled
     ? "Agent disabled — enable in Settings > Agent"
@@ -193,7 +193,7 @@ export function ChatComposer({
       mediaRecorderRef.current?.stop();
       return;
     }
-    const bridge = window.amux ?? window.tamux;
+    const bridge = window.zorai ?? window.zorai;
     if (!bridge?.agentSpeechToText || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       return;
     }

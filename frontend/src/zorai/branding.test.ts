@@ -20,8 +20,8 @@ describe("Zorai branding", () => {
     const electronMain = readFileSync(new URL("../../electron/main.cjs", import.meta.url), "utf8");
 
     expect(windowRuntime).toContain("appName = 'Zorai'");
-    expect(windowRuntime).not.toContain("title: 'tamux'");
-    expect(electronMain).toContain("whatIsTamux: 'Zorai is");
+    expect(windowRuntime).not.toContain("title: 'zorai'");
+    expect(electronMain).toContain("whatIsZorai: 'Zorai is");
   });
 
   it("does not expose old product language in visible settings copy", () => {
@@ -29,10 +29,10 @@ describe("Zorai branding", () => {
     const agentTab = readFileSync(new URL("../components/settings-panel/AgentTab.tsx", import.meta.url), "utf8");
     const gatewayTab = readFileSync(new URL("../components/settings-panel/GatewayTab.tsx", import.meta.url), "utf8");
 
-    expect(promptPreview).not.toContain("daemon-managed tamux agents");
-    expect(agentTab).not.toContain("<option value=\"daemon\">tamux</option>");
-    expect(agentTab).not.toContain("<strong>tamux tools:</strong>");
-    expect(agentTab).not.toContain("only affect the tamux daemon runtime");
-    expect(gatewayTab).not.toContain("chat platforms to tamux");
+    expect(promptPreview).not.toContain("daemon-managed zorai agents");
+    expect(agentTab).not.toContain("<option value=\"daemon\">zorai</option>");
+    expect(agentTab).not.toContain("<strong>zorai tools:</strong>");
+    expect(agentTab).not.toContain("only affect the zorai daemon runtime");
+    expect(gatewayTab).not.toContain("chat platforms to zorai");
   });
 });

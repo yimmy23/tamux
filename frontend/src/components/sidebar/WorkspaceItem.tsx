@@ -130,13 +130,13 @@ export function WorkspaceItem({
 
                         <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap", marginTop: "var(--space-2)" }}>
                             {workspace.cwd ? (
-                                <span className="amux-chip amux-code" style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", fontSize: "var(--text-xs)" }}>
+                                <span className="zorai-chip zorai-code" style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", fontSize: "var(--text-xs)" }}>
                                     {workspace.cwd}
                                 </span>
                             ) : null}
 
                             {workspace.listeningPorts.length > 0 ? (
-                                <span className="amux-chip" style={{ fontSize: "var(--text-xs)" }}>
+                                <span className="zorai-chip" style={{ fontSize: "var(--text-xs)" }}>
                                     :{workspace.listeningPorts.join(",")}
                                 </span>
                             ) : null}

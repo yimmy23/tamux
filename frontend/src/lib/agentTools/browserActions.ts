@@ -89,11 +89,11 @@ export async function executeBrowserScreenshot(callId: string, name: string): Pr
   const browser = getBrowserController();
   if (!browser) return { toolCallId: callId, name, content: "Error: Browser panel is not available." };
   const shot = await browser.captureScreenshot();
-  const amux = getBridge();
-  if (!amux?.saveVisionScreenshot) {
+  const zorai = getBridge();
+  if (!zorai?.saveVisionScreenshot) {
     return { toolCallId: callId, name, content: "Error: Vision screenshot persistence is not available in this environment." };
   }
-  const saved = await amux.saveVisionScreenshot({ dataUrl: shot.dataUrl });
+  const saved = await zorai.saveVisionScreenshot({ dataUrl: shot.dataUrl });
   if (!saved?.ok) {
     return { toolCallId: callId, name, content: `Error: Failed to save screenshot: ${saved?.error || "unknown error"}` };
   }

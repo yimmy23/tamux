@@ -1,12 +1,12 @@
-# tamux Best Practices
+# Zorai Best Practices
 
-This is the practical version of the docs: how to configure tamux so it is useful every day, how to assign models to the built-in fires, and how to keep long-running agent work reliable instead of expensive or vague.
+This is the practical version of the docs: how to configure Zorai so it is useful every day, how to assign models to the built-in fires, and how to keep long-running agent work reliable instead of expensive or vague.
 
 For installation and first-run setup, see [getting-started.md](getting-started.md). For the full configuration surface, see [reference.md](reference.md). For thread participants and internal delegation, see [operating/thread-participants.md](operating/thread-participants.md).
 
 ## Start With The Right Mental Model
 
-tamux works best when you treat it as a daemon-backed operating environment, not as a single chat box.
+Zorai works best when you treat it as a daemon-backed operating environment, not as a single chat box.
 
 - Keep the daemon running and reconnect from whichever client is convenient.
 - Use the desktop UI when you want broad visibility and settings control.
@@ -14,7 +14,7 @@ tamux works best when you treat it as a daemon-backed operating environment, not
 - Use the CLI and MCP server when you want automation, scripting, or external-agent integration.
 - Let the daemon own state. Closing the UI should not mean losing the work.
 
-The main failure mode for new users is treating tamux like a disposable prompt window. The whole point is durable state, durable threads, durable workspace tasks, and durable goals.
+The main failure mode for new users is treating Zorai like a disposable prompt window. The whole point is durable state, durable threads, durable workspace tasks, and durable goals.
 
 ## Choose Strong Model Roles
 
@@ -53,7 +53,7 @@ Use Weles for:
 - validating assumptions when the main thread is moving fast
 - compaction when you want an LLM to compress context instead of relying on heuristic trimming
 
-Do not starve Weles with a weak bargain model. If governance is too weak, tamux becomes noisier and less trustworthy exactly where it should be more disciplined.
+Do not starve Weles with a weak bargain model. If governance is too weak, Zorai becomes noisier and less trustworthy exactly where it should be more disciplined.
 
 ### Rarog
 
@@ -98,7 +98,7 @@ If a model assignment has no role logic behind it, it is usually the wrong assig
 
 ## Use LLM-Based Compaction When Threads Matter
 
-Heuristic compaction is the default. It is fine as a conservative baseline, and it is cheaper. But if you are using tamux for long-lived threads, serious coding work, layered investigations, or governance-heavy runs, you should usually move to LLM-based compaction.
+Heuristic compaction is the default. It is fine as a conservative baseline, and it is cheaper. But if you are using Zorai for long-lived threads, serious coding work, layered investigations, or governance-heavy runs, you should usually move to LLM-based compaction.
 
 Recommended practice:
 
@@ -125,11 +125,11 @@ Heuristic compaction is still reasonable when:
 - the work is short
 - the context is mostly recent and disposable
 - cost matters more than continuity
-- you are using tamux for quick utility work
+- you are using Zorai for quick utility work
 
 ## Prefer Durable Threads Over Fresh Chats
 
-tamux gets stronger when a thread represents a real line of work.
+Zorai gets stronger when a thread represents a real line of work.
 
 Good thread habits:
 
@@ -139,7 +139,7 @@ Good thread habits:
 - let context accumulate where continuity is useful
 - avoid throwing away history just because a model had one bad turn
 
-Resetting too often destroys one of tamux's biggest advantages.
+Resetting too often destroys one of Zorai's biggest advantages.
 
 ## Be Explicit With Objectives
 
@@ -162,11 +162,11 @@ Better prompt:
 Find why the release build is failing on Linux, identify the first concrete root cause, make the smallest safe fix, and tell me what you verified locally.
 ```
 
-tamux rewards operationally specific instructions.
+Zorai rewards operationally specific instructions.
 
 ## Use The Right Interaction Mode
 
-tamux gives you different ways to involve other fires. Use them intentionally.
+Zorai gives you different ways to involve other fires. Use them intentionally.
 
 Use `@agent ...` when:
 
@@ -202,7 +202,7 @@ Handoff behavior:
 
 - a handoff changes the active responder for the thread
 - future operator messages route to that agent until a return handoff
-- tamux records the switch as a visible system event while keeping linked handoff context hidden
+- Zorai records the switch as a visible system event while keeping linked handoff context hidden
 
 Use handoff instead of `!agent` when you want to talk to that agent directly going forward. Use handoff instead of `@agent` when advisory participation is not enough and ownership should actually move.
 
@@ -265,7 +265,7 @@ If cost is exploding, do not immediately weaken Svarog. First check:
 
 ## Use Approvals To Protect The Edges
 
-tamux is strongest when autonomy and operator control are both real.
+Zorai is strongest when autonomy and operator control are both real.
 
 Practical approval habits:
 
@@ -303,13 +303,13 @@ Use the client that gives the right control surface for the work.
 - desktop app: best for settings, visibility, chat, and broad operational control
 - TUI: best for keyboard-first work, remote sessions, and daemon inspection in the terminal
 - CLI: best for automation and scripted inspection
-- MCP: best when another agent or toolchain needs to drive tamux as a system component
+- MCP: best when another agent or toolchain needs to drive Zorai as a system component
 
 There is no single correct frontend. The daemon is the product; clients are views into it.
 
 ## Prefer Real Histories Over Re-Explaining Everything
 
-When tamux already has the thread, workspace task, or goal history, use that continuity instead of restating the whole situation from zero every time. This is one of the main reasons to use tamux in the first place.
+When Zorai already has the thread, workspace task, or goal history, use that continuity instead of restating the whole situation from zero every time. This is one of the main reasons to use Zorai in the first place.
 
 That means:
 
@@ -329,13 +329,13 @@ If you want a simple starting point:
 - Goal runners: use them for anything you would otherwise “come back to later”
 - Participants: add `@weles` when correctness and risk matter; add `@rarog` when operator guidance matters
 
-That baseline is usually enough to get tamux feeling substantially better than a generic single-model terminal chat workflow.
+That baseline is usually enough to get Zorai feeling substantially better than a generic single-model terminal chat workflow.
 
 ## Related Reading
 
 - [Getting Started](getting-started.md)
 - [Reference](reference.md)
-- [How tamux Works](how-tamux-works.md)
+- [How Zorai Works](how-zorai-works.md)
 - [Workspaces](workspaces.md)
 - [Goal Runners](goal-runners.md)
 - [Thread Participants](operating/thread-participants.md)

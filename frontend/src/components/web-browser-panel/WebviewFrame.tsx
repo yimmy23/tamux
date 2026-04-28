@@ -1,6 +1,6 @@
 import { createElement, useLayoutEffect, useRef, useState } from "react";
 
-const SHADOW_STYLE_ID = "tamux-webview-stretch-style";
+const SHADOW_STYLE_ID = "zorai-webview-stretch-style";
 
 export function WebviewFrame({
     activeWorkspaceId,
@@ -140,7 +140,7 @@ export function WebviewFrame({
                     background: "#ffffff",
                 },
                 allowpopups: "true",
-                partition: "persist:amux-browser",
+                partition: "persist:zorai-browser",
             })}
         </div>
     );

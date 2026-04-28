@@ -4,9 +4,9 @@ Status: proposed parent RFC for implementation planning
 Last updated: 2026-04-09
 Original design session: 2026-04-08
 
-This document defines the shared architecture for tamux orchestration and safety.
+This document defines the shared architecture for Zorai orchestration and safety.
 
-For the current daemon/runtime shape, see [how-tamux-works.md](./how-tamux-works.md). For the layered memory architecture, see [tamux-memory.md](./tamux-memory.md). For the current security and governance model, see [tamux-security.md](./tamux-security.md).
+For the current daemon/runtime shape, see [how-zorai-works.md](./how-zorai-works.md). For the layered memory architecture, see [zorai-memory.md](./zorai-memory.md). For the current security and governance model, see [zorai-security.md](./zorai-security.md).
 
 This parent RFC defines the shared model for two child RFCs:
 
@@ -15,7 +15,7 @@ This parent RFC defines the shared model for two child RFCs:
 
 ## Summary
 
-tamux needs a control-plane architecture that can coordinate multi-target execution without collapsing safety into an afterthought.
+Zorai needs a control-plane architecture that can coordinate multi-target execution without collapsing safety into an afterthought.
 
 This RFC establishes the shared model:
 

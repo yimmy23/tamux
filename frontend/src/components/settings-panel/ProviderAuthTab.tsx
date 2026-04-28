@@ -22,7 +22,7 @@ export function ProviderAuthTab() {
     const [validationResult, setValidationResult] = useState<Record<string, { valid: boolean; error?: string }>>({});
 
     // ChatGPT subscription auth state
-    const [chatgptAuthStatus, setChatgptAuthStatus] = useState<AmuxOpenAICodexAuthLogin | AmuxOpenAICodexAuthStatus | null>(null);
+    const [chatgptAuthStatus, setChatgptAuthStatus] = useState<ZoraiOpenAICodexAuthLogin | ZoraiOpenAICodexAuthStatus | null>(null);
     const [chatgptAuthBusy, setChatgptAuthBusy] = useState(false);
     const chatgptAuthUi = deriveOpenAICodexAuthUi(chatgptAuthStatus);
     const authCapability = getDaemonOwnedAuthCapability(agentBackend);
@@ -47,13 +47,13 @@ export function ProviderAuthTab() {
             return;
         }
 
-        const amux = getBridge();
-        if (!amux?.openAICodexAuthStatus) {
+        const zorai = getBridge();
+        if (!zorai?.openAICodexAuthStatus) {
             return;
         }
 
         let cancelled = false;
-        void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
+        void zorai.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
             if (cancelled) {
                 return;
             }
@@ -69,9 +69,9 @@ export function ProviderAuthTab() {
     useEffect(() => {
         if (!chatgptAuthUi.shouldPoll) return;
         const timer = window.setInterval(() => {
-            const amux = getBridge();
-            if (!amux?.openAICodexAuthStatus) return;
-            void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
+            const zorai = getBridge();
+            if (!zorai?.openAICodexAuthStatus) return;
+            void zorai.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
                 const nextUi = deriveOpenAICodexAuthUi(status);
                 setChatgptAuthStatus(status);
                 if (nextUi.isTerminal) {
@@ -100,14 +100,14 @@ export function ProviderAuthTab() {
 
     const handleChatgptLogin = async () => {
         if (!authCapability.chatgptSubscriptionAvailable) {
-            setChatgptAuthStatus({ available: false, authMode: "chatgpt_subscription", status: "error", error: "ChatGPT subscription auth requires daemon-backed execution" } as AmuxOpenAICodexAuthStatus);
+            setChatgptAuthStatus({ available: false, authMode: "chatgpt_subscription", status: "error", error: "ChatGPT subscription auth requires daemon-backed execution" } as ZoraiOpenAICodexAuthStatus);
             return;
         }
-        const amux = getBridge();
-        if (!amux?.openAICodexAuthLogin) return;
+        const zorai = getBridge();
+        if (!zorai?.openAICodexAuthLogin) return;
         setChatgptAuthBusy(true);
         try {
-            const result = await amux.openAICodexAuthLogin();
+            const result = await zorai.openAICodexAuthLogin();
             const authUrl = deriveOpenAICodexAuthUi(result).authUrl;
             setChatgptAuthStatus(result);
             if (authUrl) {
@@ -125,14 +125,14 @@ export function ProviderAuthTab() {
 
     const handleChatgptLogout = async () => {
         if (!authCapability.chatgptSubscriptionAvailable) {
-            setChatgptAuthStatus({ available: false, authMode: "chatgpt_subscription", status: "error", error: "ChatGPT subscription auth requires daemon-backed execution" } as AmuxOpenAICodexAuthStatus);
+            setChatgptAuthStatus({ available: false, authMode: "chatgpt_subscription", status: "error", error: "ChatGPT subscription auth requires daemon-backed execution" } as ZoraiOpenAICodexAuthStatus);
             return;
         }
-        const amux = getBridge();
-        if (!amux?.openAICodexAuthLogout) return;
+        const zorai = getBridge();
+        if (!zorai?.openAICodexAuthLogout) return;
         setChatgptAuthBusy(true);
         try {
-            await amux.openAICodexAuthLogout();
+            await zorai.openAICodexAuthLogout();
             setChatgptAuthStatus({ available: false, authMode: "chatgpt_subscription" });
             refreshProviderAuthStates();
         } catch { /* ignore */ } finally {
@@ -153,15 +153,15 @@ export function ProviderAuthTab() {
                     }));
                     return;
                 }
-                const amux = getBridge();
-                if (!amux?.openAICodexAuthStatus) {
+                const zorai = getBridge();
+                if (!zorai?.openAICodexAuthStatus) {
                     setValidationResult((prev) => ({
                         ...prev,
                         [providerId]: { valid: false, error: "ChatGPT auth bridge unavailable" },
                     }));
                     return;
                 }
-                const status = await amux.openAICodexAuthStatus({ refresh: true });
+                const status = await zorai.openAICodexAuthStatus({ refresh: true });
                 setChatgptAuthStatus(status);
                 setValidationResult((prev) => ({
                     ...prev,

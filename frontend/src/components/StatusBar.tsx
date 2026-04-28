@@ -58,7 +58,7 @@ export function StatusBar() {
   useEffect(() => {
     async function check() {
       try {
-        if (typeof window !== "undefined" && "amux" in window) {
+        if (typeof window !== "undefined" && "zorai" in window) {
           const ok = await getBridge()?.checkDaemon?.();
           setDaemonConnected(ok ?? false);
         }

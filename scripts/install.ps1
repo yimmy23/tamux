@@ -2,22 +2,22 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Install tamux binaries to C:\Program Files\tamux
+    Install zorai binaries to C:\Program Files\zorai
 
 .DESCRIPTION
-    Downloads pre-built tamux binaries from GitHub Releases, verifies SHA256
-    checksums for the extracted binaries, installs to C:\Program Files\tamux,
+    Downloads pre-built zorai binaries from GitHub Releases, verifies SHA256
+    checksums for the extracted binaries, installs to C:\Program Files\zorai,
     and updates system PATH.
 
 .PARAMETER DryRun
     Print what would be done without downloading or modifying files.
 
 .EXAMPLE
-    irm https://raw.githubusercontent.com/mkurman/tamux/main/scripts/install.ps1 | iex
+    irm https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.ps1 | iex
     Download and run the installer.
 
 .EXAMPLE
-    $env:TAMUX_VERSION = "0.4.2"; .\install.ps1
+    $env:ZORAI_VERSION = "0.4.2"; .\install.ps1
     Install a specific version.
 
 .EXAMPLE
@@ -32,19 +32,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$InstallDir = if ($env:TAMUX_INSTALL_DIR) { $env:TAMUX_INSTALL_DIR } else { "C:\Program Files\tamux" }
-$SkillsDir = if ($env:TAMUX_SKILLS_DIR) { $env:TAMUX_SKILLS_DIR } else { Join-Path $HOME ".tamux\skills" }
-$GuidelinesDir = if ($env:TAMUX_GUIDELINES_DIR) { $env:TAMUX_GUIDELINES_DIR } else { Join-Path $HOME ".tamux\guidelines" }
+$InstallDir = if ($env:ZORAI_INSTALL_DIR) { $env:ZORAI_INSTALL_DIR } else { "C:\Program Files\zorai" }
+$SkillsDir = if ($env:ZORAI_SKILLS_DIR) { $env:ZORAI_SKILLS_DIR } else { Join-Path $HOME ".zorai\skills" }
+$GuidelinesDir = if ($env:ZORAI_GUIDELINES_DIR) { $env:ZORAI_GUIDELINES_DIR } else { Join-Path $HOME ".zorai\guidelines" }
 $GitHubOwner = "mkurman"
-$GitHubRepo = "tamux"
+$GitHubRepo = "zorai"
 $GitHubApiUrl = "https://api.github.com/repos/$GitHubOwner/$GitHubRepo"
 $DownloadBaseUrl = "https://github.com/$GitHubOwner/$GitHubRepo/releases/download"
 $RequestHeaders = @{
     "Accept" = "application/vnd.github+json"
-    "User-Agent" = "tamux-installer"
+    "User-Agent" = "zorai-installer"
 }
-$DirectInstallMarker = Join-Path $InstallDir ".tamux-install-source"
-$Binaries = @("tamux.exe", "tamux-daemon.exe", "tamux-tui.exe", "tamux-gateway.exe", "tamux-mcp.exe")
+$DirectInstallMarker = Join-Path $InstallDir ".zorai-install-source"
+$Binaries = @("zorai.exe", "zorai-daemon.exe", "zorai-tui.exe", "zorai-gateway.exe", "zorai-mcp.exe")
 
 function Normalize-Version {
     param([string]$Value)
@@ -73,7 +73,7 @@ function Detect-Platform {
     }
 
     $script:Target = "windows-$script:ArchName"
-    $script:ArchiveName = "tamux-windows-$script:ArchName.zip"
+    $script:ArchiveName = "zorai-windows-$script:ArchName.zip"
     $script:ChecksumName = "SHA256SUMS-windows-$script:ArchName.txt"
     Write-Host "Detected platform: $script:Target"
 }
@@ -83,8 +83,8 @@ function Detect-Platform {
 # ---------------------------------------------------------------------------
 
 function Get-LatestVersion {
-    if ($env:TAMUX_VERSION) {
-        $script:Version = Normalize-Version $env:TAMUX_VERSION
+    if ($env:ZORAI_VERSION) {
+        $script:Version = Normalize-Version $env:ZORAI_VERSION
         Write-Host "Using specified version: $script:Version"
         return
     }
@@ -97,21 +97,41 @@ function Get-LatestVersion {
             throw "No version tag found"
         }
     } catch {
-        Write-Error "Could not determine latest version. Set `$env:TAMUX_VERSION=x.y.z"
+        Write-Error "Could not determine latest version. Set `$env:ZORAI_VERSION=x.y.z"
         exit 1
     }
 
     Write-Host "Latest version: $script:Version"
 }
 
-function Wait-ForPreviousTamux {
-    if (-not $env:TAMUX_UPGRADE_WAIT_PID) {
+function Wait-ForPreviousZorai {
+    if (-not $env:ZORAI_UPGRADE_WAIT_PID) {
         return
     }
 
-    Write-Host "Waiting for tamux process $env:TAMUX_UPGRADE_WAIT_PID to exit..."
-    while (Get-Process -Id $env:TAMUX_UPGRADE_WAIT_PID -ErrorAction SilentlyContinue) {
+    Write-Host "Waiting for zorai process $env:ZORAI_UPGRADE_WAIT_PID to exit..."
+    while (Get-Process -Id $env:ZORAI_UPGRADE_WAIT_PID -ErrorAction SilentlyContinue) {
         Start-Sleep -Milliseconds 500
+    }
+}
+
+function Move-LegacyTamuxRoot {
+    param(
+        [string]$legacyRoot,
+        [string]$targetRoot
+    )
+
+    if ((Test-Path $legacyRoot) -and -not (Test-Path $targetRoot)) {
+        Move-Item -Path $legacyRoot -Destination $targetRoot
+        Write-Host "Migrated legacy runtime data: $legacyRoot -> $targetRoot"
+    }
+}
+
+function Migrate-LegacyTamuxRoot {
+    Move-LegacyTamuxRoot -legacyRoot (Join-Path $HOME ".tamux") -targetRoot (Join-Path $HOME ".zorai")
+
+    if ($env:LOCALAPPDATA) {
+        Move-LegacyTamuxRoot -legacyRoot (Join-Path $env:LOCALAPPDATA "tamux") -targetRoot (Join-Path $env:LOCALAPPDATA "zorai")
     }
 }
 
@@ -155,7 +175,7 @@ function Verify-ExtractedBinary {
 }
 
 function Download-AndVerify {
-    $script:TmpDir = Join-Path $env:TEMP "tamux-install-$PID"
+    $script:TmpDir = Join-Path $env:TEMP "zorai-install-$PID"
     $script:ArchivePath = Join-Path $script:TmpDir $script:ArchiveName
     $script:ChecksumPath = Join-Path $script:TmpDir $script:ChecksumName
     $script:ExtractDir = Join-Path $script:TmpDir "extract"
@@ -167,7 +187,7 @@ function Download-AndVerify {
     New-Item -ItemType Directory -Force -Path $script:TmpDir | Out-Null
     New-Item -ItemType Directory -Force -Path $script:ExtractDir | Out-Null
 
-    Write-Host "Downloading tamux v$script:Version for $script:Target..."
+    Write-Host "Downloading zorai v$script:Version for $script:Target..."
     Invoke-WebRequest -Uri $script:ChecksumUrl -Headers $RequestHeaders `
         -OutFile $script:ChecksumPath -ErrorAction Stop
     Invoke-WebRequest -Uri $script:ArchiveUrl -Headers $RequestHeaders `
@@ -208,6 +228,11 @@ function Install-Binaries {
     Write-Host "Installed: $($Binaries -join ', ') -> $InstallDir"
 }
 
+function Install-CliAlias {
+    Copy-Item -Path (Join-Path $InstallDir "zorai.exe") -Destination (Join-Path $InstallDir "zoi.exe") -Force
+    Write-Host "Installed CLI alias: zoi.exe -> zorai.exe"
+}
+
 function Install-Skills {
     $skillsSource = Join-Path $script:ExtractDir "skills"
     if (-not (Test-Path $skillsSource)) {
@@ -240,7 +265,7 @@ function Install-Guidelines {
 }
 
 function Install-CustomAuthTemplate {
-    $rootDir = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "tamux" } else { Join-Path $HOME ".tamux" }
+    $rootDir = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "zorai" } else { Join-Path $HOME ".zorai" }
     $customAuthPath = Join-Path $rootDir "custom-auth.yaml"
     New-Item -ItemType Directory -Force -Path $rootDir | Out-Null
 
@@ -264,16 +289,16 @@ providers: []
 }
 
 function Start-DaemonAfterUpgrade {
-    if ($env:TAMUX_START_DAEMON_AFTER_INSTALL -ne "1") {
+    if ($env:ZORAI_START_DAEMON_AFTER_INSTALL -ne "1") {
         return
     }
 
-    $daemonPath = Join-Path $InstallDir "tamux-daemon.exe"
+    $daemonPath = Join-Path $InstallDir "zorai-daemon.exe"
     if (-not (Test-Path $daemonPath)) {
         throw "Installed daemon binary not found: $daemonPath"
     }
 
-    Write-Host "Starting tamux-daemon..."
+    Write-Host "Starting zorai-daemon..."
     Start-Process -FilePath $daemonPath -WindowStyle Hidden | Out-Null
 }
 
@@ -328,9 +353,11 @@ if ($DryRun) {
 }
 
 try {
-    Wait-ForPreviousTamux
+    Wait-ForPreviousZorai
+    Migrate-LegacyTamuxRoot
     Download-AndVerify
     Install-Binaries
+    Install-CliAlias
     Install-Skills
     Install-Guidelines
     Install-CustomAuthTemplate
@@ -343,4 +370,4 @@ try {
 }
 
 Write-Host ""
-Write-Host "tamux installed successfully! Run 'tamux' to get started."
+Write-Host "zorai installed successfully! Run 'zorai' to get started."

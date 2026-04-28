@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { AmuxSettings, DEFAULT_SETTINGS, ShellProfile } from "./types";
+import { ZoraiSettings, DEFAULT_SETTINGS, ShellProfile } from "./types";
 import {
   readPersistedJson,
   scheduleJsonWrite,
@@ -8,11 +8,11 @@ import {
 const SETTINGS_FILE = "settings.json";
 
 type PersistedSettingsState = {
-  settings?: Partial<AmuxSettings>;
+  settings?: Partial<ZoraiSettings>;
   profiles?: ShellProfile[];
 };
 
-function persistState(state: { settings: AmuxSettings; profiles: ShellProfile[] }) {
+function persistState(state: { settings: ZoraiSettings; profiles: ShellProfile[] }) {
   const payload = {
     settings: state.settings,
     profiles: state.profiles,
@@ -22,15 +22,15 @@ function persistState(state: { settings: AmuxSettings; profiles: ShellProfile[] 
 }
 
 export interface SettingsState {
-  settings: AmuxSettings;
+  settings: ZoraiSettings;
   profiles: ShellProfile[];
 
-  updateSetting: <K extends keyof AmuxSettings>(
+  updateSetting: <K extends keyof ZoraiSettings>(
     key: K,
-    value: AmuxSettings[K]
+    value: ZoraiSettings[K]
   ) => void;
   resetSettings: () => void;
-  loadSettings: (s: Partial<AmuxSettings>) => void;
+  loadSettings: (s: Partial<ZoraiSettings>) => void;
 
   addProfile: (profile: ShellProfile) => void;
   removeProfile: (id: string) => void;

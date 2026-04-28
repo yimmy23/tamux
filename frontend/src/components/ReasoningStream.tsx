@@ -3,10 +3,10 @@ import type { CognitiveEvent } from "../lib/agentMissionStore";
 export function ReasoningStream({ events }: { events: CognitiveEvent[] }) {
   if (events.length === 0) {
     return (
-      <div className="amux-empty-state">
-        <div className="amux-empty-state__icon">◉</div>
-        <div className="amux-empty-state__title">No reasoning trace</div>
-        <div className="amux-empty-state__description">Cognitive events will appear here as the agent processes</div>
+      <div className="zorai-empty-state">
+        <div className="zorai-empty-state__icon">◉</div>
+        <div className="zorai-empty-state__title">No reasoning trace</div>
+        <div className="zorai-empty-state__description">Cognitive events will appear here as the agent processes</div>
       </div>
     );
   }

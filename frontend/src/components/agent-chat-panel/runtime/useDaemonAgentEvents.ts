@@ -130,8 +130,8 @@ export function useDaemonAgentEvents({
   useEffect(() => {
     if (!shouldUseDaemonRuntime(agentBackend)) return;
 
-    const amux = getAgentBridge();
-    if (!amux?.onAgentEvent) return;
+    const zorai = getAgentBridge();
+    if (!zorai?.onAgentEvent) return;
 
     const ensureStreamingAssistantMessage = (threadId: string) => {
       const messages = useAgentStore.getState().getThreadMessages(threadId);
@@ -169,7 +169,7 @@ export function useDaemonAgentEvents({
       }, 3000);
     };
 
-    const unsubscribe = amux.onAgentEvent((event: any) => {
+    const unsubscribe = zorai.onAgentEvent((event: any) => {
       if (!event?.type) return;
 
       const tid = resolveDaemonEventLocalThreadId(event, daemonLocalThreadRef.current, daemonThreadIdRef.current);

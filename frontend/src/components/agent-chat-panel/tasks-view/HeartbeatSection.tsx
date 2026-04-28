@@ -25,7 +25,7 @@ export function HeartbeatSection({
             fontSize: "var(--text-xs)",
           }}
         >
-          No heartbeat checks configured. Edit ~/.tamux/agent/heartbeat.json to
+          No heartbeat checks configured. Edit ~/.zorai/agent/heartbeat.json to
           add checks.
         </div>
       )}

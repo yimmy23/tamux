@@ -39,7 +39,7 @@ export function shouldUseDaemonRuntime(
 
 export function getDaemonOwnedAuthCapability(
   backend: AgentSettings["agent_backend"],
-  bridge: AmuxBridge | null = getAgentBridge(),
+  bridge: ZoraiBridge | null = getAgentBridge(),
 ): DaemonOwnedAuthCapability {
   void backend;
   const daemonOwnedAuthAvailable = Boolean(bridge?.agentSendMessage);
@@ -52,7 +52,7 @@ export function getDaemonOwnedAuthCapability(
 
 export function getProviderAuthSupportOptions(
   backend: AgentSettings["agent_backend"],
-  bridge: AmuxBridge | null = getAgentBridge(),
+  bridge: ZoraiBridge | null = getAgentBridge(),
 ): { daemonOwnedAuthAvailable: boolean } {
   return {
     daemonOwnedAuthAvailable: getDaemonOwnedAuthCapability(backend, bridge).daemonOwnedAuthAvailable,
@@ -259,7 +259,7 @@ export function buildDaemonAgentConfig(
       whatsapp_token: agentSettings.whatsapp_token,
       whatsapp_phone_id: agentSettings.whatsapp_phone_id,
       whatsapp_allowed_contacts: agentSettings.whatsapp_allowed_contacts,
-      command_prefix: agentSettings.gateway_command_prefix || "!tamux",
+      command_prefix: agentSettings.gateway_command_prefix || "!zorai",
     },
     snapshot_retention: snapshotSettings
       ? {

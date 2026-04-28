@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Memory Architecture · tamux</title>
-  <meta name="description" content="How tamux memory actually works: layers, provenance-backed writes, recall, skills, runtime state, and compaction-aware preservation." />
+  <title>Memory Architecture · Zorai</title>
+  <meta name="description" content="How Zorai memory actually works: layers, provenance-backed writes, recall, skills, runtime state, and compaction-aware preservation." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -20,12 +20,12 @@
       <header class="page-header">
         <p class="eyebrow">Deep storage</p>
         <h1>Memory Architecture</h1>
-        <p class="lead">How tamux memory actually works: layered files, daemon-owned runtime state, provenance-backed durable writes, recall, skills, and compaction-aware preservation.</p>
+        <p class="lead">How Zorai memory actually works: layered files, daemon-owned runtime state, provenance-backed durable writes, recall, skills, and compaction-aware preservation.</p>
       </header>
 
       <section>
         <h2>What memory means</h2>
-        <p>tamux memory is not a single file, a vector store, or a convenience summary pasted into the next prompt. It is a layered daemon-owned memory system that combines identity, durable facts, operator profile, task and thread state, procedural memory, recall systems, provenance, and higher-order learning loops.</p>
+        <p>Zorai memory is not a single file, a vector store, or a convenience summary pasted into the next prompt. It is a layered daemon-owned memory system that combines identity, durable facts, operator profile, task and thread state, procedural memory, recall systems, provenance, and higher-order learning loops.</p>
         <div class="callout info">
           <strong>Short version:</strong> the daemon owns memory, memory is layered, durable writes are curated, and provenance makes those writes auditable instead of magical.
         </div>
@@ -71,15 +71,15 @@
 
       <section>
         <h2>Provenance, confirmation, and retraction</h2>
-        <p>Durable memory in tamux is not just append-only prose. The provenance-backed layer tracks target file, write mode, source kind, source scope, extracted fact keys, timestamps, confirmation state, retraction state, and explicit relationships between entries.</p>
+        <p>Durable memory in Zorai is not just append-only prose. The provenance-backed layer tracks target file, write mode, source kind, source scope, extracted fact keys, timestamps, confirmation state, retraction state, and explicit relationships between entries.</p>
         <div class="callout success">
-          <strong>Why this matters:</strong> tamux can answer where a fact came from, whether it is still trusted, and what later operation invalidated it.
+          <strong>Why this matters:</strong> Zorai can answer where a fact came from, whether it is still trusted, and what later operation invalidated it.
         </div>
       </section>
 
       <section>
         <h2>Compaction and recall</h2>
-        <p>Memory and compaction are tied together. Before older context falls out of the active window, tamux can preserve durable signal in a longer-lived layer. That means compaction should reduce noise, not cause amnesia.</p>
+        <p>Memory and compaction are tied together. Before older context falls out of the active window, Zorai can preserve durable signal in a longer-lived layer. That means compaction should reduce noise, not cause amnesia.</p>
         <ul class="check-list">
           <li>Important constraints should migrate into durable layers before they disappear from the active prompt.</li>
           <li>LLM-backed compaction and memory curation are complementary.</li>
@@ -97,7 +97,7 @@
 
       <section>
         <h2>Why the memory model matters</h2>
-        <p>If tamux memory were only three markdown files, the system would collapse into manual note-keeping. The real model is stronger: curated files, daemon-owned runtime state, procedural memory through skills, semantic workspace memory, and provenance-backed durable facts working together.</p>
+        <p>If Zorai memory were only three markdown files, the system would collapse into manual note-keeping. The real model is stronger: curated files, daemon-owned runtime state, procedural memory through skills, semantic workspace memory, and provenance-backed durable facts working together.</p>
         <p>For the trust and governance side of that model, see <a href="security.html">Security</a> and <a href="governance.html">Governance</a>.</p>
       </section>
     </article>

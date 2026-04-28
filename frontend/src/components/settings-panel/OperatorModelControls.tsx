@@ -47,15 +47,15 @@ export function OperatorModelControls({ enabled }: { enabled: boolean }) {
     const formattedSnapshot = useMemo(() => summarizeSnapshot(snapshot), [snapshot]);
 
     const refreshSnapshot = async (statusOverride?: string) => {
-        const amux = getBridge();
-        if (!amux?.agentGetOperatorModel) {
+        const zorai = getBridge();
+        if (!zorai?.agentGetOperatorModel) {
             setStatusText("Operator model bridge is unavailable in this runtime.");
             return;
         }
 
         setBusyAction("refresh");
         try {
-            const nextSnapshot = await amux.agentGetOperatorModel();
+            const nextSnapshot = await zorai.agentGetOperatorModel();
             if (isErrorResult(nextSnapshot)) {
                 throw new Error(nextSnapshot.error);
             }
@@ -79,15 +79,15 @@ export function OperatorModelControls({ enabled }: { enabled: boolean }) {
     }, [enabled]);
 
     const exportSnapshot = async () => {
-        const amux = getBridge();
-        if (!amux?.agentGetOperatorModel) {
+        const zorai = getBridge();
+        if (!zorai?.agentGetOperatorModel) {
             setStatusText("Operator model bridge is unavailable in this runtime.");
             return;
         }
 
         setBusyAction("export");
         try {
-            const currentSnapshot = snapshot ?? await amux.agentGetOperatorModel();
+            const currentSnapshot = snapshot ?? await zorai.agentGetOperatorModel();
             if (isErrorResult(currentSnapshot)) {
                 throw new Error(currentSnapshot.error);
             }
@@ -102,8 +102,8 @@ export function OperatorModelControls({ enabled }: { enabled: boolean }) {
     };
 
     const resetSnapshot = async () => {
-        const amux = getBridge();
-        if (!amux?.agentResetOperatorModel) {
+        const zorai = getBridge();
+        if (!zorai?.agentResetOperatorModel) {
             setStatusText("Operator model bridge is unavailable in this runtime.");
             return;
         }
@@ -113,7 +113,7 @@ export function OperatorModelControls({ enabled }: { enabled: boolean }) {
 
         setBusyAction("reset");
         try {
-            const result = await amux.agentResetOperatorModel() as OperatorModelResetResult;
+            const result = await zorai.agentResetOperatorModel() as OperatorModelResetResult;
             if (result && typeof result === "object" && result.ok === false) {
                 throw new Error(result.error || "Operator model reset failed.");
             }

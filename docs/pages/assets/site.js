@@ -8,9 +8,9 @@
   const headerHtml = `
     <div class="container header-inner">
       <a class="brand" href="${indexHref}">
-        <img src="${assetHref('icon.png')}" alt="tamux" class="brand-logo-img" />
+        <img src="${assetHref('icon.png')}" alt="Zorai" class="brand-logo-img" />
         <span class="brand-text">
-          <strong>tamux</strong>
+          <strong>Zorai</strong>
           <small>daemon-first runtime</small>
         </span>
       </a>
@@ -25,8 +25,8 @@
         <p class="nav-group-title">Orientation</p>
         <ul class="side-links">
           <li><a href="${indexHref}" data-nav="index.html">Overview</a></li>
-          <li><a href="${pageHref('why-tamux.html')}" data-nav="why-tamux.html">Why tamux</a></li>
-          <li><a href="${pageHref('guides.html')}" data-nav="guides.html">Guides</a></li>
+          <li><a href="${pageHref('why-zorai.html')}" data-nav="why-zorai.html">Why Zorai</a></li>
+          <li><a href="${pageHref('guides.html')}" data-nav="guides.html">Installation</a></li>
           <li><a href="${pageHref('guidelines.html')}" data-nav="guidelines.html">Guidelines</a></li>
           <li><a href="${pageHref('best-practices.html')}" data-nav="best-practices.html">Best Practices</a></li>
         </ul>
@@ -97,8 +97,8 @@
   const footerHtml = `
     <div class="container footer-grid">
       <div>
-        <h3>tamux</h3>
-        <p>Daemon-first agentic terminal multiplexer.</p>
+        <h3>Zorai</h3>
+        <p>Daemon-first agentic runtime.</p>
       </div>
       <div>
         <h3>Core</h3>

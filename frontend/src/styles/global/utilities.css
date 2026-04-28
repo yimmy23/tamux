@@ -62,13 +62,13 @@
     color: black;
   }
 
-  .amux-shell-card {
+  .zorai-shell-card {
     background: white;
     border: 1px solid #ccc;
     box-shadow: none;
   }
 
-  .amux-shell-card::before {
+  .zorai-shell-card::before {
     display: none;
   }
 }

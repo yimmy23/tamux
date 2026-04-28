@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Multi-Agent · tamux</title>
-  <meta name="description" content="How tamux uses multiple personas, shared daemon state, and role-specific responsibilities to operate as a multi-agent environment." />
+  <title>Multi-Agent · Zorai</title>
+  <meta name="description" content="How Zorai uses multiple personas, shared daemon state, and role-specific responsibilities to operate as a multi-agent environment." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -37,7 +37,7 @@
           <article class="card"><h3>Shared across all personas</h3><p>Threads, workspace tasks, goal runs, approvals, execution queue, provenance, memory files, operator model, and persistent daemon state.</p></article>
           <article class="card"><h3>Distinct per persona</h3><p>SOUL identity, role emphasis, response style, and how the persona is used in visible threads, hidden coordination, or governance review.</p></article>
         </div>
-        <p>This split matters because it allows tamux to have real specialization without losing continuity when work moves between agents.</p>
+        <p>This split matters because it allows Zorai to have real specialization without losing continuity when work moves between agents.</p>
       </section>
 
       <section>
@@ -53,7 +53,7 @@
 
       <section>
         <h2>Multi-agent does not mean chaotic</h2>
-        <p>tamux keeps multi-agent work legible by using thread ownership, participant registration, hidden delegation, and explicit handoffs rather than letting all agents speak at once. A thread always has a current owner. Other agents may participate or advise, but ownership stays visible.</p>
+        <p>Zorai keeps multi-agent work legible by using thread ownership, participant registration, hidden delegation, and explicit handoffs rather than letting all agents speak at once. A thread always has a current owner. Other agents may participate or advise, but ownership stays visible.</p>
         <pre class="diagram"><code>Current thread owner
 |
 +-- visible participants (@agent)
@@ -66,7 +66,7 @@
         <h2>Shared memory makes it coherent</h2>
         <p>The shared daemon-owned memory stack means that handoffs and sub-agents do not need to rebuild the entire world from scratch. Identity memory, durable fact memory, operator profile, structured runtime state, recall systems, and provenance all give the multi-agent environment continuity.</p>
         <div class="callout success">
-          <strong>Why this matters:</strong> without shared durable context, “multi-agent” usually degenerates into multiple disconnected chats. tamux avoids that by making the daemon the memory authority.
+          <strong>Why this matters:</strong> without shared durable context, “multi-agent” usually degenerates into multiple disconnected chats. Zorai avoids that by making the daemon the memory authority.
         </div>
       </section>
 
@@ -85,7 +85,7 @@
       </section>
 
       <section>
-        <h2>What makes tamux good at it</h2>
+        <h2>What makes Zorai good at it</h2>
         <ul class="check-list">
           <li>The daemon owns the shared state.</li>
           <li>Personas are explicit and role-shaped.</li>

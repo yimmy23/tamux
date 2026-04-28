@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# bump-version.sh — Update the tamux version across the entire stack.
+# bump-version.sh — Update the zorai version across the entire stack.
 #
 # Usage:
 #   ./scripts/bump-version.sh 0.2.0
