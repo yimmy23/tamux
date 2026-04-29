@@ -3271,6 +3271,7 @@ impl TuiModel {
             self.status_line = "Assign workspace task before running".to_string();
             return;
         }
+        self.workspace.start_task_run_locally(&task_id);
         self.send_daemon_command(DaemonCommand::RunWorkspaceTask(task_id));
         self.main_pane_view = MainPaneView::Workspace;
         self.status_line = "Running workspace task...".to_string();
@@ -3616,13 +3617,67 @@ impl TuiModel {
             self.status_line = format!("Opened workspace goal {goal_run_id}");
             return;
         }
-        if let Some(thread_id) = task.thread_id {
-            self.open_thread_conversation(thread_id.clone());
+        if let Some(thread_id) = task.thread_id.as_deref() {
+            self.apply_workspace_task_thread_identity_hint(&thread_id, &task);
+            self.open_thread_conversation(thread_id.to_string());
             self.set_mission_control_return_to_workspace(true);
             self.status_line = format!("Opened workspace thread {thread_id}");
             return;
         }
         self.status_line = "Workspace task has not been run yet".to_string();
+    }
+
+    fn apply_workspace_task_thread_identity_hint(
+        &mut self,
+        thread_id: &str,
+        task: &zorai_protocol::WorkspaceTask,
+    ) {
+        let Some(agent_name) = task
+            .assignee
+            .as_ref()
+            .and_then(|assignee| self.workspace_actor_display_name(assignee))
+        else {
+            return;
+        };
+        let existing_thread = self
+            .chat
+            .threads()
+            .iter()
+            .find(|thread| thread.id == thread_id);
+        if existing_thread.is_some_and(|thread| {
+            thread
+                .agent_name
+                .as_deref()
+                .is_some_and(|name| !name.trim().is_empty())
+        }) {
+            return;
+        }
+        let title = existing_thread
+            .map(|thread| thread.title.as_str())
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or(task.title.as_str())
+            .to_string();
+        self.chat
+            .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(agent_name),
+                title,
+                ..Default::default()
+            }));
+    }
+
+    fn workspace_actor_display_name(
+        &self,
+        actor: &zorai_protocol::WorkspaceActor,
+    ) -> Option<String> {
+        match actor {
+            zorai_protocol::WorkspaceActor::User => None,
+            zorai_protocol::WorkspaceActor::Agent(agent_id)
+            | zorai_protocol::WorkspaceActor::Subagent(agent_id) => {
+                let agent_id = agent_id.trim();
+                (!agent_id.is_empty()).then(|| self.participant_display_name(agent_id))
+            }
+        }
     }
 
     pub(super) fn step_workspace_board_selection(&mut self, delta: i32) {
@@ -3770,6 +3825,7 @@ impl TuiModel {
                 self.status_line = "Assign workspace task before running".to_string();
             }
             widgets::workspace_board::WorkspaceBoardAction::Run => {
+                self.workspace.start_task_run_locally(&task_id);
                 self.send_daemon_command(DaemonCommand::RunWorkspaceTask(task_id));
                 self.status_line = "Running workspace task...".to_string();
             }

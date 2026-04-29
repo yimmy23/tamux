@@ -770,6 +770,51 @@ fn in_review_run_action_uses_runtime_history_reviewer_task_when_notice_is_missin
 }
 
 #[test]
+fn todo_run_action_moves_task_to_in_progress_before_daemon_echo() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    model.workspace.set_tasks(
+        "main".to_string(),
+        vec![workspace_task_for_board(
+            "wtask-run",
+            zorai_protocol::WorkspaceTaskStatus::Todo,
+            Some(zorai_protocol::WorkspaceActor::Agent("svarog".to_string())),
+        )],
+    );
+
+    model.activate_workspace_task_action(
+        "wtask-run".to_string(),
+        zorai_protocol::WorkspaceTaskStatus::Todo,
+        widgets::workspace_board::WorkspaceBoardAction::Run,
+    );
+
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::RunWorkspaceTask(task_id)) => {
+            assert_eq!(task_id, "wtask-run");
+        }
+        other => panic!("expected run command, got {other:?}"),
+    }
+    assert_eq!(
+        model.workspace.task_by_id("wtask-run").map(|task| &task.status),
+        Some(&zorai_protocol::WorkspaceTaskStatus::InProgress)
+    );
+    let in_progress_column = model
+        .workspace
+        .projection()
+        .columns
+        .iter()
+        .find(|column| column.status == zorai_protocol::WorkspaceTaskStatus::InProgress)
+        .expect("in-progress column");
+    assert!(in_progress_column
+        .tasks
+        .iter()
+        .any(|task| task.id == "wtask-run"));
+}
+
+#[test]
 fn workspace_history_action_opens_previous_runtime_newest_first() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();
@@ -1208,6 +1253,62 @@ fn workspace_task_open_thread_renders_return_to_workspace_and_b_restores_board()
 
     assert!(!handled);
     assert!(matches!(model.main_pane_view, MainPaneView::Workspace));
+}
+
+#[test]
+fn workspace_task_open_thread_uses_subagent_assignee_as_responder_hint() {
+    let mut model = build_model();
+    model.width = 120;
+    model.height = 40;
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::Workspace;
+    model.focus = FocusArea::Chat;
+    model.subagents.entries.push(crate::state::SubAgentEntry {
+        id: "dola".to_string(),
+        name: "Dola".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("implementation".to_string()),
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        raw_json: None,
+    });
+    model
+        .workspace
+        .set_settings(workspace_settings_for_operator(zorai_protocol::WorkspaceOperator::User));
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "workspace-thread:dola-task".to_string(),
+        title: "Workspace task thread".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "workspace-thread:dola-task".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "Dola is handling the task".to_string(),
+            ..Default::default()
+        },
+    });
+    model.workspace.set_tasks(
+        "main".to_string(),
+        vec![workspace_task_for_board(
+            "dola-task",
+            zorai_protocol::WorkspaceTaskStatus::InProgress,
+            Some(zorai_protocol::WorkspaceActor::Subagent("dola".to_string())),
+        )],
+    );
+
+    model.open_workspace_task_runtime("dola-task".to_string());
+
+    let plain = render_chat_plain(&mut model);
+    assert!(plain.contains("Responder: Dola"), "{plain}");
+    assert!(!plain.contains("Responder: Svarog"), "{plain}");
 }
 
 #[test]

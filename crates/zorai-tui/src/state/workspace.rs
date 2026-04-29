@@ -200,6 +200,26 @@ impl WorkspaceState {
             .is_some_and(|task| task.assignee.is_none())
     }
 
+    pub fn start_task_run_locally(&mut self, task_id: &str) -> bool {
+        let Some(index) = self
+            .tasks
+            .iter()
+            .position(|task| task.id == task_id && task.deleted_at.is_none())
+        else {
+            return false;
+        };
+        let already_in_progress = self.tasks[index].status == WorkspaceTaskStatus::InProgress;
+        let sort_order = (!already_in_progress)
+            .then(|| self.append_sort_order(&WorkspaceTaskStatus::InProgress));
+        let task = &mut self.tasks[index];
+        task.status = WorkspaceTaskStatus::InProgress;
+        if let Some(sort_order) = sort_order {
+            task.sort_order = sort_order;
+        }
+        self.rebuild_projection();
+        true
+    }
+
     pub fn all_runtime_thread_ids(&self) -> Vec<String> {
         let mut thread_ids = Vec::new();
         for task in self.tasks.iter().filter(|task| task.deleted_at.is_none()) {
