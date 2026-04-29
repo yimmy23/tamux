@@ -1,6 +1,6 @@
 use super::types::*;
-use zorai_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 use anyhow::{bail, Result};
+use zorai_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ProviderModelSwitch {

@@ -1,3 +1,14 @@
+function resolveWindowIcon(options) {
+    const {
+        electronDir,
+        path,
+        platform = process.platform,
+    } = options;
+
+    const fileName = platform === 'win32' ? 'icon.ico' : 'icon.png';
+    return path.join(electronDir, '..', 'assets', fileName);
+}
+
 function createWindowRuntime(options) {
     const {
         app,
@@ -88,7 +99,10 @@ function createWindowRuntime(options) {
                 webviewTag: true,
             },
             title: appName,
-            icon: path.join(options.electronDir, '..', 'assets', 'icon.ico'),
+            icon: resolveWindowIcon({
+                electronDir: options.electronDir,
+                path,
+            }),
             backgroundColor: '#1e1e2e',
             show: false,
             opacity: 1,
@@ -128,4 +142,4 @@ function createWindowRuntime(options) {
     return { createWindow, setWindowOpacity };
 }
 
-module.exports = { createWindowRuntime };
+module.exports = { createWindowRuntime, resolveWindowIcon };

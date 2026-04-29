@@ -2,9 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use zorai_protocol::CommunitySkillEntry;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use zorai_protocol::CommunitySkillEntry;
 
 use super::skill_community::PublishMetadata;
 

@@ -5,6 +5,7 @@ fn daemon_boxes_large_gateway_hot_path_futures() {
         root.join("crates/zorai-daemon/src/server.rs"),
         root.join("crates/zorai-daemon/src/server/post_tests.rs"),
         root.join("crates/zorai-daemon/src/server/dispatch_part3.rs"),
+        root.join("crates/zorai-daemon/src/server/dispatch_part7.rs"),
     ]
     .into_iter()
     .map(|path| fs::read_to_string(path).expect("read split server source"))
@@ -17,6 +18,7 @@ fn daemon_boxes_large_gateway_hot_path_futures() {
         "if let Err(e) = Box::pin(agent.send_message_with_session_surface_and_target(",
         "match Box::pin(agent.send_direct_message(",
         "if let Err(error) = Box::pin(agent\n                            .send_internal_delegate_message(",
+        "spawn_background_operation(\n                                BackgroundSubsystem::ConfigReconcile,\n                                Some(operation.operation_id.clone()),\n                                background_daemon_tx,\n                                &mut background_daemon_pending,\n                                Box::pin(async move {",
     ] {
         assert!(
             source.contains(required),

@@ -1,5 +1,5 @@
-use zorai_protocol::{WorkspaceActor, WorkspaceTaskUpdate};
 use anyhow::{bail, Result};
+use zorai_protocol::{WorkspaceActor, WorkspaceTaskUpdate};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct WorkspaceUpdateDraft {

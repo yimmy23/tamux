@@ -18,7 +18,8 @@ if matches!(
         ClientMessage::ListAgentThreads |
         ClientMessage::GetAgentThread{ .. } |
         ClientMessage::AddAgentMessage{ .. } |
-        ClientMessage::DeleteAgentMessages{ .. }
+        ClientMessage::DeleteAgentMessages{ .. } |
+        ClientMessage::RestoreAgentMessages{ .. }
     ) {
         match msg {
                 ClientMessage::KillSession { id } => {
@@ -239,8 +240,8 @@ if matches!(
                 }
 
                 ClientMessage::SearchHistory { query, limit } => {
-                    match manager
-                        .search_history(&query, limit.unwrap_or(8).max(1))
+                    match agent
+                        .search_history_semantic_first(&query, limit.unwrap_or(8).max(1))
                         .await
                     {
                         Ok((summary, hits)) => {
@@ -402,10 +403,19 @@ if matches!(
                     }
                 },
 
-                ClientMessage::GetAgentThread { thread_id } => {
+                ClientMessage::GetAgentThread {
+                    thread_id,
+                    include_deleted,
+                } => {
                     match manager.get_agent_thread(&thread_id).await {
                         Ok(thread) => {
-                            let messages = manager.list_agent_messages(&thread_id, None).await?;
+                            let messages = if include_deleted {
+                                manager
+                                    .list_agent_messages_with_deleted(&thread_id, None)
+                                    .await?
+                            } else {
+                                manager.list_agent_messages(&thread_id, None).await?
+                            };
                             let ((thread_json, messages_json), truncated) =
                                 cap_agent_db_thread_detail_for_ipc(thread, messages);
                             if truncated {
@@ -464,6 +474,27 @@ if matches!(
                             thread_id = %thread_id,
                             deleted,
                             "deleted agent messages"
+                        );
+                        framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: e.to_string(),
+                            })
+                            .await?;
+                    }
+                },
+
+                ClientMessage::RestoreAgentMessages {
+                    thread_id,
+                    message_ids,
+                } => match agent.restore_thread_messages(&thread_id, &message_ids).await {
+                    Ok(restored) => {
+                        tracing::info!(
+                            thread_id = %thread_id,
+                            restored,
+                            "restored soft-deleted agent messages"
                         );
                         framed.send(DaemonMessage::AgentDbMessageAck).await?;
                     }

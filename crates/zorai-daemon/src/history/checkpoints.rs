@@ -29,8 +29,8 @@ impl HistoryStore {
         };
         conn.execute(
             "INSERT OR REPLACE INTO agent_checkpoints \
-             (id, goal_run_id, thread_id, task_id, checkpoint_type, state_json, context_summary, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (id, goal_run_id, thread_id, task_id, checkpoint_type, state_json, context_summary, created_at, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)",
             params![
                 id,
                 goal_run_id,
@@ -52,7 +52,7 @@ impl HistoryStore {
         let goal_run_id = goal_run_id.to_string();
         self.conn.call(move |conn| {
         let mut stmt = conn.prepare(
-            "SELECT state_json FROM agent_checkpoints WHERE goal_run_id = ?1 ORDER BY created_at DESC",
+            "SELECT state_json FROM agent_checkpoints WHERE goal_run_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC",
         )?;
         let rows = stmt
             .query_map(params![goal_run_id], |row| row.get::<_, String>(0))?
@@ -68,7 +68,7 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.query_row(
-                    "SELECT state_json FROM agent_checkpoints WHERE id = ?1",
+                    "SELECT state_json FROM agent_checkpoints WHERE id = ?1 AND deleted_at IS NULL",
                     params![id],
                     |row| row.get::<_, String>(0),
                 )
@@ -87,15 +87,17 @@ impl HistoryStore {
         let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
         self.conn
             .call(move |conn| {
-                let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
+                let placeholders: Vec<&str> = vec!["?"; ids.len()];
                 let sql = format!(
-                    "DELETE FROM agent_checkpoints WHERE id IN ({})",
+                    "UPDATE agent_checkpoints SET deleted_at = ? WHERE deleted_at IS NULL AND id IN ({})",
                     placeholders.join(", ")
                 );
-                let params: Vec<&dyn rusqlite::types::ToSql> = ids
+                let deleted_at = now_ts() as i64;
+                let mut params: Vec<&dyn rusqlite::types::ToSql> = vec![&deleted_at];
+                params.extend(ids
                     .iter()
                     .map(|id| id as &dyn rusqlite::types::ToSql)
-                    .collect();
+                );
                 let deleted = conn.execute(&sql, params.as_slice())?;
                 Ok(deleted)
             })
@@ -108,8 +110,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 let deleted = conn.execute(
-                    "DELETE FROM agent_checkpoints WHERE goal_run_id = ?1",
-                    params![goal_run_id],
+                    "UPDATE agent_checkpoints SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
+                    params![goal_run_id, now_ts() as i64],
                 )?;
                 Ok(deleted)
             })

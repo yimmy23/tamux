@@ -312,16 +312,6 @@ pub(crate) fn classify_tool_call(
         };
     }
 
-    if normalized_tool == "switch_model" {
-        return WelesToolClassification {
-            class: WelesGovernanceClass::GuardAlways,
-            reasons: vec![
-                "provider or model reconfiguration mutates persisted agent execution policy"
-                    .to_string(),
-            ],
-        };
-    }
-
     if normalized_tool == "plugin_api_call" {
         return WelesToolClassification {
             class: WelesGovernanceClass::GuardAlways,
@@ -336,6 +326,16 @@ pub(crate) fn classify_tool_call(
         return WelesToolClassification {
             class: WelesGovernanceClass::GuardAlways,
             reasons: vec!["tool synthesis can rewrite runtime tool capability policy".to_string()],
+        };
+    }
+
+    if normalized_tool == "switch_model" {
+        return WelesToolClassification {
+            class: WelesGovernanceClass::GuardAlways,
+            reasons: vec![
+                "provider or model reconfiguration mutates persisted agent execution policy"
+                    .to_string(),
+            ],
         };
     }
 

@@ -2,6 +2,40 @@ use super::*;
 
 // ── Consolidation state tests (Phase 5) ──────────────────────────────
 
+async fn wait_for_search_hits(
+    store: &HistoryStore,
+    query: &str,
+    limit: usize,
+) -> Result<(String, Vec<HistorySearchHit>)> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let result = store.search(query, limit).await?;
+        if !result.1.is_empty() || std::time::Instant::now() >= deadline {
+            return Ok(result);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
+async fn wait_for_search_hits_matching<F>(
+    store: &HistoryStore,
+    query: &str,
+    limit: usize,
+    mut matches: F,
+) -> Result<(String, Vec<HistorySearchHit>)>
+where
+    F: FnMut(&[HistorySearchHit]) -> bool,
+{
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let result = store.search(query, limit).await?;
+        if matches(&result.1) || std::time::Instant::now() >= deadline {
+            return Ok(result);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
 #[tokio::test]
 async fn consolidation_state_set_get_round_trips() -> Result<()> {
     let (store, root) = make_test_store().await?;
@@ -55,23 +89,23 @@ async fn search_returns_history_hits_from_fts_join() -> Result<()> {
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].title, "cargo build --workspace");
-    assert!(summary.contains("Found 1 searchable matches"));
+    assert!(summary.contains("Found 1 historical matches"));
 
     fs::remove_dir_all(root)?;
     Ok(())
 }
 
 #[tokio::test]
-async fn search_uses_tantivy_when_sqlite_fts_projection_is_missing() -> Result<()> {
+async fn search_uses_only_sqlite_fts_projection() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
     store
         .record_managed_finish(&ManagedHistoryRecord {
-            execution_id: "exec-tantivy".to_string(),
+            execution_id: "exec-sqlite-fts".to_string(),
             session_id: "session-1".to_string(),
             workspace_id: Some("workspace-1".to_string()),
-            command: "cargo test search index".to_string(),
-            rationale: "Verify tantivy history search projection".to_string(),
+            command: "cargo test sqlite fts".to_string(),
+            rationale: "Verify sqlite fts history search projection".to_string(),
             source: "test".to_string(),
             exit_code: Some(0),
             duration_ms: Some(250),
@@ -83,25 +117,23 @@ async fn search_uses_tantivy_when_sqlite_fts_projection_is_missing() -> Result<(
     store
         .conn
         .call(|conn| {
-            conn.execute("DELETE FROM history_fts WHERE id = 'exec-tantivy'", [])?;
+            conn.execute("DELETE FROM history_fts WHERE id = 'exec-sqlite-fts'", [])?;
             Ok(())
         })
         .await
         .map_err(|e| anyhow::anyhow!("add agent message: {e}"))?;
 
-    let (summary, hits) = store.search("tantivy projection", 8).await?;
+    let (summary, hits) = store.search("sqlite fts projection", 8).await?;
 
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].id, "exec-tantivy");
-    assert_eq!(hits[0].title, "cargo test search index");
-    assert!(summary.contains("Found 1 searchable matches"));
+    assert!(hits.is_empty());
+    assert!(summary.contains("No prior runs matched"));
 
     fs::remove_dir_all(root)?;
     Ok(())
 }
 
 #[tokio::test]
-async fn search_indexes_support_capability_documents() -> Result<()> {
+async fn search_does_not_index_capability_documents_without_vector_embeddings() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
     store
@@ -240,17 +272,12 @@ async fn search_indexes_support_capability_documents() -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("replace cognitive biases: {e}"))?;
 
-    let (_summary, hits) = store
+    let (summary, hits) = store
         .search("counterfactual failed tool migration", 10)
         .await?;
-    let kinds = hits.iter().map(|hit| hit.kind.as_str()).collect::<Vec<_>>();
 
-    assert!(kinds.contains(&"agent_message"), "{kinds:?}");
-    assert!(kinds.contains(&"agent_event"), "{kinds:?}");
-    assert!(kinds.contains(&"causal_trace"), "{kinds:?}");
-    assert!(kinds.contains(&"action_audit"), "{kinds:?}");
-    assert!(kinds.contains(&"counterfactual"), "{kinds:?}");
-    assert!(kinds.contains(&"meta_cognition"), "{kinds:?}");
+    assert!(hits.is_empty(), "{hits:?}");
+    assert!(summary.contains("No prior runs matched"), "{summary}");
 
     fs::remove_dir_all(root)?;
     Ok(())

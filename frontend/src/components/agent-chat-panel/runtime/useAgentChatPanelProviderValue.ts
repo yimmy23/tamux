@@ -23,6 +23,7 @@ import {
   hydrateDaemonThreadIntoLocalState,
   loadDaemonThreadPageIntoLocalState,
   reloadDaemonThreadIntoLocalState,
+  trimDaemonThreadMessagesToLatestWindow,
 } from "./daemonHelpers";
 import { useLegacyAgentMessaging } from "./useLegacyAgentMessaging";
 import type { AgentChatPanelRuntimeValue, AgentChatPanelView } from "./types";
@@ -210,6 +211,36 @@ export async function openSpawnedAgentThreadFromRun({
   if (existingThread) {
     if (existingThread.id === activeThreadId) {
       return false;
+    }
+    const existingMessages = useAgentStore.getState().messages[existingThread.id] ?? [];
+    if (existingMessages.length === 0 && getRemoteThread) {
+      const remoteThread = await getRemoteThread(run.thread_id, { messageLimit });
+      const hydrated = remoteThread
+        ? buildHydratedRemoteThread(remoteThread as any, existingThread.agent_name || "assistant")
+        : null;
+      if (hydrated) {
+        const hydratedMessages = hydrated.messages.map((message) => ({
+          ...message,
+          threadId: existingThread.id,
+        }));
+        useAgentStore.setState((state) => ({
+          threads: state.threads.map((thread) => thread.id === existingThread.id ? {
+            ...thread,
+            ...hydrated.thread,
+            id: existingThread.id,
+            daemonThreadId: run.thread_id,
+            workspaceId: thread.workspaceId,
+            surfaceId: thread.surfaceId,
+            paneId: thread.paneId,
+          } : thread),
+          messages: {
+            ...state.messages,
+            [existingThread.id]: hydratedMessages,
+          },
+        }));
+        const todos = await fetchThreadTodosForThread(run.thread_id).catch(() => []);
+        setThreadTodos(existingThread.id, todos);
+      }
     }
     openSpawnedThread(activeThreadId, existingThread.id);
     return true;
@@ -757,6 +788,16 @@ export function useAgentChatPanelProviderValue(): {
     return loadThreadPage(activeThreadId, "older");
   }, [activeThreadId, loadThreadPage]);
 
+  const trimThreadMessagesToLatestWindow = useCallback((threadId?: string | null) => {
+    const localThreadId = threadId ?? activeThreadId;
+    if (!localThreadId) return false;
+    const messageLimit = resolveReactChatHistoryMessageLimit(agentSettings.react_chat_history_page_size);
+    return trimDaemonThreadMessagesToLatestWindow({
+      localThreadId,
+      messageLimit,
+    });
+  }, [activeThreadId, agentSettings.react_chat_history_page_size]);
+
   const sendMessage = useCallback((payload: { text: string; contentBlocksJson?: string | null; localContentBlocks?: import("@/lib/agentStore/types").AgentContentBlock[] }) => {
     if (!payload.text) return;
     if (shouldUseDaemonRuntime(agentSettings.agent_backend) && sendDaemonMessage(payload)) {
@@ -905,6 +946,7 @@ export function useAgentChatPanelProviderValue(): {
     setSearchQuery,
     refreshThreadList,
     loadOlderThreadMessages,
+    trimThreadMessagesToLatestWindow,
     messages,
     todos,
     daemonTodosByThread,
@@ -1009,6 +1051,7 @@ export function useAgentChatPanelProviderValue(): {
     canOpenSpawnedThread,
     openSpawnedThread,
     loadOlderThreadMessages,
+    trimThreadMessagesToLatestWindow,
     openThread,
     refreshThreadList,
     setActiveThread,

@@ -1,7 +1,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use zorai_protocol::{parse_npm_latest_version, ZoraiUpdateStatus, ZORAI_NPM_LATEST_URL};
 use tokio::sync::mpsc::UnboundedSender;
+use zorai_protocol::{parse_npm_latest_version, ZoraiUpdateStatus, ZORAI_NPM_LATEST_URL};
 
 use crate::state::DaemonCommand;
 

@@ -1,8 +1,8 @@
 use super::*;
 use crate::agent::llm_client::CopilotInitiator;
 use crate::agent::provider_resolution::apply_provider_model_override;
-use zorai_protocol::SecurityLevel;
 use std::path::Path;
+use zorai_protocol::SecurityLevel;
 
 const COMMUNITY_SCOUT_RESULT_LIMIT: usize = 5;
 const PARTICIPANT_AGENT_FANOUT_TOOLS: &[&str] = &[
@@ -38,6 +38,19 @@ fn thread_artifact_prompt_block(data_root: &Path, thread_id: &str) -> String {
         media_dir.display(),
         previews_dir.display(),
     )
+}
+
+async fn ensure_thread_artifact_dirs(data_root: &Path, thread_id: &str) -> Result<()> {
+    for dir in [
+        zorai_protocol::thread_specs_dir(data_root, thread_id),
+        zorai_protocol::thread_media_dir(data_root, thread_id),
+        zorai_protocol::thread_previews_dir(data_root, thread_id),
+    ] {
+        tokio::fs::create_dir_all(&dir).await.map_err(|error| {
+            anyhow::anyhow!("create thread artifact dir {}: {error}", dir.display())
+        })?;
+    }
+    Ok(())
 }
 
 fn build_direct_thread_responder_config(
@@ -272,6 +285,7 @@ impl<'a> SendMessageRunner<'a> {
         let (tid, is_new_thread) = engine
             .get_or_create_thread(thread_id, stored_user_content)
             .await;
+        ensure_thread_artifact_dirs(engine.history.data_root(), &tid).await?;
         engine.ensure_thread_messages_loaded(&tid).await;
         if let Some(client_surface) = client_surface {
             engine.set_thread_client_surface(&tid, client_surface).await;
@@ -467,9 +481,20 @@ impl<'a> SendMessageRunner<'a> {
         };
         let preferred_session_id =
             resolve_preferred_session_id(&engine.session_manager, preferred_session_hint).await;
-        let skill_preflight = engine
-            .build_skill_preflight_context(&tid, stored_user_content, preferred_session_id.clone())
-            .await?;
+        let skill_preflight = if super::skill_preflight::should_run_skill_preflight_for_message(
+            record_operator,
+            stored_user_content,
+        ) {
+            engine
+                .build_skill_preflight_context(
+                    &tid,
+                    stored_user_content,
+                    preferred_session_id.clone(),
+                )
+                .await?
+        } else {
+            None
+        };
         let mut skill_preflight = match skill_preflight {
             Some(context) => Some(context),
             None => engine
@@ -905,6 +930,22 @@ impl<'a> SendMessageRunner<'a> {
         } else {
             config.max_tool_loops
         };
+        engine
+            .set_thread_execution_profile(
+                &tid,
+                Some(ThreadExecutionProfile {
+                    provider: Some(active_provider_id.clone()),
+                    model: (!provider_config.model.trim().is_empty())
+                        .then(|| provider_config.model.clone()),
+                    reasoning_effort: (!provider_config.reasoning_effort.trim().is_empty())
+                        .then(|| provider_config.reasoning_effort.clone()),
+                    context_window_tokens: Some(provider_config.context_window_tokens),
+                }),
+            )
+            .await;
+        let _ = engine.event_tx.send(AgentEvent::ThreadReloadRequired {
+            thread_id: tid.clone(),
+        });
         Ok(Self {
             engine,
             task_id,
@@ -2116,6 +2157,9 @@ mod tests {
                 .contains(&format!("{}/", previews_dir.display())),
             "expected previews dir in thread prompt"
         );
+        assert!(specs_dir.is_dir(), "expected specs dir to be created");
+        assert!(media_dir.is_dir(), "expected media dir to be created");
+        assert!(previews_dir.is_dir(), "expected previews dir to be created");
     }
 
     #[tokio::test]
@@ -2177,6 +2221,7 @@ mod tests {
             },
         );
 
+        let mut events = engine.subscribe();
         let runner =
             crate::agent::agent_identity::run_with_agent_scope("mokosh".to_string(), async {
                 SendMessageRunner::initialize(
@@ -2201,5 +2246,34 @@ mod tests {
         assert_eq!(runner.provider_config.model, "glm-5");
         assert_eq!(runner.provider_config.context_window_tokens, 202_752);
         assert_eq!(runner.config.context_window_tokens, 202_752);
+        let stored_profile = engine
+            .thread_execution_profiles
+            .read()
+            .await
+            .get(thread_id)
+            .cloned()
+            .expect("runtime profile should be available before streaming starts");
+        assert_eq!(
+            stored_profile.provider.as_deref(),
+            Some("alibaba-coding-plan")
+        );
+        assert_eq!(stored_profile.model.as_deref(), Some("glm-5"));
+        assert_eq!(stored_profile.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(stored_profile.context_window_tokens, Some(202_752));
+        let mut received_events = Vec::new();
+        let mut saw_profile_reload = false;
+        while let Ok(event) = events.try_recv() {
+            if matches!(
+                &event,
+                AgentEvent::ThreadReloadRequired { thread_id: emitted } if emitted == thread_id
+            ) {
+                saw_profile_reload = true;
+            }
+            received_events.push(event);
+        }
+        assert!(
+            saw_profile_reload,
+            "initializing the responder should notify clients to refresh runtime profile metadata, got {received_events:?}"
+        );
     }
 }

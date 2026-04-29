@@ -29,12 +29,18 @@ fn ensure_provider_auth_schema(conn: &Connection) -> Result<()> {
             auth_mode   TEXT NOT NULL,
             state_json  TEXT NOT NULL,
             updated_at  INTEGER NOT NULL,
+            deleted_at  INTEGER,
             PRIMARY KEY (provider_id, auth_mode)
         );
         CREATE INDEX IF NOT EXISTS idx_provider_auth_state_updated
-        ON provider_auth_state(updated_at DESC);
+        ON provider_auth_state(deleted_at, updated_at DESC);
         ",
     )?;
+    conn.execute(
+        "ALTER TABLE provider_auth_state ADD COLUMN deleted_at INTEGER",
+        [],
+    )
+    .ok();
     Ok(())
 }
 
@@ -58,7 +64,7 @@ pub(crate) fn load_provider_auth_state(
     let conn = open_provider_auth_db()?;
     let row = conn
         .query_row(
-            "SELECT state_json FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
+            "SELECT state_json FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
             params![provider_id, auth_mode],
             |row| row.get::<_, String>(0),
         )
@@ -76,8 +82,8 @@ pub(crate) fn save_provider_auth_state(
 ) -> Result<()> {
     let conn = open_provider_auth_db()?;
     conn.execute(
-        "INSERT OR REPLACE INTO provider_auth_state (provider_id, auth_mode, state_json, updated_at)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT OR REPLACE INTO provider_auth_state (provider_id, auth_mode, state_json, updated_at, deleted_at)
+         VALUES (?1, ?2, ?3, ?4, NULL)",
         params![
             provider_id,
             auth_mode,
@@ -91,8 +97,8 @@ pub(crate) fn save_provider_auth_state(
 pub(crate) fn delete_provider_auth_state(provider_id: &str, auth_mode: &str) -> Result<()> {
     let conn = open_provider_auth_db()?;
     conn.execute(
-        "DELETE FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
-        params![provider_id, auth_mode],
+        "UPDATE provider_auth_state SET deleted_at = ?3 WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
+        params![provider_id, auth_mode, crate::history::now_ts() as i64],
     )?;
     Ok(())
 }

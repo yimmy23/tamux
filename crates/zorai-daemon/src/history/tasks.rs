@@ -30,6 +30,15 @@ fn parse_supervisor_config_json(
     value.and_then(|json| serde_json::from_str::<crate::agent::types::SupervisorConfig>(&json).ok())
 }
 
+fn preserve_notification_lifecycle_state(
+    notification: &mut zorai_protocol::InboxNotification,
+    existing: zorai_protocol::InboxNotification,
+) {
+    notification.read_at = notification.read_at.or(existing.read_at);
+    notification.archived_at = notification.archived_at.or(existing.archived_at);
+    notification.deleted_at = notification.deleted_at.or(existing.deleted_at);
+}
+
 impl HistoryStore {
     pub async fn upsert_notification(
         &self,
@@ -37,6 +46,28 @@ impl HistoryStore {
     ) -> Result<()> {
         let row = crate::notifications::notification_event_row(notification)?;
         self.upsert_agent_event(&row).await
+    }
+
+    async fn get_notification_by_id(
+        &self,
+        notification_id: &str,
+    ) -> Result<Option<zorai_protocol::InboxNotification>> {
+        let notification_id = notification_id.to_string();
+        self.conn
+            .call(move |conn| {
+                let payload_json: Option<String> = conn
+                    .query_row(
+                        "SELECT payload_json FROM agent_events WHERE id = ?1 AND category = ?2",
+                        params![notification_id, crate::notifications::NOTIFICATION_CATEGORY],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                Ok(payload_json.and_then(|json| {
+                    serde_json::from_str::<zorai_protocol::InboxNotification>(&json).ok()
+                }))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn list_notifications(
@@ -69,40 +100,35 @@ impl HistoryStore {
     }
 
     pub async fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
-        let entry = entry.clone();
-        let search_document = super::search_index::SearchDocument {
-            source_kind: super::search_index::SearchSourceKind::AgentEvent,
-            source_id: entry.id.clone(),
-            title: format!("{} {}", entry.category, entry.kind),
-            body: entry.payload_json.clone(),
-            tags: vec![entry.category.clone(), entry.kind.clone()],
-            workspace_id: entry.workspace_id.as_ref().map(|id| id.to_string()),
-            thread_id: None,
-            agent_id: None,
-            timestamp: entry.timestamp,
-            metadata_json: Some(entry.payload_json.clone()),
-        };
-        self.conn.call(move |conn| {
-        conn.execute(
-            "INSERT OR REPLACE INTO agent_events \
-             (id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                entry.id,
-                entry.category,
-                entry.kind,
-                entry.pane_id,
-                entry.workspace_id,
-                entry.surface_id,
-                entry.session_id,
-                entry.payload_json,
-                entry.timestamp,
-            ],
-        )?;
-        Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        self.upsert_search_document(search_document);
-        Ok(())
+        let mut entry = entry.clone();
+        if let Some(mut notification) = crate::notifications::parse_notification_row(&entry) {
+            if let Some(existing) = self.get_notification_by_id(&notification.id).await? {
+                preserve_notification_lifecycle_state(&mut notification, existing);
+                entry = crate::notifications::notification_event_row(&notification)?;
+            }
+        }
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO agent_events \
+                     (id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        entry.id,
+                        entry.category,
+                        entry.kind,
+                        entry.pane_id,
+                        entry.workspace_id,
+                        entry.surface_id,
+                        entry.session_id,
+                        entry.payload_json,
+                        entry.timestamp,
+                    ],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn list_agent_events(
@@ -161,8 +187,8 @@ impl HistoryStore {
 
         transaction.execute(
             "INSERT OR REPLACE INTO agent_tasks \
-             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49)",
+             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, NULL)",
             params![
                 &task.id,
                 &task.title,
@@ -217,23 +243,23 @@ impl HistoryStore {
         )?;
 
         transaction.execute(
-            "DELETE FROM agent_task_dependencies WHERE task_id = ?1",
-            params![&task.id],
+            "UPDATE agent_task_dependencies SET deleted_at = ?2 WHERE task_id = ?1 AND deleted_at IS NULL",
+            params![&task.id, now_ts() as i64],
         )?;
         for (ordinal, dependency) in task.dependencies.iter().enumerate() {
             transaction.execute(
-                "INSERT INTO agent_task_dependencies (task_id, depends_on_task_id, ordinal) VALUES (?1, ?2, ?3)",
+                "INSERT OR REPLACE INTO agent_task_dependencies (task_id, depends_on_task_id, ordinal, deleted_at) VALUES (?1, ?2, ?3, NULL)",
                 params![&task.id, dependency, ordinal as i64],
             )?;
         }
 
         transaction.execute(
-            "DELETE FROM agent_task_logs WHERE task_id = ?1",
-            params![&task.id],
+            "UPDATE agent_task_logs SET deleted_at = ?2 WHERE task_id = ?1 AND deleted_at IS NULL",
+            params![&task.id, now_ts() as i64],
         )?;
         for log in &task.logs {
             transaction.execute(
-                "INSERT OR REPLACE INTO agent_task_logs (id, task_id, timestamp, level, phase, message, details, attempt) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT OR REPLACE INTO agent_task_logs (id, task_id, timestamp, level, phase, message, details, attempt, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)",
                 params![
                     &log.id,
                     &task.id,
@@ -247,6 +273,8 @@ impl HistoryStore {
             )?;
         }
 
+        embedding_queue::enqueue_task_embedding_job(&transaction, &task, now_ts() as i64)?;
+
         transaction.commit()?;
         Ok(())
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
@@ -256,7 +284,16 @@ impl HistoryStore {
         let task_id = task_id.to_string();
         self.conn
             .call(move |conn| {
-                conn.execute("DELETE FROM agent_tasks WHERE id = ?1", params![task_id])?;
+                conn.execute(
+                    "UPDATE agent_tasks SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+                    params![task_id, now_ts() as i64],
+                )?;
+                embedding_queue::queue_embedding_deletion_on_connection(
+                    conn,
+                    "agent_task",
+                    &task_id,
+                    now_ts() as i64,
+                )?;
                 Ok(())
             })
             .await
@@ -266,7 +303,7 @@ impl HistoryStore {
     pub async fn list_agent_tasks(&self) -> Result<Vec<AgentTask>> {
         self.read_conn.call(move |conn| {
         let mut dependency_stmt = conn.prepare(
-            "SELECT task_id, depends_on_task_id FROM agent_task_dependencies ORDER BY ordinal ASC",
+            "SELECT task_id, depends_on_task_id FROM agent_task_dependencies WHERE deleted_at IS NULL ORDER BY ordinal ASC",
         )?;
         let dependency_rows = dependency_stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -278,7 +315,7 @@ impl HistoryStore {
         }
 
         let mut log_stmt = conn.prepare(
-            "SELECT id, task_id, timestamp, level, phase, message, details, attempt FROM agent_task_logs ORDER BY timestamp ASC",
+            "SELECT id, task_id, timestamp, level, phase, message, details, attempt FROM agent_task_logs WHERE deleted_at IS NULL ORDER BY timestamp ASC",
         )?;
         let log_rows = log_stmt.query_map([], |row| {
             Ok((
@@ -302,7 +339,7 @@ impl HistoryStore {
 
         let mut stmt = conn.prepare(
             "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json \
-             FROM agent_tasks \
+             FROM agent_tasks WHERE deleted_at IS NULL \
              ORDER BY CASE status \
                  WHEN 'in_progress' THEN 0 \
                  WHEN 'awaiting_approval' THEN 1 \

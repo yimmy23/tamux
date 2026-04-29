@@ -2130,6 +2130,7 @@ impl AgentEngine {
             .unwrap_or_else(|| MAIN_AGENT_ID.to_string());
         let continuation = DeferredVisibleThreadContinuation {
             agent_id,
+            task_id: None,
             preferred_session_hint: None,
             llm_user_content: latest_user_content,
             force_compaction: true,

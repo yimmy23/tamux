@@ -45,6 +45,8 @@ export type ChatViewProps = {
   isStreamingResponse: boolean;
   activeThread: AgentThread | undefined;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  onLoadOlderMessages?: () => Promise<boolean>;
+  onTrimMessagesToLatestWindow?: () => boolean;
   onSendMessage: (payload: SendMessagePayload) => void;
   onSendParticipantSuggestion: (threadId: string, suggestionId: string, forceSend?: boolean) => void | Promise<void>;
   onDismissParticipantSuggestion: (threadId: string, suggestionId: string) => void | Promise<void>;

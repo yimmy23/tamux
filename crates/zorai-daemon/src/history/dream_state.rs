@@ -94,7 +94,6 @@ impl HistoryStore {
         row: &CounterfactualEvaluationRow,
     ) -> Result<i64> {
         let row = row.clone();
-        let row_for_index = row.clone();
         let inserted_id = self
             .conn
             .call(move |conn| {
@@ -117,32 +116,6 @@ impl HistoryStore {
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-        self.upsert_search_document(super::search_index::SearchDocument {
-            source_kind: super::search_index::SearchSourceKind::Counterfactual,
-            source_id: inserted_id.to_string(),
-            title: format!("counterfactual {}", row_for_index.variation_type),
-            body: row_for_index.counterfactual_description.clone(),
-            tags: vec![
-                row_for_index.variation_type,
-                format!("source_task:{}", row_for_index.source_task_id),
-            ],
-            workspace_id: None,
-            thread_id: None,
-            agent_id: None,
-            timestamp: row_for_index.created_at_ms as i64,
-            metadata_json: Some(
-                serde_json::to_string(&serde_json::json!({
-                    "dream_cycle_id": row_for_index.dream_cycle_id,
-                    "source_task_id": row_for_index.source_task_id,
-                    "score": row_for_index.score,
-                    "threshold_met": row_for_index.threshold_met,
-                    "estimated_token_saving": row_for_index.estimated_token_saving,
-                    "estimated_time_saving_ms": row_for_index.estimated_time_saving_ms,
-                    "estimated_revision_reduction": row_for_index.estimated_revision_reduction,
-                }))
-                .unwrap_or_else(|_| "{}".to_string()),
-            ),
-        });
         Ok(inserted_id)
     }
 

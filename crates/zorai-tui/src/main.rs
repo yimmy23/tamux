@@ -44,10 +44,7 @@ const MAX_TRANSIENT_TERMINAL_ERRORS: usize = 5;
 const TERMINAL_ERROR_RETRY_DELAY_MS: u64 = 150;
 const MAX_DAEMON_EVENTS_PER_FRAME: usize = 32;
 
-fn build_log_filter(
-    tui_log: Option<&str>,
-    zorai_log: Option<&str>,
-) -> EnvFilter {
+fn build_log_filter(tui_log: Option<&str>, zorai_log: Option<&str>) -> EnvFilter {
     tui_log
         .and_then(parse_log_filter)
         .or_else(|| zorai_log.and_then(parse_log_filter))
@@ -319,40 +316,53 @@ fn run_loop(
 ) -> Result<()> {
     let mut next_tick = Instant::now() + tick_rate;
     let mut terminal_error_streak = 0usize;
+    let mut needs_draw = true;
 
     loop {
         let now = Instant::now();
         if now >= next_tick {
             model.on_tick();
             next_tick = now + tick_rate;
+            needs_draw = true;
         }
 
-        let _ = model.pump_daemon_events_budgeted(MAX_DAEMON_EVENTS_PER_FRAME);
+        let processed_daemon_events =
+            model.pump_daemon_events_budgeted(MAX_DAEMON_EVENTS_PER_FRAME);
+        if processed_daemon_events > 0 {
+            needs_draw = true;
+        }
 
-        match terminal.draw(|frame| {
-            model.render(frame);
-        }) {
-            Ok(_) => terminal_error_streak = 0,
-            Err(err) => {
-                if should_retry_terminal_error(terminal_error_streak) {
-                    terminal_error_streak += 1;
-                    tracing::warn!(
-                        error = %err,
-                        consecutive_errors = terminal_error_streak,
-                        "transient terminal draw error"
-                    );
-                    thread::sleep(Duration::from_millis(TERMINAL_ERROR_RETRY_DELAY_MS));
-                    continue;
+        if needs_draw {
+            match terminal.draw(|frame| {
+                model.render(frame);
+            }) {
+                Ok(_) => terminal_error_streak = 0,
+                Err(err) => {
+                    if should_retry_terminal_error(terminal_error_streak) {
+                        terminal_error_streak += 1;
+                        tracing::warn!(
+                            error = %err,
+                            consecutive_errors = terminal_error_streak,
+                            "transient terminal draw error"
+                        );
+                        thread::sleep(Duration::from_millis(TERMINAL_ERROR_RETRY_DELAY_MS));
+                        continue;
+                    }
+                    return Err(err.into());
                 }
-                return Err(err.into());
             }
-        }
 
-        graphics_renderer.render(terminal, model.terminal_image_overlay_spec())?;
+            graphics_renderer.render(terminal, model.terminal_image_overlay_spec())?;
+            needs_draw = false;
+        }
 
         let now = Instant::now();
         let until_tick = next_tick.saturating_duration_since(now);
-        let wait_for = until_tick.min(Duration::from_millis(10));
+        let wait_for = if processed_daemon_events == MAX_DAEMON_EVENTS_PER_FRAME {
+            Duration::ZERO
+        } else {
+            until_tick
+        };
 
         let polled = match event::poll(wait_for) {
             Ok(polled) => {
@@ -406,15 +416,24 @@ fn run_loop(
                     if model.handle_key(key.code, key.modifiers) {
                         return Ok(());
                     }
+                    needs_draw = true;
                 }
                 Event::Key(key) if key.kind == crossterm::event::KeyEventKind::Release => {
                     model.handle_key_release(key.code, key.modifiers);
+                    needs_draw = true;
                 }
                 Event::Paste(text) => {
                     model.handle_paste(text);
+                    needs_draw = true;
                 }
-                Event::Resize(w, h) => model.handle_resize(w, h),
-                Event::Mouse(mouse) => model.handle_mouse(mouse),
+                Event::Resize(w, h) => {
+                    model.handle_resize(w, h);
+                    needs_draw = true;
+                }
+                Event::Mouse(mouse) => {
+                    model.handle_mouse(mouse);
+                    needs_draw = true;
+                }
                 _ => {}
             }
         }
@@ -1123,7 +1142,7 @@ mod tests {
 
     #[test]
     fn tui_log_filter_defaults_to_error_only() {
-        let filter = build_log_filter(None, None, None);
+        let filter = build_log_filter(None, None);
 
         assert_eq!(filter.to_string(), "error");
     }

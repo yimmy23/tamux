@@ -22,6 +22,6 @@ test("openai client applies OpenRouter attribution to chat and responses request
   assert.match(openAiSrc, /applyOpenRouterAttributionHeaders\(req\.provider, headers\);/);
   assert.match(
     openAiSrc,
-    /const headers = isSubscription\s*\? buildChatGptCodexHeaders\(req\.config\.api_key, req\._chatgptAccountId\)\s*:\s*\(\(\) => \{[\s\S]*?applyOpenRouterAttributionHeaders\(req\.provider, headers\);[\s\S]*?return headers;[\s\S]*?\}\)\(\);/,
+    /const headers = isSubscription\s*\? buildChatGptCodexHeaders\([\s\S]*?req\.config\.api_key,[\s\S]*?req\._chatgptAccountId,[\s\S]*?req\.upstreamThreadId,[\s\S]*?\)\s*:\s*\(\(\) => \{[\s\S]*?applyOpenRouterAttributionHeaders\(req\.provider, headers\);[\s\S]*?return headers;[\s\S]*?\}\)\(\);/,
   );
 });

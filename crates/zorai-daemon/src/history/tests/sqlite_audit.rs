@@ -139,6 +139,78 @@ async fn async_connection_roundtrip() -> Result<()> {
 }
 
 #[tokio::test]
+async fn init_schema_migrates_legacy_agent_messages_before_deleted_at_index() -> Result<()> {
+    let root = std::env::temp_dir().join(format!("zorai-history-test-{}", Uuid::new_v4()));
+    let history_dir = root.join("history");
+    fs::create_dir_all(&history_dir)?;
+    let db_path = history_dir.join("command-history.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        conn.execute_batch(
+            "CREATE TABLE agent_threads (
+                id             TEXT PRIMARY KEY,
+                workspace_id   TEXT,
+                surface_id     TEXT,
+                pane_id        TEXT,
+                agent_name     TEXT,
+                title          TEXT NOT NULL,
+                created_at     INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL,
+                message_count  INTEGER NOT NULL DEFAULT 0,
+                total_tokens   INTEGER NOT NULL DEFAULT 0,
+                last_preview   TEXT NOT NULL DEFAULT '',
+                metadata_json  TEXT
+            );
+            CREATE TABLE agent_messages (
+                id              TEXT PRIMARY KEY,
+                thread_id       TEXT NOT NULL REFERENCES agent_threads(id) ON DELETE CASCADE,
+                created_at      INTEGER NOT NULL,
+                role            TEXT NOT NULL,
+                content         TEXT NOT NULL DEFAULT '',
+                provider        TEXT,
+                model           TEXT,
+                input_tokens    INTEGER,
+                output_tokens   INTEGER,
+                total_tokens    INTEGER,
+                cost_usd        REAL,
+                reasoning       TEXT,
+                tool_calls_json TEXT,
+                metadata_json   TEXT
+            );",
+        )?;
+    }
+
+    let store = HistoryStore::new_test_store(&root).await?;
+    let (has_deleted_at, index_columns) = store
+        .conn
+        .call(|conn| {
+            let has_deleted_at = table_has_column(conn, "agent_messages", "deleted_at")?;
+            let mut stmt =
+                conn.prepare("PRAGMA index_info('idx_messages_thread_deleted_created')")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(2))?;
+            let index_columns = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok((has_deleted_at, index_columns))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(has_deleted_at);
+    assert_eq!(
+        index_columns,
+        vec![
+            "thread_id".to_string(),
+            "deleted_at".to_string(),
+            "created_at".to_string(),
+            "id".to_string()
+        ]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn agent_message_cost_round_trips_through_history() -> Result<()> {
     let (store, root) = make_test_store().await?;
     let thread_id = "cost-thread";
@@ -265,7 +337,7 @@ async fn replace_thread_snapshot_replaces_messages_without_losing_thread_row() -
 }
 
 #[tokio::test]
-async fn replace_thread_snapshot_removes_pruned_messages_from_search_index() -> Result<()> {
+async fn replace_thread_snapshot_removes_pruned_messages_from_sqlite_search() -> Result<()> {
     let (store, root) = make_test_store().await?;
     let thread_id = "snapshot-search-prune-thread";
     let thread = AgentDbThread {
@@ -479,8 +551,8 @@ async fn replace_thread_snapshot_does_not_regress_to_stale_snapshot() -> Result<
 }
 
 #[tokio::test]
-async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_ones() -> Result<()>
-{
+async fn reconcile_thread_snapshot_updates_changed_messages_without_pruning_missing_ones(
+) -> Result<()> {
     let (store, root) = make_test_store().await?;
     let thread_id = "thread-reconcile-snapshot";
     let base_thread = AgentDbThread {
@@ -603,8 +675,251 @@ async fn reconcile_thread_snapshot_updates_changed_messages_and_prunes_removed_o
         .await?;
 
     let pruned_messages = store.list_messages(thread_id, None).await?;
-    assert_eq!(pruned_messages.len(), 1);
-    assert_eq!(pruned_messages[0].id, "m1");
+    assert_eq!(
+        pruned_messages
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m1", "m2"],
+        "reconcile snapshots may be partial and must not tombstone omitted messages"
+    );
+    assert_eq!(store.restore_messages(thread_id, &["m2"]).await?, 0);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn reconcile_thread_snapshot_keeps_existing_prefix_for_new_suffix_snapshot() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "thread-reconcile-new-suffix";
+    let base_thread = AgentDbThread {
+        id: thread_id.to_string(),
+        workspace_id: None,
+        surface_id: None,
+        pane_id: None,
+        agent_name: Some("Svarog".to_string()),
+        title: "Suffix Snapshot".to_string(),
+        created_at: 100,
+        updated_at: 200,
+        message_count: 2,
+        total_tokens: 0,
+        last_preview: "old assistant".to_string(),
+        metadata_json: None,
+    };
+    let initial_messages = vec![
+        AgentDbMessage {
+            id: "m1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 110,
+            role: "user".to_string(),
+            content: "old prompt".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        },
+        AgentDbMessage {
+            id: "m2".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 120,
+            role: "assistant".to_string(),
+            content: "old assistant".to_string(),
+            provider: Some("github-copilot".to_string()),
+            model: Some("gpt-5.4".to_string()),
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        },
+    ];
+    store
+        .reconcile_thread_snapshot(&base_thread, &initial_messages)
+        .await?;
+
+    let suffix_thread = AgentDbThread {
+        updated_at: 300,
+        message_count: 1,
+        last_preview: "new prompt".to_string(),
+        ..base_thread
+    };
+    let suffix_messages = vec![AgentDbMessage {
+        id: "m3".to_string(),
+        thread_id: thread_id.to_string(),
+        created_at: 310,
+        role: "user".to_string(),
+        content: "new prompt".to_string(),
+        provider: None,
+        model: None,
+        input_tokens: Some(0),
+        output_tokens: Some(0),
+        total_tokens: Some(0),
+        cost_usd: None,
+        reasoning: None,
+        tool_calls_json: None,
+        metadata_json: None,
+    }];
+    store
+        .reconcile_thread_snapshot(&suffix_thread, &suffix_messages)
+        .await?;
+
+    let loaded_thread = store
+        .get_thread(thread_id)
+        .await?
+        .expect("thread should exist after suffix reconcile");
+    let loaded_messages = store.list_messages(thread_id, None).await?;
+
+    assert_eq!(loaded_thread.message_count, 3);
+    assert_eq!(loaded_thread.last_preview, "new prompt");
+    assert_eq!(
+        loaded_messages
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m1", "m2", "m3"]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_messages_soft_deletes_and_restore_makes_visible_again() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "thread-soft-delete-messages";
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("Svarog".to_string()),
+            title: "Soft Delete Messages".to_string(),
+            created_at: 100,
+            updated_at: 100,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for (id, created_at, content) in [
+        ("m1", 110, "keep visible"),
+        ("m2", 120, "trash marker searchable"),
+        ("m3", 130, "latest deleted preview"),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: "user".to_string(),
+                content: content.to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(1),
+                output_tokens: Some(0),
+                total_tokens: Some(1),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            })
+            .await?;
+    }
+
+    assert_eq!(store.delete_messages(thread_id, &["m2", "m3"]).await?, 2);
+
+    let visible = store.list_messages(thread_id, None).await?;
+    assert_eq!(
+        visible
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m1"]
+    );
+    let with_trash = store.list_messages_with_deleted(thread_id, None).await?;
+    assert_eq!(
+        with_trash
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m1", "m2", "m3"]
+    );
+    let (window, total_count, loaded_start, loaded_end) =
+        store.list_message_window(thread_id, 10, 0).await?;
+    assert_eq!(total_count, 1);
+    assert_eq!((loaded_start, loaded_end), (0, 1));
+    assert_eq!(
+        window
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m1"]
+    );
+    let recent = store.list_recent_messages(thread_id, 10).await?;
+    assert_eq!(
+        recent
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m1"]
+    );
+    let after_cursor = store
+        .list_messages_after_cursor(thread_id, None, None)
+        .await?;
+    assert_eq!(
+        after_cursor
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m1"]
+    );
+    let thread = store
+        .get_thread(thread_id)
+        .await?
+        .expect("thread should remain after soft delete");
+    assert_eq!(thread.message_count, 1);
+    assert_eq!(thread.last_preview, "keep visible");
+
+    let mut hits = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        hits = store.search("trash marker searchable", 5).await?.1;
+        if hits.iter().all(|hit| hit.id != "m2") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(
+        hits.iter().all(|hit| hit.id != "m2"),
+        "soft-deleted message remained searchable: {hits:?}"
+    );
+
+    assert_eq!(store.restore_messages(thread_id, &["m2", "m3"]).await?, 2);
+    let restored = store.list_messages(thread_id, None).await?;
+    assert_eq!(
+        restored
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m1", "m2", "m3"]
+    );
+    let thread = store
+        .get_thread(thread_id)
+        .await?
+        .expect("thread should remain after restore");
+    assert_eq!(thread.message_count, 3);
+    assert_eq!(thread.last_preview, "latest deleted preview");
 
     fs::remove_dir_all(root)?;
     Ok(())

@@ -3,6 +3,31 @@ import { describe, expect, it } from "vitest";
 import { MessageBubble } from "./MessageBubble";
 
 describe("MessageBubble participant authorship", () => {
+  it("bounds message and reasoning content to the bubble width", () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble
+        message={{
+          id: "msg-long-content",
+          threadId: "thread-1",
+          createdAt: 1,
+          role: "assistant",
+          content: "A".repeat(200),
+          reasoning: "B".repeat(200),
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          isCompactionSummary: false,
+          isStreaming: false,
+        }}
+      />,
+    );
+
+    expect(html).toContain("max-width:min(85%, 100%)");
+    expect(html).toContain("min-width:0");
+    expect(html).toContain("overflow-wrap:anywhere");
+    expect(html).toContain("max-height:min(42vh, 360px)");
+  });
+
   it("renders the assistant author name when present", () => {
     const html = renderToStaticMarkup(
       <MessageBubble

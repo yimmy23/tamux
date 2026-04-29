@@ -208,26 +208,32 @@ async fn apply_escalate_routes_into_existing_escalation_behavior() {
     assert!(task.awaiting_approval_id.is_some());
     drop(tasks);
 
-    let mut saw_escalation_update = false;
-    let mut saw_audit_action = false;
-    for _ in 0..4 {
-        let event = events.recv().await.expect("event");
-        match event {
-            AgentEvent::EscalationUpdate {
-                thread_id: event_thread_id,
-                ..
-            } if event_thread_id == thread_id => {
-                saw_escalation_update = true;
+    let (saw_escalation_update, saw_audit_action) =
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            let mut saw_escalation_update = false;
+            let mut saw_audit_action = false;
+            while !saw_escalation_update || !saw_audit_action {
+                let event = events.recv().await.expect("event");
+                match event {
+                    AgentEvent::EscalationUpdate {
+                        thread_id: event_thread_id,
+                        ..
+                    } if event_thread_id == thread_id => {
+                        saw_escalation_update = true;
+                    }
+                    AgentEvent::AuditAction {
+                        thread_id: Some(event_thread_id),
+                        ..
+                    } if event_thread_id == thread_id => {
+                        saw_audit_action = true;
+                    }
+                    _ => {}
+                }
             }
-            AgentEvent::AuditAction {
-                thread_id: Some(event_thread_id),
-                ..
-            } if event_thread_id == thread_id => {
-                saw_audit_action = true;
-            }
-            _ => {}
-        }
-    }
+            (saw_escalation_update, saw_audit_action)
+        })
+        .await
+        .expect("expected escalation update and audit action");
     assert!(saw_escalation_update);
     assert!(saw_audit_action);
 }

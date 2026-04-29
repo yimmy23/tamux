@@ -206,3 +206,25 @@ fn audio_fields_parse_from_flattened_legacy_keys() {
     assert_eq!(state.audio_tts_model(), "gpt-4o-mini-tts");
     assert_eq!(state.audio_tts_voice(), "alloy");
 }
+
+#[test]
+fn semantic_embedding_fields_parse_from_canonical_semantic_section() {
+    let mut state = ConfigState::new();
+    state.reduce(ConfigAction::ConfigRawReceived(json!({
+        "provider": "openai",
+        "model": "gpt-5.4",
+        "semantic": {
+            "embedding": {
+                "enabled": true,
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "dimensions": 1536
+            }
+        }
+    })));
+
+    assert_eq!(state.semantic_embedding_enabled(), true);
+    assert_eq!(state.semantic_embedding_provider(), "openai");
+    assert_eq!(state.semantic_embedding_model(), "text-embedding-3-small");
+    assert_eq!(state.semantic_embedding_dimensions(), 1536);
+}

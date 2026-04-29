@@ -444,9 +444,6 @@ fn parse_read_skill_targets(args: &serde_json::Value) -> Result<Vec<String>> {
         let values = values
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("'skills' must be an array of strings"))?;
-        if values.is_empty() {
-            return Err(anyhow::anyhow!("'skills' must not be empty"));
-        }
         for (index, value) in values.iter().enumerate() {
             let skill = value
                 .as_str()
@@ -464,6 +461,33 @@ fn parse_read_skill_targets(args: &serde_json::Value) -> Result<Vec<String>> {
     }
 
     Ok(skills)
+}
+
+#[cfg(test)]
+mod read_skill_target_tests {
+    use super::*;
+
+    #[test]
+    fn read_skill_targets_accept_empty_skills_when_skill_is_present() {
+        let targets = parse_read_skill_targets(&serde_json::json!({
+            "skill": "executing-plans",
+            "skills": []
+        }))
+        .expect("empty optional skills array should not reject singular skill");
+
+        assert_eq!(targets, vec!["executing-plans"]);
+    }
+
+    #[test]
+    fn read_skill_targets_reject_empty_skills_without_skill() {
+        let err = parse_read_skill_targets(&serde_json::json!({ "skills": [] }))
+            .expect_err("empty skills array without skill should still be invalid");
+
+        assert!(
+            err.to_string().contains("missing"),
+            "unexpected error: {err:#}"
+        );
+    }
 }
 
 async fn read_single_skill(

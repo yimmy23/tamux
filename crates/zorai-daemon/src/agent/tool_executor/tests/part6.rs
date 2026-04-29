@@ -2000,9 +2000,14 @@ fn format_result_with_authority_prepends_official_tag() {
 
 #[test]
 fn classify_freshness_labels_recent_stale_and_old_dates() {
-    assert_eq!(classify_freshness(Some("2026-03-20")), "recent");
-    assert_eq!(classify_freshness(Some("2025-12-01T14:00:00Z")), "stale");
-    assert_eq!(classify_freshness(Some("2024-01-01")), "old");
+    let today = chrono::Utc::now().date_naive();
+    let recent = (today - chrono::Days::new(7)).format("%Y-%m-%d").to_string();
+    let stale = (today - chrono::Days::new(90)).format("%Y-%m-%d").to_string();
+    let old = (today - chrono::Days::new(500)).format("%Y-%m-%d").to_string();
+
+    assert_eq!(classify_freshness(Some(&recent)), "recent");
+    assert_eq!(classify_freshness(Some(&stale)), "stale");
+    assert_eq!(classify_freshness(Some(&old)), "old");
     assert_eq!(classify_freshness(Some("not-a-date")), "unknown");
     assert_eq!(classify_freshness(None), "unknown");
 }

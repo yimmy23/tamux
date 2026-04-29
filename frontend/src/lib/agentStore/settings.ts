@@ -154,11 +154,18 @@ export interface AgentSettings {
   audio_tts_auto_speak: boolean;
   image_generation_provider: AgentProviderId;
   image_generation_model: string;
+  semantic_embedding_enabled: boolean;
+  semantic_embedding_provider: AgentProviderId;
+  semantic_embedding_model: string;
+  semantic_embedding_dimensions: number;
+  semantic_embedding_batch_size: number;
+  semantic_embedding_max_concurrency: number;
   reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
   auto_compact_context: boolean;
   max_context_messages: number;
   react_chat_history_page_size: number;
   tui_chat_history_page_size: number;
+  participant_observer_restore_window_hours: number;
   max_tool_loops: number;
   max_retries: number;
   retry_delay_ms: number;
@@ -272,11 +279,18 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   audio_tts_auto_speak: false,
   image_generation_provider: "openai",
   image_generation_model: "gpt-image-1",
+  semantic_embedding_enabled: false,
+  semantic_embedding_provider: "openai",
+  semantic_embedding_model: "text-embedding-3-small",
+  semantic_embedding_dimensions: 1536,
+  semantic_embedding_batch_size: 64,
+  semantic_embedding_max_concurrency: 2,
   reasoning_effort: "high",
   auto_compact_context: true,
   max_context_messages: 100,
   react_chat_history_page_size: DEFAULT_CHAT_HISTORY_PAGE_SIZE,
   tui_chat_history_page_size: DEFAULT_CHAT_HISTORY_PAGE_SIZE,
+  participant_observer_restore_window_hours: 24,
   max_tool_loops: 0,
   max_retries: 3,
   retry_delay_ms: 2000,
@@ -333,6 +347,14 @@ function normalizeManagedSecurityLevel(value: unknown): AgentSettings["managed_s
   return DEFAULT_AGENT_SETTINGS.managed_security_level;
 }
 
+function normalizeParticipantObserverRestoreWindowHours(value: unknown): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_AGENT_SETTINGS.participant_observer_restore_window_hours;
+  }
+  return Math.max(0, Math.min(24 * 30, Math.trunc(numericValue)));
+}
+
 export function loadAgentSettings(): AgentSettings {
   return { ...DEFAULT_AGENT_SETTINGS };
 }
@@ -367,6 +389,16 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
       model?: string;
     };
   };
+  semantic?: {
+    embedding?: {
+      enabled?: boolean;
+      provider?: AgentProviderId | string;
+      model?: string;
+      dimensions?: number;
+      batch_size?: number;
+      max_concurrency?: number;
+    };
+  };
   image_generation_provider?: AgentProviderId | string;
   image_generation_model?: string;
   system_prompt?: string;
@@ -380,6 +412,7 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
   max_context_messages?: number;
   react_chat_history_page_size?: number;
   tui_chat_history_page_size?: number;
+  participant_observer_restore_window_hours?: number;
   max_tool_loops?: number;
   max_retries?: number;
   retry_delay_ms?: number;
@@ -557,6 +590,19 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
       source.image?.generation?.model
       ?? source.image_generation_model
       ?? DEFAULT_AGENT_SETTINGS.image_generation_model,
+    semantic_embedding_enabled:
+      source.semantic?.embedding?.enabled ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_enabled,
+    semantic_embedding_provider: normalizeAgentProviderId(
+      source.semantic?.embedding?.provider ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_provider,
+    ),
+    semantic_embedding_model:
+      source.semantic?.embedding?.model ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_model,
+    semantic_embedding_dimensions:
+      source.semantic?.embedding?.dimensions ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_dimensions,
+    semantic_embedding_batch_size:
+      source.semantic?.embedding?.batch_size ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_batch_size,
+    semantic_embedding_max_concurrency:
+      source.semantic?.embedding?.max_concurrency ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_max_concurrency,
     reasoning_effort: (source.reasoning_effort ?? DEFAULT_AGENT_SETTINGS.reasoning_effort) as AgentSettings["reasoning_effort"],
     auto_compact_context: source.auto_compact_context ?? DEFAULT_AGENT_SETTINGS.auto_compact_context,
     max_context_messages: source.max_context_messages ?? DEFAULT_AGENT_SETTINGS.max_context_messages,
@@ -567,6 +613,10 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     tui_chat_history_page_size: normalizeTuiChatHistoryPageSize(
       source.tui_chat_history_page_size
         ?? DEFAULT_AGENT_SETTINGS.tui_chat_history_page_size,
+    ),
+    participant_observer_restore_window_hours: normalizeParticipantObserverRestoreWindowHours(
+      source.participant_observer_restore_window_hours
+        ?? DEFAULT_AGENT_SETTINGS.participant_observer_restore_window_hours,
     ),
     max_tool_loops: source.max_tool_loops ?? DEFAULT_AGENT_SETTINGS.max_tool_loops,
     max_retries: source.max_retries ?? DEFAULT_AGENT_SETTINGS.max_retries,

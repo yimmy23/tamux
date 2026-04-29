@@ -70,8 +70,8 @@ impl HistoryStore {
 
             transaction.execute(
                 "INSERT OR REPLACE INTO goal_runs \
-                 (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47)",
+                 (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json, deleted_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, NULL)",
                 params![
                     &goal_run.id,
                     &goal_run.title,
@@ -124,14 +124,14 @@ impl HistoryStore {
             )?;
 
         transaction.execute(
-            "DELETE FROM goal_run_steps WHERE goal_run_id = ?1",
-            params![&goal_run.id],
+            "UPDATE goal_run_steps SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
+            params![&goal_run.id, now_ts() as i64],
         )?;
         for step in &goal_run.steps {
             transaction.execute(
                 "INSERT OR REPLACE INTO goal_run_steps \
-                 (id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                 (id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at, deleted_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL)",
                 params![
                     &step.id,
                     &goal_run.id,
@@ -152,13 +152,13 @@ impl HistoryStore {
         }
 
         transaction.execute(
-            "DELETE FROM goal_run_events WHERE goal_run_id = ?1",
-            params![&goal_run.id],
+            "UPDATE goal_run_events SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
+            params![&goal_run.id, now_ts() as i64],
         )?;
         for event in &goal_run.events {
             let todo_snapshot_json = serde_json::to_string(&event.todo_snapshot).call_err()?;
             transaction.execute(
-                "INSERT OR REPLACE INTO goal_run_events (id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT OR REPLACE INTO goal_run_events (id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)",
                 params![
                     &event.id,
                     &goal_run.id,
@@ -181,7 +181,7 @@ impl HistoryStore {
         self.read_conn.call(move |conn| {
         let mut step_stmt = conn.prepare(
             "SELECT id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at \
-             FROM goal_run_steps ORDER BY goal_run_id ASC, ordinal ASC",
+             FROM goal_run_steps WHERE deleted_at IS NULL ORDER BY goal_run_id ASC, ordinal ASC",
         )?;
         let step_rows = step_stmt.query_map([], |row| {
             Ok((
@@ -210,7 +210,7 @@ impl HistoryStore {
         }
 
         let mut event_stmt = conn.prepare(
-            "SELECT id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json FROM goal_run_events ORDER BY timestamp ASC",
+            "SELECT id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json FROM goal_run_events WHERE deleted_at IS NULL ORDER BY timestamp ASC",
         )?;
         let event_rows = event_stmt.query_map([], |row| {
             let todo_snapshot_json: Option<String> = row.get(7)?;
@@ -238,7 +238,7 @@ impl HistoryStore {
 
         let mut stmt = conn.prepare(
             "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json \
-             FROM goal_runs ORDER BY updated_at DESC",
+             FROM goal_runs WHERE deleted_at IS NULL ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
@@ -364,15 +364,17 @@ impl HistoryStore {
             .call(move |conn| {
                 let transaction = conn.transaction()?;
                 transaction.execute(
-                    "DELETE FROM goal_run_events WHERE goal_run_id = ?1",
-                    params![&goal_run_id],
+                    "UPDATE goal_run_events SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
+                    params![&goal_run_id, now_ts() as i64],
                 )?;
                 transaction.execute(
-                    "DELETE FROM goal_run_steps WHERE goal_run_id = ?1",
-                    params![&goal_run_id],
+                    "UPDATE goal_run_steps SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
+                    params![&goal_run_id, now_ts() as i64],
                 )?;
-                transaction
-                    .execute("DELETE FROM goal_runs WHERE id = ?1", params![&goal_run_id])?;
+                transaction.execute(
+                    "UPDATE goal_runs SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+                    params![&goal_run_id, now_ts() as i64],
+                )?;
                 transaction.commit()?;
                 Ok(())
             })

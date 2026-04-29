@@ -1,5 +1,6 @@
 use super::*;
 use tempfile::tempdir;
+use zorai_protocol::AgentDbMessage;
 
 #[test]
 fn cognitive_style_prefers_terse_for_short_messages() {
@@ -840,6 +841,7 @@ async fn status_diagnostics_snapshot_exposes_cached_prewarm_for_intent_predictio
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.anticipatory.enabled = true;
+    config.anticipatory.predictive_hydration = false;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
     engine
@@ -1906,6 +1908,454 @@ async fn status_diagnostics_snapshot_includes_proactive_suppression_transparency
         .is_some_and(|items| items.iter().any(|item| item
             .as_str()
             .is_some_and(|text| text.contains("suppressed_kinds=")))));
+}
+
+#[tokio::test]
+async fn status_diagnostics_snapshot_includes_speculative_queue_summary() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let now = now_millis();
+    {
+        let mut runtime = engine.anticipatory.write().await;
+        runtime.opportunity_queue.push_back(SpeculativeOpportunity {
+            id: "spec-queue-1".to_string(),
+            thread_id: Some("thread-spec-queue-diag".to_string()),
+            source_kind: "intent_prediction".to_string(),
+            action_kind: "repo_context_refresh".to_string(),
+            confidence: 0.91,
+            created_at_ms: now,
+            expires_at_ms: now + 30_000,
+            status: SpeculativeOpportunityStatus::Queued,
+            summary: "Prefetch repo context for the active thread".to_string(),
+        });
+    }
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let speculative = &snapshot["speculative_execution"];
+    assert_eq!(speculative["queue_depth"].as_u64(), Some(1));
+
+    let queued = speculative["queued_opportunities"]
+        .as_array()
+        .expect("queued speculative opportunities array");
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0]["id"].as_str(), Some("spec-queue-1"));
+    assert_eq!(
+        queued[0]["thread_id"].as_str(),
+        Some("thread-spec-queue-diag")
+    );
+    assert_eq!(queued[0]["source_kind"].as_str(), Some("intent_prediction"));
+    assert_eq!(
+        queued[0]["action_kind"].as_str(),
+        Some("repo_context_refresh")
+    );
+    assert_eq!(queued[0]["status"].as_str(), Some("queued"));
+    assert!(queued[0]["confidence"]
+        .as_f64()
+        .is_some_and(|value| value >= 0.9));
+    assert!(queued[0]["expires_in_ms"]
+        .as_u64()
+        .is_some_and(|value| value > 0));
+}
+
+#[tokio::test]
+async fn status_diagnostics_snapshot_includes_cached_speculative_results_with_usage_and_ttl() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let now = now_millis();
+    {
+        let mut runtime = engine.anticipatory.write().await;
+        runtime.speculative_results_by_thread.insert(
+            "thread-spec-result-diag".to_string(),
+            vec![
+                SpeculativeResult {
+                    opportunity_id: "spec-result-used".to_string(),
+                    action_kind: "repo_context_refresh".to_string(),
+                    thread_id: Some("thread-spec-result-diag".to_string()),
+                    summary: "Cached repo summary for active thread".to_string(),
+                    artifact: serde_json::json!({"summary": "branch main; dirty=true"}),
+                    completed_at_ms: now - 5_000,
+                    expires_at_ms: now + 60_000,
+                    used_at_ms: Some(now - 1_000),
+                    precomputation_id: Some(42),
+                },
+                SpeculativeResult {
+                    opportunity_id: "spec-result-expired".to_string(),
+                    action_kind: "repo_context_refresh".to_string(),
+                    thread_id: Some("thread-spec-result-diag".to_string()),
+                    summary: "Expired cached repo summary".to_string(),
+                    artifact: serde_json::json!({"summary": "expired"}),
+                    completed_at_ms: now - 10_000,
+                    expires_at_ms: now - 1,
+                    used_at_ms: None,
+                    precomputation_id: None,
+                },
+            ],
+        );
+    }
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let speculative = &snapshot["speculative_execution"];
+    assert_eq!(speculative["cached_result_count"].as_u64(), Some(2));
+
+    let results = speculative["cached_results"]
+        .as_array()
+        .expect("cached speculative results array");
+    assert_eq!(results.len(), 2);
+
+    let used = results
+        .iter()
+        .find(|item| item["opportunity_id"].as_str() == Some("spec-result-used"))
+        .expect("used speculative result should be present");
+    assert_eq!(used["thread_id"].as_str(), Some("thread-spec-result-diag"));
+    assert_eq!(used["action_kind"].as_str(), Some("repo_context_refresh"));
+    assert_eq!(used["precomputation_id"].as_i64(), Some(42));
+    assert_eq!(used["used"].as_bool(), Some(true));
+    assert_eq!(used["is_expired"].as_bool(), Some(false));
+    assert!(used["expires_in_ms"]
+        .as_u64()
+        .is_some_and(|value| value > 0));
+    assert_eq!(
+        used["artifact"]["summary"].as_str(),
+        Some("branch main; dirty=true")
+    );
+
+    let expired = results
+        .iter()
+        .find(|item| item["opportunity_id"].as_str() == Some("spec-result-expired"))
+        .expect("expired speculative result should be present");
+    assert_eq!(expired["used"].as_bool(), Some(false));
+    assert_eq!(expired["is_expired"].as_bool(), Some(true));
+    assert_eq!(expired["expires_in_ms"].as_u64(), Some(0));
+    assert_eq!(expired["precomputation_id"].as_i64(), None);
+}
+
+#[tokio::test]
+async fn emergent_protocols_summary_hidden_when_no_protocol_state_exists() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let thread_id = "thread-emergent-empty-diag";
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "empty emergent protocol diagnostics".to_string(),
+            messages: Vec::new(),
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            created_at: 0,
+            updated_at: 0,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        },
+    );
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    assert!(snapshot["emergent_protocols"].is_null());
+}
+
+#[tokio::test]
+async fn emergent_protocols_summary_visible_for_pending_proposals_and_registry_entries() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let proposed_thread_id = "thread-emergent-diag-proposed";
+    let accepted_thread_id = "thread-emergent-diag-accepted";
+
+    for thread_id in [proposed_thread_id, accepted_thread_id] {
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                title: format!("emergent protocol diagnostics {thread_id}"),
+                messages: Vec::new(),
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                created_at: 0,
+                updated_at: 0,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+            },
+        );
+    }
+
+    let build_messages = |thread_id: &str| {
+        vec![
+            AgentDbMessage {
+                id: "m1".to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: 1,
+                role: "user".to_string(),
+                content: "continue".to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            },
+            AgentDbMessage {
+                id: "m2".to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: 2,
+                role: "assistant".to_string(),
+                content: "working".to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            },
+            AgentDbMessage {
+                id: "m3".to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: 3,
+                role: "user".to_string(),
+                content: "continue".to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            },
+            AgentDbMessage {
+                id: "m4".to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: 4,
+                role: "assistant".to_string(),
+                content: "still working".to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            },
+            AgentDbMessage {
+                id: "m5".to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: 5,
+                role: "user".to_string(),
+                content: "continue".to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            },
+        ]
+    };
+
+    let proposed = engine
+        .analyze_emergent_protocol_from_messages(
+            proposed_thread_id,
+            &build_messages(proposed_thread_id),
+        )
+        .await
+        .expect("analysis should succeed")
+        .expect("candidate store should be returned");
+    assert!(proposed.candidates.iter().any(|candidate| {
+        candidate.state == crate::agent::emergent_protocol::types::ProtocolCandidateState::Proposed
+            && candidate.normalized_pattern == "continue"
+    }));
+
+    let accepted = engine
+        .analyze_emergent_protocol_from_messages(
+            accepted_thread_id,
+            &build_messages(accepted_thread_id),
+        )
+        .await
+        .expect("analysis should succeed")
+        .expect("candidate store should be returned");
+    assert!(accepted.candidates.iter().any(|candidate| {
+        candidate.state == crate::agent::emergent_protocol::types::ProtocolCandidateState::Proposed
+            && candidate.normalized_pattern == "continue"
+    }));
+
+    let store = engine
+        .get_thread_protocol_candidate_store(accepted_thread_id)
+        .await
+        .expect("candidate store should load");
+    let candidate_id = store
+        .candidates
+        .iter()
+        .find(|candidate| {
+            candidate.state
+                == crate::agent::emergent_protocol::types::ProtocolCandidateState::Proposed
+                && candidate.normalized_pattern == "continue"
+        })
+        .map(|candidate| candidate.id.clone())
+        .expect("proposed candidate should exist");
+    let response = engine
+        .respond_to_protocol_proposal(accepted_thread_id, &candidate_id, true)
+        .await
+        .expect("proposal acceptance should succeed");
+    assert_eq!(response["status"].as_str(), Some("accepted"));
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let protocols = &snapshot["emergent_protocols"];
+    assert_eq!(protocols["proposal_count"].as_u64(), Some(1));
+    assert_eq!(protocols["protocol_count"].as_u64(), Some(1));
+    assert!(protocols["proposals"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| {
+            item["thread_id"].as_str() == Some(proposed_thread_id)
+                && item["normalized_pattern"].as_str() == Some("continue")
+        })));
+    assert!(protocols["protocols"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| {
+            item["thread_id"].as_str() == Some(accepted_thread_id)
+                && item["normalized_pattern"].as_str() == Some("continue")
+                && item["token"]
+                    .as_str()
+                    .is_some_and(|token| token.starts_with("@proto_"))
+        })));
+}
+
+#[tokio::test]
+async fn adaptive_carryover_summary_hidden_when_no_events_exist() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    assert!(snapshot["adaptive_carryover"].is_null());
+}
+
+#[tokio::test]
+async fn adaptive_carryover_summary_visible_when_dream_hint_provenance_exists() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_dream_hints_persisted(
+            crate::agent::agent_identity::WELES_AGENT_ID,
+            2,
+            &[
+                "Prefer structured file/context tools before raw shell inspection.".to_string(),
+                "Inspect the full task context before executing the next step.".to_string(),
+            ],
+            Some(42),
+        )
+        .await;
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let carryover = &snapshot["adaptive_carryover"];
+    assert_eq!(carryover["persisted_event_count"].as_u64(), Some(1));
+    assert_eq!(carryover["dream_hint_event_count"].as_u64(), Some(1));
+    assert_eq!(carryover["forge_hint_event_count"].as_u64(), Some(0));
+    let recent = carryover["recent_events"]
+        .as_array()
+        .expect("recent adaptive carryover provenance events array");
+    assert_eq!(recent.len(), 1);
+    assert_eq!(
+        recent[0]["event_type"].as_str(),
+        Some(crate::agent::provenance::PROVENANCE_EVENT_DREAM_HINTS_PERSISTED)
+    );
+    assert_eq!(recent[0]["thread_id"].as_str(), None);
+    assert_eq!(recent[0]["task_id"].as_str(), None);
+    assert_eq!(recent[0]["goal_run_id"].as_str(), None);
+    assert_eq!(recent[0]["causal_trace_id"].as_str(), None);
+}
+
+#[tokio::test]
+async fn proactive_audit_summary_visible_in_diagnostics() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_provenance_event(
+            crate::agent::provenance::PROVENANCE_EVENT_PROACTIVE_CACHE_PREPARED,
+            "Prepared proactive cache for thread thread-audit-diag",
+            serde_json::json!({
+                "thread_id": "thread-audit-diag",
+                "summary": "branch main; dirty=true",
+            }),
+            None,
+            None,
+            Some("thread-audit-diag"),
+            None,
+            None,
+        )
+        .await;
+    engine
+        .record_provenance_event(
+            crate::agent::provenance::PROVENANCE_EVENT_SPECULATIVE_RESULT_USED,
+            "Used speculative repo_context_refresh for thread thread-audit-diag",
+            serde_json::json!({
+                "thread_id": "thread-audit-diag",
+                "action_kind": "repo_context_refresh",
+                "source": "anticipatory_prompt_context",
+            }),
+            None,
+            None,
+            Some("thread-audit-diag"),
+            None,
+            None,
+        )
+        .await;
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let provenance = &snapshot["proactive_provenance"];
+    assert_eq!(provenance["prepared_count"].as_u64(), Some(1));
+    assert_eq!(provenance["used_count"].as_u64(), Some(1));
+    assert_eq!(provenance["prepared_cache_count"].as_u64(), Some(1));
+    assert_eq!(provenance["used_speculative_count"].as_u64(), Some(1));
+
+    let recent = provenance["recent_events"]
+        .as_array()
+        .expect("recent proactive provenance events array");
+    assert_eq!(recent.len(), 2);
+    assert!(recent.iter().any(|entry| {
+        entry["event_type"].as_str()
+            == Some(crate::agent::provenance::PROVENANCE_EVENT_PROACTIVE_CACHE_PREPARED)
+            && entry["thread_id"].as_str() == Some("thread-audit-diag")
+    }));
+    assert!(recent.iter().any(|entry| {
+        entry["event_type"].as_str()
+            == Some(crate::agent::provenance::PROVENANCE_EVENT_SPECULATIVE_RESULT_USED)
+            && entry["thread_id"].as_str() == Some("thread-audit-diag")
+    }));
 }
 
 #[tokio::test]

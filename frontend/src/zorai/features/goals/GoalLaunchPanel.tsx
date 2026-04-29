@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AgentChatPanelRuntimeValue } from "@/components/agent-chat-panel/runtime/types";
+import { SUB_AGENT_ROLE_PRESET_IDS } from "@/components/settings-panel/subAgentRolePresets";
 import type { AgentProviderConfig } from "@/lib/agentStore/types";
 import type { GoalAgentAssignment, StartGoalRunPayload } from "@/lib/goalRuns";
 
@@ -13,7 +14,6 @@ type GoalLaunchPanelProps = {
 };
 
 const MAIN_ROLE_ID = "svarog";
-const rolePresets = ["code_review", "research", "testing", "planning", "documentation", "refactoring"];
 const personaRoles = ["svarog", "rarog", "weles", "swarozyc", "radogost", "domowoj", "swietowit", "perun", "mokosh", "dazhbog"];
 const reasoningOptions = ["none", "minimal", "low", "medium", "high", "xhigh"];
 
@@ -129,7 +129,7 @@ export function GoalLaunchPanel({
 
             <div className="zorai-goal-launch__editor">
               <select value={selectedAssignment.role_id} onChange={(event) => updateSelected({ role_id: event.target.value })}>
-                {[...rolePresets, ...personaRoles].map((role) => <option key={role} value={role}>{role}</option>)}
+                {[...SUB_AGENT_ROLE_PRESET_IDS, ...personaRoles].map((role) => <option key={role} value={role}>{role}</option>)}
               </select>
               <select value={selectedAssignment.provider} onChange={(event) => updateSelected({ provider: event.target.value })}>
                 {providers.map((provider) => <option key={provider} value={provider}>{provider}</option>)}
@@ -189,7 +189,7 @@ function presetSourceLabel(runtime: AgentChatPanelRuntimeValue): string {
 }
 
 function nextRoleId(assignments: GoalAgentAssignment[]): string {
-  for (const role of rolePresets) {
+  for (const role of SUB_AGENT_ROLE_PRESET_IDS) {
     if (!assignments.some((assignment) => assignment.role_id === role)) return role;
   }
   let suffix = assignments.length + 1;

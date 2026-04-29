@@ -1,8 +1,8 @@
+use anyhow::Result;
 use zorai_protocol::{
     ClientMessage, DaemonMessage, WorkspaceNotice, WorkspaceOperator, WorkspaceReviewSubmission,
     WorkspaceSettings, WorkspaceTask, WorkspaceTaskCreate, WorkspaceTaskMove, WorkspaceTaskUpdate,
 };
-use anyhow::Result;
 
 use super::connection::roundtrip;
 

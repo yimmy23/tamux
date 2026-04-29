@@ -1,5 +1,5 @@
-use zorai_protocol::{GatewayCursorState, GatewaySendRequest};
 use serde_json::json;
+use zorai_protocol::{GatewayCursorState, GatewaySendRequest};
 
 use super::*;
 use crate::runtime::GatewayProviderEvent;

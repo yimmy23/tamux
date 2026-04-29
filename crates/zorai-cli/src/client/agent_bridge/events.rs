@@ -1,7 +1,7 @@
-use zorai_protocol::{ZoraiCodec, DaemonMessage};
 use anyhow::Result;
 use futures::StreamExt;
 use tokio_util::codec::Framed;
+use zorai_protocol::{DaemonMessage, ZoraiCodec};
 
 use super::emit_agent_event;
 

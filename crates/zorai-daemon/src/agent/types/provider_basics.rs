@@ -71,10 +71,12 @@ pub enum Modality {
     Image,
     Video,
     Audio,
+    Embedding,
 }
 
 /// Shorthand constants for common modality sets.
 pub const TEXT_ONLY: &[Modality] = &[Modality::Text];
+pub const EMBEDDING_ONLY: &[Modality] = &[Modality::Embedding];
 pub const TEXT_AUDIO: &[Modality] = &[Modality::Text, Modality::Audio];
 pub const TEXT_IMAGE: &[Modality] = &[Modality::Text, Modality::Image];
 pub const TEXT_IMAGE_AUDIO: &[Modality] = &[Modality::Text, Modality::Image, Modality::Audio];

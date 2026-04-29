@@ -69,26 +69,6 @@ impl HistoryStore {
     /// Insert or replace an action audit entry.
     pub async fn insert_action_audit(&self, entry: &AuditEntryRow) -> Result<()> {
         let entry = entry.clone();
-        let search_document = super::search_index::SearchDocument {
-            source_kind: super::search_index::SearchSourceKind::ActionAudit,
-            source_id: entry.id.clone(),
-            title: entry.summary.clone(),
-            body: format!(
-                "{}\n{}\n{}",
-                entry.action_type,
-                entry.explanation.as_deref().unwrap_or_default(),
-                entry.raw_data_json.as_deref().unwrap_or_default()
-            ),
-            tags: vec![
-                entry.action_type.clone(),
-                entry.confidence_band.clone().unwrap_or_default(),
-            ],
-            workspace_id: None,
-            thread_id: entry.thread_id.clone(),
-            agent_id: None,
-            timestamp: entry.timestamp,
-            metadata_json: entry.raw_data_json.clone(),
-        };
         self.conn.call(move |conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO action_audit \
@@ -112,7 +92,6 @@ impl HistoryStore {
             )?;
             Ok(())
         }).await.map_err(|e| anyhow::anyhow!("insert_action_audit: {e}"))?;
-        self.upsert_search_document(search_document);
         Ok(())
     }
 
@@ -238,16 +217,17 @@ impl HistoryStore {
                         .unwrap_or_default()
                         .as_millis() as i64
                         - (max_age_days as i64 * 86_400 * 1000);
-                    deleted += conn
-                        .execute("DELETE FROM action_audit WHERE timestamp < ?1", [cutoff])?
-                        as usize;
+                    deleted += conn.execute(
+                        "UPDATE action_audit SET deleted_at = ?2 WHERE timestamp < ?1 AND deleted_at IS NULL",
+                        params![cutoff, now_ts() as i64],
+                    )? as usize;
                 }
                 // Delete excess entries (keep newest max_entries)
                 if max_entries > 0 {
                     deleted += conn.execute(
-                        "DELETE FROM action_audit WHERE id NOT IN \
-                     (SELECT id FROM action_audit ORDER BY timestamp DESC LIMIT ?1)",
-                        [max_entries as i64],
+                        "UPDATE action_audit SET deleted_at = ?2 WHERE deleted_at IS NULL AND id NOT IN \
+                     (SELECT id FROM action_audit WHERE deleted_at IS NULL ORDER BY timestamp DESC LIMIT ?1)",
+                        params![max_entries as i64, now_ts() as i64],
                     )? as usize;
                 }
                 Ok(deleted)

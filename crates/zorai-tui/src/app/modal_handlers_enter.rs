@@ -404,6 +404,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 Some(SettingsPickerTarget::ImageGenerationProvider) => {
                     widgets::provider_picker::available_provider_defs(&model.auth)
                 }
+                Some(SettingsPickerTarget::EmbeddingProvider) => {
+                    widgets::provider_picker::available_embedding_provider_defs(&model.auth)
+                }
                 _ => widgets::provider_picker::available_provider_defs(&model.auth),
             };
             if let Some(def) = provider_defs.get(cursor) {
@@ -486,6 +489,26 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.close_top_modal();
                         model.open_image_generation_model_picker();
                         model.status_line = format!("Image provider: {}", def.name);
+                        return;
+                    }
+                    SettingsPickerTarget::EmbeddingProvider => {
+                        let current_model = model.config.semantic_embedding_model();
+                        let known_models = TuiModel::embedding_catalog_models(def.id);
+                        let next_model = if current_model.trim().is_empty()
+                            || (!known_models.is_empty()
+                                && !known_models.iter().any(|entry| entry.id == current_model))
+                        {
+                            TuiModel::default_embedding_model_for(def.id)
+                        } else {
+                            current_model
+                        };
+                        model.set_embedding_config_string("provider", def.id.to_string());
+                        if !next_model.trim().is_empty() {
+                            model.set_embedding_config_string("model", next_model);
+                        }
+                        model.close_top_modal();
+                        model.open_embedding_model_picker();
+                        model.status_line = format!("Embedding provider: {}", def.name);
                         return;
                     }
                     SettingsPickerTarget::BuiltinPersonaProvider => {
@@ -582,6 +605,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     | SettingsPickerTarget::AudioSttModel
                     | SettingsPickerTarget::AudioTtsModel
                     | SettingsPickerTarget::ImageGenerationModel
+                    | SettingsPickerTarget::EmbeddingModel
                     | SettingsPickerTarget::BuiltinPersonaModel
                     | SettingsPickerTarget::CompactionWelesModel
                     | SettingsPickerTarget::CompactionCustomModel
@@ -744,6 +768,10 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.set_image_generation_config_string("model", model_id.clone());
                         model.status_line = format!("Image model: {}", model_id);
                     }
+                    SettingsPickerTarget::EmbeddingModel => {
+                        model.set_embedding_config_string("model", model_id.clone());
+                        model.status_line = format!("Embedding model: {}", model_id);
+                    }
                     SettingsPickerTarget::BuiltinPersonaModel => {
                         let Some(setup) = model.pending_builtin_persona_setup.clone() else {
                             model.status_line = "No builtin persona setup is active".to_string();
@@ -821,6 +849,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     | SettingsPickerTarget::AudioSttProvider
                     | SettingsPickerTarget::AudioTtsProvider
                     | SettingsPickerTarget::ImageGenerationProvider
+                    | SettingsPickerTarget::EmbeddingProvider
                     | SettingsPickerTarget::BuiltinPersonaProvider
                     | SettingsPickerTarget::CompactionWelesProvider
                     | SettingsPickerTarget::CompactionCustomProvider

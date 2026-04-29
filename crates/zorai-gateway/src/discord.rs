@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
-use zorai_protocol::{GatewayCursorState, GatewayProviderBootstrap, GatewaySendRequest};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
+use zorai_protocol::{GatewayCursorState, GatewayProviderBootstrap, GatewaySendRequest};
 
 use crate::format::{chunk_message, markdown_to_discord, DISCORD_MAX_CHARS};
 use crate::health::{PlatformHealthState, TokenBucket};

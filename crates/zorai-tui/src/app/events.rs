@@ -194,7 +194,9 @@ impl TuiModel {
                 self.handle_thread_list_event(threads);
             }
             ClientEvent::ThreadDetail(Some(thread)) => {
-                self.handle_thread_detail_event(thread);
+                if !self.deleted_thread_ids.contains(&thread.id) {
+                    self.handle_thread_detail_event(thread);
+                }
             }
             ClientEvent::ThreadDetail(None) => {
                 let _ = self.fallback_pending_reconnect_restore();
@@ -208,12 +210,14 @@ impl TuiModel {
             }
             ClientEvent::ThreadDeleted { thread_id, deleted } => {
                 if deleted {
+                    self.deleted_thread_ids.insert(thread_id.clone());
                     self.chat.reduce(chat::ChatAction::ThreadDeleted {
                         thread_id: thread_id.clone(),
                     });
                     self.sync_open_thread_picker();
                     self.status_line = "Thread deleted".to_string();
                 } else {
+                    self.deleted_thread_ids.remove(&thread_id);
                     self.status_line = "Thread delete failed".to_string();
                 }
             }
@@ -221,7 +225,9 @@ impl TuiModel {
                 self.handle_thread_message_pin_result_event(result);
             }
             ClientEvent::ThreadReloadRequired { thread_id } => {
-                self.handle_thread_reload_required_event(thread_id);
+                if !self.deleted_thread_ids.contains(&thread_id) {
+                    self.handle_thread_reload_required_event(thread_id);
+                }
             }
             ClientEvent::ParticipantSuggestion {
                 thread_id,

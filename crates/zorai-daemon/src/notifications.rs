@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use zorai_protocol::{AgentEventRow, InboxNotification, InboxNotificationAction};
 use anyhow::Result;
+use zorai_protocol::{AgentEventRow, InboxNotification, InboxNotificationAction};
 
 pub const NOTIFICATION_CATEGORY: &str = "notification";
 pub const NOTIFICATION_KIND: &str = "inbox_entry";

@@ -1,7 +1,7 @@
 use super::workspace_review_modal::*;
 use crate::state::{modal, DaemonCommand};
-use zorai_protocol::{WorkspaceReviewVerdict, WorkspaceTaskStatus};
 use tokio::sync::mpsc::unbounded_channel;
+use zorai_protocol::{WorkspaceReviewVerdict, WorkspaceTaskStatus};
 
 #[test]
 fn review_form_defaults_to_pass_and_builds_submission() {

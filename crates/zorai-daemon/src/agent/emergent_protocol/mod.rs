@@ -3,8 +3,8 @@ pub(crate) mod decoder;
 pub(crate) mod pattern_detector;
 pub(crate) mod types;
 
-use zorai_protocol::{AgentDbMessage, AgentEventRow};
 use serde_json::json;
+use zorai_protocol::{AgentDbMessage, AgentEventRow};
 
 use crate::agent::engine::AgentEngine;
 use crate::history::{EmergentProtocolRow, ProtocolStepRow};

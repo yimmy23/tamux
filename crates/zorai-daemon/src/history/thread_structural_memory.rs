@@ -22,7 +22,7 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO thread_structural_memory (thread_id, state_json, updated_at) VALUES (?1, ?2, ?3)",
+                    "INSERT OR REPLACE INTO thread_structural_memory (thread_id, state_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
                     params![thread_id, state_json, updated_at as i64],
                 )?;
                 Ok(())
@@ -39,7 +39,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 conn.query_row(
-                    "SELECT thread_id, state_json, updated_at FROM thread_structural_memory WHERE thread_id = ?1",
+                    "SELECT thread_id, state_json, updated_at FROM thread_structural_memory WHERE thread_id = ?1 AND deleted_at IS NULL",
                     params![thread_id],
                     |row| {
                         let state_json_raw = row.get::<_, String>(1)?;
@@ -69,8 +69,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "DELETE FROM thread_structural_memory WHERE thread_id = ?1",
-                    params![thread_id],
+                    "UPDATE thread_structural_memory SET deleted_at = ?2 WHERE thread_id = ?1 AND deleted_at IS NULL",
+                    params![thread_id, now_ts() as i64],
                 )?;
                 Ok(())
             })

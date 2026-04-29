@@ -32,7 +32,7 @@ impl PluginPersistence {
             .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT name, version, description, author, manifest_json, install_source, enabled, installed_at, updated_at FROM plugins ORDER BY name ASC",
+                    "SELECT name, version, description, author, manifest_json, install_source, enabled, installed_at, updated_at FROM plugins WHERE deleted_at IS NULL ORDER BY name ASC",
                 )?;
                 let rows = stmt.query_map([], |row| {
                     Ok(PluginRecord {
@@ -64,7 +64,7 @@ impl PluginPersistence {
             .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT name, version, description, author, manifest_json, install_source, enabled, installed_at, updated_at FROM plugins WHERE name = ?1",
+                    "SELECT name, version, description, author, manifest_json, install_source, enabled, installed_at, updated_at FROM plugins WHERE name = ?1 AND deleted_at IS NULL",
                 )?;
                 let record = stmt
                     .query_row(params![name], |row| {
@@ -93,19 +93,16 @@ impl PluginPersistence {
         self.history
             .conn
             .call(move |conn| {
-                // Use ON CONFLICT DO UPDATE instead of INSERT OR REPLACE.
-                // INSERT OR REPLACE deletes-then-inserts, which triggers
-                // ON DELETE CASCADE on plugin_settings and plugin_credentials,
-                // wiping all saved settings and OAuth tokens on every daemon restart.
                 conn.execute(
-                    "INSERT INTO plugins (name, version, description, author, manifest_json, install_source, enabled, installed_at, updated_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
+                    "INSERT INTO plugins (name, version, description, author, manifest_json, install_source, enabled, installed_at, updated_at, deleted_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL) \
                      ON CONFLICT(name) DO UPDATE SET \
                        version = excluded.version, \
                        description = excluded.description, \
                        author = excluded.author, \
                        manifest_json = excluded.manifest_json, \
-                       updated_at = excluded.updated_at",
+                       updated_at = excluded.updated_at, \
+                       deleted_at = NULL",
                     params![
                         record.name,
                         record.version,
@@ -132,7 +129,7 @@ impl PluginPersistence {
             .conn
             .call(move |conn| {
                 let rows = conn.execute(
-                    "UPDATE plugins SET enabled = ?1, updated_at = ?2 WHERE name = ?3",
+                    "UPDATE plugins SET enabled = ?1, updated_at = ?2 WHERE name = ?3 AND deleted_at IS NULL",
                     params![enabled as i64, now, name],
                 )?;
                 if rows == 0 {
@@ -150,16 +147,19 @@ impl PluginPersistence {
         self.history
             .conn
             .call(move |conn| {
-                // Delete from all plugin tables
+                let deleted_at = crate::history::now_ts() as i64;
                 conn.execute(
-                    "DELETE FROM plugin_settings WHERE plugin_name = ?1",
-                    params![name],
+                    "UPDATE plugin_settings SET deleted_at = ?2 WHERE plugin_name = ?1 AND deleted_at IS NULL",
+                    params![name, deleted_at],
                 )?;
                 conn.execute(
-                    "DELETE FROM plugin_credentials WHERE plugin_name = ?1",
-                    params![name],
+                    "UPDATE plugin_credentials SET deleted_at = ?2 WHERE plugin_name = ?1 AND deleted_at IS NULL",
+                    params![name, deleted_at],
                 )?;
-                let rows = conn.execute("DELETE FROM plugins WHERE name = ?1", params![name])?;
+                let rows = conn.execute(
+                    "UPDATE plugins SET deleted_at = ?2 WHERE name = ?1 AND deleted_at IS NULL",
+                    params![name, deleted_at],
+                )?;
                 Ok(rows > 0)
             })
             .await
@@ -174,7 +174,7 @@ impl PluginPersistence {
             .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT key, value, is_secret FROM plugin_settings WHERE plugin_name = ?1 ORDER BY key ASC",
+                    "SELECT key, value, is_secret FROM plugin_settings WHERE plugin_name = ?1 AND deleted_at IS NULL ORDER BY key ASC",
                 )?;
                 let rows = stmt.query_map(params![plugin_name], |row| {
                     Ok((
@@ -226,7 +226,7 @@ impl PluginPersistence {
             .conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO plugin_settings (plugin_name, key, value, is_secret) VALUES (?1, ?2, ?3, ?4)",
+                    "INSERT OR REPLACE INTO plugin_settings (plugin_name, key, value, is_secret, deleted_at) VALUES (?1, ?2, ?3, ?4, NULL)",
                     params![plugin_name, key, stored_value, is_secret_i64],
                 )?;
                 Ok(())
@@ -243,20 +243,23 @@ impl PluginPersistence {
             .conn
             .call(move |conn| {
                 if active_names.is_empty() {
-                    // Delete all plugins if no active names
-                    let deleted = conn.execute("DELETE FROM plugins", [])?;
+                    let deleted = conn.execute(
+                        "UPDATE plugins SET deleted_at = ?1 WHERE deleted_at IS NULL",
+                        params![crate::history::now_ts() as i64],
+                    )?;
                     return Ok(deleted as u64);
                 }
-                // Build dynamic SQL: DELETE FROM plugins WHERE name NOT IN (?,?,...)
                 let placeholders: Vec<&str> = active_names.iter().map(|_| "?").collect();
                 let sql = format!(
-                    "DELETE FROM plugins WHERE name NOT IN ({})",
+                    "UPDATE plugins SET deleted_at = ? WHERE deleted_at IS NULL AND name NOT IN ({})",
                     placeholders.join(",")
                 );
-                let params: Vec<&dyn rusqlite::types::ToSql> = active_names
+                let deleted_at = crate::history::now_ts() as i64;
+                let mut params: Vec<&dyn rusqlite::types::ToSql> = vec![&deleted_at];
+                params.extend(active_names
                     .iter()
                     .map(|s| s as &dyn rusqlite::types::ToSql)
-                    .collect();
+                );
                 let deleted = conn.execute(&sql, params.as_slice())?;
                 Ok(deleted as u64)
             })
@@ -282,7 +285,7 @@ impl PluginPersistence {
             .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT encrypted_value, expires_at FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = ?2",
+                    "SELECT encrypted_value, expires_at FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = ?2 AND deleted_at IS NULL",
                 )?;
                 let row = stmt
                     .query_row(params![plugin_name, credential_type], |row| {
@@ -316,12 +319,13 @@ impl PluginPersistence {
             .conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT INTO plugin_credentials (plugin_name, credential_type, encrypted_value, expires_at, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+                    "INSERT INTO plugin_credentials (plugin_name, credential_type, encrypted_value, expires_at, created_at, updated_at, deleted_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?5, NULL)
                      ON CONFLICT(plugin_name, credential_type) DO UPDATE SET
                          encrypted_value = excluded.encrypted_value,
                          expires_at = excluded.expires_at,
-                         updated_at = excluded.updated_at",
+                         updated_at = excluded.updated_at,
+                         deleted_at = NULL",
                     params![plugin_name, credential_type, encrypted_value, expires_at, now],
                 )?;
                 Ok(())
@@ -339,7 +343,7 @@ impl PluginPersistence {
             .conn
             .call(move |conn| {
                 let mut access_stmt = conn.prepare(
-                    "SELECT expires_at FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = 'access_token'",
+                    "SELECT expires_at FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = 'access_token' AND deleted_at IS NULL",
                 )?;
                 let access_row = access_stmt
                     .query_row(params![plugin_name], |row| {
@@ -347,7 +351,7 @@ impl PluginPersistence {
                     })
                     .optional()?;
                 let mut refresh_stmt = conn.prepare(
-                    "SELECT 1 FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = 'refresh_token' LIMIT 1",
+                    "SELECT 1 FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = 'refresh_token' AND deleted_at IS NULL LIMIT 1",
                 )?;
                 let has_refresh_token = refresh_stmt
                     .query_row(params![plugin_name], |_row| Ok(()))

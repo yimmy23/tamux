@@ -15,6 +15,13 @@ describe("Zorai branding", () => {
     expect(indexHtml).toContain("<title>Zorai</title>");
   });
 
+  it("references the bundled icon asset from Zorai styles", () => {
+    const styles = readFileSync(new URL("./styles/zorai.css", import.meta.url), "utf8");
+
+    expect(styles).toContain("../../../assets/icon.png");
+    expect(styles).not.toContain("url(./assets/icon.png)");
+  });
+
   it("uses Zorai for Electron-visible window and setup copy", () => {
     const windowRuntime = readFileSync(new URL("../../electron/main/window-runtime.cjs", import.meta.url), "utf8");
     const electronMain = readFileSync(new URL("../../electron/main.cjs", import.meta.url), "utf8");

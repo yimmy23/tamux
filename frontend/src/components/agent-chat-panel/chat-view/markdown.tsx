@@ -3,13 +3,13 @@ import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 const markdownComponents: Components = {
-  p: ({ children }) => <p>{children}</p>,
+  p: ({ children }) => <p style={{ overflowWrap: "anywhere" }}>{children}</p>,
   a: ({ href, children }) => (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      style={{ color: "#5ee7df", textDecoration: "underline", textUnderlineOffset: 2 }}
+      style={{ color: "#5ee7df", textDecoration: "underline", textUnderlineOffset: 2, overflowWrap: "anywhere" }}
     >
       {children}
     </a>
@@ -18,10 +18,12 @@ const markdownComponents: Components = {
     <pre
       style={{
         margin: "6px 0",
+        maxWidth: "100%",
+        boxSizing: "border-box",
         padding: "10px 12px",
         background: "rgba(0, 0, 0, 0.35)",
         borderRadius: "var(--radius-md)",
-        overflowX: "auto",
+        overflow: "auto",
         fontSize: "var(--text-xs)",
         lineHeight: 1.5,
         border: "1px solid rgba(255,255,255,0.08)",
@@ -34,7 +36,7 @@ const markdownComponents: Components = {
     const isBlock = className?.startsWith("language-");
     if (isBlock) {
       return (
-        <code style={{ fontFamily: "var(--font-mono)", fontSize: "inherit" }}>
+        <code style={{ fontFamily: "var(--font-mono)", fontSize: "inherit", overflowWrap: "anywhere" }}>
           {children}
         </code>
       );
@@ -47,6 +49,7 @@ const markdownComponents: Components = {
           padding: "1px 5px",
           borderRadius: 3,
           fontSize: "0.9em",
+          overflowWrap: "anywhere",
         }}
       >
         {children}
@@ -76,7 +79,7 @@ const markdownComponents: Components = {
     </blockquote>
   ),
   table: ({ children }) => (
-    <div style={{ overflowX: "auto", margin: "6px 0" }}>
+    <div style={{ overflowX: "auto", margin: "6px 0", maxWidth: "100%", minWidth: 0 }}>
       <table
         style={{
           width: "100%",
@@ -123,8 +126,10 @@ const markdownComponents: Components = {
 
 export function MarkdownContent({ content }: { content: string }) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-      {content}
-    </ReactMarkdown>
+    <div style={{ minWidth: 0, maxWidth: "100%", overflowWrap: "anywhere" }}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 }

@@ -193,6 +193,95 @@ async fn build_test_engine(response_text: &str) -> Arc<crate::agent::AgentEngine
     crate::agent::AgentEngine::new_test(manager, config, &root).await
 }
 
+fn promise_thread(thread_id: &str, now: u64) -> AgentThread {
+    let mut assistant = AgentMessage::user(
+        "Working. Let me continue the delegated task now.",
+        now.saturating_sub(60_000),
+    );
+    assistant.id = "assistant-promise".to_string();
+    assistant.role = MessageRole::Assistant;
+
+    AgentThread {
+        id: thread_id.to_string(),
+        agent_name: Some("Dazhbog".to_string()),
+        title: "Spawned worker".to_string(),
+        messages: vec![
+            AgentMessage::user("Finish the delegated work.", now.saturating_sub(61_000)),
+            assistant,
+        ],
+        pinned: false,
+        upstream_thread_id: None,
+        upstream_transport: None,
+        upstream_provider: None,
+        upstream_model: None,
+        upstream_assistant_id: None,
+        total_input_tokens: 0,
+        total_output_tokens: 0,
+        created_at: now.saturating_sub(61_000),
+        updated_at: now.saturating_sub(60_000),
+    }
+}
+
+fn spawned_task(thread_id: &str, task_id: &str, status: TaskStatus, now: u64) -> AgentTask {
+    AgentTask {
+        id: task_id.to_string(),
+        title: "Spawned worker".to_string(),
+        description: "Delegated worker".to_string(),
+        status,
+        priority: TaskPriority::Normal,
+        progress: if matches!(status, TaskStatus::Completed) {
+            100
+        } else {
+            0
+        },
+        created_at: now.saturating_sub(120_000),
+        started_at: Some(now.saturating_sub(120_000)),
+        completed_at: matches!(status, TaskStatus::Completed).then_some(now.saturating_sub(90_000)),
+        error: None,
+        result: matches!(status, TaskStatus::Completed).then_some("done".to_string()),
+        thread_id: Some(thread_id.to_string()),
+        source: "subagent".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: Some("task-parent".to_string()),
+        parent_thread_id: Some("thread-parent".to_string()),
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        sub_agent_def_id: None,
+    }
+}
+
 #[tokio::test]
 async fn collect_stalled_turn_observations_skips_active_tool_turns() {
     let engine = build_test_engine("Acknowledged.").await;
@@ -333,6 +422,31 @@ async fn collect_stalled_turn_observations_detects_promise_without_action() {
         StalledTurnClass::PromiseWithoutAction
     );
     assert_eq!(observations[0].stream_progress_kind, None);
+}
+
+#[tokio::test]
+async fn collect_stalled_turn_observations_ignores_completed_spawned_task_thread() {
+    let engine = build_test_engine("Acknowledged.").await;
+    let now = super::now_millis();
+    let thread_id = "thread-completed-spawned-worker";
+    let task_id = "task-completed-spawned-worker";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(thread_id.to_string(), promise_thread(thread_id, now));
+    }
+    {
+        let mut tasks = engine.tasks.lock().await;
+        tasks.push_back(spawned_task(thread_id, task_id, TaskStatus::Completed, now));
+    }
+
+    let observations = engine.collect_stalled_turn_observations().await;
+    assert!(
+        observations
+            .iter()
+            .all(|observation| observation.thread_id != thread_id),
+        "completed spawned task threads must not be woken by stalled-turn recovery"
+    );
 }
 
 #[tokio::test]
@@ -1112,6 +1226,72 @@ async fn collect_stalled_turn_observations_ignores_threads_inactive_for_over_24_
     assert!(
         observations.is_empty(),
         "threads inactive for more than 24 hours should be ignored by stalled-turn"
+    );
+}
+
+#[tokio::test]
+async fn collect_stalled_turn_observations_uses_configured_restore_window() {
+    let engine = build_test_engine("Acknowledged.").await;
+    {
+        let mut config = engine.config.write().await;
+        config.participant_observer_restore_window_hours = 1;
+    }
+    let now = super::now_millis();
+    let two_hours_ms = 2 * 60 * 60 * 1000;
+    let thread_id = "thread-subagent-outside-config-window";
+    let task_id = "task-subagent-outside-config-window";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some("Dazhbog".to_string()),
+                title: "Outside configured window".to_string(),
+                messages: vec![AgentMessage::user(
+                    "This request is outside the restore window.",
+                    now.saturating_sub(two_hours_ms),
+                )],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: now.saturating_sub(two_hours_ms + 60_000),
+                updated_at: now.saturating_sub(two_hours_ms),
+            },
+        );
+    }
+
+    let mut task = spawned_task(thread_id, task_id, TaskStatus::InProgress, now);
+    task.title = "Outside configured window".to_string();
+    task.description = "Too old for configured stalled-turn retry".to_string();
+    task.created_at = now.saturating_sub(two_hours_ms + 60_000);
+    task.started_at = Some(now.saturating_sub(two_hours_ms + 60_000));
+    {
+        let mut tasks = engine.tasks.lock().await;
+        tasks.push_back(task.clone());
+    }
+    engine.ensure_subagent_runtime(&task, Some(thread_id)).await;
+    {
+        let mut runtime = engine.subagent_runtime.write().await;
+        let stats = runtime
+            .get_mut(task_id)
+            .expect("subagent runtime should exist after initialization");
+        stats.started_at = now.saturating_sub(two_hours_ms + 60_000);
+        stats.updated_at = now.saturating_sub(two_hours_ms);
+        stats.last_tool_call_at = Some(now.saturating_sub(two_hours_ms));
+        stats.last_progress_at = Some(now.saturating_sub(two_hours_ms));
+    }
+
+    let observations = engine.collect_stalled_turn_observations().await;
+    assert!(
+        observations.is_empty(),
+        "stalled-turn supervision must honor the configured restore window"
     );
 }
 

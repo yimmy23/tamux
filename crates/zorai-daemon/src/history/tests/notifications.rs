@@ -66,3 +66,78 @@ async fn list_notifications_filters_archived_and_deleted_entries() -> Result<()>
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn upsert_notification_preserves_existing_read_and_archive_state() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let mut archived = sample_notification("notif_1", 100, None, None);
+    archived.read_at = Some(110);
+    archived.archived_at = Some(120);
+    store.upsert_notification(&archived).await?;
+
+    let fresh_from_daemon = sample_notification("notif_1", 130, None, None);
+    store.upsert_notification(&fresh_from_daemon).await?;
+
+    let loaded = store.list_notifications(true, Some(10)).await?;
+
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].updated_at, 130);
+    assert_eq!(loaded[0].read_at, Some(110));
+    assert_eq!(loaded[0].archived_at, Some(120));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn upsert_agent_event_preserves_notification_lifecycle_state() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let mut archived = sample_notification("notif_1", 100, None, None);
+    archived.read_at = Some(110);
+    archived.archived_at = Some(120);
+    store
+        .upsert_agent_event(&crate::notifications::notification_event_row(&archived)?)
+        .await?;
+
+    let fresh_from_client = sample_notification("notif_1", 130, None, None);
+    store
+        .upsert_agent_event(&crate::notifications::notification_event_row(
+            &fresh_from_client,
+        )?)
+        .await?;
+
+    let loaded = store.list_notifications(true, Some(10)).await?;
+
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].updated_at, 130);
+    assert_eq!(loaded[0].read_at, Some(110));
+    assert_eq!(loaded[0].archived_at, Some(120));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn upsert_agent_event_does_not_create_sidecar_lexical_index() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let notification = sample_notification("notif_1", 100, None, None);
+
+    let started = std::time::Instant::now();
+    store
+        .upsert_agent_event(&crate::notifications::notification_event_row(
+            &notification,
+        )?)
+        .await?;
+
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(150),
+        "notification upsert took longer than expected"
+    );
+    assert!(
+        !root.join("search-index").exists(),
+        "notification upsert should not create a sidecar lexical index"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

@@ -6,7 +6,7 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO routine_definitions (id, title, description, enabled, paused_at, schedule_expression, target_kind, target_payload_json, next_run_at, last_run_at, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    "INSERT OR REPLACE INTO routine_definitions (id, title, description, enabled, paused_at, schedule_expression, target_kind, target_payload_json, next_run_at, last_run_at, created_at, updated_at, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL)",
                     params![
                         row.id,
                         row.title,
@@ -32,7 +32,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT id, title, description, enabled, paused_at, schedule_expression, target_kind, target_payload_json, next_run_at, last_run_at, created_at, updated_at FROM routine_definitions ORDER BY updated_at DESC, id ASC",
+                    "SELECT id, title, description, enabled, paused_at, schedule_expression, target_kind, target_payload_json, next_run_at, last_run_at, created_at, updated_at FROM routine_definitions WHERE deleted_at IS NULL ORDER BY updated_at DESC, id ASC",
                 )?;
                 let rows = stmt.query_map([], |row| {
                     Ok(RoutineDefinitionRow {
@@ -63,7 +63,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT id, title, description, enabled, paused_at, schedule_expression, target_kind, target_payload_json, next_run_at, last_run_at, created_at, updated_at FROM routine_definitions WHERE enabled = 1 AND paused_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1 ORDER BY next_run_at ASC, updated_at DESC, id ASC",
+                    "SELECT id, title, description, enabled, paused_at, schedule_expression, target_kind, target_payload_json, next_run_at, last_run_at, created_at, updated_at FROM routine_definitions WHERE enabled = 1 AND paused_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1 AND deleted_at IS NULL ORDER BY next_run_at ASC, updated_at DESC, id ASC",
                 )?;
                 let rows = stmt.query_map(params![now_ms as i64], |row| {
                     Ok(RoutineDefinitionRow {
@@ -92,7 +92,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 conn.query_row(
-                    "SELECT id, title, description, enabled, paused_at, schedule_expression, target_kind, target_payload_json, next_run_at, last_run_at, created_at, updated_at FROM routine_definitions WHERE id = ?1",
+                    "SELECT id, title, description, enabled, paused_at, schedule_expression, target_kind, target_payload_json, next_run_at, last_run_at, created_at, updated_at FROM routine_definitions WHERE id = ?1 AND deleted_at IS NULL",
                     params![id],
                     |row| {
                         Ok(RoutineDefinitionRow {
@@ -122,8 +122,10 @@ impl HistoryStore {
         let id = id.to_string();
         self.conn
             .call(move |conn| {
-                let deleted =
-                    conn.execute("DELETE FROM routine_definitions WHERE id = ?1", params![id])?;
+                let deleted = conn.execute(
+                    "UPDATE routine_definitions SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+                    params![id, now_ts() as i64],
+                )?;
                 Ok(deleted > 0)
             })
             .await

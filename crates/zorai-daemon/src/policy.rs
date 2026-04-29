@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use zorai_protocol::{ApprovalPayload, ManagedCommandRequest, SecurityLevel, WorkspaceId};
 use regex::Regex;
 use std::sync::LazyLock;
+use zorai_protocol::{ApprovalPayload, ManagedCommandRequest, SecurityLevel, WorkspaceId};
 
 use crate::governance::{
     effective_constraints, evaluate_governance, governance_input_for_managed_command,

@@ -8,7 +8,10 @@ use crate::state::auth::AuthState;
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
-use zorai_shared::providers::{provider_supports_audio_tool, AudioToolKind, PROVIDER_ID_CUSTOM};
+use zorai_shared::providers::{
+    provider_supports_audio_tool, AudioToolKind, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM,
+    PROVIDER_ID_OPENAI,
+};
 
 pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
     let mut providers = PROVIDERS
@@ -53,6 +56,18 @@ pub fn available_audio_provider_defs(
         .collect()
 }
 
+pub fn available_embedding_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
+    available_provider_defs(auth)
+        .into_iter()
+        .filter(|provider| {
+            matches!(
+                provider.id,
+                PROVIDER_ID_OPENAI | PROVIDER_ID_AZURE_OPENAI | PROVIDER_ID_CUSTOM
+            )
+        })
+        .collect()
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -60,6 +75,7 @@ pub fn render(
     config: &ConfigState,
     auth: &AuthState,
     audio_tool_kind: Option<AudioToolKind>,
+    embedding_only: bool,
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
@@ -83,9 +99,13 @@ pub fn render(
 
     let cursor = modal.picker_cursor();
     let active_provider = config.provider();
-    let providers = audio_tool_kind
-        .map(|kind| available_audio_provider_defs(auth, kind))
-        .unwrap_or_else(|| available_provider_defs(auth));
+    let providers = if embedding_only {
+        available_embedding_provider_defs(auth)
+    } else {
+        audio_tool_kind
+            .map(|kind| available_audio_provider_defs(auth, kind))
+            .unwrap_or_else(|| available_provider_defs(auth))
+    };
 
     if providers.is_empty() {
         frame.render_widget(

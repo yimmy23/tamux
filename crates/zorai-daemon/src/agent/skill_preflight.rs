@@ -2,16 +2,15 @@
 
 use super::*;
 use crate::agent::types::SkillRecommendationConfig;
-use zorai_protocol::SessionId;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::path::PathBuf;
-use std::process::Stdio;
 #[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 #[cfg(test)]
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use zorai_protocol::SessionId;
 
 const MAX_SKILL_PREFLIGHT_MATCHES: usize = 3;
 const SKILL_DISCOVERY_NORMALIZER_MARKER: &str = "[[skill_discovery_query_normalizer]]";
@@ -20,9 +19,6 @@ const MAX_NORMALIZED_SKILL_QUERY_CHARS: usize = 160;
 const LOCAL_SKILL_DISCOVERY_NORMALIZER_ID: &str = "local-skill-discovery-heuristic";
 pub(crate) const SKILL_DISCOVERY_WORKER_ARG: &str = "__zorai-skill-discovery-worker";
 const ZORAI_DAEMON_BIN_ENV: &str = "ZORAI_DAEMON_BIN";
-
-#[cfg(test)]
-static FORCE_MESH_DISCOVERY_DEGRADED_FOR_TESTS: AtomicBool = AtomicBool::new(false);
 
 pub(crate) struct SkillPreflightContext {
     pub prompt_context: String,
@@ -234,7 +230,7 @@ impl AgentEngine {
         cursor: Option<&str>,
     ) -> Result<zorai_protocol::SkillDiscoveryResultPublic> {
         let context = self
-            .run_public_skill_discovery_via_subprocess(query, session_id, 512)
+            .run_public_skill_discovery(query, session_id, 512)
             .await?;
 
         super::skill_recommendation::page_public_discovery_result(
@@ -296,9 +292,10 @@ impl AgentEngine {
             return Ok(None);
         }
 
+        let skill_query = compact_skill_discovery_query_for_persistence(content);
         let previous_state = self.get_thread_skill_discovery_state(thread_id).await;
         if let Some(state) = previous_state.as_ref() {
-            if state.is_discovery_pending() && state.query == content {
+            if state.is_discovery_pending() && state.query == skill_query {
                 return Ok(Some(build_skill_preflight_context_from_state(
                     state.clone(),
                 )));
@@ -312,7 +309,33 @@ impl AgentEngine {
         )
         .await;
         let cfg = self.config.read().await.skill_recommendation.clone();
-        let mut pending_state = build_pending_skill_discovery_state(content);
+
+        #[cfg(test)]
+        if self.skill_discovery_test_runner.get().is_none() {
+            let mut state = build_latest_skill_discovery_state(
+                &skill_query,
+                &execute_skill_discovery_backend(
+                    self.force_mesh_discovery_degraded_for_tests
+                        .load(std::sync::atomic::Ordering::SeqCst),
+                    &self.history,
+                    &self.history.data_dir().to_path_buf(),
+                    &skill_query,
+                    &context_tags,
+                    MAX_SKILL_PREFLIGHT_MATCHES,
+                    &cfg,
+                )
+                .await?
+                .0,
+            );
+            if let Some(previous_state) = previous_state.as_ref() {
+                preserve_noncompliant_mesh_state(previous_state, &mut state);
+            }
+            self.set_thread_skill_discovery_state(thread_id, state.clone())
+                .await;
+            return Ok(Some(build_skill_preflight_context_from_state(state)));
+        }
+
+        let mut pending_state = build_pending_skill_discovery_state(&skill_query);
         if let Some(previous_state) = previous_state.as_ref() {
             preserve_noncompliant_mesh_state(previous_state, &mut pending_state);
         }
@@ -321,7 +344,7 @@ impl AgentEngine {
             .await;
         self.spawn_background_skill_discovery(AsyncSkillDiscoveryRequest {
             thread_id: thread_id.to_string(),
-            query: content.to_string(),
+            query: skill_query,
             context_tags,
             limit: MAX_SKILL_PREFLIGHT_MATCHES,
             history_root: self.history.data_root().to_path_buf(),
@@ -333,92 +356,13 @@ impl AgentEngine {
         )))
     }
 
-    async fn run_public_skill_discovery_via_subprocess(
+    async fn run_public_skill_discovery(
         &self,
         query: &str,
         session_id: Option<SessionId>,
         limit: usize,
     ) -> Result<SkillDiscoveryComputation> {
-        #[cfg(test)]
-        {
-            if self.skill_discovery_test_runner.get().is_none() {
-                return self.run_skill_discovery(query, session_id, limit).await;
-            }
-        }
-
-        let context_tags = resolve_skill_context_tags(
-            self.workspace_root.as_ref(),
-            &self.session_manager,
-            session_id,
-        )
-        .await;
-        let cfg = self.config.read().await.skill_recommendation.clone();
-
-        let completion = run_skill_discovery_subprocess(AsyncSkillDiscoveryRequest {
-            thread_id: String::new(),
-            query: query.to_string(),
-            context_tags: context_tags.clone(),
-            limit,
-            history_root: self.history.data_root().to_path_buf(),
-            cfg: cfg.clone(),
-        })
-        .await?;
-
-        let mut result = completion.result;
-        let mut normalized_intent = query.trim().to_string();
-        let skills_root = self.history.data_dir().to_path_buf();
-        if cfg.llm_normalize_on_no_match && should_attempt_query_normalization(query, &result) {
-            if let Some((normalized_query, normalizer_agent_id)) = self
-                .normalize_skill_discovery_query(query, &context_tags, session_id)
-                .await
-            {
-                let mut normalized_completion =
-                    run_skill_discovery_subprocess(AsyncSkillDiscoveryRequest {
-                        thread_id: String::new(),
-                        query: normalized_query.clone(),
-                        context_tags: context_tags.clone(),
-                        limit,
-                        history_root: self.history.data_root().to_path_buf(),
-                        cfg: cfg.clone(),
-                    })
-                    .await?;
-                if fallback_result_is_better(&result, &normalized_completion.result) {
-                    annotate_fallback_result(
-                        &mut normalized_completion.result,
-                        &normalized_query,
-                        normalizer_agent_id,
-                    );
-                    normalized_intent = normalized_query;
-                    result = normalized_completion.result;
-                }
-            }
-        }
-        if should_attempt_semantic_skill_research(&result, &cfg) {
-            if let Some(fallback) = self
-                .attempt_semantic_skill_research(
-                    query,
-                    session_id,
-                    &context_tags,
-                    &skills_root,
-                    &cfg,
-                    limit,
-                )
-                .await
-            {
-                if fallback_result_is_better(&result, &fallback.result) {
-                    result = fallback.result;
-                }
-            }
-        }
-
-        Ok(SkillDiscoveryComputation {
-            context_tags,
-            cfg,
-            result,
-            normalized_intent,
-            backend_used: "subprocess",
-            mesh_degraded: false,
-        })
+        self.run_skill_discovery(query, session_id, limit).await
     }
 
     fn spawn_background_skill_discovery(&self, request: AsyncSkillDiscoveryRequest) {
@@ -428,28 +372,9 @@ impl AgentEngine {
             return;
         }
 
-        #[cfg(test)]
-        {
-            let result_tx = self.skill_discovery_result_tx.clone();
-            tokio::spawn(async move {
-                let completion = compute_async_skill_discovery_completion(request).await;
-                let _ = result_tx.send(completion);
-            });
-            return;
-        }
-
-        #[cfg(not(test))]
         let result_tx = self.skill_discovery_result_tx.clone();
-        #[cfg(not(test))]
         tokio::spawn(async move {
-            let completion = match run_skill_discovery_subprocess(request.clone()).await {
-                Ok(completion) => completion,
-                Err(error) => build_failed_async_skill_discovery_completion(
-                    &request.thread_id,
-                    &request.query,
-                    &error.to_string(),
-                ),
-            };
+            let completion = compute_async_skill_discovery_completion(request).await;
             let _ = result_tx.send(completion);
         });
     }
@@ -581,6 +506,11 @@ impl AgentEngine {
         .await;
         let cfg = self.config.read().await.skill_recommendation.clone();
         let (result, mut backend_used, mesh_degraded) = execute_skill_discovery_backend(
+            #[cfg(test)]
+            self.force_mesh_discovery_degraded_for_tests
+                .load(std::sync::atomic::Ordering::SeqCst),
+            #[cfg(not(test))]
+            false,
             &self.history,
             &skills_root,
             query,
@@ -600,6 +530,11 @@ impl AgentEngine {
                 Some((normalized_query, normalizer_agent_id)) => {
                     let (mut normalized_result, normalized_backend_used, normalized_mesh_degraded) =
                         execute_skill_discovery_backend(
+                            #[cfg(test)]
+                            self.force_mesh_discovery_degraded_for_tests
+                                .load(std::sync::atomic::Ordering::SeqCst),
+                            #[cfg(not(test))]
+                            false,
                             &self.history,
                             &skills_root,
                             &normalized_query,
@@ -800,6 +735,7 @@ impl AgentEngine {
 }
 
 async fn execute_skill_discovery_backend(
+    #[allow(unused_variables)] force_mesh_degraded_for_tests: bool,
     history: &HistoryStore,
     skills_root: &PathBuf,
     query: &str,
@@ -813,7 +749,7 @@ async fn execute_skill_discovery_backend(
 )> {
     if cfg.discovery_backend.eq_ignore_ascii_case("mesh") {
         #[cfg(test)]
-        if FORCE_MESH_DISCOVERY_DEGRADED_FOR_TESTS.load(Ordering::SeqCst) {
+        if force_mesh_degraded_for_tests {
             let mut fallback = super::skill_recommendation::discover_local_skills(
                 history,
                 skills_root,
@@ -827,22 +763,9 @@ async fn execute_skill_discovery_backend(
             return Ok((fallback, "legacy", true));
         }
 
-        let result = super::skill_mesh::retrieval::discover_local_skills_via_mesh(
-            history,
-            skills_root,
-            query,
-            context_tags,
-            limit,
-            cfg,
-        )
-        .await?;
-        if result.recommendations.is_empty()
-            || matches!(
-                result.confidence,
-                super::skill_recommendation::SkillRecommendationConfidence::None
-            )
+        #[cfg(not(feature = "lancedb-vector"))]
         {
-            let fallback = super::skill_recommendation::discover_local_skills(
+            let mut fallback = super::skill_recommendation::discover_local_skills(
                 history,
                 skills_root,
                 query,
@@ -851,16 +774,47 @@ async fn execute_skill_discovery_backend(
                 cfg,
             )
             .await?;
-            if !fallback.recommendations.is_empty()
-                || !matches!(
-                    fallback.confidence,
+            annotate_mesh_degraded_fallback(&mut fallback);
+            return Ok((fallback, "legacy", true));
+        }
+
+        #[cfg(feature = "lancedb-vector")]
+        {
+            let result = super::skill_mesh::retrieval::discover_local_skills_via_mesh(
+                history,
+                skills_root,
+                query,
+                context_tags,
+                limit,
+                cfg,
+            )
+            .await?;
+            if result.recommendations.is_empty()
+                || matches!(
+                    result.confidence,
                     super::skill_recommendation::SkillRecommendationConfidence::None
                 )
             {
-                return Ok((fallback, "legacy", false));
+                let fallback = super::skill_recommendation::discover_local_skills(
+                    history,
+                    skills_root,
+                    query,
+                    context_tags,
+                    limit,
+                    cfg,
+                )
+                .await?;
+                if !fallback.recommendations.is_empty()
+                    || !matches!(
+                        fallback.confidence,
+                        super::skill_recommendation::SkillRecommendationConfidence::None
+                    )
+                {
+                    return Ok((fallback, "legacy", false));
+                }
             }
+            return Ok((result, "mesh", false));
         }
-        return Ok((result, "mesh", false));
     }
 
     let result = super::skill_recommendation::discover_local_skills(
@@ -873,45 +827,6 @@ async fn execute_skill_discovery_backend(
     )
     .await?;
     Ok((result, "legacy", false))
-}
-
-async fn run_skill_discovery_subprocess(
-    request: AsyncSkillDiscoveryRequest,
-) -> Result<AsyncSkillDiscoveryCompletion> {
-    let executable = resolve_daemon_worker_executable()?;
-    let mut child = tokio::process::Command::new(executable)
-        .arg(SKILL_DISCOVERY_WORKER_ARG)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("spawn background skill discovery subprocess")?;
-
-    let request_json =
-        serde_json::to_vec(&request).context("serialize async skill discovery request")?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("background skill discovery stdin unavailable"))?;
-    stdin
-        .write_all(&request_json)
-        .await
-        .context("write async skill discovery request")?;
-    drop(stdin);
-
-    let output = child
-        .wait_with_output()
-        .await
-        .context("wait for background skill discovery subprocess")?;
-    if !output.status.success() {
-        anyhow::bail!(
-            "background skill discovery subprocess failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-
-    serde_json::from_slice::<AsyncSkillDiscoveryCompletion>(&output.stdout)
-        .context("parse async skill discovery subprocess output")
 }
 
 fn platform_daemon_binary_name() -> &'static str {
@@ -1002,6 +917,7 @@ async fn compute_async_skill_discovery_completion(
         };
     let skills_root = history.data_dir().to_path_buf();
     match execute_skill_discovery_backend(
+        false,
         &history,
         &skills_root,
         &request.query,
@@ -1521,14 +1437,19 @@ fn should_run_skill_preflight(content: &str) -> bool {
     .any(|keyword| normalized.contains(keyword))
 }
 
+pub(super) fn should_run_skill_preflight_for_message(record_operator: bool, content: &str) -> bool {
+    record_operator && should_run_skill_preflight(content)
+}
+
 fn build_latest_skill_discovery_state(
     query: &str,
     result: &super::skill_recommendation::SkillDiscoveryResult,
 ) -> LatestSkillDiscoveryState {
-    let decision = super::skill_mesh::retrieval::policy_decision_for_legacy_discovery(result);
+    let decision = policy_decision_for_legacy_discovery(result);
+    let query = compact_skill_discovery_query_for_persistence(query);
 
     LatestSkillDiscoveryState {
-        query: query.to_string(),
+        query: query.clone(),
         confidence_tier: decision.confidence_band.as_str().to_string(),
         recommended_skill: decision.recommended_skill,
         recommended_action: decision.recommended_action,
@@ -1543,6 +1464,63 @@ fn build_latest_skill_discovery_state(
         skill_read_completed: false,
         compliant: false,
         updated_at: now_millis(),
+    }
+}
+
+fn policy_decision_for_legacy_discovery(
+    result: &super::skill_recommendation::SkillDiscoveryResult,
+) -> super::skill_mesh::types::SkillMeshPolicyDecision {
+    use super::skill_mesh::types::{
+        SkillMeshConfidenceBand, SkillMeshNextStep, SkillMeshPolicyDecision,
+    };
+
+    let top_recommendation = result.recommendations.first();
+    let recommended_skill = top_recommendation.map(|item| item.record.skill_name.clone());
+    let read_skill_identifier = top_recommendation.map(|item| item.record.variant_id.clone());
+
+    let confidence_band = match result.confidence {
+        super::skill_recommendation::SkillRecommendationConfidence::Strong => {
+            SkillMeshConfidenceBand::Strong
+        }
+        super::skill_recommendation::SkillRecommendationConfidence::Weak => {
+            SkillMeshConfidenceBand::Weak
+        }
+        super::skill_recommendation::SkillRecommendationConfidence::None => {
+            SkillMeshConfidenceBand::None
+        }
+    };
+
+    match confidence_band {
+        SkillMeshConfidenceBand::Strong => SkillMeshPolicyDecision {
+            confidence_band,
+            next_step: SkillMeshNextStep::ReadSkill,
+            recommended_action: recommended_skill
+                .as_deref()
+                .map(|skill| format!("read_skill {skill}"))
+                .unwrap_or_else(|| SkillMeshNextStep::JustifySkillSkip.as_str().to_string()),
+            recommended_skill,
+            read_skill_identifier,
+            requires_approval: false,
+        },
+        SkillMeshConfidenceBand::Weak => SkillMeshPolicyDecision {
+            confidence_band,
+            next_step: SkillMeshNextStep::ChooseOrBypass,
+            recommended_action: recommended_skill
+                .as_deref()
+                .map(|skill| format!("read_skill {skill}"))
+                .unwrap_or_else(|| SkillMeshNextStep::JustifySkillSkip.as_str().to_string()),
+            recommended_skill,
+            read_skill_identifier,
+            requires_approval: false,
+        },
+        SkillMeshConfidenceBand::None => SkillMeshPolicyDecision {
+            confidence_band,
+            next_step: SkillMeshNextStep::JustifySkillSkip,
+            recommended_action: SkillMeshNextStep::JustifySkillSkip.as_str().to_string(),
+            recommended_skill: None,
+            read_skill_identifier: None,
+            requires_approval: false,
+        },
     }
 }
 
@@ -1574,8 +1552,9 @@ pub(super) fn build_reflection_skill_activation_state(
 }
 
 fn build_pending_skill_discovery_state(query: &str) -> LatestSkillDiscoveryState {
+    let query = compact_skill_discovery_query_for_persistence(query);
     LatestSkillDiscoveryState {
-        query: query.to_string(),
+        query,
         confidence_tier: "pending".to_string(),
         recommended_skill: None,
         recommended_action: "await_skill_discovery".to_string(),
@@ -1821,13 +1800,18 @@ mod tests {
     use crate::history::HistoryStore;
     use std::collections::VecDeque;
     use std::fs;
-    use std::sync::{Arc, Mutex as StdMutex};
+    use std::sync::{Arc, Mutex as StdMutex, OnceLock};
     use tempfile::tempdir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
     fn current_dir_test_lock() -> &'static StdMutex<()> {
         crate::test_support::env_test_mutex()
+    }
+
+    fn mesh_discovery_test_lock() -> &'static tokio::sync::Mutex<()> {
+        static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
     }
 
     fn write_skill(root: &std::path::Path, skill_dir: &str, content: &str) {
@@ -1964,6 +1948,43 @@ mod tests {
     }
 
     #[test]
+    fn skill_recommendation_defaults_keep_llm_discovery_fallbacks_disabled() {
+        let cfg = SkillRecommendationConfig::default();
+
+        assert!(!cfg.llm_normalize_on_no_match);
+        assert!(!cfg.llm_semantic_search_on_no_match);
+    }
+
+    #[test]
+    fn daemon_internal_messages_do_not_run_skill_preflight() {
+        assert!(!should_run_skill_preflight_for_message(
+            false,
+            "HEARTBEAT SYNTHESIS\nYou are performing a scheduled heartbeat check for the operator."
+        ));
+        assert!(should_run_skill_preflight_for_message(
+            true,
+            "debug daemon startup CPU and memory growth"
+        ));
+    }
+
+    #[test]
+    fn persisted_skill_discovery_query_is_compact() {
+        let huge_query = format!(
+            "HEARTBEAT SYNTHESIS\n{}",
+            "large heartbeat context ".repeat(200)
+        );
+
+        let state = build_pending_skill_discovery_state(&huge_query);
+
+        assert!(
+            state.query.chars().count() <= MAX_NORMALIZED_SKILL_QUERY_CHARS,
+            "persisted query should be compact, got {} chars",
+            state.query.chars().count()
+        );
+        assert!(state.query.starts_with("HEARTBEAT SYNTHESIS"));
+    }
+
+    #[test]
     fn resolve_daemon_worker_executable_candidate_prefers_env_override() {
         let _lock = current_dir_test_lock().lock().expect("cwd lock");
         let root = tempdir().expect("tempdir");
@@ -2010,19 +2031,29 @@ mod tests {
     }
 
     #[cfg(test)]
-    struct MeshDegradedGuard(bool);
+    struct MeshDegradedGuard<'a> {
+        engine: &'a AgentEngine,
+        previous: bool,
+    }
 
     #[cfg(test)]
-    impl Drop for MeshDegradedGuard {
+    impl Drop for MeshDegradedGuard<'_> {
         fn drop(&mut self) {
-            FORCE_MESH_DISCOVERY_DEGRADED_FOR_TESTS.store(self.0, Ordering::SeqCst);
+            self.engine
+                .force_mesh_discovery_degraded_for_tests
+                .store(self.previous, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
     #[cfg(test)]
-    fn force_mesh_discovery_degraded_for_tests(value: bool) -> MeshDegradedGuard {
-        let previous = FORCE_MESH_DISCOVERY_DEGRADED_FOR_TESTS.swap(value, Ordering::SeqCst);
-        MeshDegradedGuard(previous)
+    fn force_mesh_discovery_degraded_for_tests(
+        engine: &AgentEngine,
+        value: bool,
+    ) -> MeshDegradedGuard<'_> {
+        let previous = engine
+            .force_mesh_discovery_degraded_for_tests
+            .swap(value, std::sync::atomic::Ordering::SeqCst);
+        MeshDegradedGuard { engine, previous }
     }
 
     #[test]
@@ -2120,6 +2151,7 @@ triggers: [panic, failing test]
 
     #[tokio::test]
     async fn run_skill_discovery_uses_mesh_backend_when_configured() {
+        let _lock = mesh_discovery_test_lock().lock().await;
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
         write_skill(
@@ -2143,6 +2175,7 @@ triggers: [panic, failing test]
 
     #[tokio::test]
     async fn run_skill_discovery_uses_mesh_backend_by_default_after_cutover() {
+        let _lock = mesh_discovery_test_lock().lock().await;
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
         write_skill(
@@ -2163,7 +2196,7 @@ triggers: [panic, failing test]
 
     #[tokio::test]
     async fn run_skill_discovery_falls_back_when_mesh_is_degraded() {
-        let _guard = force_mesh_discovery_degraded_for_tests(true);
+        let _lock = mesh_discovery_test_lock().lock().await;
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
         write_skill(
@@ -2176,6 +2209,7 @@ triggers: [panic, failing test]
         config.skill_recommendation.discovery_backend = "mesh".to_string();
 
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let _guard = force_mesh_discovery_degraded_for_tests(engine.as_ref(), true);
         let computation = engine
             .run_skill_discovery("debug panic in rust service", None, 3)
             .await
@@ -2364,6 +2398,7 @@ triggers: [bug fix, failure investigation]
         config.auto_retry = false;
         config.max_retries = 0;
         config.max_tool_loops = 1;
+        config.skill_recommendation.llm_normalize_on_no_match = true;
 
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
@@ -2392,6 +2427,61 @@ triggers: [bug fix, failure investigation]
             .pop_front()
             .expect("fallback normalization should call the model");
         assert!(request_body.contains("zorai concierge"));
+    }
+
+    #[tokio::test]
+    async fn discover_skill_recommendations_public_does_not_call_llm_by_default() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+        let base_url =
+            spawn_normalization_server(recorded_bodies.clone(), "{\"query\":\"debug workflow\"}")
+                .await;
+
+        write_skill(
+            root.path(),
+            "development/debug-rust-build",
+            r#"---
+name: debug-rust-build
+description: Debug Rust build and cargo test failures.
+keywords: [rust, cargo, build]
+triggers: [build failure, cargo test]
+---
+
+# Debug Rust Build
+"#,
+        );
+
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.base_url = base_url;
+        config.model = "gpt-5.4-mini".to_string();
+        config.api_key = "test-key".to_string();
+        config.auth_source = AuthSource::ApiKey;
+        config.api_transport = ApiTransport::ChatCompletions;
+        config.auto_retry = false;
+        config.max_retries = 0;
+        config.max_tool_loops = 1;
+
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let _result = engine
+            .discover_skill_recommendations_public(
+                "arrange a calendar handoff with meeting notes",
+                None,
+                3,
+                None,
+            )
+            .await
+            .expect("skill discovery should succeed");
+
+        assert!(
+            recorded_bodies
+                .lock()
+                .expect("lock recorded bodies")
+                .is_empty(),
+            "default skill discovery must not call the configured model"
+        );
     }
 
     #[tokio::test]
@@ -2436,7 +2526,7 @@ triggers: [isolated workspace, dirty checkout, parallel feature work]
 
         let result = engine
             .discover_skill_recommendations_public(
-                "make me a safe isolated copy of this repo so I can work without touching the dirty checkout",
+                "prepare a separate sandbox so current edits remain untouched",
                 None,
                 3,
                 None,
@@ -2552,6 +2642,7 @@ triggers: [feature work, implementation planning]
         config.auto_retry = false;
         config.max_retries = 0;
         config.max_tool_loops = 1;
+        config.skill_recommendation.llm_normalize_on_no_match = true;
 
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
 

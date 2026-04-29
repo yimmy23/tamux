@@ -370,6 +370,7 @@ impl AgentEngine {
             .await
             .unwrap_or_default();
         let mut applied = 0usize;
+        let mut persisted_hints = Vec::new();
 
         for hint in hints {
             let normalized_hint = super::forge::strip_forge_markup(hint);
@@ -397,10 +398,13 @@ impl AgentEngine {
             }
             existing = next;
             applied += 1;
+            persisted_hints.push(normalized_hint.trim().to_string());
         }
 
         if applied > 0 {
             tokio::fs::write(&memory_path, existing).await?;
+            self.record_forge_dream_hints_persisted(&scope_id, applied, &persisted_hints)
+                .await;
         }
 
         Ok(applied)

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useAgentStore } from "../lib/agentStore";
+import { normalizeOperatorProfileInputKind } from "../lib/agentStore/operatorProfile";
 
 const SELECT_OPTIONS_BY_FIELD: Record<string, string[]> = {
   notification_preference: ["minimal", "balanced", "proactive"],
@@ -18,7 +19,7 @@ export function OperatorProfileOnboardingPanel() {
   const setPanelOpen = useAgentStore((s) => s.setOperatorProfilePanelOpen);
 
   const question = operatorProfile.question;
-  const inputKind = question?.input_kind ?? "text";
+  const inputKind = normalizeOperatorProfileInputKind(question?.input_kind);
   const selectOptions = useMemo(
     () => getQuestionSelectOptions(question?.field_key ?? ""),
     [question?.field_key],
@@ -136,6 +137,11 @@ export function OperatorProfileOnboardingPanel() {
             <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
               Field: <code>{question.field_key}</code> • {question.optional ? "optional" : "recommended"}
             </div>
+            {operatorProfile.loading ? (
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                Saving answer...
+              </div>
+            ) : null}
 
             {inputKind === "bool" ? (
               <div style={{ display: "flex", gap: 8 }}>
@@ -225,7 +231,7 @@ export function OperatorProfileOnboardingPanel() {
               style={primaryButtonStyle}
               disabled={!canSubmit || operatorProfile.loading}
             >
-              Submit
+              {operatorProfile.loading ? "Submitting" : "Submit"}
             </button>
           </div>
         </div>

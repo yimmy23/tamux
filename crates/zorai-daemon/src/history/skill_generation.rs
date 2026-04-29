@@ -485,6 +485,9 @@ fn relative_path_suffixes(relative_path: &str) -> Vec<String> {
         let Some((_, tail)) = current.split_once('/') else {
             break;
         };
+        if !tail.contains('/') && tail.eq_ignore_ascii_case("SKILL.md") {
+            break;
+        }
         current = tail.to_string();
     }
     suffixes

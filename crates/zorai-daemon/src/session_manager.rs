@@ -1,18 +1,18 @@
 #![allow(dead_code)]
 
-use zorai_protocol::{
-    AgentDbMessage, AgentDbThread, AgentEventRow, ApprovalDecision, CommandLogEntry, DaemonMessage,
-    HistorySearchHit, ManagedCommandRequest, SessionId, SessionInfo, SnapshotIndexEntry,
-    SnapshotInfo, SymbolMatch, TelemetryLedgerStatus, TranscriptIndexEntry, WorkspaceTopology,
-};
 use anyhow::Result;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use uuid::Uuid;
+use zorai_protocol::{
+    AgentDbMessage, AgentDbThread, AgentEventRow, ApprovalDecision, CommandLogEntry, DaemonMessage,
+    HistorySearchHit, ManagedCommandRequest, SessionId, SessionInfo, SnapshotIndexEntry,
+    SnapshotInfo, SymbolMatch, TelemetryLedgerStatus, TranscriptIndexEntry, WorkspaceTopology,
+};
 
-use crate::history::HistoryStore;
+use crate::history::{DatabaseRowUpdate, DatabaseTablePage, DatabaseTableSummary, HistoryStore};
 use crate::pty_session::PtySession;
 use crate::snapshot::SnapshotStore;
 use crate::state::{save_state, DaemonState, SavedSession};

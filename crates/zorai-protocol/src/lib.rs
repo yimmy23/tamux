@@ -14,17 +14,17 @@ mod update;
 pub use codec::{
     client_message_fits_ipc, client_message_payload_len, daemon_message_fits_ipc,
     daemon_message_payload_len, validate_client_message_size, validate_daemon_message_size,
-    ZoraiCodec, DaemonCodec, MAX_IPC_FRAME_SIZE_BYTES,
+    DaemonCodec, ZoraiCodec, MAX_IPC_FRAME_SIZE_BYTES,
 };
 pub use config::{
-    zorai_data_dir, default_tcp_addr, ensure_zorai_data_dir, has_whatsapp_allowed_contacts,
-    log_file_path, normalize_whatsapp_phone_like_identifier, parse_whatsapp_allowed_contacts,
+    default_tcp_addr, ensure_zorai_data_dir, has_whatsapp_allowed_contacts, log_file_path,
+    normalize_whatsapp_phone_like_identifier, parse_whatsapp_allowed_contacts, zorai_data_dir,
     ZoraiConfig, DEFAULT_TCP_HOST, DEFAULT_TCP_PORT,
 };
 pub use logging::{dated_log_file_name, dated_log_file_path, DailyLogWriter};
 pub use messages::*;
 pub use runtime_paths::{
-    legacy_agent_skills_dir, zorai_guidelines_dir, zorai_root_dir, zorai_skills_dir,
-    thread_artifacts_dir, thread_media_dir, thread_previews_dir, thread_root_dir, thread_specs_dir,
+    legacy_agent_skills_dir, thread_artifacts_dir, thread_media_dir, thread_previews_dir,
+    thread_root_dir, thread_specs_dir, zorai_guidelines_dir, zorai_root_dir, zorai_skills_dir,
 };
 pub use update::*;

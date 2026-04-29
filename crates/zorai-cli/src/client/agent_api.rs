@@ -1,8 +1,8 @@
-use zorai_protocol::{ClientMessage, DaemonMessage, OperationStatusSnapshot};
 use anyhow::Result;
 use futures::StreamExt;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
+use zorai_protocol::{ClientMessage, DaemonMessage, OperationStatusSnapshot};
 
 use super::connection::{connect, roundtrip};
 use futures::SinkExt;

@@ -1,7 +1,7 @@
-use zorai_protocol::{SessionId, SessionInfo};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use zorai_protocol::{SessionId, SessionInfo};
 
 use crate::cli::GuidelineAction;
 use crate::client;

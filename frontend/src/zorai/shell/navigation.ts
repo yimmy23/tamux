@@ -2,6 +2,7 @@ export type ZoraiViewId =
   | "threads"
   | "goals"
   | "workspaces"
+  | "database"
   | "tools"
   | "activity"
   | "settings";
@@ -18,6 +19,7 @@ export type ZoraiNavIconId =
   | "threads"
   | "goals"
   | "workspaces"
+  | "database"
   | "tools"
   | "activity"
   | "settings";
@@ -43,6 +45,13 @@ export const zoraiNavItems: ZoraiNavItem[] = [
     railLabel: "Workspace Board",
     icon: "workspaces",
     description: "Coordinate board-owned tasks across thread and goal targets.",
+  },
+  {
+    id: "database",
+    label: "Database",
+    railLabel: "SQLite Tables",
+    icon: "database",
+    description: "Inspect and edit Zorai database tables with paged row updates.",
   },
   {
     id: "tools",

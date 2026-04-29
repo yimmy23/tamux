@@ -100,6 +100,7 @@ impl AgentEngine {
             agent_name: Some(persisted_agent_name_for_thread(
                 thread,
                 handoff_state.as_ref(),
+                !thread_participants.is_empty(),
             )),
             title: thread.title.clone(),
             created_at: thread.created_at as i64,
@@ -446,6 +447,7 @@ impl AgentEngine {
 fn persisted_agent_name_for_thread(
     thread: &AgentThread,
     handoff_state: Option<&ThreadHandoffState>,
+    has_thread_participants: bool,
 ) -> String {
-    active_agent_name_for_thread(thread, handoff_state)
+    persisted_agent_name_for_thread_surface(thread, handoff_state, has_thread_participants)
 }

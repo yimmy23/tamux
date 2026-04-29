@@ -1,12 +1,12 @@
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use zorai_protocol::{
     ClientMessage, DaemonMessage, GatewayBootstrapPayload, GatewayConnectionStatus,
     GatewayContinuityState, GatewayCursorState, GatewayHealthState, GatewayIncomingEvent,
     GatewayProviderBootstrap, GatewayRouteMode, GatewayRouteModeState, GatewaySendRequest,
     GatewayThreadBindingState,
 };
-use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
 
 use crate::router::GatewayMessage;
 
@@ -237,8 +237,9 @@ fn gateway_process_full_round_trip_uses_single_transport_owner() {
         .unwrap_or(daemon_loop_source.as_str());
     let slack_source = fs::read_to_string(repo_root().join("crates/zorai-gateway/src/slack.rs"))
         .expect("read slack provider source");
-    let discord_source = fs::read_to_string(repo_root().join("crates/zorai-gateway/src/discord.rs"))
-        .expect("read discord provider source");
+    let discord_source =
+        fs::read_to_string(repo_root().join("crates/zorai-gateway/src/discord.rs"))
+            .expect("read discord provider source");
     let telegram_source =
         fs::read_to_string(repo_root().join("crates/zorai-gateway/src/telegram.rs"))
             .expect("read telegram provider source");

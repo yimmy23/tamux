@@ -1,13 +1,13 @@
 use super::*;
+use ratatui::backend::TestBackend;
+use ratatui::layout::Rect;
+use ratatui::Terminal;
+use tokio::sync::mpsc::unbounded_channel;
 use zorai_shared::providers::{
     AudioToolKind, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CHUTES,
     PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN,
     PROVIDER_ID_XAI,
 };
-use ratatui::backend::TestBackend;
-use ratatui::layout::Rect;
-use ratatui::Terminal;
-use tokio::sync::mpsc::unbounded_channel;
 
 fn make_model() -> (
     TuiModel,
@@ -6329,9 +6329,21 @@ fn sample_notification(read_at: Option<i64>) -> zorai_protocol::InboxNotificatio
     }
 }
 
+fn drain_upsert_notifications(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) -> Vec<zorai_protocol::InboxNotification> {
+    let mut notifications = Vec::new();
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::UpsertNotification(notification) = command {
+            notifications.push(notification);
+        }
+    }
+    notifications
+}
+
 #[test]
 fn notifications_modal_shift_r_lowercase_marks_all_read() {
-    let (mut model, _daemon_rx) = make_model();
+    let (mut model, mut daemon_rx) = make_model();
     let mut unread = sample_notification(None);
     unread.id = "n-unread".to_string();
     let mut still_read = sample_notification(Some(5));
@@ -6351,11 +6363,16 @@ fn notifications_modal_shift_r_lowercase_marks_all_read() {
 
     assert!(!handled);
     assert_eq!(model.notifications.unread_count(), 0);
+    let persisted = drain_upsert_notifications(&mut daemon_rx);
+    assert_eq!(persisted.len(), 1);
+    assert_eq!(persisted[0].id, "n-unread");
+    assert!(persisted[0].read_at.is_some());
+    assert_eq!(persisted[0].archived_at, None);
 }
 
 #[test]
 fn notifications_modal_shift_a_lowercase_archives_read() {
-    let (mut model, _daemon_rx) = make_model();
+    let (mut model, mut daemon_rx) = make_model();
     let mut unread = sample_notification(None);
     unread.id = "n-unread".to_string();
     unread.updated_at = 10;
@@ -6383,6 +6400,11 @@ fn notifications_modal_shift_a_lowercase_archives_read() {
         .map(|item| item.id.clone())
         .collect::<Vec<_>>();
     assert_eq!(active_ids, vec!["n-unread".to_string()]);
+    let persisted = drain_upsert_notifications(&mut daemon_rx);
+    assert_eq!(persisted.len(), 1);
+    assert_eq!(persisted[0].id, "n-read");
+    assert_eq!(persisted[0].read_at, Some(5));
+    assert!(persisted[0].archived_at.is_some());
 }
 
 #[test]

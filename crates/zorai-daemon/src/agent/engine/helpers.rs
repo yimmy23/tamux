@@ -1,7 +1,7 @@
 use super::circuit_breaker::CircuitBreakerRegistry;
 use super::*;
-use zorai_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 use std::time::Duration;
+use zorai_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
 const AGENT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const AGENT_HTTP_READ_TIMEOUT: Duration = Duration::from_secs(125);

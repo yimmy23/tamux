@@ -1,21 +1,30 @@
 use super::*;
+use ratatui::backend::TestBackend;
 use zorai_protocol::{
     WorkspaceActor, WorkspaceNotice, WorkspacePriority, WorkspaceSettings, WorkspaceTask,
     WorkspaceTaskStatus, WorkspaceTaskType,
 };
-use ratatui::backend::TestBackend;
 
 fn render_plain_text(workspace: &WorkspaceState, area: Rect) -> String {
+    render_plain_text_with_scroll(workspace, area, &WorkspaceBoardScroll::default())
+}
+
+fn render_plain_text_with_scroll(
+    workspace: &WorkspaceState,
+    area: Rect,
+    column_scrolls: &WorkspaceBoardScroll,
+) -> String {
     let backend = TestBackend::new(area.width, area.height);
     let mut terminal = Terminal::new(backend).expect("terminal should initialize");
 
     terminal
         .draw(|frame| {
-            render(
+            render_with_scroll(
                 frame,
                 area,
                 workspace,
                 &std::collections::HashSet::new(),
+                column_scrolls,
                 None,
                 &ThemeTokens::default(),
                 true,
@@ -111,6 +120,72 @@ fn workspace_board_wraps_long_task_titles_inside_cards() {
         .position(|line| line.contains("websocket"))
         .expect("second title row should render");
     assert_eq!(websocket_row, investigate_row + 1, "{plain}");
+}
+
+#[test]
+fn workspace_board_renders_column_from_scroll_offset() {
+    let mut state = workspace_with_task();
+    state.set_tasks(
+        "main".to_string(),
+        (1..=6)
+            .map(|index| {
+                let mut task = task(
+                    &format!("workspace-task-{index}"),
+                    WorkspaceTaskStatus::Todo,
+                );
+                task.title = format!("Task {index}");
+                task.sort_order = index;
+                task
+            })
+            .collect(),
+    );
+    let mut column_scrolls = WorkspaceBoardScroll::default();
+    column_scrolls.set(&WorkspaceTaskStatus::Todo, 3);
+
+    let plain = render_plain_text_with_scroll(&state, Rect::new(0, 0, 100, 18), &column_scrolls);
+
+    assert!(!plain.contains("Task 1"), "{plain}");
+    assert!(plain.contains("Task 4"), "{plain}");
+}
+
+#[test]
+fn workspace_board_hit_test_uses_column_scroll_offset() {
+    let mut state = workspace_with_task();
+    state.set_tasks(
+        "main".to_string(),
+        (1..=6)
+            .map(|index| {
+                let mut task = task(
+                    &format!("workspace-task-{index}"),
+                    WorkspaceTaskStatus::Todo,
+                );
+                task.title = format!("Task {index}");
+                task.sort_order = index;
+                task
+            })
+            .collect(),
+    );
+    let expanded = std::collections::HashSet::new();
+    let mut column_scrolls = WorkspaceBoardScroll::default();
+    column_scrolls.set(&WorkspaceTaskStatus::Todo, 3);
+    let area = Rect::new(0, 0, 100, 18);
+    let inner = block_inner(area);
+    let columns = workspace_column_areas(board_area(inner));
+    let todo_body = block_inner(columns[0]);
+
+    assert_eq!(
+        hit_test_with_scroll(
+            area,
+            &state,
+            &expanded,
+            &column_scrolls,
+            Position::new(todo_body.x + 1, todo_body.y + 1),
+        ),
+        Some(WorkspaceBoardHitTarget::Task {
+            task_id: "workspace-task-4".to_string(),
+            status: WorkspaceTaskStatus::Todo,
+        })
+    );
 }
 
 #[test]

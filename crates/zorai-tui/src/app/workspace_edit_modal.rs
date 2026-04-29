@@ -1,5 +1,5 @@
-use zorai_protocol::{WorkspaceActor, WorkspacePriority, WorkspaceTask, WorkspaceTaskUpdate};
 use crossterm::event::{KeyCode, KeyModifiers};
+use zorai_protocol::{WorkspaceActor, WorkspacePriority, WorkspaceTask, WorkspaceTaskUpdate};
 
 use crate::state::{modal, DaemonCommand};
 
@@ -165,24 +165,29 @@ pub(super) fn workspace_edit_modal_body(form: &WorkspaceEditForm) -> String {
         form.task_id.chars().take(12).collect::<String>()
     );
     for field in WorkspaceEditField::ALL {
-        let marker = if field == form.field { ">" } else { " " };
-        let value = match field {
-            WorkspaceEditField::Title => form.title.as_str().to_string(),
-            WorkspaceEditField::Description => form.description.as_str().to_string(),
-            WorkspaceEditField::DefinitionOfDone => form.definition_of_done.as_str().to_string(),
-            WorkspaceEditField::Priority => priority_label(&form.priority).to_string(),
-            WorkspaceEditField::Assignee => actor_label(form.assignee.as_ref()),
-            WorkspaceEditField::Reviewer => actor_label(form.reviewer.as_ref()),
-            WorkspaceEditField::Submit | WorkspaceEditField::Cancel => String::new(),
-        };
-        if value.is_empty() {
-            body.push_str(&format!("{marker} {}\n", field.label()));
-        } else {
-            body.push_str(&format!("{marker} {}: {}\n", field.label(), value));
-        }
+        body.push_str(&workspace_edit_field_line(form, field));
+        body.push('\n');
     }
     body.push_str("\nTab/Shift+Tab navigate - Enter edit/cycle/save - Esc cancel");
     body
+}
+
+fn workspace_edit_field_line(form: &WorkspaceEditForm, field: WorkspaceEditField) -> String {
+    let marker = if field == form.field { ">" } else { " " };
+    let value = match field {
+        WorkspaceEditField::Title => form.title.as_str().to_string(),
+        WorkspaceEditField::Description => form.description.as_str().to_string(),
+        WorkspaceEditField::DefinitionOfDone => form.definition_of_done.as_str().to_string(),
+        WorkspaceEditField::Priority => priority_label(&form.priority).to_string(),
+        WorkspaceEditField::Assignee => actor_label(form.assignee.as_ref()),
+        WorkspaceEditField::Reviewer => actor_label(form.reviewer.as_ref()),
+        WorkspaceEditField::Submit | WorkspaceEditField::Cancel => String::new(),
+    };
+    if value.is_empty() {
+        format!("{marker} {}", field.label())
+    } else {
+        format!("{marker} {}: {}", field.label(), value)
+    }
 }
 
 fn priority_label(priority: &WorkspacePriority) -> &'static str {
@@ -206,6 +211,7 @@ fn actor_label(actor: Option<&WorkspaceActor>) -> String {
 impl super::TuiModel {
     pub(super) fn open_workspace_edit_modal_for_task(&mut self, task: WorkspaceTask) {
         self.pending_workspace_edit_form = Some(WorkspaceEditForm::from_task(&task));
+        self.workspace_edit_modal_scroll = 0;
         self.modal.reduce(modal::ModalAction::Push(
             modal::ModalKind::WorkspaceEditTask,
         ));
@@ -290,16 +296,32 @@ impl super::TuiModel {
                 if let Some(form) = self.pending_workspace_edit_form.as_mut() {
                     form.next_field();
                 }
+                self.sync_workspace_edit_modal_scroll_to_selection();
             }
             KeyCode::BackTab | KeyCode::Up => {
                 if let Some(form) = self.pending_workspace_edit_form.as_mut() {
                     form.previous_field();
                 }
+                self.sync_workspace_edit_modal_scroll_to_selection();
+            }
+            KeyCode::PageDown => {
+                self.page_workspace_edit_modal_scroll(1);
+            }
+            KeyCode::PageUp => {
+                self.page_workspace_edit_modal_scroll(-1);
+            }
+            KeyCode::Home => {
+                self.set_workspace_edit_modal_scroll(0);
+            }
+            KeyCode::End => {
+                let max_scroll = self.workspace_edit_modal_max_scroll();
+                self.set_workspace_edit_modal_scroll(max_scroll);
             }
             KeyCode::Backspace => {
                 if let Some(form) = self.pending_workspace_edit_form.as_mut() {
                     form.backspace();
                 }
+                self.sync_workspace_edit_modal_scroll_to_selection();
             }
             KeyCode::Enter => {
                 let field = self
@@ -329,6 +351,7 @@ impl super::TuiModel {
                 if let Some(form) = self.pending_workspace_edit_form.as_mut() {
                     form.insert_char(ch);
                 }
+                self.sync_workspace_edit_modal_scroll_to_selection();
             }
             _ => {}
         }
@@ -343,5 +366,72 @@ impl super::TuiModel {
                 }
             }
         }
+        self.sync_workspace_edit_modal_scroll_to_selection();
+    }
+
+    pub(crate) fn workspace_edit_modal_max_scroll(&self) -> usize {
+        let body = self.workspace_edit_modal_body();
+        let (viewport_lines, inner_width) = self.workspace_edit_modal_view_metrics();
+        let total_lines = crate::widgets::message::wrap_text(&body, inner_width.max(1))
+            .len()
+            .max(1);
+        total_lines.saturating_sub(viewport_lines.max(1))
+    }
+
+    pub(crate) fn set_workspace_edit_modal_scroll(&mut self, scroll: usize) {
+        self.workspace_edit_modal_scroll = scroll.min(self.workspace_edit_modal_max_scroll());
+    }
+
+    pub(crate) fn step_workspace_edit_modal_scroll(&mut self, delta: i32) {
+        let current = self.workspace_edit_modal_scroll as i32;
+        let next = (current + delta).max(0) as usize;
+        self.set_workspace_edit_modal_scroll(next);
+    }
+
+    pub(crate) fn page_workspace_edit_modal_scroll(&mut self, direction: i32) {
+        let (viewport_lines, _) = self.workspace_edit_modal_view_metrics();
+        let page = viewport_lines.saturating_sub(1).max(1) as i32;
+        self.step_workspace_edit_modal_scroll(page * direction);
+    }
+
+    pub(crate) fn sync_workspace_edit_modal_scroll_to_selection(&mut self) {
+        let Some(form) = self.pending_workspace_edit_form.as_ref() else {
+            return;
+        };
+        let (viewport_lines, inner_width) = self.workspace_edit_modal_view_metrics();
+        let viewport_lines = viewport_lines.max(1);
+        let inner_width = inner_width.max(1);
+        let mut line_start = 2usize;
+        for field in WorkspaceEditField::ALL {
+            let line_count = crate::widgets::message::wrap_text(
+                &workspace_edit_field_line(form, field),
+                inner_width,
+            )
+            .len()
+            .max(1);
+            if field == form.field {
+                let line_end = line_start.saturating_add(line_count);
+                let current = self.workspace_edit_modal_scroll;
+                if line_start < current {
+                    self.set_workspace_edit_modal_scroll(line_start);
+                } else if line_end > current.saturating_add(viewport_lines) {
+                    self.set_workspace_edit_modal_scroll(line_end.saturating_sub(viewport_lines));
+                }
+                return;
+            }
+            line_start = line_start.saturating_add(line_count);
+        }
+    }
+
+    fn workspace_edit_modal_view_metrics(&self) -> (usize, usize) {
+        self.current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::WorkspaceEditTask)
+            .map(|(_, area)| {
+                (
+                    area.height.saturating_sub(3) as usize,
+                    area.width.saturating_sub(2) as usize,
+                )
+            })
+            .unwrap_or((1, 1))
     }
 }

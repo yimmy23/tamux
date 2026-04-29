@@ -9,9 +9,9 @@ use super::skill_api::{
     parse_guideline_discover_terminal_response, parse_skill_discover_terminal_response,
     parse_skill_import_terminal_response, parse_skill_publish_terminal_response,
 };
-use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
 use futures::{SinkExt, StreamExt};
 use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
 
 #[test]
 fn closed_connection_error_mentions_version_mismatch_and_restart() {

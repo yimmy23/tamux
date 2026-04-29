@@ -139,8 +139,8 @@ impl AgentEngine {
                         id, agent_id, goal_run_id, thread_id, session_id, goal_text, goal_type,
                         episode_type, summary, outcome, root_cause, entities, causal_chain,
                         solution_class, duration_ms, tokens_used, confidence,
-                        confidence_before, confidence_after, created_at, expires_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+                        confidence_before, confidence_after, created_at, expires_at, deleted_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, NULL)",
                     params![
                         ep.id,
                         agent_id,
@@ -394,7 +394,7 @@ impl AgentEngine {
                                 goal_text, goal_type, summary, outcome, root_cause, entities, causal_chain,
                                 solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
                                 created_at, expires_at
-                         FROM episodes WHERE id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL))",
+                         FROM episodes WHERE id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL)) AND deleted_at IS NULL",
                         params![episode_id, agent_id, include_legacy],
                         row_to_episode,
                     )
@@ -421,7 +421,7 @@ impl AgentEngine {
                             goal_text, goal_type, summary, outcome, root_cause, entities, causal_chain,
                             solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
                             created_at, expires_at
-                     FROM episodes WHERE goal_run_id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL))
+                     FROM episodes WHERE goal_run_id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL)) AND deleted_at IS NULL
                      ORDER BY created_at DESC",
                 )?;
                 let rows =
@@ -441,8 +441,8 @@ impl AgentEngine {
             .conn
             .call(move |conn| {
                 let deleted = conn.execute(
-                    "DELETE FROM episodes WHERE expires_at IS NOT NULL AND expires_at <= ?1",
-                    rusqlite::params![now_ms],
+                    "UPDATE episodes SET deleted_at = ?2 WHERE expires_at IS NOT NULL AND expires_at <= ?1 AND deleted_at IS NULL",
+                    rusqlite::params![now_ms, now_ms],
                 )?;
                 if deleted > 0 {
                     // Rebuild FTS5 index to remove stale entries

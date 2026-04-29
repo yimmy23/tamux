@@ -91,7 +91,9 @@ pub(crate) fn snapshot_from_platform_health(
     zorai_protocol::GatewayHealthState {
         platform: platform.to_string(),
         status: match health.status {
-            GatewayConnectionStatus::Connected => zorai_protocol::GatewayConnectionStatus::Connected,
+            GatewayConnectionStatus::Connected => {
+                zorai_protocol::GatewayConnectionStatus::Connected
+            }
             GatewayConnectionStatus::Disconnected => {
                 zorai_protocol::GatewayConnectionStatus::Disconnected
             }

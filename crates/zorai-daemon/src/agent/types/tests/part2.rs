@@ -2,6 +2,7 @@ use zorai_shared::providers::{
     PROVIDER_ID_ARCEE, PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GITHUB_COPILOT,
     PROVIDER_ID_NVIDIA, PROVIDER_ID_XAI,
 };
+use crate::agent::config::load_config_from_items;
 
     #[test]
     fn custom_auth_yaml_hydrates_provider_definition_with_models() {
@@ -236,6 +237,44 @@ providers:
     }
 
     #[test]
+    fn semantic_embedding_config_defaults_to_openai_embedding_model() {
+        let cfg = AgentConfig::default();
+
+        assert!(!cfg.semantic.embedding.enabled);
+        assert_eq!(cfg.semantic.embedding.provider, "openai");
+        assert_eq!(cfg.semantic.embedding.model, "text-embedding-3-small");
+        assert_eq!(cfg.semantic.embedding.dimensions, 1536);
+        assert_eq!(cfg.semantic.embedding.batch_size, 64);
+        assert_eq!(cfg.semantic.embedding.max_concurrency, 2);
+    }
+
+    #[test]
+    fn semantic_embedding_config_hydrates_from_db_config_items() {
+        let cfg = load_config_from_items(vec![
+            ("/semantic/embedding/enabled".to_string(), true.into()),
+            (
+                "/semantic/embedding/provider".to_string(),
+                "azure-openai".into(),
+            ),
+            (
+                "/semantic/embedding/model".to_string(),
+                "my-embedding-deployment".into(),
+            ),
+            ("/semantic/embedding/dimensions".to_string(), 1024.into()),
+            ("/semantic/embedding/batch_size".to_string(), 16.into()),
+            ("/semantic/embedding/max_concurrency".to_string(), 1.into()),
+        ])
+        .expect("config should load from DB config items");
+
+        assert!(cfg.semantic.embedding.enabled);
+        assert_eq!(cfg.semantic.embedding.provider, "azure-openai");
+        assert_eq!(cfg.semantic.embedding.model, "my-embedding-deployment");
+        assert_eq!(cfg.semantic.embedding.dimensions, 1024);
+        assert_eq!(cfg.semantic.embedding.batch_size, 16);
+        assert_eq!(cfg.semantic.embedding.max_concurrency, 1);
+    }
+
+    #[test]
     fn consolidation_result_defaults_are_zero() {
         let result = ConsolidationResult::default();
         assert_eq!(result.traces_reviewed, 0);
@@ -328,7 +367,7 @@ providers:
         assert!(cfg.background_community_search);
         assert_eq!(cfg.community_preapprove_timeout_secs, 45);
         assert_eq!(cfg.suggest_global_enable_after_approvals, 3);
-        assert!(cfg.llm_normalize_on_no_match);
+        assert!(!cfg.llm_normalize_on_no_match);
         assert!(!cfg.llm_semantic_search_on_no_match);
         assert_eq!(cfg.llm_semantic_search_max_skills, 64);
     }
@@ -361,8 +400,8 @@ providers:
         assert!(cfg.background_community_search);
         assert_eq!(cfg.community_preapprove_timeout_secs, 30);
         assert_eq!(cfg.suggest_global_enable_after_approvals, 3);
-        assert!(cfg.llm_normalize_on_no_match);
-        assert!(cfg.llm_semantic_search_on_no_match);
+        assert!(!cfg.llm_normalize_on_no_match);
+        assert!(!cfg.llm_semantic_search_on_no_match);
         assert_eq!(cfg.llm_semantic_search_max_skills, 64);
     }
 
@@ -503,8 +542,8 @@ providers:
         assert!(cfg.skill_recommendation.background_community_search);
         assert_eq!(cfg.skill_recommendation.community_preapprove_timeout_secs, 30);
         assert_eq!(cfg.skill_recommendation.suggest_global_enable_after_approvals, 3);
-        assert!(cfg.skill_recommendation.llm_normalize_on_no_match);
-        assert!(cfg.skill_recommendation.llm_semantic_search_on_no_match);
+        assert!(!cfg.skill_recommendation.llm_normalize_on_no_match);
+        assert!(!cfg.skill_recommendation.llm_semantic_search_on_no_match);
         assert_eq!(cfg.skill_recommendation.llm_semantic_search_max_skills, 64);
     }
 

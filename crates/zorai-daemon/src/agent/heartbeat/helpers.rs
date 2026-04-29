@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::*;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 pub(super) fn check_quiet_window(
     hour: u32,
@@ -136,6 +136,77 @@ pub(super) fn format_anticipatory_items_for_heartbeat(items: &[AnticipatoryItem]
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+pub(super) fn format_speculative_summary_for_heartbeat(
+    opportunities: &[SpeculativeOpportunity],
+    results: &[SpeculativeResult],
+    now_ms: u64,
+) -> Option<String> {
+    let active_opportunities = opportunities
+        .iter()
+        .filter(|opportunity| {
+            opportunity.expires_at_ms > now_ms
+                && matches!(
+                    opportunity.status,
+                    SpeculativeOpportunityStatus::Queued | SpeculativeOpportunityStatus::Running
+                )
+        })
+        .collect::<Vec<_>>();
+    let active_results = results
+        .iter()
+        .filter(|result| result.expires_at_ms > now_ms)
+        .collect::<Vec<_>>();
+
+    if active_opportunities.is_empty() && active_results.is_empty() {
+        return None;
+    }
+
+    let used_count = active_results
+        .iter()
+        .filter(|result| result.used_at_ms.is_some())
+        .count();
+    let precomputed_count = active_results
+        .iter()
+        .filter(|result| result.precomputation_id.is_some())
+        .count();
+    let threads = active_opportunities
+        .iter()
+        .filter_map(|opportunity| opportunity.thread_id.as_deref())
+        .chain(
+            active_results
+                .iter()
+                .filter_map(|result| result.thread_id.as_deref()),
+        )
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(2)
+        .collect::<Vec<_>>();
+
+    let thread_suffix = if threads.is_empty() {
+        String::new()
+    } else {
+        format!(", threads={}", threads.join(", "))
+    };
+    let used_suffix = if used_count == 0 {
+        String::new()
+    } else {
+        format!(", used={used_count}")
+    };
+    let precomputed_suffix = if precomputed_count == 0 {
+        String::new()
+    } else {
+        format!(", precomputed={precomputed_count}")
+    };
+
+    Some(format!(
+        "- [speculative_execution] (LOW-PRIORITY INFORMATIONAL) Speculative precomputation: queue_depth={}, cached_results={}{}{}{}.",
+        active_opportunities.len(),
+        active_results.len(),
+        used_suffix,
+        precomputed_suffix,
+        thread_suffix,
+    ))
 }
 
 pub(super) fn format_consolidation_forge_summary(result: &ConsolidationResult) -> Option<String> {

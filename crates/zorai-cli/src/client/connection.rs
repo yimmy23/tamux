@@ -1,7 +1,7 @@
-use zorai_protocol::{ZoraiCodec, ClientMessage, DaemonMessage};
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
 
 pub(super) fn closed_connection_error() -> anyhow::Error {
     anyhow::anyhow!(

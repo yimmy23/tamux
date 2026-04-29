@@ -1,9 +1,9 @@
-use zorai_protocol::{GitChangeEntry, GitInfo};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use zorai_protocol::{GitChangeEntry, GitInfo};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct GitLineStatusEntry {

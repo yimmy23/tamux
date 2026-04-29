@@ -1,3 +1,58 @@
+function finiteIntegerOrNull(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.trunc(number) : null;
+}
+
+function optionalString(value) {
+    return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function transcriptFilePathFromFilename(filename) {
+    if (typeof filename !== 'string' || filename.length === 0) return '';
+    return filename.startsWith('transcripts/') ? filename : `transcripts/${filename}`;
+}
+
+function normalizeTranscriptIndexForDaemon(entry) {
+    const source = entry && typeof entry === 'object' ? entry : {};
+    const capturedAt = finiteIntegerOrNull(source.captured_at ?? source.capturedAt);
+    if (!optionalString(source.id) || !optionalString(source.filename) || capturedAt === null) {
+        return null;
+    }
+    return {
+        id: source.id,
+        pane_id: optionalString(source.pane_id ?? source.paneId),
+        workspace_id: optionalString(source.workspace_id ?? source.workspaceId),
+        surface_id: optionalString(source.surface_id ?? source.surfaceId),
+        filename: source.filename,
+        reason: optionalString(source.reason),
+        captured_at: capturedAt,
+        size_bytes: finiteIntegerOrNull(source.size_bytes ?? source.sizeBytes),
+        preview: typeof source.preview === 'string' ? source.preview : null,
+    };
+}
+
+function normalizeTranscriptIndexForRenderer(entry) {
+    const source = entry && typeof entry === 'object' ? entry : {};
+    const id = optionalString(source.id);
+    const filename = optionalString(source.filename);
+    const capturedAt = finiteIntegerOrNull(source.captured_at ?? source.capturedAt);
+    if (!id || !filename || capturedAt === null) return null;
+    return {
+        id,
+        filename,
+        filePath: optionalString(source.filePath) ?? transcriptFilePathFromFilename(filename),
+        reason: optionalString(source.reason) ?? 'manual',
+        workspaceId: optionalString(source.workspace_id ?? source.workspaceId),
+        surfaceId: optionalString(source.surface_id ?? source.surfaceId),
+        paneId: optionalString(source.pane_id ?? source.paneId),
+        cwd: optionalString(source.cwd),
+        capturedAt,
+        sizeBytes: finiteIntegerOrNull(source.size_bytes ?? source.sizeBytes) ?? 0,
+        preview: typeof source.preview === 'string' ? source.preview : '',
+        content: typeof source.content === 'string' ? source.content : '',
+    };
+}
+
 function registerDbIpcHandlers(ipcMain, runtime) {
     const { sendDbAckCommand, sendDbQuery } = runtime;
 
@@ -102,7 +157,9 @@ function registerDbIpcHandlers(ipcMain, runtime) {
     });
     ipcMain.handle('db-upsert-transcript-index', async (_event, entry) => {
         try {
-            await sendDbAckCommand({ type: 'upsert-transcript-index', entry_json: JSON.stringify(entry ?? {}) });
+            const normalized = normalizeTranscriptIndexForDaemon(entry);
+            if (!normalized) return false;
+            await sendDbAckCommand({ type: 'upsert-transcript-index', entry_json: JSON.stringify(normalized) });
             return true;
         } catch {
             return false;
@@ -110,7 +167,10 @@ function registerDbIpcHandlers(ipcMain, runtime) {
     });
     ipcMain.handle('db-list-transcript-index', async (_event, workspaceId) => {
         try {
-            return await sendDbQuery({ type: 'list-transcript-index', workspace_id: typeof workspaceId === 'string' ? workspaceId : null }, 'transcript-index-entries');
+            const entries = await sendDbQuery({ type: 'list-transcript-index', workspace_id: typeof workspaceId === 'string' ? workspaceId : null }, 'transcript-index-entries');
+            return Array.isArray(entries)
+                ? entries.map(normalizeTranscriptIndexForRenderer).filter(Boolean)
+                : [];
         } catch {
             return [];
         }
@@ -148,6 +208,59 @@ function registerDbIpcHandlers(ipcMain, runtime) {
             }, 'agent-event-rows');
         } catch {
             return [];
+        }
+    });
+    ipcMain.handle('db-list-database-tables', async () => {
+        try {
+            return await sendDbQuery({ type: 'list-database-tables' }, 'database-tables');
+        } catch {
+            return [];
+        }
+    });
+    ipcMain.handle('db-query-database-rows', async (_event, opts = {}) => {
+        try {
+            return await sendDbQuery({
+                type: 'query-database-rows',
+                table_name: typeof opts.tableName === 'string' ? opts.tableName : '',
+                offset: Number.isFinite(opts.offset) ? Math.max(0, Math.trunc(opts.offset)) : 0,
+                limit: Number.isFinite(opts.limit) ? Math.max(1, Math.trunc(opts.limit)) : 100,
+                sort_column: typeof opts.sortColumn === 'string' ? opts.sortColumn : null,
+                sort_direction: opts.sortDirection === 'asc' || opts.sortDirection === 'desc' ? opts.sortDirection : null,
+            }, 'database-rows');
+        } catch {
+            return null;
+        }
+    });
+    ipcMain.handle('db-update-database-rows', async (_event, tableName, updates) => {
+        try {
+            return await sendDbQuery({
+                type: 'update-database-rows',
+                table_name: typeof tableName === 'string' ? tableName : '',
+                updates_json: JSON.stringify(Array.isArray(updates) ? updates : []),
+            }, 'database-update-ack');
+        } catch (error) {
+            return { updatedRows: 0, error: error?.message || String(error) };
+        }
+    });
+    ipcMain.handle('db-queue-semantic-backfill', async (_event, limit = null) => {
+        try {
+            return await sendDbQuery({
+                type: 'queue-semantic-backfill',
+                limit: Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : null,
+            }, 'semantic-backfill-queued', 30000);
+        } catch (error) {
+            return { messages_queued: 0, tasks_queued: 0, error: error?.message || String(error) };
+        }
+    });
+    ipcMain.handle('db-get-semantic-index-status', async (_event, opts = {}) => {
+        try {
+            return await sendDbQuery({
+                type: 'get-semantic-index-status',
+                embedding_model: typeof opts.embeddingModel === 'string' ? opts.embeddingModel : '',
+                dimensions: Number.isFinite(opts.dimensions) ? Math.max(1, Math.trunc(opts.dimensions)) : 1536,
+            }, 'semantic-index-status');
+        } catch (error) {
+            return { error: error?.message || String(error) };
         }
     });
 }

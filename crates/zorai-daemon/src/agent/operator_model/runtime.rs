@@ -992,6 +992,100 @@ impl AgentEngine {
         Ok(())
     }
 
+    pub(crate) async fn status_polling_diagnostics_snapshot(&self) -> serde_json::Value {
+        let sync_state = match super::operator_profile::user_sync::current_user_sync_state() {
+            super::operator_profile::user_sync::UserProfileSyncState::Clean => "clean",
+            super::operator_profile::user_sync::UserProfileSyncState::Dirty => "dirty",
+            super::operator_profile::user_sync::UserProfileSyncState::Reconciling => "reconciling",
+        };
+
+        let aline_summary = self.aline_startup_last_summary().await;
+        let aline_available = aline_summary
+            .as_ref()
+            .map(|summary| summary.aline_available)
+            .unwrap_or_else(|| self.aline_startup_is_available());
+        let watcher_state = aline_summary
+            .as_ref()
+            .and_then(|summary| {
+                if summary.watcher_started {
+                    Some("running")
+                } else {
+                    summary
+                        .watcher_initial_state
+                        .as_ref()
+                        .map(|state| match state {
+                            crate::agent::WatcherState::Running => "running",
+                            crate::agent::WatcherState::Stopped => "stopped",
+                            crate::agent::WatcherState::Unknown => "unknown",
+                        })
+                }
+            })
+            .unwrap_or("unknown");
+        let skill_mesh_backend = self
+            .config
+            .read()
+            .await
+            .skill_recommendation
+            .discovery_backend
+            .clone();
+        let skill_mesh_state = if skill_mesh_backend.eq_ignore_ascii_case("mesh") {
+            "fresh"
+        } else {
+            "legacy"
+        };
+        let active_skill_gate_state = self
+            .thread_skill_discovery_states
+            .read()
+            .await
+            .values()
+            .filter(|state| !state.compliant)
+            .max_by_key(|state| state.updated_at)
+            .cloned();
+        let active_skill_gate = if let Some(state) = active_skill_gate_state {
+            let capability_family = fallback_skill_gate_family(state.recommended_skill.as_deref());
+            serde_json::json!({
+                "recommended_skill": state.recommended_skill,
+                "recommended_action": state.recommended_action,
+                "requires_approval": state.mesh_requires_approval,
+                "skill_read_completed": state.skill_read_completed,
+                "mesh_next_step": state.mesh_next_step,
+                "rationale": cached_skill_gate_rationale(&state),
+                "capability_family": capability_family,
+            })
+            .into()
+        } else {
+            None
+        };
+
+        serde_json::json!({
+            "operator_profile_sync_state": sync_state,
+            "operator_profile_sync_dirty": sync_state != "clean",
+            "operator_profile_scheduler_fallback": false,
+            "aline": {
+                "available": aline_available,
+                "watcher_state": watcher_state,
+                "watcher_started": aline_summary.as_ref().map(|summary| summary.watcher_started).unwrap_or(false),
+                "discovered_count": aline_summary.as_ref().map(|summary| summary.discovered_count).unwrap_or(0),
+                "selected_count": aline_summary.as_ref().map(|summary| summary.selected_count).unwrap_or(0),
+                "imported_count": aline_summary.as_ref().map(|summary| summary.imported_count).unwrap_or(0),
+                "generated_count": aline_summary.as_ref().map(|summary| summary.generated_count).unwrap_or(0),
+                "skipped_recently_imported_count": aline_summary.as_ref().map(|summary| summary.skipped_recently_imported_count).unwrap_or(0),
+                "budget_exhausted": aline_summary.as_ref().map(|summary| summary.budget_exhausted).unwrap_or(false),
+                "failure_stage": aline_summary.as_ref().and_then(|summary| summary.failure_stage.clone()),
+                "failure_message": aline_summary.as_ref().and_then(|summary| summary.failure_message.clone()),
+                "short_circuit_reason": aline_summary
+                    .as_ref()
+                    .and_then(|summary| summary.short_circuit_reason.map(|reason| reason.as_str())),
+            },
+            "skill_mesh": {
+                "backend": skill_mesh_backend,
+                "state": skill_mesh_state,
+                "active_gate": active_skill_gate,
+            },
+        })
+    }
+
+    #[cfg(test)]
     pub(crate) async fn status_diagnostics_snapshot(&self) -> serde_json::Value {
         let sync_state = match super::operator_profile::user_sync::current_user_sync_state() {
             super::operator_profile::user_sync::UserProfileSyncState::Clean => "clean",
@@ -1132,6 +1226,81 @@ impl AgentEngine {
                 })
             })
             .collect::<Vec<_>>();
+        let emergent_protocols = {
+            let mut pending_proposals = Vec::new();
+            let mut accepted_protocols = Vec::new();
+
+            for thread in self.threads.read().await.values() {
+                let thread_id = thread.id.as_str();
+                if let Ok(store) = self.get_thread_protocol_candidate_store(thread_id).await {
+                    pending_proposals.extend(
+                        store.candidates
+                            .into_iter()
+                            .filter(|candidate| {
+                                candidate.state
+                                    == crate::agent::emergent_protocol::types::ProtocolCandidateState::Proposed
+                            })
+                            .map(|candidate| {
+                                serde_json::json!({
+                                    "thread_id": candidate.thread_id,
+                                    "candidate_id": candidate.id,
+                                    "signal_kind": candidate.kind.as_str(),
+                                    "trigger_phrase": candidate.trigger_phrase,
+                                    "normalized_pattern": candidate.normalized_pattern,
+                                    "confidence": candidate.confidence,
+                                    "observation_count": candidate.observation_count,
+                                    "last_seen_at_ms": candidate.last_seen_at_ms,
+                                })
+                            }),
+                    );
+                }
+                if let Ok(entries) = self.list_thread_protocol_registry_entries(thread_id).await {
+                    accepted_protocols.extend(entries.into_iter().map(|entry| {
+                        serde_json::json!({
+                            "thread_id": entry.thread_id,
+                            "protocol_id": entry.protocol_id,
+                            "token": entry.token,
+                            "signal_kind": entry.signal_kind.as_str(),
+                            "normalized_pattern": entry.normalized_pattern,
+                            "usage_count": entry.usage_count,
+                            "success_rate": entry.success_rate,
+                            "last_used_ms": entry.last_used_ms,
+                            "source_candidate_id": entry.source_candidate_id,
+                        })
+                    }));
+                }
+            }
+
+            pending_proposals.sort_by(|left, right| {
+                right
+                    .get("last_seen_at_ms")
+                    .and_then(|value| value.as_u64())
+                    .cmp(&left.get("last_seen_at_ms").and_then(|value| value.as_u64()))
+            });
+            accepted_protocols.sort_by(|left, right| {
+                right
+                    .get("last_used_ms")
+                    .and_then(|value| value.as_u64())
+                    .cmp(&left.get("last_used_ms").and_then(|value| value.as_u64()))
+                    .then(
+                        right
+                            .get("usage_count")
+                            .and_then(|value| value.as_u64())
+                            .cmp(&left.get("usage_count").and_then(|value| value.as_u64())),
+                    )
+            });
+
+            if pending_proposals.is_empty() && accepted_protocols.is_empty() {
+                None
+            } else {
+                Some(serde_json::json!({
+                    "proposal_count": pending_proposals.len(),
+                    "proposals": pending_proposals,
+                    "protocol_count": accepted_protocols.len(),
+                    "protocols": accepted_protocols,
+                }))
+            }
+        };
         let routing_decision = self
             .history
             .list_recent_handoff_routing(1)
@@ -1286,6 +1455,7 @@ impl AgentEngine {
         let cognitive_resonance = CognitiveResonanceSnapshot::from_model(&operator_model);
         let meta_cognitive_self_model = self.meta_cognitive_self_model.read().await.clone();
         let anticipatory_runtime = self.anticipatory.read().await;
+        let diagnostics_now = now_millis();
         let anticipatory_items = anticipatory_runtime.items.clone();
         let intent_prediction = anticipatory_items
             .iter()
@@ -1359,6 +1529,93 @@ impl AgentEngine {
                     .partial_cmp(&right.get("confidence").and_then(|value| value.as_f64()))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
+        let speculative_queue = anticipatory_runtime
+            .opportunity_queue
+            .iter()
+            .map(|opportunity| {
+                let status = match opportunity.status {
+                    SpeculativeOpportunityStatus::Queued => "queued",
+                    SpeculativeOpportunityStatus::Running => "running",
+                    SpeculativeOpportunityStatus::Completed => "completed",
+                    SpeculativeOpportunityStatus::Expired => "expired",
+                    SpeculativeOpportunityStatus::Consumed => "consumed",
+                    SpeculativeOpportunityStatus::Dropped => "dropped",
+                };
+                serde_json::json!({
+                    "id": opportunity.id,
+                    "thread_id": opportunity.thread_id,
+                    "source_kind": opportunity.source_kind,
+                    "action_kind": opportunity.action_kind,
+                    "confidence": opportunity.confidence,
+                    "summary": opportunity.summary,
+                    "created_at_ms": opportunity.created_at_ms,
+                    "expires_at_ms": opportunity.expires_at_ms,
+                    "expires_in_ms": opportunity.expires_at_ms.saturating_sub(diagnostics_now),
+                    "status": status,
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut speculative_results = anticipatory_runtime
+            .speculative_results_by_thread
+            .iter()
+            .flat_map(|(thread_id, results)| {
+                let thread_id = thread_id.clone();
+                results.iter().map(move |result| {
+                    serde_json::json!({
+                        "thread_id": thread_id,
+                        "opportunity_id": result.opportunity_id,
+                        "action_kind": result.action_kind,
+                        "summary": result.summary,
+                        "artifact": result.artifact,
+                        "completed_at_ms": result.completed_at_ms,
+                        "expires_at_ms": result.expires_at_ms,
+                        "expires_in_ms": result.expires_at_ms.saturating_sub(diagnostics_now),
+                        "is_expired": result.expires_at_ms <= diagnostics_now,
+                        "used": result.used_at_ms.is_some(),
+                        "used_at_ms": result.used_at_ms,
+                        "precomputation_id": result.precomputation_id,
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        speculative_results.sort_by(|left, right| {
+            right
+                .get("completed_at_ms")
+                .and_then(|value| value.as_u64())
+                .cmp(&left.get("completed_at_ms").and_then(|value| value.as_u64()))
+                .then(
+                    left.get("thread_id")
+                        .and_then(|value| value.as_str())
+                        .cmp(&right.get("thread_id").and_then(|value| value.as_str())),
+                )
+        });
+        let proactive_provenance = self
+            .history
+            .provenance_report(32)
+            .map(|report| crate::agent::provenance::proactive_provenance_summary(&report, 5))
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, "failed to build proactive provenance diagnostics summary");
+                serde_json::json!({
+                    "prepared_count": 0,
+                    "used_count": 0,
+                    "prepared_cache_count": 0,
+                    "used_cache_count": 0,
+                    "prepared_speculative_count": 0,
+                    "used_speculative_count": 0,
+                    "recent_event_count": 0,
+                    "recent_events": [],
+                })
+            });
+        let adaptive_carryover = self
+            .history
+            .provenance_report(32)
+            .map(|report| {
+                crate::agent::provenance::adaptive_carryover_provenance_summary(&report, 5)
+            })
+            .ok()
+            .filter(|summary| {
+                !crate::agent::provenance::adaptive_carryover_is_effectively_empty(summary)
+            });
 
         serde_json::json!({
             "operator_profile_sync_state": sync_state,
@@ -1370,6 +1627,14 @@ impl AgentEngine {
             "recursive_subagents": recursive_subagents,
             "proactive_suppression": proactive_suppression,
             "system_outcome_foresight": system_outcome_foresight,
+            "proactive_provenance": proactive_provenance,
+            "adaptive_carryover": adaptive_carryover,
+            "speculative_execution": {
+                "queue_depth": speculative_queue.len(),
+                "queued_opportunities": speculative_queue,
+                "cached_result_count": speculative_results.len(),
+                "cached_results": speculative_results,
+            },
             "operator_satisfaction": {
                 "label": operator_model.operator_satisfaction.label,
                 "score": operator_model.operator_satisfaction.score,
@@ -1394,6 +1659,7 @@ impl AgentEngine {
             "forge_reflection": {
                 "recent_passes": recent_forge_passes,
             },
+            "emergent_protocols": emergent_protocols,
             "meta_cognitive_self_model": meta_cognitive_self_model,
             "cognitive_resonance": cognitive_resonance,
             "aline": {

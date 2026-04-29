@@ -1,8 +1,8 @@
+use crossterm::event::{KeyCode, KeyModifiers};
+use ratatui::text::{Line, Span};
 use zorai_protocol::{
     WorkspaceActor, WorkspacePriority, WorkspaceTaskCreate, WorkspaceTaskType, AGENT_ID_SWAROG,
 };
-use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::text::{Line, Span};
 
 use crate::state::{modal, DaemonCommand};
 use crate::theme::ThemeTokens;

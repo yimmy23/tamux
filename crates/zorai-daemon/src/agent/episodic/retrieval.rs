@@ -257,6 +257,7 @@ impl AgentEngine {
                      WHERE episodes_fts MATCH ?1
                        AND (e.agent_id = ?2 OR (?3 = 1 AND e.agent_id IS NULL))
                        AND (e.expires_at IS NULL OR e.expires_at > ?4)
+                       AND e.deleted_at IS NULL
                      ORDER BY rank
                      LIMIT ?5",
                 )?;
@@ -328,6 +329,7 @@ impl AgentEngine {
                        AND (e.agent_id = ?2 OR (?3 = 1 AND e.agent_id IS NULL))
                        AND (e.expires_at IS NULL OR e.expires_at > ?4)
                        AND e.created_at >= ?5
+                       AND e.deleted_at IS NULL
                      ORDER BY rank
                      LIMIT ?6",
                 )?;
@@ -398,6 +400,7 @@ impl AgentEngine {
                      WHERE entities LIKE ?1
                        AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL))
                        AND (expires_at IS NULL OR expires_at > ?4)
+                       AND deleted_at IS NULL
                      ORDER BY created_at DESC
                      LIMIT ?5",
                 )?;

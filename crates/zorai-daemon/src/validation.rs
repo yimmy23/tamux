@@ -1,9 +1,9 @@
-use zorai_protocol::SymbolMatch;
 use anyhow::Result;
 use regex::Regex;
 use std::sync::LazyLock;
 use tree_sitter::Parser;
 use walkdir::WalkDir;
+use zorai_protocol::SymbolMatch;
 
 use crate::lsp_client;
 

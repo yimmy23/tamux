@@ -233,6 +233,18 @@ function toStringArray(value: unknown): string[] {
         : [];
 }
 
+function parseJsonValue(value: unknown): unknown {
+    if (typeof value !== "string" || !value.trim()) {
+        return value;
+    }
+
+    try {
+        return JSON.parse(value);
+    } catch {
+        return value;
+    }
+}
+
 function toNumberOrNull(value: unknown): number | null {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -563,7 +575,11 @@ export function normalizeGoalRun(raw: unknown): GoalRun | null {
             : typeof goalRun.activeThreadId === "string"
                 ? goalRun.activeThreadId
                 : null,
-        execution_thread_ids: toStringArray(goalRun.execution_thread_ids ?? goalRun.executionThreadIds),
+        execution_thread_ids: toStringArray(parseJsonValue(
+            goalRun.execution_thread_ids
+            ?? goalRun.executionThreadIds
+            ?? goalRun.execution_thread_ids_json,
+        )),
         current_step_index: currentStepIndex,
         current_step_title: typeof goalRun.current_step_title === "string"
             ? goalRun.current_step_title
@@ -598,31 +614,59 @@ export function normalizeGoalRun(raw: unknown): GoalRun | null {
             : typeof goalRun.failureCause === "string"
                 ? goalRun.failureCause
                 : null,
-        memory_updates: toStringArray(goalRun.memory_updates ?? goalRun.memoryUpdates),
+        memory_updates: toStringArray(parseJsonValue(
+            goalRun.memory_updates
+            ?? goalRun.memoryUpdates
+            ?? goalRun.memory_updates_json,
+        )),
         generated_skill_path: typeof goalRun.generated_skill_path === "string"
             ? goalRun.generated_skill_path
             : typeof goalRun.generatedSkillPath === "string"
                 ? goalRun.generatedSkillPath
                 : null,
-        child_task_ids: toStringArray(goalRun.child_task_ids ?? goalRun.childTaskIds),
+        child_task_ids: toStringArray(parseJsonValue(
+            goalRun.child_task_ids
+            ?? goalRun.childTaskIds
+            ?? goalRun.child_task_ids_json,
+        )),
         child_task_count: toNumberOrNull(goalRun.child_task_count ?? goalRun.childTaskCount),
         approval_count: toNumberOrNull(goalRun.approval_count ?? goalRun.approvalCount),
         duration_ms: toNumberOrNull(goalRun.duration_ms ?? goalRun.durationMs),
         total_prompt_tokens: toNumberOrNull(goalRun.total_prompt_tokens ?? goalRun.totalPromptTokens),
         total_completion_tokens: toNumberOrNull(goalRun.total_completion_tokens ?? goalRun.totalCompletionTokens),
         estimated_cost_usd: toNumberOrNull(goalRun.estimated_cost_usd ?? goalRun.estimatedCostUsd),
-        model_usage: normalizeModelUsage(goalRun.model_usage ?? goalRun.modelUsage),
+        model_usage: normalizeModelUsage(parseJsonValue(
+            goalRun.model_usage
+            ?? goalRun.modelUsage
+            ?? goalRun.model_usage_json,
+        )),
         launch_assignment_snapshot: normalizeAssignmentList(
-            goalRun.launch_assignment_snapshot ?? goalRun.launchAssignmentSnapshot,
+            parseJsonValue(
+                goalRun.launch_assignment_snapshot
+                ?? goalRun.launchAssignmentSnapshot
+                ?? goalRun.launch_assignment_snapshot_json,
+            ),
         ),
         runtime_assignment_list: normalizeAssignmentList(
-            goalRun.runtime_assignment_list ?? goalRun.runtimeAssignmentList,
+            parseJsonValue(
+                goalRun.runtime_assignment_list
+                ?? goalRun.runtimeAssignmentList
+                ?? goalRun.runtime_assignment_list_json,
+            ),
         ),
         planner_owner_profile: normalizeOwnerProfile(
-            goalRun.planner_owner_profile ?? goalRun.plannerOwnerProfile,
+            parseJsonValue(
+                goalRun.planner_owner_profile
+                ?? goalRun.plannerOwnerProfile
+                ?? goalRun.planner_owner_profile_json,
+            ),
         ),
         current_step_owner_profile: normalizeOwnerProfile(
-            goalRun.current_step_owner_profile ?? goalRun.currentStepOwnerProfile,
+            parseJsonValue(
+                goalRun.current_step_owner_profile
+                ?? goalRun.currentStepOwnerProfile
+                ?? goalRun.current_step_owner_profile_json,
+            ),
         ),
         session_id: typeof goalRun.session_id === "string"
             ? goalRun.session_id
@@ -641,7 +685,7 @@ export function normalizeGoalRun(raw: unknown): GoalRun | null {
                 : null,
         steps: normalizedSteps,
         events: normalizedEvents,
-        dossier: normalizeDossier(goalRun.dossier),
+        dossier: normalizeDossier(parseJsonValue(goalRun.dossier ?? goalRun.dossier_json)),
     };
 }
 
@@ -663,16 +707,48 @@ export function goalRunSupportAvailable(): boolean {
 
 export async function fetchGoalRuns(): Promise<GoalRun[]> {
     const bridge = getBridge();
-    if (!bridge?.agentListGoalRuns) {
-        return [];
-    }
-
     try {
+        if (!bridge?.agentListGoalRuns) {
+            return await fetchGoalRunsFromDatabase();
+        }
         const result = await bridge.agentListGoalRuns();
-        return normalizeGoalRunList(result);
+        const normalized = normalizeGoalRunList(result);
+        return normalized.length > 0 ? normalized : await fetchGoalRunsFromDatabase();
     } catch {
-        return [];
+        return await fetchGoalRunsFromDatabase();
     }
+}
+
+async function fetchGoalRunsFromDatabase(): Promise<GoalRun[]> {
+    const page = await getBridge()?.dbQueryDatabaseRows?.({
+        tableName: "goal_runs",
+        offset: 0,
+        limit: 500,
+        sortColumn: "created_at",
+        sortDirection: "desc",
+    });
+    return normalizeGoalRunList(
+        databasePageRows(page).filter((row) => {
+            if (!row || typeof row !== "object") {
+                return false;
+            }
+            return (row as { deleted_at?: unknown }).deleted_at == null;
+        }),
+    );
+}
+
+function databasePageRows(page: unknown): unknown[] {
+    const rows = page && typeof page === "object" && Array.isArray((page as { rows?: unknown }).rows)
+        ? (page as { rows: unknown[] }).rows
+        : [];
+
+    return rows.map((row) => {
+        if (row && typeof row === "object" && "values" in row) {
+            const values = (row as { values?: unknown }).values;
+            return values && typeof values === "object" ? values : {};
+        }
+        return row;
+    });
 }
 
 export async function startGoalRun(payload: StartGoalRunPayload): Promise<GoalRun | null> {

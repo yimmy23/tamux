@@ -1,9 +1,9 @@
 use super::workspace_edit_modal::*;
 use crate::state::{modal, DaemonCommand};
+use tokio::sync::mpsc::unbounded_channel;
 use zorai_protocol::{
     WorkspaceActor, WorkspacePriority, WorkspaceTask, WorkspaceTaskStatus, WorkspaceTaskType,
 };
-use tokio::sync::mpsc::unbounded_channel;
 
 fn task() -> WorkspaceTask {
     WorkspaceTask {
@@ -171,4 +171,28 @@ fn edit_modal_reviewer_picker_selection_is_saved() {
         }
         other => panic!("unexpected command: {other:?}"),
     }
+}
+
+#[test]
+fn edit_modal_navigation_scrolls_selected_field_into_view() {
+    let (_event_tx, event_rx) = std::sync::mpsc::channel();
+    let (daemon_tx, _daemon_rx) = unbounded_channel();
+    let mut model = crate::app::TuiModel::new(event_rx, daemon_tx);
+    model.width = 80;
+    model.height = 12;
+    let mut task = task();
+    task.description = "Long description ".repeat(80);
+
+    model.open_workspace_edit_modal_for_task(task);
+    for _ in 0..5 {
+        model.handle_workspace_edit_modal_key(
+            crossterm::event::KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        );
+    }
+
+    assert!(
+        model.workspace_edit_modal_scroll > 0,
+        "navigating past long wrapped fields should scroll the edit modal"
+    );
 }

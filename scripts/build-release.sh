@@ -54,6 +54,25 @@ warn_msg() {
     echo "  WARNING: $1"
 }
 
+npm_ci_with_retries() {
+    npm config set fetch-retries 5
+    npm config set fetch-retry-mintimeout 20000
+    npm config set fetch-retry-maxtimeout 120000
+
+    local max_attempts=3
+    local attempt
+    for attempt in $(seq 1 "$max_attempts"); do
+        if npm ci --prefer-offline --no-audit; then
+            return 0
+        fi
+        if [[ "$attempt" -eq "$max_attempts" ]]; then
+            return 1
+        fi
+        warn_msg "npm ci failed on attempt $attempt of $max_attempts; retrying after transient npm/network failure."
+        sleep $((15 * attempt))
+    done
+}
+
 APP_VERSION="$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$PROJECT_ROOT/frontend/package.json" | head -1)"
 if [[ -z "$APP_VERSION" ]]; then
     APP_VERSION="0.0.0"
@@ -204,7 +223,7 @@ if [[ $SKIP_FRONTEND -eq 1 ]]; then
 else
     step_msg "Building frontend..."
     cd "$PROJECT_ROOT/frontend"
-    npm ci --silent 2>/dev/null || npm ci
+    npm_ci_with_retries
     npm run build
     ok_msg "Frontend build complete"
 fi

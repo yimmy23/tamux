@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use zorai_protocol::{SessionId, SnapshotIndexEntry, SnapshotInfo, WorkspaceId};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+use zorai_protocol::{SessionId, SnapshotIndexEntry, SnapshotInfo, WorkspaceId};
 
 use crate::history::HistoryStore;
 

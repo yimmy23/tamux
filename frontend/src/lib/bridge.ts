@@ -5,5 +5,5 @@
  */
 export function getBridge(): ZoraiBridge | null {
     if (typeof window === "undefined") return null;
-    return window.zorai ?? window.zorai ?? null;
+    return window.zorai ?? null;
 }

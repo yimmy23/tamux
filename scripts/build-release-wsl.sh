@@ -59,6 +59,25 @@ PY
     fi
 }
 
+npm_ci_with_retries() {
+    npm config set fetch-retries 5
+    npm config set fetch-retry-mintimeout 20000
+    npm config set fetch-retry-maxtimeout 120000
+
+    local max_attempts=3
+    local attempt
+    for attempt in $(seq 1 "$max_attempts"); do
+        if npm ci --prefer-offline --no-audit; then
+            return 0
+        fi
+        if [[ "$attempt" -eq "$max_attempts" ]]; then
+            return 1
+        fi
+        echo "  WARNING: npm ci failed on attempt $attempt of $max_attempts; retrying after transient npm/network failure."
+        sleep $((15 * attempt))
+    done
+}
+
 generate_release_notes_if_missing() {
     local notes_file="$1"
     shift
@@ -174,7 +193,7 @@ echo "  Done."
 echo ""
 echo "[2/6] Building frontend..."
 cd "$PROJECT_ROOT/frontend"
-npm ci --silent 2>/dev/null || npm ci
+npm_ci_with_retries
 npm run build
 echo "  Done."
 

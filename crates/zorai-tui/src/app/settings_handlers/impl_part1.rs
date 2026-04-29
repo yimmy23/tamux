@@ -155,6 +155,37 @@ impl TuiModel {
             .unwrap_or_default()
     }
 
+    pub(super) fn embedding_catalog_models(
+        provider_id: &str,
+    ) -> Vec<crate::state::config::FetchedModel> {
+        let model = |id: &str, name: &str, context_window: Option<u32>| {
+            crate::state::config::FetchedModel {
+                id: id.to_string(),
+                name: Some(name.to_string()),
+                context_window,
+                pricing: None,
+                metadata: None,
+            }
+        };
+        match provider_id {
+            PROVIDER_ID_OPENAI | PROVIDER_ID_AZURE_OPENAI | PROVIDER_ID_CUSTOM => {
+                vec![
+                    model("text-embedding-3-small", "Text Embedding 3 Small", Some(8192)),
+                    model("text-embedding-3-large", "Text Embedding 3 Large", Some(8192)),
+                ]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    pub(super) fn default_embedding_model_for(provider_id: &str) -> String {
+        Self::embedding_catalog_models(provider_id)
+            .into_iter()
+            .next()
+            .map(|model| model.id)
+            .unwrap_or_default()
+    }
+
     pub(super) fn set_audio_config_string(&mut self, endpoint: &str, field: &str, value: String) {
         self.send_daemon_command(DaemonCommand::SetConfigItem {
             key_path: format!("/audio/{endpoint}/{field}"),
@@ -184,6 +215,22 @@ impl TuiModel {
                 raw["image"]["generation"] = serde_json::json!({});
             }
             raw["image"]["generation"][field] = serde_json::Value::String(value);
+        }
+    }
+
+    pub(super) fn set_embedding_config_string(&mut self, field: &str, value: String) {
+        self.send_daemon_command(DaemonCommand::SetConfigItem {
+            key_path: format!("/semantic/embedding/{field}"),
+            value_json: serde_json::Value::String(value.clone()).to_string(),
+        });
+        if let Some(ref mut raw) = self.config.agent_config_raw {
+            if raw.get("semantic").is_none() {
+                raw["semantic"] = serde_json::json!({});
+            }
+            if raw["semantic"].get("embedding").is_none() {
+                raw["semantic"]["embedding"] = serde_json::json!({});
+            }
+            raw["semantic"]["embedding"][field] = serde_json::Value::String(value);
         }
     }
 
@@ -255,6 +302,33 @@ impl TuiModel {
             });
         }
         self.settings_picker_target = Some(SettingsPickerTarget::ImageGenerationModel);
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+        self.sync_model_picker_item_count();
+    }
+
+    pub(super) fn open_embedding_model_picker(&mut self) {
+        let provider_id = {
+            let provider = self.config.semantic_embedding_provider();
+            if provider.trim().is_empty() {
+                "openai".to_string()
+            } else {
+                provider
+            }
+        };
+        let (base_url, api_key, auth_source) = self.provider_auth_snapshot(&provider_id);
+        let models = Self::embedding_catalog_models(&provider_id);
+        self.config
+            .reduce(config::ConfigAction::ModelsFetched(models));
+        if self.should_fetch_remote_models(&provider_id, &auth_source) {
+            self.send_daemon_command(DaemonCommand::FetchModels {
+                provider_id,
+                base_url,
+                api_key,
+                output_modalities: Some("embedding".to_string()),
+            });
+        }
+        self.settings_picker_target = Some(SettingsPickerTarget::EmbeddingModel);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
         self.sync_model_picker_item_count();
@@ -515,6 +589,9 @@ impl TuiModel {
             SettingsPickerTarget::ImageGenerationProvider => {
                 widgets::provider_picker::available_provider_defs(&self.auth).len()
             }
+            SettingsPickerTarget::EmbeddingProvider => {
+                widgets::provider_picker::available_embedding_provider_defs(&self.auth).len()
+            }
             _ => widgets::provider_picker::available_provider_defs(&self.auth).len(),
         };
         self.modal.set_picker_item_count(item_count);
@@ -553,6 +630,7 @@ impl TuiModel {
             SettingsPickerTarget::ImageGenerationModel => {
                 (self.config.image_generation_model(), None)
             }
+            SettingsPickerTarget::EmbeddingModel => (self.config.semantic_embedding_model(), None),
             SettingsPickerTarget::CompactionWelesModel => {
                 (self.config.compaction_weles_model.clone(), None)
             }
@@ -583,7 +661,8 @@ impl TuiModel {
         {
             SettingsPickerTarget::AudioSttModel
             | SettingsPickerTarget::AudioTtsModel
-            | SettingsPickerTarget::ImageGenerationModel => {
+            | SettingsPickerTarget::ImageGenerationModel
+            | SettingsPickerTarget::EmbeddingModel => {
                 let (endpoint, provider_id) = match self
                     .settings_picker_target
                     .unwrap_or(SettingsPickerTarget::Model)
@@ -597,10 +676,14 @@ impl TuiModel {
                     SettingsPickerTarget::ImageGenerationModel => {
                         ("image_generation", self.config.image_generation_provider())
                     }
+                    SettingsPickerTarget::EmbeddingModel => {
+                        ("embedding", self.config.semantic_embedding_provider())
+                    }
                     _ => unreachable!(),
                 };
                 let mut models = match endpoint {
                     "image_generation" => Self::image_generation_catalog_models(&provider_id),
+                    "embedding" => Self::embedding_catalog_models(&provider_id),
                     _ => Self::audio_catalog_models(endpoint, &provider_id),
                 };
                 for model in self.config.fetched_models() {
@@ -619,6 +702,15 @@ impl TuiModel {
                             )
                             .image_generation
                         }
+                        "embedding" => model.id.to_ascii_lowercase().contains("embedding")
+                            || model.id.to_ascii_lowercase().contains("embed")
+                            || model
+                                .metadata
+                                .as_ref()
+                                .map(|metadata| {
+                                    metadata.to_string().to_ascii_lowercase().contains("embedding")
+                                })
+                                .unwrap_or(false),
                         _ => Self::fetched_model_supports_audio_endpoint(model, endpoint),
                     };
                     if include
@@ -688,6 +780,20 @@ impl TuiModel {
                     &self.config.image_generation_model(),
                 );
                 self.status_line = "Enter image generation model ID".to_string();
+            }
+            SettingsPickerTarget::EmbeddingModel => {
+                if self.modal.top() != Some(modal::ModalKind::Settings) {
+                    self.modal
+                        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+                }
+                self.settings
+                    .reduce(SettingsAction::SwitchTab(SettingsTab::Features));
+                self.settings_navigate_to(27);
+                self.settings.start_editing(
+                    "feat_embedding_model",
+                    &self.config.semantic_embedding_model(),
+                );
+                self.status_line = "Enter embedding model ID".to_string();
             }
             SettingsPickerTarget::BuiltinPersonaModel => {
                 self.status_line =

@@ -3,6 +3,10 @@ name = "zorai-daemon"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["lancedb-vector"]
+lancedb-vector = ["dep:lancedb", "dep:arrow-array", "dep:arrow-schema"]
+
 [[bin]]
 name = "zorai-daemon"
 path = "src/main.rs"
@@ -62,10 +66,9 @@ wa-rs-ureq-http = "0.2.0"
 async-trait = "0.1.89"
 qrcode = "0.14"
 ureq = { version = "3", features = ["json"] }
-lancedb = { workspace = true }
-arrow-array = { workspace = true }
-arrow-schema = { workspace = true }
-tantivy = "0.24.2"
+lancedb = { workspace = true, optional = true }
+arrow-array = { workspace = true, optional = true }
+arrow-schema = { workspace = true, optional = true }
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]

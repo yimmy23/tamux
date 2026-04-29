@@ -7,6 +7,7 @@ import {
   isOperatorProfileSessionCompleted,
   isOperatorProfileSessionStarted,
   parseOperatorProfileSummary,
+  type OperatorProfileQuestion,
 } from "./operatorProfile";
 import type { AgentState, AgentStoreGet, AgentStoreSet } from "./storeTypes";
 
@@ -40,6 +41,15 @@ function setOperatorProfileError(set: AgentStoreSet, error: unknown): void {
   }));
 }
 
+function clearOperatorProfileLoading(set: AgentStoreSet): void {
+  set((state) => ({
+    operatorProfile: {
+      ...state.operatorProfile,
+      loading: false,
+    },
+  }));
+}
+
 function setOperatorProfileCompleted(set: AgentStoreSet): void {
   set((state) => ({
     operatorProfile: {
@@ -54,12 +64,27 @@ function setOperatorProfileCompleted(set: AgentStoreSet): void {
   }));
 }
 
+function isOperatorProfileAck(value: unknown): value is { ok: true } {
+  return Boolean(value && typeof value === "object" && (value as { ok?: unknown }).ok === true);
+}
+
 export function createOperatorProfileAsyncActions(
   set: AgentStoreSet,
   get: AgentStoreGet,
 ): Pick<AgentState, OperatorProfileAsyncActionKeys> {
+  let operatorProfileSessionStartPromise: Promise<OperatorProfileQuestion | null> | null = null;
+  let operatorProfileOnboardingStartPromise: Promise<void> | null = null;
+
   return {
     startOperatorProfileSession: async (kind = "first_run_onboarding") => {
+      if (operatorProfileSessionStartPromise) {
+        return operatorProfileSessionStartPromise;
+      }
+      const current = get().operatorProfile;
+      if (current.loading) {
+        return current.question;
+      }
+      operatorProfileSessionStartPromise = (async () => {
       const bridge = getBridge();
       if (!bridge?.agentStartOperatorProfileSession) {
         setOperatorProfileError(set, "Operator profile bridge not available");
@@ -91,13 +116,25 @@ export function createOperatorProfileAsyncActions(
             error: null,
             sessionId: started.session_id,
             sessionKind: typeof started.kind === "string" ? started.kind : kind,
-            question: null,
+            question: state.operatorProfile.question?.session_id === started.session_id
+              ? state.operatorProfile.question
+              : null,
           },
         }));
+        const currentQuestion = get().operatorProfile.question;
+        if (currentQuestion?.session_id === started.session_id) {
+          return currentQuestion;
+        }
         return await get().fetchNextOperatorProfileQuestion(started.session_id);
       } catch (error) {
         setOperatorProfileError(set, error);
         return null;
+      }
+      })();
+      try {
+        return await operatorProfileSessionStartPromise;
+      } finally {
+        operatorProfileSessionStartPromise = null;
       }
     },
     fetchNextOperatorProfileQuestion: async (sessionId) => {
@@ -160,6 +197,23 @@ export function createOperatorProfileAsyncActions(
           await get().getOperatorProfileSummary();
           return;
         }
+        if (isOperatorProfileQuestion(response)) {
+          set((current) => ({
+            operatorProfile: {
+              ...current.operatorProfile,
+              loading: false,
+              panelOpen: true,
+              error: null,
+              sessionId: response.session_id,
+              question: response,
+            },
+          }));
+          return;
+        }
+        if (isOperatorProfileAck(response)) {
+          clearOperatorProfileLoading(set);
+          return;
+        }
         if (!isOperatorProfileProgress(response)) {
           setOperatorProfileLoading(set, false, "Unexpected operator profile progress response");
           return;
@@ -196,6 +250,23 @@ export function createOperatorProfileAsyncActions(
         if (isOperatorProfileSessionCompleted(response)) {
           setOperatorProfileCompleted(set);
           await get().getOperatorProfileSummary();
+          return;
+        }
+        if (isOperatorProfileQuestion(response)) {
+          set((current) => ({
+            operatorProfile: {
+              ...current.operatorProfile,
+              loading: false,
+              panelOpen: true,
+              error: null,
+              sessionId: response.session_id,
+              question: response,
+            },
+          }));
+          return;
+        }
+        if (isOperatorProfileAck(response)) {
+          clearOperatorProfileLoading(set);
           return;
         }
         if (!isOperatorProfileProgress(response)) {
@@ -236,6 +307,23 @@ export function createOperatorProfileAsyncActions(
           await get().getOperatorProfileSummary();
           return;
         }
+        if (isOperatorProfileQuestion(response)) {
+          set((current) => ({
+            operatorProfile: {
+              ...current.operatorProfile,
+              loading: false,
+              panelOpen: true,
+              error: null,
+              sessionId: response.session_id,
+              question: response,
+            },
+          }));
+          return;
+        }
+        if (isOperatorProfileAck(response)) {
+          clearOperatorProfileLoading(set);
+          return;
+        }
         if (!isOperatorProfileProgress(response)) {
           setOperatorProfileLoading(set, false, "Unexpected operator profile progress response");
           return;
@@ -267,12 +355,12 @@ export function createOperatorProfileAsyncActions(
       try {
         const response = await bridge.agentGetOperatorProfileSummary();
         if (isOperatorProfileError(response)) {
-          setOperatorProfileLoading(set, false, response.error);
+          clearOperatorProfileLoading(set);
           return null;
         }
         const summary = parseOperatorProfileSummary(response);
         if (!summary) {
-          setOperatorProfileLoading(set, false, "Unexpected operator profile summary response");
+          clearOperatorProfileLoading(set);
           return null;
         }
         set((state) => ({
@@ -284,7 +372,7 @@ export function createOperatorProfileAsyncActions(
         }));
         return summary;
       } catch (error) {
-        setOperatorProfileError(set, error);
+        clearOperatorProfileLoading(set);
         return null;
       }
     },
@@ -345,25 +433,39 @@ export function createOperatorProfileAsyncActions(
       }
     },
     maybeStartOperatorProfileOnboarding: async () => {
-      const current = get().operatorProfile;
-      if (current.sessionId || current.question) {
-        return;
+      if (operatorProfileOnboardingStartPromise) {
+        return operatorProfileOnboardingStartPromise;
       }
-      const bridge = getBridge();
-      if (!bridge?.agentStartOperatorProfileSession || !bridge?.agentGetOperatorProfileSummary) {
-        return;
+      operatorProfileOnboardingStartPromise = (async () => {
+        const current = get().operatorProfile;
+        if (current.loading || current.sessionId || current.question) {
+          return;
+        }
+        const bridge = getBridge();
+        if (!bridge?.agentStartOperatorProfileSession || !bridge?.agentGetOperatorProfileSummary) {
+          return;
+        }
+        const summary = await get().getOperatorProfileSummary();
+        if (hasRequiredOperatorProfileFields(summary)) {
+          set((state) => ({
+            operatorProfile: {
+              ...state.operatorProfile,
+              panelOpen: false,
+            },
+          }));
+          return;
+        }
+        const next = get().operatorProfile;
+        if (next.loading || next.sessionId || next.question) {
+          return;
+        }
+        await get().startOperatorProfileSession("first_run_onboarding");
+      })();
+      try {
+        return await operatorProfileOnboardingStartPromise;
+      } finally {
+        operatorProfileOnboardingStartPromise = null;
       }
-      const summary = await get().getOperatorProfileSummary();
-      if (hasRequiredOperatorProfileFields(summary)) {
-        set((state) => ({
-          operatorProfile: {
-            ...state.operatorProfile,
-            panelOpen: false,
-          },
-        }));
-        return;
-      }
-      await get().startOperatorProfileSession("first_run_onboarding");
     },
   };
 }

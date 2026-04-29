@@ -1,6 +1,6 @@
-use zorai_protocol::{ClientMessage, DaemonMessage, SessionInfo};
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
+use zorai_protocol::{ClientMessage, DaemonMessage, SessionInfo};
 
 use super::connection::{connect, roundtrip};
 

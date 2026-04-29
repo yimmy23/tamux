@@ -230,6 +230,7 @@ pub(super) fn extended_schema_sql() -> &'static str {
             CREATE TABLE IF NOT EXISTS memory_cluster_members (
                 cluster_id INTEGER NOT NULL,
                 node_id    TEXT NOT NULL,
+                deleted_at INTEGER,
                 PRIMARY KEY (cluster_id, node_id)
             );
             CREATE INDEX IF NOT EXISTS idx_memory_cluster_members_node ON memory_cluster_members(node_id, cluster_id);
@@ -304,14 +305,16 @@ pub(super) fn extended_schema_sql() -> &'static str {
             CREATE TABLE IF NOT EXISTS gateway_threads (
                 channel_key TEXT PRIMARY KEY,
                 thread_id   TEXT NOT NULL,
-                updated_at  INTEGER NOT NULL
+                updated_at  INTEGER NOT NULL,
+                deleted_at  INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_gateway_threads_updated ON gateway_threads(updated_at DESC);
 
             CREATE TABLE IF NOT EXISTS gateway_channel_modes (
                 channel_key TEXT PRIMARY KEY,
                 route_mode  TEXT NOT NULL,
-                updated_at  INTEGER NOT NULL
+                updated_at  INTEGER NOT NULL,
+                deleted_at  INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_gateway_channel_modes_updated ON gateway_channel_modes(updated_at DESC);
 
@@ -339,7 +342,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 metadata_json  TEXT,
                 last_reset_at  INTEGER,
                 last_linked_at INTEGER,
-                updated_at     INTEGER NOT NULL
+                updated_at     INTEGER NOT NULL,
+                deleted_at     INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_whatsapp_provider_state_updated ON whatsapp_provider_state(updated_at DESC);
 
@@ -347,7 +351,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 session_id   TEXT PRIMARY KEY,
                 kind         TEXT NOT NULL,
                 session_json TEXT NOT NULL,
-                updated_at   INTEGER NOT NULL
+                updated_at   INTEGER NOT NULL,
+                deleted_at   INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_operator_profile_sessions_updated ON operator_profile_sessions(updated_at DESC);
 
@@ -371,7 +376,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
             CREATE TABLE IF NOT EXISTS agent_config_items (
                 key_path   TEXT PRIMARY KEY,
                 value_json TEXT NOT NULL,
-                updated_at INTEGER NOT NULL
+                updated_at INTEGER NOT NULL,
+                deleted_at INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_agent_config_items_updated ON agent_config_items(updated_at DESC);
 
@@ -388,6 +394,7 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 auth_mode   TEXT NOT NULL,
                 state_json  TEXT NOT NULL,
                 updated_at  INTEGER NOT NULL,
+                deleted_at  INTEGER,
                 PRIMARY KEY (provider_id, auth_mode)
             );
             CREATE INDEX IF NOT EXISTS idx_provider_auth_state_updated ON provider_auth_state(updated_at DESC);
@@ -421,7 +428,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 mitigation_prompt     TEXT NOT NULL,
                 severity              REAL NOT NULL,
                 occurrence_count      INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (model_id) REFERENCES meta_cognition_model(id) ON DELETE CASCADE
+                deleted_at            INTEGER,
+                FOREIGN KEY (model_id) REFERENCES meta_cognition_model(id)
             );
             CREATE INDEX IF NOT EXISTS idx_cognitive_biases_model ON cognitive_biases(model_id, severity DESC);
 
@@ -432,7 +440,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 avg_success_rate   REAL NOT NULL,
                 avg_steps          INTEGER NOT NULL,
                 typical_tools_json TEXT NOT NULL,
-                FOREIGN KEY (model_id) REFERENCES meta_cognition_model(id) ON DELETE CASCADE
+                deleted_at         INTEGER,
+                FOREIGN KEY (model_id) REFERENCES meta_cognition_model(id)
             );
             CREATE INDEX IF NOT EXISTS idx_workflow_profiles_model ON workflow_profiles(model_id, avg_success_rate DESC);
 
@@ -448,7 +457,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 thread_id         TEXT,
                 goal_run_id       TEXT,
                 task_id           TEXT,
-                raw_data_json     TEXT
+                raw_data_json     TEXT,
+                deleted_at        INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_action_audit_ts ON action_audit(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_action_audit_type_ts ON action_audit(action_type, timestamp DESC);
@@ -463,7 +473,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 replaced_at INTEGER NOT NULL,
                 source_kind TEXT NOT NULL,
                 provenance_id TEXT,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                deleted_at INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_tombstones_created ON memory_tombstones(created_at);
             CREATE INDEX IF NOT EXISTS idx_tombstones_target ON memory_tombstones(target, created_at DESC);
@@ -471,7 +482,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
             CREATE TABLE IF NOT EXISTS consolidation_state (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
-                updated_at INTEGER NOT NULL
+                updated_at INTEGER NOT NULL,
+                deleted_at INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS offloaded_payloads (
@@ -483,14 +495,16 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 content_type  TEXT NOT NULL,
                 byte_size     INTEGER NOT NULL,
                 summary       TEXT NOT NULL,
-                created_at    INTEGER NOT NULL
+                created_at    INTEGER NOT NULL,
+                deleted_at    INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_offloaded_payloads_thread_created ON offloaded_payloads(thread_id, created_at DESC);
 
             CREATE TABLE IF NOT EXISTS thread_structural_memory (
                 thread_id   TEXT PRIMARY KEY,
                 state_json  TEXT NOT NULL,
-                updated_at  INTEGER NOT NULL
+                updated_at  INTEGER NOT NULL,
+                deleted_at  INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_thread_structural_memory_updated ON thread_structural_memory(updated_at DESC);
 
@@ -599,7 +613,7 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 actual_action    TEXT,
                 was_accepted     INTEGER,
                 accuracy_score   REAL,
-                FOREIGN KEY (pattern_id) REFERENCES temporal_patterns(id) ON DELETE CASCADE
+                FOREIGN KEY (pattern_id) REFERENCES temporal_patterns(id)
             );
             CREATE INDEX IF NOT EXISTS idx_temporal_predictions_pattern_predicted ON temporal_predictions(pattern_id, predicted_at_ms DESC);
 
@@ -611,7 +625,7 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 started_at_ms           INTEGER NOT NULL,
                 completed_at_ms         INTEGER,
                 was_used                INTEGER,
-                FOREIGN KEY (prediction_id) REFERENCES temporal_predictions(id) ON DELETE CASCADE
+                FOREIGN KEY (prediction_id) REFERENCES temporal_predictions(id)
             );
             CREATE INDEX IF NOT EXISTS idx_precomputation_log_prediction_started ON precomputation_log(prediction_id, started_at_ms DESC);
 
@@ -639,7 +653,7 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 score                         REAL NOT NULL,
                 threshold_met                 INTEGER NOT NULL,
                 created_at_ms                 INTEGER NOT NULL,
-                FOREIGN KEY (dream_cycle_id) REFERENCES dream_cycles(id) ON DELETE CASCADE
+                FOREIGN KEY (dream_cycle_id) REFERENCES dream_cycles(id)
             );
             CREATE INDEX IF NOT EXISTS idx_counterfactual_evaluations_cycle ON counterfactual_evaluations(dream_cycle_id, created_at_ms DESC);
 
@@ -688,8 +702,9 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 intent               TEXT NOT NULL,
                 tool_name            TEXT,
                 args_template_json   TEXT NOT NULL,
+                deleted_at           INTEGER,
                 PRIMARY KEY (protocol_id, step_index),
-                FOREIGN KEY (protocol_id) REFERENCES emergent_protocols(protocol_id) ON DELETE CASCADE
+                FOREIGN KEY (protocol_id) REFERENCES emergent_protocols(protocol_id)
             );
             CREATE INDEX IF NOT EXISTS idx_protocol_steps_protocol ON protocol_steps(protocol_id, step_index ASC);
 
@@ -700,7 +715,7 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 execution_time_ms  INTEGER,
                 success            INTEGER NOT NULL,
                 fallback_reason    TEXT,
-                FOREIGN KEY (protocol_id) REFERENCES emergent_protocols(protocol_id) ON DELETE CASCADE
+                FOREIGN KEY (protocol_id) REFERENCES emergent_protocols(protocol_id)
             );
             CREATE INDEX IF NOT EXISTS idx_protocol_usage_log_protocol_used ON protocol_usage_log(protocol_id, used_at DESC);
 
@@ -713,7 +728,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 install_source  TEXT NOT NULL DEFAULT 'local',
                 enabled         INTEGER NOT NULL DEFAULT 1,
                 installed_at    TEXT NOT NULL,
-                updated_at      TEXT NOT NULL
+                updated_at      TEXT NOT NULL,
+                deleted_at      INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS plugin_settings (
@@ -721,8 +737,9 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 key             TEXT NOT NULL,
                 value           TEXT NOT NULL,
                 is_secret       INTEGER NOT NULL DEFAULT 0,
+                deleted_at      INTEGER,
                 PRIMARY KEY (plugin_name, key),
-                FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
+                FOREIGN KEY (plugin_name) REFERENCES plugins(name)
             );
 
             CREATE TABLE IF NOT EXISTS plugin_credentials (
@@ -732,8 +749,9 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 expires_at       TEXT,
                 created_at       TEXT NOT NULL,
                 updated_at       TEXT NOT NULL,
+                deleted_at       INTEGER,
                 PRIMARY KEY (plugin_name, credential_type),
-                FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
+                FOREIGN KEY (plugin_name) REFERENCES plugins(name)
             );
 
             CREATE TABLE IF NOT EXISTS operator_profile_fields (
@@ -835,7 +853,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 next_run_at         INTEGER,
                 last_run_at         INTEGER,
                 created_at          INTEGER NOT NULL,
-                updated_at          INTEGER NOT NULL
+                updated_at          INTEGER NOT NULL,
+                deleted_at          INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_routine_definitions_enabled_next_run ON routine_definitions(enabled, next_run_at, updated_at DESC);
 

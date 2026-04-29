@@ -155,6 +155,42 @@ export function imageGenerationModelOptions(providerId: AgentProviderId): ModelD
   return [];
 }
 
+export function embeddingModelOptions(providerId: AgentProviderId): ModelDefinition[] {
+  if (providerId === "openai") {
+    return [
+      { id: "text-embedding-3-small", name: "Text Embedding 3 Small", contextWindow: 8192, modalities: ["embedding"] },
+      { id: "text-embedding-3-large", name: "Text Embedding 3 Large", contextWindow: 8192, modalities: ["embedding"] },
+    ];
+  }
+  if (providerId === "azure-openai" || providerId === "custom") {
+    return [
+      { id: "text-embedding-3-small", name: "Text Embedding 3 Small", contextWindow: 8192, modalities: ["embedding"] },
+    ];
+  }
+  return [];
+}
+
+export function normalizeEmbeddingModelForProviderChange(
+  providerId: AgentProviderId,
+  currentModel: string,
+): string {
+  const normalizedCurrentModel = currentModel.trim();
+  const knownEmbeddingModels = embeddingModelOptions(providerId);
+  if (knownEmbeddingModels.length > 0 && normalizedCurrentModel.length === 0) {
+    return knownEmbeddingModels[0]?.id ?? "";
+  }
+  if (knownEmbeddingModels.length > 0) {
+    return knownEmbeddingModels.some((model) => model.id === normalizedCurrentModel)
+      ? normalizedCurrentModel
+      : knownEmbeddingModels[0]?.id ?? "";
+  }
+  return "";
+}
+
+export function filterEmbeddingProviderOptions(providerOptions: ProviderOption[]): ProviderOption[] {
+  return providerOptions.filter((provider) => embeddingModelOptions(provider.id).length > 0);
+}
+
 export function normalizeImageGenerationModelForProviderChange(
   providerId: AgentProviderId,
   currentModel: string,

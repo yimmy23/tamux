@@ -39,6 +39,21 @@ pub struct GatewayConfig {
 fn default_provider() -> String {
     PROVIDER_ID_OPENAI.into()
 }
+fn default_embedding_provider() -> String {
+    PROVIDER_ID_OPENAI.into()
+}
+fn default_embedding_model() -> String {
+    "text-embedding-3-small".into()
+}
+fn default_embedding_dimensions() -> u32 {
+    1536
+}
+fn default_embedding_batch_size() -> u32 {
+    64
+}
+fn default_embedding_max_concurrency() -> u32 {
+    2
+}
 fn default_api_transport() -> ApiTransport {
     default_api_transport_for_provider(PROVIDER_ID_OPENAI)
 }
@@ -86,6 +101,9 @@ fn default_auto_compact_context() -> bool {
 }
 fn default_max_context_messages() -> u32 {
     100
+}
+fn default_participant_observer_restore_window_hours() -> u32 {
+    24
 }
 fn default_context_window_tokens() -> u32 {
     128_000
@@ -176,6 +194,8 @@ impl Default for AgentConfig {
             auto_retry: default_auto_retry(),
             auto_compact_context: default_auto_compact_context(),
             max_context_messages: default_max_context_messages(),
+            participant_observer_restore_window_hours:
+                default_participant_observer_restore_window_hours(),
             context_window_tokens: default_context_window_tokens(),
             compact_threshold_pct: default_compact_threshold_pct(),
             keep_recent_on_compact: default_keep_recent_on_compact(),
@@ -213,6 +233,7 @@ impl Default for AgentConfig {
             consolidation: ConsolidationConfig::default(),
             skill_discovery: SkillDiscoveryConfig::default(),
             skill_recommendation: SkillRecommendationConfig::default(),
+            semantic: SemanticConfig::default(),
             routing: RoutingConfig::default(),
             skill_promotion: SkillPromotionConfig::default(),
             tier: TierConfig::default(),
@@ -591,6 +612,42 @@ pub struct IntentPredictionPayload {
     pub confidence: f64,
     #[serde(default)]
     pub ranked_actions: Vec<IntentPredictionCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SpeculativeOpportunityStatus {
+    Queued,
+    Running,
+    Completed,
+    Expired,
+    Consumed,
+    Dropped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SpeculativeOpportunity {
+    pub id: String,
+    pub thread_id: Option<String>,
+    pub source_kind: String,
+    pub action_kind: String,
+    pub confidence: f64,
+    pub created_at_ms: u64,
+    pub expires_at_ms: u64,
+    pub status: SpeculativeOpportunityStatus,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SpeculativeResult {
+    pub opportunity_id: String,
+    pub action_kind: String,
+    pub thread_id: Option<String>,
+    pub summary: String,
+    pub artifact: serde_json::Value,
+    pub completed_at_ms: u64,
+    pub expires_at_ms: u64,
+    pub used_at_ms: Option<u64>,
+    pub precomputation_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

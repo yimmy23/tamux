@@ -67,6 +67,36 @@ fn heuristic_role_aliases(normalized: &str) -> &'static [&'static str] {
             &["planning", "planner", "plan", "strategy", "strategist"]
         }
         "research" | "researcher" | "investigator" => &["research", "researcher", "investigator"],
+        "medical" | "medicalresearch" | "medical researcher" | "clinical" => &[
+            "medical_research",
+            "medical research",
+            "medical-research",
+            "clinical",
+        ],
+        "finance" | "financial" | "financialanalyst" | "financial analyst" => &[
+            "financial_analysis",
+            "financial analysis",
+            "financial-analyst",
+            "finance",
+        ],
+        "legal" | "legalresearch" | "legal researcher" | "law" => {
+            &["legal_research", "legal research", "legal-research", "law"]
+        }
+        "art" | "artdirection" | "art direction" | "creative" => {
+            &["art_direction", "art direction", "art-director", "creative"]
+        }
+        "scientific" | "scientificreview" | "scientific review" | "science" => &[
+            "scientific_review",
+            "scientific review",
+            "scientific-reviewer",
+            "science",
+        ],
+        "marketing" | "productmarketing" | "product marketing" | "positioning" => &[
+            "product_marketing",
+            "product marketing",
+            "product-marketing-strategist",
+            "positioning",
+        ],
         "verify" | "verifier" | "review" | "reviewer" | "qa" => {
             &["verifier", "verify", "review", "reviewer", "qa"]
         }
@@ -472,6 +502,24 @@ mod tests {
         )
         .expect("resolver should match");
         assert_eq!(resolved.role_id(), "research");
+    }
+
+    #[test]
+    fn goal_local_resolver_matches_new_domain_role_aliases() {
+        let assignments = vec![sample_assignment(
+            "medical_research",
+            "openai",
+            "gpt-5.4-mini",
+        )];
+        let resolved = resolve_goal_binding_candidate(
+            "medical researcher",
+            "Review evidence",
+            "Compare guidelines and summarize uncertainty",
+            &assignments,
+            &[],
+        )
+        .expect("resolver should match new alias");
+        assert_eq!(resolved.role_id(), "medical_research");
     }
 
     #[test]

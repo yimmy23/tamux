@@ -1,9 +1,9 @@
 use super::*;
+use serde::Serialize;
 use zorai_protocol::{
     WorkspaceActor, WorkspaceNotice, WorkspacePriority, WorkspaceSettings, WorkspaceTask,
     WorkspaceTaskRuntimeHistoryEntry,
 };
-use serde::Serialize;
 
 #[derive(Serialize)]
 pub(super) struct WorkspaceMirror<'a> {

@@ -60,7 +60,7 @@ export function buildThreadFilterTabs(
     ) {
       continue;
     }
-    const id = normalizeAgentTabId(thread.agent_name);
+    const id = dynamicAgentTabId(thread.agent_name);
     if (id) dynamic.set(id, thread.agent_name || displayNameForAgentId(id));
   }
 
@@ -86,7 +86,7 @@ function matchesThreadTab(thread: AgentThread, tab: ThreadFilterTab, goalThreadI
   const isPlayground = haystack.includes("playground");
   const isInternal = haystack.includes("internal") || haystack.includes("concierge") || haystack.includes("daemon");
   const isGateway = ["slack", "discord", "telegram", "whatsapp"].some((source) => haystack.includes(source));
-  const agentId = normalizeAgentTabId(thread.agent_name) ?? "svarog";
+  const agentId = canonicalThreadAgentId(thread.agent_name);
 
   if (tab === "goals") return isGoal;
   if (tab === "workspace") return isWorkspace;
@@ -97,6 +97,24 @@ function matchesThreadTab(thread: AgentThread, tab: ThreadFilterTab, goalThreadI
   if (tab === "gateway") return isGateway;
   if (tab.startsWith("agent:")) return agentId === tab.slice("agent:".length);
   return agentId === "svarog" && !isGoal && !isWorkspace && !isWeles && !isRarog && !isPlayground && !isInternal && !isGateway;
+}
+
+function dynamicAgentTabId(value: string | null | undefined): string | null {
+  const agentId = canonicalThreadAgentId(value);
+  if (!agentId || ["svarog", "rarog", "concierge", "weles"].includes(agentId)) {
+    return null;
+  }
+  return agentId;
+}
+
+function canonicalThreadAgentId(value: string | null | undefined): string | null {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (["svarog", "swarog", "main", "main-agent", "zorai"].includes(normalized)) return "svarog";
+  if (normalized === "weles") return "weles";
+  if (normalized === "rarog") return "rarog";
+  if (normalized === "concierge") return "concierge";
+  return normalized.replace(/_builtin$/, "");
 }
 
 function normalizeAgentTabId(value: string | null | undefined): string | null {

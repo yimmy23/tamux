@@ -191,6 +191,23 @@ impl AgentEngine {
                     let thread_title = thread_row.title.clone();
                     let thread_metadata =
                         parse_thread_metadata(thread_row.metadata_json.as_deref());
+                    if let Some(raw_metadata) = thread_row.metadata_json.as_deref() {
+                        if let Some(compacted_metadata) =
+                            compact_thread_metadata_skill_discovery_query(raw_metadata)
+                        {
+                            if let Err(error) = self
+                                .history
+                                .update_thread_metadata_json(&thread_id, Some(compacted_metadata))
+                                .await
+                            {
+                                tracing::warn!(
+                                    thread_id = %thread_id,
+                                    %error,
+                                    "failed to compact persisted thread skill discovery metadata"
+                                );
+                            }
+                        }
+                    }
                     if let Some(client_surface) = thread_metadata.client_surface {
                         thread_client_surfaces.insert(thread_id.clone(), client_surface);
                     }
@@ -230,6 +247,27 @@ impl AgentEngine {
                         thread_row.created_at as u64,
                         thread_metadata.handoff_state,
                     );
+                    let hydrated_agent_name = visible_thread_owner_agent_name_for_handoff_state(
+                        &thread_id,
+                        &handoff_state,
+                        !thread_metadata.thread_participants.is_empty(),
+                    )
+                    .or_else(|| {
+                        thread_row
+                            .agent_name
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_string)
+                    })
+                    .or_else(|| {
+                        handoff_state
+                            .responder_stack
+                            .last()
+                            .map(|frame| frame.agent_name.trim())
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_string)
+                    });
                     let total_tokens = thread_row.total_tokens.max(0) as u64;
                     if thread_row.message_count > 0 {
                         thread_message_hydration_pending.insert(thread_id.clone());
@@ -251,20 +289,7 @@ impl AgentEngine {
                         thread_id.clone(),
                         AgentThread {
                             id: thread_id.clone(),
-                            agent_name: thread_row
-                                .agent_name
-                                .as_deref()
-                                .map(str::trim)
-                                .filter(|value| !value.is_empty())
-                                .map(str::to_string)
-                                .or_else(|| {
-                                    handoff_state
-                                        .responder_stack
-                                        .last()
-                                        .map(|frame| frame.agent_name.trim())
-                                        .filter(|value| !value.is_empty())
-                                        .map(str::to_string)
-                                }),
+                            agent_name: hydrated_agent_name,
                             title: thread_title,
                             messages: Vec::new(),
                             pinned: false,
@@ -650,10 +675,10 @@ impl AgentEngine {
             Err(error) => tracing::warn!("failed to load collaboration sessions: {error}"),
         }
 
-        // Seed built-in skill documents into ~/.zorai/skills/
-        seed_builtin_skills(&self.data_dir);
-        seed_builtin_guidelines(&self.data_dir);
-        self.schedule_builtin_skill_catalog_sync();
+        // Seed built-in skill documents into ~/.zorai/skills/ asynchronously so
+        // hydrate returns promptly and background startup work does not block
+        // daemon readiness.
+        self.schedule_builtin_skill_seed_and_catalog_sync();
 
         // Restore HeuristicStore from persistence (D-10)
         let heuristic_path = self.data_dir.join("heuristics.json");
@@ -894,9 +919,11 @@ impl AgentEngine {
             .collect()
     }
 
-    fn schedule_builtin_skill_catalog_sync(self: &Arc<Self>) {
+    fn schedule_builtin_skill_seed_and_catalog_sync(self: &Arc<Self>) {
         let engine = Arc::clone(self);
         tokio::spawn(async move {
+            seed_builtin_skills(&engine.data_dir);
+            seed_builtin_guidelines(&engine.data_dir);
             let skills_root = super::skills_dir(&engine.data_dir);
             if let Err(error) =
                 super::skill_recommendation::sync_skill_catalog(&engine.history, &skills_root).await

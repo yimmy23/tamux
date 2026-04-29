@@ -7,7 +7,6 @@
 //! Navigation uses crossterm arrow-key selection (not number input).
 //! Provider list is queried from the daemon at runtime (no hardcoded list).
 
-use zorai_protocol::{parse_whatsapp_allowed_contacts, ZoraiCodec, ClientMessage, DaemonMessage};
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::style::{self, Stylize};
@@ -15,6 +14,7 @@ use crossterm::terminal;
 use futures::{SinkExt, StreamExt};
 use std::io::{self, Write};
 use tokio_util::codec::Framed;
+use zorai_protocol::{parse_whatsapp_allowed_contacts, ClientMessage, DaemonMessage, ZoraiCodec};
 
 mod agents;
 mod flow;

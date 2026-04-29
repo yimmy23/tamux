@@ -3,6 +3,7 @@ import { useAgentChatPanelRuntime } from "@/components/agent-chat-panel/runtime/
 import {
   actorFromText,
   actorLabel,
+  chooseWorkspaceWithTasks,
   createWorkspaceTask,
   deleteWorkspaceTask,
   getWorkspaceSettings,
@@ -123,12 +124,27 @@ export function WorkspacesView() {
   const overlayTask = useMemo(() => tasks.find((task) => task.id === taskOverlay?.taskId) ?? null, [taskOverlay?.taskId, tasks]);
 
   const refresh = useCallback(async (nextWorkspaceId = workspaceId) => {
-    const [settings, taskList, noticeList] = await Promise.all([
-      getWorkspaceSettings(nextWorkspaceId),
-      listWorkspaceTasks(nextWorkspaceId, includeDeleted),
-      listWorkspaceNotices(nextWorkspaceId),
+    const settingsList = ensureMainWorkspace(await listWorkspaceSettings());
+    const taskEntries = await Promise.all(settingsList.map(async (workspace) => [
+      workspace.workspace_id,
+      await listWorkspaceTasks(workspace.workspace_id, includeDeleted),
+    ] as const));
+    const tasksByWorkspace = Object.fromEntries(taskEntries);
+    const selectedWorkspaceId = chooseWorkspaceWithTasks({
+      currentWorkspaceId: nextWorkspaceId,
+      defaultWorkspaceId: DEFAULT_WORKSPACE_ID,
+      workspaces: settingsList,
+      tasksByWorkspace,
+    });
+    if (selectedWorkspaceId !== nextWorkspaceId) {
+      setWorkspaceId(selectedWorkspaceId);
+    }
+    const taskList = tasksByWorkspace[selectedWorkspaceId] ?? [];
+    const [settings, noticeList] = await Promise.all([
+      getWorkspaceSettings(selectedWorkspaceId),
+      listWorkspaceNotices(selectedWorkspaceId),
     ]);
-    setOperator(settings?.operator ?? "user");
+    setOperator(settings?.operator ?? settingsList.find((workspace) => workspace.workspace_id === selectedWorkspaceId)?.operator ?? "user");
     setTasks(taskList);
     setNotices(noticeList);
     setStatusLine(`Loaded ${taskList.length} workspace tasks.`);

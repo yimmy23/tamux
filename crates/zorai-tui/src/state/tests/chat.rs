@@ -1052,6 +1052,133 @@ fn append_message_replaces_previous_concierge_welcome() {
 }
 
 #[test]
+fn append_message_does_not_duplicate_persisted_optimistic_user_tail() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Thread".into(),
+        total_message_count: 1,
+        loaded_message_start: 0,
+        loaded_message_end: 1,
+        messages: vec![AgentMessage {
+            id: Some("persisted-user".into()),
+            role: MessageRole::User,
+            content: "same prompt".into(),
+            timestamp: 100,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::User,
+            content: "same prompt".into(),
+            timestamp: 101,
+            ..Default::default()
+        },
+    });
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert_eq!(
+        thread.messages.len(),
+        1,
+        "optimistic user echo should collapse into the persisted message"
+    );
+    assert_eq!(thread.total_message_count, 1);
+    assert_eq!(thread.messages[0].id.as_deref(), Some("persisted-user"));
+}
+
+#[test]
+fn append_message_does_not_duplicate_adjacent_optimistic_user_tail() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Thread".into(),
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::User,
+            content: "same prompt".into(),
+            timestamp: 100,
+            ..Default::default()
+        },
+    });
+
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::User,
+            content: "same prompt".into(),
+            timestamp: 101,
+            ..Default::default()
+        },
+    });
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert_eq!(
+        thread.messages.len(),
+        1,
+        "double-submit optimistic user echo should collapse at the tail"
+    );
+    assert_eq!(thread.total_message_count, 1);
+}
+
+#[test]
+fn append_message_does_not_duplicate_persisted_normal_echo_after_optimistic_tail() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Thread".into(),
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::User,
+            content: "same prompt".into(),
+            timestamp: 100,
+            ..Default::default()
+        },
+    });
+
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            id: Some("persisted-user".into()),
+            role: MessageRole::User,
+            content: "same prompt".into(),
+            message_kind: "normal".into(),
+            timestamp: 101,
+            ..Default::default()
+        },
+    });
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert_eq!(
+        thread.messages.len(),
+        1,
+        "persisted normal echo should replace the optimistic user tail"
+    );
+    assert_eq!(thread.total_message_count, 1);
+    assert_eq!(thread.messages[0].id.as_deref(), Some("persisted-user"));
+    assert_eq!(thread.messages[0].message_kind, "normal");
+}
+
+#[test]
 fn dismiss_concierge_welcome_removes_only_welcome_messages() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {
@@ -1432,6 +1559,58 @@ fn thread_detail_refresh_preserves_finalized_stream_after_stale_user_snapshot() 
 }
 
 #[test]
+fn thread_detail_reload_with_short_tail_does_not_wipe_existing_messages() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 4,
+        loaded_message_start: 0,
+        loaded_message_end: 4,
+        messages: (0..4)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("existing {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 1,
+        loaded_message_start: 0,
+        loaded_message_end: 1,
+        messages: vec![AgentMessage {
+            id: Some("msg-new".into()),
+            role: MessageRole::User,
+            content: "new prompt after reload".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    let ids = thread
+        .messages
+        .iter()
+        .filter_map(|message| message.id.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec!["msg-0", "msg-1", "msg-2", "msg-3", "msg-new"],
+        "short reload snapshots should not replace already loaded history"
+    );
+}
+
+#[test]
 fn empty_thread_detail_does_not_wipe_existing_messages() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
@@ -1478,6 +1657,52 @@ fn empty_thread_detail_does_not_wipe_existing_messages() {
         Some("Follow up")
     );
     assert_eq!(thread.agent_name.as_deref(), Some("Dola"));
+}
+
+#[test]
+fn empty_thread_detail_preserves_paged_message_window() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Thread".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("visible {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Thread".into(),
+        profile_model: Some("gpt-5.5".into()),
+        ..Default::default()
+    }));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .unwrap();
+    assert_eq!(thread.messages.len(), 50);
+    assert_eq!(thread.total_message_count, 120);
+    assert_eq!(thread.loaded_message_start, 70);
+    assert_eq!(thread.loaded_message_end, 120);
+    assert_eq!(thread.profile_model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(
+        thread
+            .messages
+            .first()
+            .and_then(|message| message.id.as_deref()),
+        Some("msg-70")
+    );
 }
 
 #[test]

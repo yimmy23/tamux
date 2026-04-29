@@ -1,5 +1,5 @@
-use zorai_protocol::{WorkspaceActor, WorkspacePriority, WorkspaceTaskType};
 use anyhow::{bail, Result};
+use zorai_protocol::{WorkspaceActor, WorkspacePriority, WorkspaceTaskType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct WorkspaceCreateDraft {

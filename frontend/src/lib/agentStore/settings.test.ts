@@ -73,3 +73,13 @@ test("image generation settings prefer nested daemon config over legacy flat key
   expect(normalized.image_generation_provider).toBe("openai");
   expect(normalized.image_generation_model).toBe("gpt-image-1");
 });
+
+test("participant observer restore window defaults and preserves disabled sentinel", () => {
+  expect(DEFAULT_AGENT_SETTINGS.participant_observer_restore_window_hours).toBe(24);
+
+  const normalized = normalizeAgentSettingsFromSource({
+    participant_observer_restore_window_hours: 0,
+  });
+
+  expect(normalized.participant_observer_restore_window_hours).toBe(0);
+});

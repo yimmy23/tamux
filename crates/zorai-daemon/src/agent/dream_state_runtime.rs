@@ -76,7 +76,10 @@ impl AgentEngine {
             }
         }
 
-        if let Err(error) = self.persist_dream_hints(dream_hints.as_slice()).await {
+        if let Err(error) = self
+            .persist_dream_hints(dream_hints.as_slice(), Some(cycle_id))
+            .await
+        {
             tracing::warn!(%error, "failed to persist dream-state hints");
         }
 
@@ -169,7 +172,11 @@ impl AgentEngine {
         tasks
     }
 
-    async fn persist_dream_hints(&self, hints: &[String]) -> anyhow::Result<usize> {
+    async fn persist_dream_hints(
+        &self,
+        hints: &[String],
+        dream_cycle_id: Option<i64>,
+    ) -> anyhow::Result<usize> {
         if hints.is_empty() {
             return Ok(0);
         }
@@ -181,6 +188,7 @@ impl AgentEngine {
             .await
             .unwrap_or_default();
         let mut applied = 0usize;
+        let mut persisted_hints = Vec::new();
 
         for hint in hints {
             let normalized_hint = super::forge::strip_forge_markup(hint);
@@ -205,10 +213,13 @@ impl AgentEngine {
             }
             existing = next;
             applied = applied.saturating_add(1);
+            persisted_hints.push(normalized_hint.trim().to_string());
         }
 
         if applied > 0 {
             tokio::fs::write(memory_path, existing).await?;
+            self.record_dream_hints_persisted(&scope_id, applied, &persisted_hints, dream_cycle_id)
+                .await;
         }
 
         Ok(applied)

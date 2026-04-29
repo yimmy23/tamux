@@ -1,5 +1,5 @@
-use zorai_protocol::{WorkspaceReviewSubmission, WorkspaceReviewVerdict, WorkspaceTaskStatus};
 use crossterm::event::{KeyCode, KeyModifiers};
+use zorai_protocol::{WorkspaceReviewSubmission, WorkspaceReviewVerdict, WorkspaceTaskStatus};
 
 use crate::state::{modal, DaemonCommand};
 

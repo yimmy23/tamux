@@ -177,6 +177,21 @@ impl TuiModel {
                 self.open_image_generation_model_picker();
                 true
             }
+            "feat_embedding_provider" => {
+                self.open_provider_picker(SettingsPickerTarget::EmbeddingProvider);
+                true
+            }
+            "feat_embedding_model" => {
+                self.open_embedding_model_picker();
+                true
+            }
+            "feat_embedding_dimensions" => {
+                self.settings.start_editing(
+                    "feat_embedding_dimensions",
+                    &self.config.semantic_embedding_dimensions().to_string(),
+                );
+                true
+            }
             _ => false,
         }
     }
@@ -225,6 +240,7 @@ impl TuiModel {
                 | "feat_skill_background_community_search"
                 | "feat_audio_stt_enabled"
                 | "feat_audio_tts_enabled"
+                | "feat_embedding_enabled"
                 | "whatsapp_link_device"
                 | "whatsapp_relink_device"
         ) || self.current_settings_field_name().starts_with("tool_")

@@ -65,6 +65,7 @@ impl AgentEngine {
                      WHERE goal_text = ?1
                        AND id != ?2
                        AND (agent_id = ?3 OR (?4 = 1 AND agent_id IS NULL))
+                       AND deleted_at IS NULL
                      ORDER BY created_at DESC
                      LIMIT 1",
                         params![goal_text, current_episode_id, agent_id, include_legacy],

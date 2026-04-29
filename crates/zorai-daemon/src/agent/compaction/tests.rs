@@ -1,12 +1,12 @@
 use super::*;
 use crate::agent::AgentEngine;
 use crate::session_manager::SessionManager;
+use std::fs;
+use tempfile::tempdir;
 use zorai_shared::providers::{
     PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI,
     PROVIDER_ID_OPENROUTER,
 };
-use std::fs;
-use tempfile::tempdir;
 
 fn sample_provider_config() -> ProviderConfig {
     ProviderConfig {
@@ -2182,8 +2182,37 @@ async fn conversational_compaction_still_uses_checkpoint_summary_path() {
             .cloned()
             .expect("thread should exist after compaction")
     };
-    assert_eq!(thread.messages.len(), 2);
+    assert_eq!(thread.messages.len(), 4);
+    assert_eq!(
+        thread.messages[0].content,
+        "Help me summarize the meeting decisions."
+    );
+    assert_eq!(
+        thread.messages[1].content,
+        "We already covered the budget and timeline updates."
+    );
     let artifact = compaction_artifact_message(&thread);
+    assert_eq!(
+        thread.messages[2].message_kind,
+        AgentMessageKind::CompactionArtifact
+    );
+    assert_eq!(
+        thread.messages[3].content,
+        "Continue the summary for the next participant."
+    );
+    let compacted = compact_messages_for_request(&thread.messages, &config, &provider);
+    assert_eq!(compacted.len(), 2);
+    assert_eq!(
+        compacted[0].content,
+        artifact
+            .compaction_payload
+            .clone()
+            .expect("artifact should carry hidden payload")
+    );
+    assert_eq!(
+        compacted[1].content,
+        "Continue the summary for the next participant."
+    );
     let payload = artifact
         .compaction_payload
         .as_deref()
@@ -2293,8 +2322,28 @@ async fn internal_dm_thread_uses_checkpoint_compaction_even_with_structural_stat
             .cloned()
             .expect("thread should exist after compaction")
     };
-    assert_eq!(thread.messages.len(), 2);
+    assert_eq!(thread.messages.len(), 4);
+    assert_eq!(
+        thread.messages[0].content,
+        "Review the recent governance exchange."
+    );
+    assert_eq!(thread.messages[1].content, "Tool result offloaded");
     let artifact = compaction_artifact_message(&thread);
+    assert_eq!(
+        thread.messages[2].message_kind,
+        AgentMessageKind::CompactionArtifact
+    );
+    assert_eq!(thread.messages[3].content, "Continue the discussion.");
+    let compacted = compact_messages_for_request(&thread.messages, &config, &provider);
+    assert_eq!(compacted.len(), 2);
+    assert_eq!(
+        compacted[0].content,
+        artifact
+            .compaction_payload
+            .clone()
+            .expect("artifact should carry hidden payload")
+    );
+    assert_eq!(compacted[1].content, "Continue the discussion.");
     let payload = artifact
         .compaction_payload
         .as_deref()

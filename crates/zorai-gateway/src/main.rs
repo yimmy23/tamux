@@ -21,9 +21,9 @@ mod telegram;
 #[cfg(test)]
 mod test_support;
 
-use zorai_protocol::GatewayBootstrapPayload;
 use anyhow::Result;
 use runtime::GatewayRuntime;
+use zorai_protocol::GatewayBootstrapPayload;
 
 pub use runtime::GatewayProvider;
 

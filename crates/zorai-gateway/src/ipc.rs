@@ -1,11 +1,11 @@
-use zorai_protocol::{
-    ZoraiCodec, ClientMessage, DaemonMessage, GatewayBootstrapPayload, GatewayRegistration,
-    GATEWAY_IPC_PROTOCOL_VERSION,
-};
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::codec::Framed;
+use zorai_protocol::{
+    ClientMessage, DaemonMessage, GatewayBootstrapPayload, GatewayRegistration, ZoraiCodec,
+    GATEWAY_IPC_PROTOCOL_VERSION,
+};
 
 use crate::runtime::DaemonConnection;
 

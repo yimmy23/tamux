@@ -5,18 +5,18 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use zorai_protocol::{
-    ClientMessage, DaemonMessage, GatewayBootstrapPayload, GatewayConnectionStatus,
-    GatewayContinuityState, GatewayCursorState, GatewayHealthState, GatewayIncomingEvent,
-    GatewayProviderBootstrap, GatewayRegistration, GatewayRouteMode, GatewayRouteModeState,
-    GatewayThreadBindingState, SessionInfo, GATEWAY_IPC_PROTOCOL_VERSION,
-};
 use anyhow::{Context, Result};
 use futures::SinkExt;
 use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::codec::Framed;
+use zorai_protocol::{
+    ClientMessage, DaemonMessage, GatewayBootstrapPayload, GatewayConnectionStatus,
+    GatewayContinuityState, GatewayCursorState, GatewayHealthState, GatewayIncomingEvent,
+    GatewayProviderBootstrap, GatewayRegistration, GatewayRouteMode, GatewayRouteModeState,
+    GatewayThreadBindingState, SessionInfo, GATEWAY_IPC_PROTOCOL_VERSION,
+};
 
 use crate::agent::skill_community::{
     export_skill, import_community_skill, prepare_publish, unpack_skill, ImportResult,
@@ -184,8 +184,10 @@ where
     use zorai_protocol::DaemonCodec;
     let mut framed = Framed::new(stream, DaemonCodec);
 
-    let mut attached_rxs: Vec<(zorai_protocol::SessionId, broadcast::Receiver<DaemonMessage>)> =
-        Vec::new();
+    let mut attached_rxs: Vec<(
+        zorai_protocol::SessionId,
+        broadcast::Receiver<DaemonMessage>,
+    )> = Vec::new();
     let mut client_agent_threads: HashSet<String> = HashSet::new();
     let mut last_concierge_welcome_fingerprint: Option<String> = None;
     let mut agent_event_rx: Option<broadcast::Receiver<crate::agent::types::AgentEvent>> = None;

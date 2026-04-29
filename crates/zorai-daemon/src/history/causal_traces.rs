@@ -133,28 +133,6 @@ impl HistoryStore {
         let causal_factors_json = causal_factors_json.to_string();
         let outcome_json = outcome_json.to_string();
         let model_used = model_used.map(str::to_string);
-        let search_document = super::search_index::SearchDocument {
-            source_kind: super::search_index::SearchSourceKind::CausalTrace,
-            source_id: id.clone(),
-            title: format!("causal trace {decision_type} {trace_family}"),
-            body: format!(
-                "{selected_json}\n{rejected_options_json}\n{causal_factors_json}\n{outcome_json}"
-            ),
-            tags: vec![decision_type.clone(), trace_family.clone()],
-            workspace_id: None,
-            thread_id: thread_id.clone(),
-            agent_id: model_used.clone(),
-            timestamp: created_at as i64,
-            metadata_json: Some(
-                serde_json::to_string(&serde_json::json!({
-                    "goal_run_id": goal_run_id.clone(),
-                    "task_id": task_id.clone(),
-                    "context_hash": context_hash.clone(),
-                    "model_used": model_used.clone(),
-                }))
-                .unwrap_or_else(|_| "{}".to_string()),
-            ),
-        };
         self.conn.call(move |conn| {
         conn.execute(
             "INSERT OR REPLACE INTO causal_traces (id, thread_id, goal_run_id, task_id, decision_type, trace_family, selected_json, rejected_options_json, context_hash, causal_factors_json, outcome_json, model_used, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
@@ -176,7 +154,6 @@ impl HistoryStore {
         )?;
         Ok(())
         }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        self.upsert_search_document(search_document);
         Ok(())
     }
 

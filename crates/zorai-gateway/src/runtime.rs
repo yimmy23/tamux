@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
+use anyhow::Result;
+use tokio::sync::mpsc;
 use zorai_protocol::{
     ClientMessage, DaemonMessage, GatewayAck, GatewayConnectionStatus, GatewayCursorState,
     GatewayHealthState, GatewayIncomingEvent, GatewayRouteModeState, GatewaySendRequest,
     GatewaySendResult, GatewayThreadBindingState,
 };
-use anyhow::Result;
-use tokio::sync::mpsc;
 
 use crate::router::GatewayMessage;
 use crate::state::GatewayRuntimeState;

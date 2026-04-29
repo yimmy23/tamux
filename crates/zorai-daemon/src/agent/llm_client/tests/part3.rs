@@ -366,7 +366,7 @@
         .expect("copilot validation should return models");
 
         assert!(models.len() > 10);
-        assert_eq!(models.first().map(|model| model.id.as_str()), Some("gpt-5.5"));
+        assert_eq!(models.first().map(|model| model.id.as_str()), Some("gpt-5.4"));
         assert!(models.iter().any(|model| model.id == "gpt-5.5"));
         assert!(models.iter().any(|model| model.id == "gpt-5.4"));
         assert!(models.iter().any(|model| model.id == "claude-sonnet-4.6"));
@@ -375,12 +375,26 @@
     }
 
     #[tokio::test]
-    async fn unsupported_provider_model_fetch_returns_empty_catalog() {
+    async fn provider_without_remote_model_fetch_returns_built_in_catalog() {
         let models = fetch_models("featherless", "http://127.0.0.1:9", "", None)
             .await
-            .expect("unsupported providers should not surface a fetch error");
+            .expect("providers with built-in-only catalogs should not surface a fetch error");
 
-        assert!(models.is_empty());
+        assert!(!models.is_empty());
+        assert_eq!(
+            models.first().map(|model| model.id.as_str()),
+            Some("meta-llama/Llama-3.3-70B-Instruct")
+        );
+        assert!(
+            models
+                .iter()
+                .any(|model| model.id == "Qwen/Qwen2.5-72B-Instruct")
+        );
+        assert!(
+            models
+                .iter()
+                .any(|model| model.id == "mistralai/Mistral-Small-24B-Instruct-2501")
+        );
     }
 
     #[tokio::test]

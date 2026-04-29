@@ -1,12 +1,12 @@
 #[cfg(test)]
 use super::*;
-use zorai_shared::providers::PROVIDER_ID_OPENAI;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex as StdMutex};
 use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::time::{timeout, Duration};
+use zorai_shared::providers::PROVIDER_ID_OPENAI;
 
 async fn spawn_recording_heartbeat_server(
     recorded_bodies: Arc<StdMutex<VecDeque<String>>>,
@@ -454,6 +454,129 @@ fn format_anticipatory_items_highlights_system_outcome_foresight_for_operator() 
     assert!(output.contains("build/test failure risk"));
     assert!(output.contains("prediction_type=stale_context"));
     assert!(output.contains("prediction_type=build_test_risk"));
+}
+
+#[test]
+fn format_speculative_summary_for_heartbeat_surfaces_low_noise_counts() {
+    let now = 10_000_u64;
+    let output = super::helpers::format_speculative_summary_for_heartbeat(
+        &[SpeculativeOpportunity {
+            id: "spec-q-1".to_string(),
+            thread_id: Some("thread-spec-1".to_string()),
+            source_kind: "intent_prediction".to_string(),
+            action_kind: "repo_context_refresh".to_string(),
+            confidence: 0.91,
+            created_at_ms: now,
+            expires_at_ms: now + 30_000,
+            status: SpeculativeOpportunityStatus::Queued,
+            summary: "prefetch repo context".to_string(),
+        }],
+        &[SpeculativeResult {
+            opportunity_id: "spec-q-1".to_string(),
+            action_kind: "repo_context_refresh".to_string(),
+            thread_id: Some("thread-spec-1".to_string()),
+            summary: "branch main; dirty=true".to_string(),
+            artifact: serde_json::json!({"summary": "branch main; dirty=true"}),
+            completed_at_ms: now - 500,
+            expires_at_ms: now + 60_000,
+            used_at_ms: None,
+            precomputation_id: Some(7),
+        }],
+        now,
+    )
+    .expect("speculative summary should be present");
+
+    assert!(output.contains("[speculative_execution]"));
+    assert!(output.contains("LOW-PRIORITY INFORMATIONAL"));
+    assert!(output.contains("queue_depth=1"));
+    assert!(output.contains("cached_results=1"));
+    assert!(output.contains("precomputed=1"));
+    assert!(output.contains("threads=thread-spec-1"));
+}
+
+#[test]
+fn format_speculative_summary_for_heartbeat_stays_low_noise_and_tracks_usage() {
+    let now = 20_000_u64;
+    let output = super::helpers::format_speculative_summary_for_heartbeat(
+        &[
+            SpeculativeOpportunity {
+                id: "spec-q-1".to_string(),
+                thread_id: Some("thread-a".to_string()),
+                source_kind: "intent_prediction".to_string(),
+                action_kind: "repo_context_refresh".to_string(),
+                confidence: 0.91,
+                created_at_ms: now,
+                expires_at_ms: now + 30_000,
+                status: SpeculativeOpportunityStatus::Queued,
+                summary: "prefetch repo context".to_string(),
+            },
+            SpeculativeOpportunity {
+                id: "spec-q-2".to_string(),
+                thread_id: Some("thread-b".to_string()),
+                source_kind: "system_outcome_foresight".to_string(),
+                action_kind: "repo_context_refresh".to_string(),
+                confidence: 0.88,
+                created_at_ms: now,
+                expires_at_ms: now + 30_000,
+                status: SpeculativeOpportunityStatus::Running,
+                summary: "prefetch second repo context".to_string(),
+            },
+        ],
+        &[SpeculativeResult {
+            opportunity_id: "spec-q-1".to_string(),
+            action_kind: "repo_context_refresh".to_string(),
+            thread_id: Some("thread-a".to_string()),
+            summary: "branch main; dirty=true; speculative".to_string(),
+            artifact: serde_json::json!({
+                "summary": "branch main; dirty=true; speculative",
+                "details": "long raw payload that should not be dumped into heartbeat"
+            }),
+            completed_at_ms: now - 100,
+            expires_at_ms: now + 60_000,
+            used_at_ms: Some(now - 50),
+            precomputation_id: Some(11),
+        }],
+        now,
+    )
+    .expect("speculative summary should be present");
+
+    assert!(output.contains("queue_depth=2"));
+    assert!(output.contains("cached_results=1"));
+    assert!(output.contains("used=1"));
+    assert!(!output.contains("long raw payload"));
+    assert!(!output.contains("artifact"));
+}
+
+#[test]
+fn format_speculative_summary_for_heartbeat_returns_none_when_no_active_state() {
+    let now = 30_000_u64;
+    let output = super::helpers::format_speculative_summary_for_heartbeat(
+        &[SpeculativeOpportunity {
+            id: "expired-opportunity".to_string(),
+            thread_id: Some("thread-old".to_string()),
+            source_kind: "intent_prediction".to_string(),
+            action_kind: "repo_context_refresh".to_string(),
+            confidence: 0.9,
+            created_at_ms: now - 10_000,
+            expires_at_ms: now - 1,
+            status: SpeculativeOpportunityStatus::Expired,
+            summary: "expired".to_string(),
+        }],
+        &[SpeculativeResult {
+            opportunity_id: "expired-opportunity".to_string(),
+            action_kind: "repo_context_refresh".to_string(),
+            thread_id: Some("thread-old".to_string()),
+            summary: "expired cached result".to_string(),
+            artifact: serde_json::json!({"summary": "expired cached result"}),
+            completed_at_ms: now - 5_000,
+            expires_at_ms: now - 1,
+            used_at_ms: None,
+            precomputation_id: None,
+        }],
+        now,
+    );
+
+    assert!(output.is_none());
 }
 
 #[test]

@@ -198,6 +198,13 @@ async fn maybe_emit_unknown_tool_synthesis_proposal_notice(
     if let Some(existing) =
         find_equivalent_generated_cli_tool(&agent.data_dir, &proposal).unwrap_or(None)
     {
+        if existing
+            .get("status")
+            .and_then(|value| value.as_str())
+            .is_none_or(|status| status != "new")
+        {
+            return;
+        }
         maybe_emit_existing_tool_status_notice(
             agent,
             event_tx,
@@ -254,6 +261,13 @@ async fn maybe_emit_successful_shell_synthesis_proposal_notice(
     if let Some(existing) =
         find_equivalent_generated_cli_tool(&agent.data_dir, &proposal).unwrap_or(None)
     {
+        if existing
+            .get("status")
+            .and_then(|value| value.as_str())
+            .is_some_and(|status| status == "new")
+        {
+            return;
+        }
         maybe_emit_existing_tool_status_notice(
             agent,
             event_tx,
@@ -763,12 +777,15 @@ fn apply_critique_modifications(
         }
         "switch_model" => {
             let requires_confirmation = !critique_bypass_confirmation
-                && critique_modifications.iter().any(|item| {
+                && (critique_modifications.iter().any(|item| {
                     let normalized = item.trim().to_ascii_lowercase();
                     normalized.contains("require explicit operator confirmation")
-                        || normalized.contains("persisted agent execution policy")
-                        || normalized.contains("provider or model")
-                });
+                })
+                    || critique_reasons.iter().any(|reason| {
+                        let normalized = reason.trim().to_ascii_lowercase();
+                        normalized.contains("persisted agent execution policy")
+                            || normalized.contains("provider or model reconfiguration")
+                    }));
             if requires_confirmation {
                 map.insert(
                     "__critique_requires_operator_confirmation".to_string(),
@@ -1355,6 +1372,8 @@ async fn prepare_tool_execution(
                 audit_id: Some(format!("critique_confirmation_{}", tool_call.id)),
             },
         )
+    } else if effective_tool_name.as_str() == "switch_model" {
+        crate::agent::weles_governance::direct_allow_decision(governance_classification.class)
     } else if crate::agent::agent_identity::is_weles_agent_scope(&active_scope_id) {
         crate::agent::weles_governance::internal_runtime_decision(
             &governance_classification,
@@ -1440,6 +1459,14 @@ async fn prepare_tool_execution(
         }
     };
     if !governance_decision.should_execute {
+        let mut review = governance_decision.review.clone();
+        annotate_review_with_critique(
+            &mut review,
+            critique_session_id.as_deref(),
+            critique_decision.as_deref(),
+            &critique_adjustments,
+            critique_report_summary.as_deref(),
+        );
         return Err(ToolResult {
             tool_call_id: tool_call.id.clone(),
             name: tool_call.function.name.clone(),
@@ -1447,7 +1474,7 @@ async fn prepare_tool_execution(
                 "Blocked by WELES governance before tool execution.".to_string()
             }),
             is_error: true,
-            weles_review: Some(governance_decision.review),
+            weles_review: Some(review),
             pending_approval: None,
         });
     }
@@ -1791,7 +1818,7 @@ async fn dispatch_tool_execution(
         "get_system_info" => execute_system_info().await,
         "get_current_datetime" => execute_current_datetime().await,
         "list_processes" => execute_list_processes(args).await,
-        "search_history" => execute_search_history(args, session_manager).await,
+        "search_history" => execute_search_history(args, agent).await,
         "fetch_gateway_history" => execute_fetch_gateway_history(args, agent, thread_id).await,
         "session_search" => execute_session_search(args, session_manager).await,
         "agent_query_memory" => execute_agent_query_memory(args, agent).await,

@@ -141,8 +141,10 @@ async fn persisted_assistant_messages_reload_upstream_message_metadata() {
     let manager = SessionManager::new_test(root.path()).await;
     let reloaded_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
     reloaded_engine.hydrate().await.expect("hydrate");
-    let threads = reloaded_engine.threads.read().await;
-    let thread = threads.get(thread_id).expect("thread should reload");
+    let thread = reloaded_engine
+        .get_thread(thread_id)
+        .await
+        .expect("thread should reload");
     let assistant = thread
         .messages
         .iter()

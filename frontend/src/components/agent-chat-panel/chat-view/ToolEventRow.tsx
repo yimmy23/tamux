@@ -44,7 +44,7 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
     };
 
   return (
-    <div style={{ border: "1px solid rgba(255,255,255,0.1)", padding: 8, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word", display: "flex", flexDirection: "column", gap: 6, borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.01)" }}>
+    <div style={{ border: "1px solid rgba(255,255,255,0.1)", padding: 8, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere", display: "flex", flexDirection: "column", gap: 6, borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.01)", minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }}>
       <button
         type="button"
         onClick={() => setCollapsed((prev) => !prev)}
@@ -60,12 +60,13 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
           alignItems: "center",
           width: "100%",
           gap: 8,
+          minWidth: 0,
         }}
       >
         <span style={{ color: "#DE600A" }}>{collapsed ? "▸" : "▾"}</span>
-        <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "center", justifyContent: "space-between", flex: 1 }}>
-          <span>{group.toolName}</span>
-          <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "flex-start", fontSize: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "center", justifyContent: "space-between", flex: 1, minWidth: 0 }}>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.toolName}</span>
+          <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "flex-start", fontSize: 8, flexShrink: 0 }}>
             {reviewPresentation && (
               <span
                 style={{
@@ -99,7 +100,7 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
       </button>
 
       {!collapsed && (
-        <div style={{ display: "grid", gap: 6 }}>
+        <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
           {reviewPresentation && (
             <div
               style={{
@@ -144,7 +145,7 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
           ) : group.toolArguments ? (
             <div>
               <div style={{ color: "var(--text-muted)", fontSize: 11 }}>args</div>
-              <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-primary)", whiteSpace: "pre-wrap", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>
+              <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-primary)", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere", overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>
                 {(() => {
                   try {
                     return JSON.stringify(JSON.parse(group.toolArguments), null, 2);

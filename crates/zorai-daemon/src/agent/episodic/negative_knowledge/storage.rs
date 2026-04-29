@@ -55,6 +55,7 @@ pub(crate) fn load_all_active_constraints(
          FROM negative_knowledge
          WHERE (agent_id = ?1 OR (?2 = 1 AND agent_id IS NULL))
            AND (valid_until IS NULL OR valid_until > ?3)
+           AND deleted_at IS NULL
          ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map(params![agent_id, include_legacy, now_ms], row_to_constraint)?;
@@ -80,8 +81,8 @@ pub(crate) fn persist_constraint(
         "INSERT OR REPLACE INTO negative_knowledge
          (id, agent_id, episode_id, constraint_type, subject, solution_class,
           description, confidence, state, evidence_count, direct_observation,
-          derived_from_constraint_ids, related_subject_tokens, valid_until, created_at)
-          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+          derived_from_constraint_ids, related_subject_tokens, valid_until, created_at, deleted_at)
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, NULL)",
         params![
             constraint.id,
             agent_id,
@@ -119,8 +120,8 @@ pub(crate) fn persist_constraint_in_transaction(
         "INSERT OR REPLACE INTO negative_knowledge
          (id, agent_id, episode_id, constraint_type, subject, solution_class,
           description, confidence, state, evidence_count, direct_observation,
-          derived_from_constraint_ids, related_subject_tokens, valid_until, created_at)
-          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+          derived_from_constraint_ids, related_subject_tokens, valid_until, created_at, deleted_at)
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, NULL)",
         params![
             constraint.id,
             agent_id,

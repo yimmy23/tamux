@@ -36,6 +36,7 @@ mod critique;
 mod debate;
 mod dispatcher;
 mod dream_state_runtime;
+mod embedding_indexer;
 mod emergent_protocol;
 mod engine;
 mod engine_runtime;

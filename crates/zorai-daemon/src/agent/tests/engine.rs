@@ -1,11 +1,11 @@
 #[cfg(test)]
 use super::*;
-use zorai_shared::providers::{
-    PROVIDER_ID_CHATGPT_SUBSCRIPTION, PROVIDER_ID_CUSTOM, PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI,
-};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use zorai_shared::providers::{
+    PROVIDER_ID_CHATGPT_SUBSCRIPTION, PROVIDER_ID_CUSTOM, PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI,
+};
 
 async fn make_test_engine(config: AgentConfig) -> (Arc<AgentEngine>, TempDir) {
     let temp_dir = TempDir::new().expect("temp dir");

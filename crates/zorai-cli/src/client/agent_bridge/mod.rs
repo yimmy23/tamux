@@ -1,10 +1,10 @@
 mod commands;
 pub(super) mod events;
 
-use zorai_protocol::ClientMessage;
 use anyhow::Result;
 use futures::SinkExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use zorai_protocol::ClientMessage;
 
 use super::connection::connect;
 

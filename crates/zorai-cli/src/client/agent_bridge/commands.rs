@@ -1,7 +1,7 @@
-use zorai_protocol::{ZoraiCodec, ClientMessage};
 use anyhow::Result;
 use futures::SinkExt;
 use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, ZoraiCodec};
 
 use super::emit_agent_event;
 use crate::client::agent_protocol::AgentBridgeCommand;
@@ -796,11 +796,11 @@ where
 mod tests {
     use super::handle_line;
     use crate::client::agent_protocol::AgentBridgeCommand;
-    use zorai_protocol::{ZoraiCodec, ClientMessage, DaemonCodec};
     use bytes::BytesMut;
     use futures::{SinkExt, StreamExt};
     use tokio_util::codec::Framed;
     use tokio_util::codec::{Decoder, Encoder};
+    use zorai_protocol::{ClientMessage, DaemonCodec, ZoraiCodec};
 
     async fn emitted_client_message(line: &str) -> ClientMessage {
         let (client_side, server_side) = tokio::io::duplex(1024);
@@ -945,7 +945,10 @@ mod tests {
                 assert!(session_id.is_none());
                 assert!(context_messages_json.is_none());
                 assert!(content_blocks_json.is_none());
-                assert_eq!(client_surface, Some(zorai_protocol::ClientSurface::Electron));
+                assert_eq!(
+                    client_surface,
+                    Some(zorai_protocol::ClientSurface::Electron)
+                );
                 assert!(target_agent_id.is_none());
             }
             other => panic!("expected AgentSendMessage, got {other:?}"),
@@ -971,7 +974,10 @@ mod tests {
                 assert_eq!(target_agent_id, "weles");
                 assert_eq!(content, "verify this");
                 assert!(session_id.is_none());
-                assert_eq!(client_surface, Some(zorai_protocol::ClientSurface::Electron));
+                assert_eq!(
+                    client_surface,
+                    Some(zorai_protocol::ClientSurface::Electron)
+                );
             }
             other => panic!("expected AgentInternalDelegate, got {other:?}"),
         }
@@ -998,7 +1004,10 @@ mod tests {
                 assert_eq!(action, "upsert");
                 assert_eq!(instruction.as_deref(), Some("verify claims"));
                 assert!(session_id.is_none());
-                assert_eq!(client_surface, Some(zorai_protocol::ClientSurface::Electron));
+                assert_eq!(
+                    client_surface,
+                    Some(zorai_protocol::ClientSurface::Electron)
+                );
             }
             other => panic!("expected AgentThreadParticipantCommand, got {other:?}"),
         }

@@ -199,6 +199,7 @@ impl AgentEngine {
                          WHERE (agent_id = ?1 OR (?2 = 1 AND agent_id IS NULL))
                          AND (valid_until IS NULL OR valid_until > ?3)
                          AND (subject LIKE ?4 OR solution_class LIKE ?4)
+                         AND deleted_at IS NULL
                          ORDER BY created_at DESC
                          LIMIT 20",
                     )?;
@@ -219,6 +220,7 @@ impl AgentEngine {
                          FROM negative_knowledge
                          WHERE (agent_id = ?1 OR (?2 = 1 AND agent_id IS NULL))
                            AND (valid_until IS NULL OR valid_until > ?3)
+                           AND deleted_at IS NULL
                          ORDER BY created_at DESC
                          LIMIT 20",
                     )?;
@@ -245,8 +247,8 @@ impl AgentEngine {
             .conn
             .call(move |conn| {
                 let count = conn.execute(
-                    "DELETE FROM negative_knowledge WHERE valid_until IS NOT NULL AND valid_until <= ?1",
-                    params![now_ms],
+                    "UPDATE negative_knowledge SET deleted_at = ?2 WHERE valid_until IS NOT NULL AND valid_until <= ?1 AND deleted_at IS NULL",
+                    params![now_ms, now_ms],
                 )?;
                 Ok(count)
             })

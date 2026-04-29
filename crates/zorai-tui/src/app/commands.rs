@@ -71,7 +71,9 @@ fn next_workspace_status_for_commands(
     status: &zorai_protocol::WorkspaceTaskStatus,
 ) -> zorai_protocol::WorkspaceTaskStatus {
     match status {
-        zorai_protocol::WorkspaceTaskStatus::Todo => zorai_protocol::WorkspaceTaskStatus::InProgress,
+        zorai_protocol::WorkspaceTaskStatus::Todo => {
+            zorai_protocol::WorkspaceTaskStatus::InProgress
+        }
         zorai_protocol::WorkspaceTaskStatus::InProgress => {
             zorai_protocol::WorkspaceTaskStatus::InReview
         }
@@ -3630,6 +3632,38 @@ impl TuiModel {
             self.workspace_board_selection.as_ref(),
             delta,
         );
+        self.sync_workspace_board_scroll_to_selection();
+    }
+
+    pub(super) fn sync_workspace_board_scroll_to_selection(&mut self) {
+        let Some(target) = self.workspace_board_selection.as_ref() else {
+            return;
+        };
+        let chat_area = self.pane_layout().chat;
+        self.workspace_board_scroll = widgets::workspace_board::scroll_for_target(
+            chat_area,
+            &self.workspace,
+            &self.workspace_expanded_task_ids,
+            &self.workspace_board_scroll,
+            target,
+        );
+    }
+
+    pub(super) fn step_workspace_board_scroll_at(&mut self, position: Position, delta: i32) {
+        let chat_area = self.pane_layout().chat;
+        let Some(status) = widgets::workspace_board::column_status_at_position(
+            chat_area,
+            &self.workspace,
+            position,
+        ) else {
+            return;
+        };
+        self.workspace_board_scroll = widgets::workspace_board::stepped_scroll_for_status(
+            &self.workspace,
+            &self.workspace_board_scroll,
+            &status,
+            delta,
+        );
     }
 
     pub(super) fn activate_workspace_board_selection(&mut self) {
@@ -3730,6 +3764,7 @@ impl TuiModel {
                 } else {
                     self.status_line = "Expanded workspace task actions".to_string();
                 }
+                self.sync_workspace_board_scroll_to_selection();
             }
             widgets::workspace_board::WorkspaceBoardAction::RunBlocked => {
                 self.status_line = "Assign workspace task before running".to_string();

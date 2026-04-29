@@ -33,6 +33,7 @@ impl HistoryStore {
                         COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS missing_cost_rows
                      FROM agent_messages
                      WHERE role = 'assistant'
+                       AND deleted_at IS NULL
                        AND (?1 IS NULL OR created_at >= ?1)",
                 )?;
                 let row = stmt.query_row(params![cutoff_ms], |row| {
@@ -63,6 +64,7 @@ impl HistoryStore {
                         COALESCE(SUM(COALESCE(cost_usd, 0)), 0.0) AS cost_usd
                      FROM agent_messages
                      WHERE role = 'assistant'
+                       AND deleted_at IS NULL
                        AND (?1 IS NULL OR created_at >= ?1)
                      GROUP BY provider_key",
                 )?;
@@ -101,6 +103,7 @@ impl HistoryStore {
                         COALESCE(SUM(COALESCE(cost_usd, 0)), 0.0) AS cost_usd
                      FROM agent_messages
                      WHERE role = 'assistant'
+                       AND deleted_at IS NULL
                        AND (?1 IS NULL OR created_at >= ?1)
                        AND NOT (
                            (provider IS NULL OR TRIM(provider) = '')

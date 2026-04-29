@@ -1,11 +1,11 @@
 //! Pre-compaction memory flush for durable facts before older context is summarized away.
 
-use zorai_shared::providers::PROVIDER_ID_OPENAI;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use zorai_shared::providers::PROVIDER_ID_OPENAI;
 
-use zorai_protocol::SessionId;
 use futures::StreamExt;
+use zorai_protocol::SessionId;
 
 use super::llm_client::{messages_to_api_format, ApiContent, ApiMessage};
 use super::tool_executor::get_memory_flush_tools;

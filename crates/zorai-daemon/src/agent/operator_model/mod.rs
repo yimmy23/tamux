@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use zorai_protocol::ApprovalDecision;
 use serde::{Deserialize, Serialize};
+use zorai_protocol::ApprovalDecision;
 
 use super::*;
 

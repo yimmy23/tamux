@@ -208,6 +208,8 @@ pub struct AgentEngine {
     #[cfg(test)]
     pub(super) skill_discovery_test_runner:
         std::sync::OnceLock<Arc<dyn super::skill_preflight::SkillDiscoveryTestRunner>>,
+    #[cfg(test)]
+    pub(super) force_mesh_discovery_degraded_for_tests: std::sync::atomic::AtomicBool,
     pub(super) aline_startup_reconcile_started: std::sync::atomic::AtomicBool,
     pub(super) aline_startup_test_completion: std::sync::OnceLock<tokio::sync::watch::Sender<bool>>,
     #[cfg(test)]
@@ -434,6 +436,8 @@ impl AgentEngine {
             skill_discovery_result_tx,
             #[cfg(test)]
             skill_discovery_test_runner: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            force_mesh_discovery_degraded_for_tests: std::sync::atomic::AtomicBool::new(false),
             aline_startup_reconcile_started: std::sync::atomic::AtomicBool::new(false),
             aline_startup_test_completion: std::sync::OnceLock::new(),
             #[cfg(test)]

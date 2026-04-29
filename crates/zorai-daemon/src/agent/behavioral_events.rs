@@ -1,7 +1,7 @@
 //! Lightweight behavioral event bus backed by the existing agent_events store.
 
-use zorai_protocol::AgentEventRow;
 use serde_json::{json, Value};
+use zorai_protocol::AgentEventRow;
 
 use super::*;
 

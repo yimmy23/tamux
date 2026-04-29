@@ -1,12 +1,12 @@
-use zorai_protocol::{
-    ZoraiCodec, ApprovalDecision, ClientMessage, DaemonMessage, ManagedCommandRequest,
-    ManagedCommandSource, SecurityLevel,
-};
 use anyhow::{Context, Result};
 use base64::Engine;
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_util::codec::Framed;
+use zorai_protocol::{
+    ApprovalDecision, ClientMessage, DaemonMessage, ManagedCommandRequest, ManagedCommandSource,
+    SecurityLevel, ZoraiCodec,
+};
 
 use super::bridge_protocol::{emit_bridge_event, BridgeCommand, BridgeEvent};
 use super::connection::connect;

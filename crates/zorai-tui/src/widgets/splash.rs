@@ -17,15 +17,15 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
 
     // Logo with gradient
     let logo = Line::from(vec![
-        Span::styled("\u{2591}", Style::default().fg(Color::Indexed(24))),
-        Span::styled("\u{2592}", Style::default().fg(Color::Indexed(31))),
-        Span::styled("\u{2593}", Style::default().fg(Color::Indexed(38))),
-        Span::styled("\u{2588}", Style::default().fg(Color::Indexed(75))),
-        Span::styled(" T A M U X ", theme.accent_primary),
-        Span::styled("\u{2588}", Style::default().fg(Color::Indexed(75))),
-        Span::styled("\u{2593}", Style::default().fg(Color::Indexed(38))),
-        Span::styled("\u{2592}", Style::default().fg(Color::Indexed(31))),
-        Span::styled("\u{2591}", Style::default().fg(Color::Indexed(24))),
+        Span::styled("\u{2591}", Style::default().fg(Color::Yellow)),
+        Span::styled("\u{2592}", Style::default().fg(Color::LightYellow)),
+        Span::styled("\u{2593}", Style::default().fg(Color::LightYellow)),
+        Span::styled("\u{2588}", Style::default().fg(Color::Yellow)),
+        Span::styled(" Z o r a i ", theme.accent_primary),
+        Span::styled("\u{2588}", Style::default().fg(Color::Yellow)),
+        Span::styled("\u{2593}", Style::default().fg(Color::LightYellow)),
+        Span::styled("\u{2592}", Style::default().fg(Color::LightYellow)),
+        Span::styled("\u{2591}", Style::default().fg(Color::Yellow)),
     ]);
     lines.push(logo);
 

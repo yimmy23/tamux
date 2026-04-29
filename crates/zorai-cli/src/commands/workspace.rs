@@ -1,9 +1,9 @@
+use anyhow::{bail, Result};
 use zorai_protocol::{
     WorkspaceActor, WorkspaceNotice, WorkspaceOperator, WorkspacePriority,
     WorkspaceReviewSubmission, WorkspaceReviewVerdict, WorkspaceTask, WorkspaceTaskCreate,
     WorkspaceTaskMove, WorkspaceTaskStatus, WorkspaceTaskType, WorkspaceTaskUpdate,
 };
-use anyhow::{bail, Result};
 
 use crate::cli::WorkspaceAction;
 use crate::client;

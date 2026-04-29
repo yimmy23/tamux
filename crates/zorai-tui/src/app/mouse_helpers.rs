@@ -725,6 +725,9 @@ impl TuiModel {
                 modal::ModalKind::PromptViewer => {
                     self.step_prompt_modal_scroll(-3);
                 }
+                modal::ModalKind::WorkspaceEditTask => {
+                    self.step_workspace_edit_modal_scroll(-3);
+                }
                 modal::ModalKind::ThreadParticipants => {
                     self.step_thread_participants_modal_scroll(-3);
                 }
@@ -772,6 +775,9 @@ impl TuiModel {
                 }
                 modal::ModalKind::PromptViewer => {
                     self.step_prompt_modal_scroll(3);
+                }
+                modal::ModalKind::WorkspaceEditTask => {
+                    self.step_workspace_edit_modal_scroll(3);
                 }
                 modal::ModalKind::ThreadParticipants => {
                     self.step_thread_participants_modal_scroll(3);

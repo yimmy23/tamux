@@ -1,9 +1,9 @@
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use zorai_protocol::{
     ApprovalDecision, ApprovalPayload, HistorySearchHit, ManagedCommandSource,
     OscNotificationPayload, SnapshotInfo, SymbolMatch,
 };
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]

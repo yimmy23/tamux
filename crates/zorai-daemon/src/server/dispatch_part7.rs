@@ -189,7 +189,7 @@ if matches!(
                                 Some(operation.operation_id.clone()),
                                 background_daemon_tx,
                                 &mut background_daemon_pending,
-                                async move {
+                                Box::pin(async move {
                                     match agent.set_sub_agent(def).await {
                                         Ok(()) => {
                                             let updated_sub_agent_json = agent
@@ -211,7 +211,7 @@ if matches!(
                                             },
                                         ),
                                     }
-                                },
+                                }),
                             );
                         }
                         Err(e) => {

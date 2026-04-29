@@ -4,6 +4,7 @@ import type { SubAgentDefinition, AgentProviderId } from "../../lib/agentStore";
 import { getSubAgentCapabilities } from "../../lib/agentStore/providerActions";
 import { selectableProviderAuthStates } from "./agentTabHelpers";
 import { Section, SettingRow, ModelSelector, inputStyle, smallBtnStyle, addBtnStyle } from "./shared";
+import { SUB_AGENT_ROLE_PRESETS, findSubAgentRolePreset } from "./subAgentRolePresets";
 
 type SubAgentForm = {
     name: string;
@@ -19,39 +20,6 @@ type SubAgentForm = {
     max_duration_secs: string;
     reasoning_effort: string;
 };
-
-const ROLE_PRESETS = [
-    {
-        id: "code_review",
-        label: "Code Review",
-        system_prompt: "You are a code review specialist. Focus on correctness, regressions, security, edge cases, missing tests, and actionable fixes. Be concise and precise.",
-    },
-    {
-        id: "research",
-        label: "Research",
-        system_prompt: "You are a research specialist. Gather relevant code and runtime context, compare options, identify constraints, and return clear conclusions with supporting evidence.",
-    },
-    {
-        id: "testing",
-        label: "Testing",
-        system_prompt: "You are a testing specialist. Design focused verification, find reproducible failure cases, validate fixes, and call out remaining risks or missing coverage.",
-    },
-    {
-        id: "planning",
-        label: "Planning",
-        system_prompt: "You are a planning specialist. Break work into durable, ordered steps with clear dependencies, acceptance criteria, and realistic implementation boundaries.",
-    },
-    {
-        id: "documentation",
-        label: "Documentation",
-        system_prompt: "You are a documentation specialist. Produce clear developer-facing docs, explain behavior accurately, and keep examples aligned with the current implementation.",
-    },
-    {
-        id: "refactoring",
-        label: "Refactoring",
-        system_prompt: "You are a refactoring specialist. Improve structure and maintainability without changing behavior, preserve intent, and keep edits scoped and defensible.",
-    },
-] as const;
 
 const emptyForm: SubAgentForm = {
     name: "",
@@ -142,12 +110,12 @@ export function SubAgentsTab() {
     };
 
     const handleRoleChange = (nextRole: string) => {
-        const preset = ROLE_PRESETS.find((item) => item.id === nextRole);
-        const previousPreset = ROLE_PRESETS.find((item) => item.id === form.role);
+        const preset = findSubAgentRolePreset(nextRole);
+        const previousPreset = findSubAgentRolePreset(form.role);
         const shouldReplacePrompt = !form.system_prompt || (previousPreset && form.system_prompt === previousPreset.system_prompt);
         setForm({
             ...form,
-            role: nextRole,
+            role: preset?.id ?? nextRole,
             system_prompt: preset && shouldReplacePrompt ? preset.system_prompt : form.system_prompt,
         });
     };
@@ -313,7 +281,7 @@ export function SubAgentsTab() {
                                 style={{ ...inputStyle, width: 220 }}
                             >
                                 <option value="">None</option>
-                                {ROLE_PRESETS.map((preset) => (
+                                {SUB_AGENT_ROLE_PRESETS.map((preset) => (
                                     <option key={preset.id} value={preset.id}>{preset.label}</option>
                                 ))}
                             </select>

@@ -1819,6 +1819,7 @@ async fn execute_message_agent_visible_thread_continuation(
             thread_id,
             crate::agent::DeferredVisibleThreadContinuation {
                 agent_id: resolved_target_id.to_string(),
+                task_id: None,
                 preferred_session_hint: preferred_session_hint.clone(),
                 llm_user_content: continuation_prompt,
                 force_compaction: false,

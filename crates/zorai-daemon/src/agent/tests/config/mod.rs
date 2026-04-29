@@ -1,7 +1,7 @@
 use super::*;
 use crate::session_manager::SessionManager;
-use zorai_protocol::SecurityLevel;
 use tempfile::tempdir;
+use zorai_protocol::SecurityLevel;
 
 mod auth_states;
 mod builtin_registry;

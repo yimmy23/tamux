@@ -17,8 +17,8 @@ mod legacy;
 mod postprocess;
 use helpers::{
     check_quiet_window, check_type_to_action_type, format_anticipatory_items_for_heartbeat,
-    heartbeat_persistence_status, is_custom_item_due, parse_digest_items, should_broadcast,
-    should_run_check,
+    format_speculative_summary_for_heartbeat, heartbeat_persistence_status, is_custom_item_due,
+    parse_digest_items, should_broadcast, should_run_check,
 };
 #[cfg(test)]
 pub(crate) use helpers::{compute_check_priority, enabled_checks};
@@ -210,10 +210,29 @@ impl AgentEngine {
         // --- Phase 2.5: Gather anticipatory items for heartbeat merge (D-07, D-08, D-09) ---
         let (anticipatory_items, is_first_heartbeat) = self.get_anticipatory_for_heartbeat().await;
 
-        let anticipatory_summary = if anticipatory_items.is_empty() {
-            String::new()
-        } else {
-            format_anticipatory_items_for_heartbeat(&anticipatory_items)
+        let speculative_summary = {
+            let runtime = self.anticipatory.read().await;
+            let queued = runtime
+                .opportunity_queue
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            let cached = runtime
+                .speculative_results_by_thread
+                .values()
+                .flat_map(|results| results.iter().cloned())
+                .collect::<Vec<_>>();
+            format_speculative_summary_for_heartbeat(&queued, &cached, now)
+        };
+        let anticipatory_summary = {
+            let mut parts = Vec::new();
+            if !anticipatory_items.is_empty() {
+                parts.push(format_anticipatory_items_for_heartbeat(&anticipatory_items));
+            }
+            if let Some(speculative_summary) = speculative_summary {
+                parts.push(speculative_summary);
+            }
+            parts.join("\n")
         };
 
         let anticipatory_section = if anticipatory_summary.is_empty() {

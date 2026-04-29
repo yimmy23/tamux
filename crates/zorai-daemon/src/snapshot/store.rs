@@ -304,9 +304,9 @@ impl SnapshotStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zorai_protocol::SnapshotIndexEntry;
     use serde_json::json;
     use tempfile::tempdir;
+    use zorai_protocol::SnapshotIndexEntry;
 
     fn make_snapshot_entry(snapshot_id: &str, path: &Path, created_at: i64) -> SnapshotIndexEntry {
         SnapshotIndexEntry {

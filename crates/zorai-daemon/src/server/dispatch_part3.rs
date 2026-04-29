@@ -7,6 +7,11 @@ if matches!(
         ClientMessage::ListSnapshotIndex{ .. } |
         ClientMessage::UpsertAgentEvent{ .. } |
         ClientMessage::ListAgentEvents{ .. } |
+        ClientMessage::ListDatabaseTables |
+        ClientMessage::QueryDatabaseRows{ .. } |
+        ClientMessage::UpdateDatabaseRows{ .. } |
+        ClientMessage::QueueSemanticBackfill{ .. } |
+        ClientMessage::GetSemanticIndexStatus{ .. } |
         ClientMessage::GenerateSkill{ .. } |
         ClientMessage::FindSymbol{ .. } |
         ClientMessage::ListSnapshots{ .. } |
@@ -29,8 +34,19 @@ if matches!(
         ClientMessage::AgentDismissParticipantSuggestion{ .. }
     ) {
         match msg {
-                ClientMessage::ListAgentMessages { thread_id, limit } => {
-                    match manager.list_agent_messages(&thread_id, limit).await {
+                ClientMessage::ListAgentMessages {
+                    thread_id,
+                    limit,
+                    include_deleted,
+                } => {
+                    let list_result = if include_deleted {
+                        manager
+                            .list_agent_messages_with_deleted(&thread_id, limit)
+                            .await
+                    } else {
+                        manager.list_agent_messages(&thread_id, limit).await
+                    };
+                    match list_result {
                         Ok(messages) => {
                             let thread = manager.get_agent_thread(&thread_id).await?;
                             let ((thread_json, messages_json), truncated) =
@@ -195,6 +211,131 @@ if matches!(
                             }
                             framed
                                 .send(DaemonMessage::AgentEventRows { events_json })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::ListDatabaseTables => {
+                    match manager.list_database_tables().await {
+                        Ok(tables) => {
+                            let tables_json = serde_json::to_string(&tables).unwrap_or_default();
+                            framed
+                                .send(DaemonMessage::DatabaseTables { tables_json })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::QueryDatabaseRows {
+                    table_name,
+                    offset,
+                    limit,
+                    sort_column,
+                    sort_direction,
+                } => {
+                    match manager
+                        .query_database_table_rows(
+                            &table_name,
+                            offset,
+                            limit,
+                            sort_column.as_deref(),
+                            sort_direction.as_deref(),
+                        )
+                        .await
+                    {
+                        Ok(page) => {
+                            let rows_json = serde_json::to_string(&page).unwrap_or_default();
+                            framed.send(DaemonMessage::DatabaseRows { rows_json }).await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::UpdateDatabaseRows {
+                    table_name,
+                    updates_json,
+                } => {
+                    match serde_json::from_str::<Vec<crate::history::DatabaseRowUpdate>>(
+                        &updates_json,
+                    ) {
+                        Ok(updates) => match manager
+                            .update_database_table_rows(&table_name, updates)
+                            .await
+                        {
+                            Ok(updated_rows) => {
+                                framed
+                                    .send(DaemonMessage::DatabaseUpdateAck { updated_rows })
+                                    .await?;
+                            }
+                            Err(e) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: e.to_string(),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("invalid database update payload: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::QueueSemanticBackfill { limit } => {
+                    match manager.queue_semantic_backfill(limit).await {
+                        Ok(result) => {
+                            let result_json = serde_json::to_string(&result).unwrap_or_default();
+                            framed
+                                .send(DaemonMessage::SemanticBackfillQueued { result_json })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::GetSemanticIndexStatus {
+                    embedding_model,
+                    dimensions,
+                } => {
+                    match manager
+                        .semantic_index_status(&embedding_model, dimensions)
+                        .await
+                    {
+                        Ok(status) => {
+                            let status_json = serde_json::to_string(&status).unwrap_or_default();
+                            framed
+                                .send(DaemonMessage::SemanticIndexStatus { status_json })
                                 .await?;
                         }
                         Err(e) => {

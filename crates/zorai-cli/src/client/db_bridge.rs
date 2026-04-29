@@ -1,7 +1,7 @@
-use zorai_protocol::{ClientMessage, DaemonMessage};
 use anyhow::Result;
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncBufReadExt, BufReader};
+use zorai_protocol::{ClientMessage, DaemonMessage};
 
 use super::connection::connect;
 use super::db_protocol::DbBridgeCommand;
@@ -54,8 +54,16 @@ pub async fn run_db_bridge() -> Result<()> {
                             DbBridgeCommand::ListAgentThreads => {
                                 framed.send(ClientMessage::ListAgentThreads).await?;
                             }
-                            DbBridgeCommand::GetAgentThread { thread_id } => {
-                                framed.send(ClientMessage::GetAgentThread { thread_id }).await?;
+                            DbBridgeCommand::GetAgentThread {
+                                thread_id,
+                                include_deleted,
+                            } => {
+                                framed
+                                    .send(ClientMessage::GetAgentThread {
+                                        thread_id,
+                                        include_deleted,
+                                    })
+                                    .await?;
                             }
                             DbBridgeCommand::AddAgentMessage { message_json } => {
                                 framed.send(ClientMessage::AddAgentMessage { message_json }).await?;
@@ -63,8 +71,26 @@ pub async fn run_db_bridge() -> Result<()> {
                             DbBridgeCommand::DeleteAgentMessages { thread_id, message_ids } => {
                                 framed.send(ClientMessage::DeleteAgentMessages { thread_id, message_ids }).await?;
                             }
-                            DbBridgeCommand::ListAgentMessages { thread_id, limit } => {
-                                framed.send(ClientMessage::ListAgentMessages { thread_id, limit }).await?;
+                            DbBridgeCommand::RestoreAgentMessages { thread_id, message_ids } => {
+                                framed
+                                    .send(ClientMessage::RestoreAgentMessages {
+                                        thread_id,
+                                        message_ids,
+                                    })
+                                    .await?;
+                            }
+                            DbBridgeCommand::ListAgentMessages {
+                                thread_id,
+                                limit,
+                                include_deleted,
+                            } => {
+                                framed
+                                    .send(ClientMessage::ListAgentMessages {
+                                        thread_id,
+                                        limit,
+                                        include_deleted,
+                                    })
+                                    .await?;
                             }
                             DbBridgeCommand::UpsertTranscriptIndex { entry_json } => {
                                 framed.send(ClientMessage::UpsertTranscriptIndex { entry_json }).await?;
@@ -83,6 +109,21 @@ pub async fn run_db_bridge() -> Result<()> {
                             }
                             DbBridgeCommand::ListAgentEvents { category, pane_id, limit } => {
                                 framed.send(ClientMessage::ListAgentEvents { category, pane_id, limit }).await?;
+                            }
+                            DbBridgeCommand::ListDatabaseTables => {
+                                framed.send(ClientMessage::ListDatabaseTables).await?;
+                            }
+                            DbBridgeCommand::QueryDatabaseRows { table_name, offset, limit, sort_column, sort_direction } => {
+                                framed.send(ClientMessage::QueryDatabaseRows { table_name, offset, limit, sort_column, sort_direction }).await?;
+                            }
+                            DbBridgeCommand::UpdateDatabaseRows { table_name, updates_json } => {
+                                framed.send(ClientMessage::UpdateDatabaseRows { table_name, updates_json }).await?;
+                            }
+                            DbBridgeCommand::QueueSemanticBackfill { limit } => {
+                                framed.send(ClientMessage::QueueSemanticBackfill { limit }).await?;
+                            }
+                            DbBridgeCommand::GetSemanticIndexStatus { embedding_model, dimensions } => {
+                                framed.send(ClientMessage::GetSemanticIndexStatus { embedding_model, dimensions }).await?;
                             }
                             DbBridgeCommand::Shutdown => {
                                 break;
@@ -128,6 +169,26 @@ pub async fn run_db_bridge() -> Result<()> {
                     }
                     Some(Ok(DaemonMessage::AgentEventRows { events_json })) => {
                         let msg = serde_json::json!({"type":"agent-event-rows","data":serde_json::from_str::<serde_json::Value>(&events_json).unwrap_or_default()});
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::DatabaseTables { tables_json })) => {
+                        let msg = serde_json::json!({"type":"database-tables","data":serde_json::from_str::<serde_json::Value>(&tables_json).unwrap_or_default()});
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::DatabaseRows { rows_json })) => {
+                        let msg = serde_json::json!({"type":"database-rows","data":serde_json::from_str::<serde_json::Value>(&rows_json).unwrap_or_default()});
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::DatabaseUpdateAck { updated_rows })) => {
+                        let msg = serde_json::json!({"type":"database-update-ack","data":{"updatedRows":updated_rows}});
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::SemanticBackfillQueued { result_json })) => {
+                        let msg = serde_json::json!({"type":"semantic-backfill-queued","data":serde_json::from_str::<serde_json::Value>(&result_json).unwrap_or_default()});
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::SemanticIndexStatus { status_json })) => {
+                        let msg = serde_json::json!({"type":"semantic-index-status","data":serde_json::from_str::<serde_json::Value>(&status_json).unwrap_or_default()});
                         emit_db_event(&msg.to_string())?;
                     }
                     Some(Ok(DaemonMessage::Error { message })) => {

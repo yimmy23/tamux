@@ -1,8 +1,106 @@
 use super::*;
-use zorai_shared::providers::PROVIDER_ID_OPENAI;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Notify;
 use tokio::time::{timeout, Duration};
+use zorai_shared::providers::PROVIDER_ID_OPENAI;
+
+#[tokio::test]
+async fn participant_thread_hydration_preserves_visible_thread_owner_agent_name() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread_participant_owner_hydrate";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                title: "Participant owner hydrate".to_string(),
+                messages: vec![AgentMessage::user("continue", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    engine.thread_participants.write().await.insert(
+        thread_id.to_string(),
+        vec![ThreadParticipantState {
+            agent_id: "dola".to_string(),
+            agent_name: "Dola".to_string(),
+            instruction: "review continuation".to_string(),
+            status: ThreadParticipantStatus::Active,
+            created_at: 1,
+            updated_at: 1,
+            deactivated_at: None,
+            last_contribution_at: None,
+            always_auto_response: false,
+            last_observed_visible_message_at: None,
+        }],
+    );
+    engine
+        .set_thread_handoff_state(
+            thread_id,
+            ThreadHandoffState {
+                origin_agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                active_agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                responder_stack: vec![
+                    ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::MAIN_AGENT_NAME.to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    },
+                    ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::WELES_AGENT_NAME.to_string(),
+                        entered_at: 2,
+                        entered_via_handoff_event_id: Some("handoff-weles".to_string()),
+                        linked_thread_id: None,
+                    },
+                ],
+                events: Vec::new(),
+                pending_approval_id: None,
+            },
+        )
+        .await;
+    engine.persist_thread_by_id(thread_id).await;
+    drop(engine);
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let rehydrated = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    rehydrated.hydrate().await.expect("hydrate");
+    let thread = rehydrated
+        .get_thread(thread_id)
+        .await
+        .expect("thread should reload");
+
+    assert_eq!(
+        thread.agent_name.as_deref(),
+        Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+        "participant-managed visible thread should keep the owner label after reload"
+    );
+    assert_eq!(
+        rehydrated
+            .active_agent_id_for_thread(thread_id)
+            .await
+            .as_deref(),
+        Some(crate::agent::agent_identity::WELES_AGENT_ID),
+        "handoff state should still track the current responder separately"
+    );
+}
 
 #[tokio::test]
 async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
@@ -100,8 +198,10 @@ async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
     let manager = SessionManager::new_test(root.path()).await;
     let reloaded_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
     reloaded_engine.hydrate().await.expect("hydrate");
-    let threads = reloaded_engine.threads.read().await;
-    let thread = threads.get(thread_id).expect("thread should reload");
+    let thread = reloaded_engine
+        .get_thread(thread_id)
+        .await
+        .expect("thread should reload");
     let assistant = thread
         .messages
         .iter()

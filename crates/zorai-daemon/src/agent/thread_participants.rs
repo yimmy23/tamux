@@ -189,6 +189,7 @@ impl AgentEngine {
         Box::pin(self.continue_visible_thread_as_agent(
             thread_id,
             &continuation.agent_id,
+            continuation.task_id.as_deref(),
             continuation.preferred_session_hint.as_deref(),
             &continuation.llm_user_content,
             continuation.force_compaction,
@@ -432,8 +433,22 @@ impl AgentEngine {
     pub(in crate::agent) async fn enqueue_visible_thread_continuation(
         &self,
         thread_id: &str,
-        continuation: DeferredVisibleThreadContinuation,
+        mut continuation: DeferredVisibleThreadContinuation,
     ) {
+        if continuation.task_id.is_none() {
+            let tasks = self.tasks.lock().await;
+            continuation.task_id = tasks
+                .iter()
+                .rev()
+                .find(|task| {
+                    task.thread_id.as_deref() == Some(thread_id)
+                        && !matches!(
+                            task.status,
+                            TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
+                        )
+                })
+                .map(|task| task.id.clone());
+        }
         let mut queued = self.deferred_visible_thread_continuations.lock().await;
         queued
             .entry(thread_id.to_string())
@@ -492,6 +507,7 @@ impl AgentEngine {
         &self,
         thread_id: &str,
         agent_id: &str,
+        task_id: Option<&str>,
         preferred_session_hint: Option<&str>,
         llm_user_content: &str,
         force_compaction: bool,
@@ -503,9 +519,37 @@ impl AgentEngine {
 
         if force_compaction {
             let config = self.config.read().await.clone();
-            let provider_config = self.resolve_provider_config(&config)?;
+            let provider_config = if let Some(task_id) = task_id {
+                let override_provider = {
+                    let tasks = self.tasks.lock().await;
+                    tasks
+                        .iter()
+                        .find(|task| task.id == task_id)
+                        .and_then(|task| {
+                            task.override_provider.as_ref().map(|provider_id| {
+                                (provider_id.clone(), task.override_model.clone())
+                            })
+                        })
+                };
+                if let Some((provider_id, model_override)) = override_provider {
+                    let mut provider_config =
+                        self.resolve_sub_agent_provider_config(&config, &provider_id)?;
+                    if let Some(model_override) = model_override.as_deref() {
+                        apply_provider_model_override(
+                            &provider_id,
+                            &mut provider_config,
+                            model_override,
+                        );
+                    }
+                    provider_config
+                } else {
+                    self.resolve_provider_config(&config)?
+                }
+            } else {
+                self.resolve_provider_config(&config)?
+            };
             let compacted = self
-                .force_persist_compaction_artifact(thread_id, None, &config, &provider_config)
+                .force_persist_compaction_artifact(thread_id, task_id, &config, &provider_config)
                 .await?;
             if !compacted {
                 let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
@@ -540,7 +584,7 @@ impl AgentEngine {
                         &stored_user_content_for_turn,
                         &[],
                         &llm_user_content_for_turn,
-                        None,
+                        task_id,
                         preferred_session_hint,
                         None,
                         client_surface_for_turn,
@@ -556,7 +600,7 @@ impl AgentEngine {
                 current_thread_id = outcome.thread_id.clone();
                 current_llm_user_content = restart.llm_user_content;
                 current_agent_scope_id = self
-                    .agent_scope_id_for_turn(Some(&current_thread_id), None)
+                    .agent_scope_id_for_turn(Some(&current_thread_id), task_id)
                     .await;
                 continue;
             }
@@ -1121,6 +1165,7 @@ impl AgentEngine {
             thread_id,
             DeferredVisibleThreadContinuation {
                 agent_id: continuation_agent_id.clone(),
+                task_id: None,
                 preferred_session_hint: None,
                 llm_user_content: continuation_prompt,
                 force_compaction: false,
@@ -1529,6 +1574,7 @@ impl AgentEngine {
                 thread_id,
                 DeferredVisibleThreadContinuation {
                     agent_id: resolved_target_id.clone(),
+                    task_id: None,
                     preferred_session_hint: preferred_session_hint.map(str::to_string),
                     llm_user_content: continuation_prompt,
                     force_compaction: false,

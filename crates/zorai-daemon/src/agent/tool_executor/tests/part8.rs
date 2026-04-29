@@ -3445,12 +3445,12 @@ async fn allowlisted_small_tool_result_writes_preview_file_and_keeps_inline_cont
         )
         .await;
 
-    let preview_path = root
-        .path()
-        .join(".cache")
-        .join("tools")
-        .join("thread-thread-preview-small")
-        .join("bash_command-1700000120.txt");
+    let preview_path = engine.history.tool_output_preview_path(
+        "thread-preview-small",
+        None,
+        "bash_command",
+        1_700_000_120,
+    );
     assert_eq!(prepared.content, raw_payload);
     assert_eq!(prepared.offloaded_payload_id, None);
     assert_eq!(
@@ -3489,12 +3489,12 @@ async fn large_allowlisted_tool_result_keeps_preview_path_and_summary_content() 
         )
         .await;
 
-    let preview_path = root
-        .path()
-        .join(".cache")
-        .join("tools")
-        .join("thread-thread-preview-large")
-        .join("bash_command-1700000123.txt");
+    let preview_path = engine.history.tool_output_preview_path(
+        "thread-preview-large",
+        None,
+        "bash_command",
+        1_700_000_123,
+    );
     assert!(
         prepared.content.contains("Tool result saved to preview file"),
         "expected preview summary, got: {}",
@@ -3611,12 +3611,12 @@ async fn allowlisted_web_search_tool_result_writes_preview_file() {
         )
         .await;
 
-    let preview_path = root
-        .path()
-        .join(".cache")
-        .join("tools")
-        .join("thread-thread-web-preview")
-        .join("web_search-1700000124.txt");
+    let preview_path = engine.history.tool_output_preview_path(
+        "thread-web-preview",
+        None,
+        "web_search",
+        1_700_000_124,
+    );
     assert_eq!(prepared.content, raw_payload);
     assert_eq!(prepared.offloaded_payload_id, None);
     assert_eq!(
@@ -3724,9 +3724,13 @@ async fn large_read_offloaded_payload_result_stays_inline_in_thread_messages() {
 #[tokio::test]
 async fn allowlisted_tool_result_falls_back_to_inline_content_when_preview_write_fails() {
     let root = tempdir().expect("tempdir");
-    std::fs::create_dir_all(root.path().join(".cache")).expect("create cache parent");
-    std::fs::write(root.path().join(".cache").join("tools"), "blocked")
-        .expect("block preview directory creation");
+    let blocked_thread_dir = root
+        .path()
+        .join("threads")
+        .join("thread-inline-fallback");
+    std::fs::create_dir_all(&blocked_thread_dir).expect("create thread preview parent");
+    std::fs::write(blocked_thread_dir.join("artifacts"), "blocked")
+        .expect("block preview artifacts directory creation");
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.offload_tool_result_threshold_bytes = 8;
@@ -5660,6 +5664,40 @@ fn apply_critique_modifications_requires_confirmation_for_switch_model() {
 }
 
 #[test]
+fn apply_critique_modifications_requires_confirmation_for_switch_model_from_reason_only() {
+    let args = serde_json::json!({
+        "agent": "svarog",
+        "provider": "openai",
+        "model": "gpt-5.4"
+    });
+
+    let (adjusted, changes) = super::apply_critique_modifications(
+        "switch_model",
+        &args,
+        Some("proceed_with_modifications"),
+        &[
+            "provider or model reconfiguration mutates persisted agent execution policy"
+                .to_string(),
+        ],
+        &["Keep the action, but use safer constraints before execution.".to_string()],
+        &[],
+        None,
+    );
+
+    assert_eq!(
+        adjusted["__critique_requires_operator_confirmation"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        adjusted["__critique_confirmation_reason"].as_str(),
+        Some("switch_model")
+    );
+    assert!(changes
+        .iter()
+        .any(|item| item == "switch_model:require_operator_confirmation"));
+}
+
+#[test]
 fn apply_critique_modifications_requires_confirmation_for_plugin_api_call() {
     let args = serde_json::json!({
         "plugin_name": "ops_plugin",
@@ -6531,18 +6569,29 @@ async fn critique_modifications_narrow_sensitive_write_file_path_from_prose_only
 
     std::env::set_current_dir(&original_cwd).expect("restore cwd");
 
-    assert!(!result.is_error, "{}", result.content);
+    assert!(result.is_error, "expected stricter .env governance block");
     assert!(
-        workspace.join(".env").exists(),
-        "narrowed basename should resolve against neutral cwd"
+        result
+            .content
+            .contains("Blocked by WELES governance: file mutation targets a sensitive path"),
+        "{}",
+        result.content
+    );
+    assert!(
+        !workspace.join(".env").exists(),
+        "blocked execution should not write the narrowed basename into the neutral cwd"
     );
     assert!(
         !sensitive_path.exists(),
-        "critique should drop cwd anchoring so execution does not land in the original sensitive directory"
+        "blocked execution should not land in the original sensitive directory either"
     );
     let review = result
         .weles_review
-        .expect("successful write should preserve critique review metadata");
+        .expect("blocked write should still preserve critique review metadata");
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason.starts_with("critique_preflight:")));
     assert!(review
         .reasons
         .iter()
@@ -6551,6 +6600,10 @@ async fn critique_modifications_narrow_sensitive_write_file_path_from_prose_only
         .reasons
         .iter()
         .any(|reason| reason == "critique_applied:file:drop_cwd_anchor"));
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("file mutation targets a sensitive path")));
 }
 
 #[tokio::test]
@@ -6604,25 +6657,18 @@ async fn critique_modifications_narrow_sensitive_write_file_path_end_to_end() {
     )
     .await;
 
+    assert!(result.is_error, "expected stricter .env governance block");
     assert!(
-        !result.is_error,
-        "write_file should succeed after critique path narrowing: {}",
-        result.content
-    );
-    assert!(
-        result.content.contains(".env"),
-        "rewritten execution should report the narrowed basename path: {}",
-        result.content
-    );
-    assert!(
-        !result.content.contains("/tmp/demo/.env"),
-        "result should reflect the critique-rewritten path rather than the original sensitive path: {}",
+        result
+            .content
+            .contains("Blocked by WELES governance: file mutation targets a sensitive path"),
+        "{}",
         result.content
     );
 
     let review = result
         .weles_review
-        .expect("successful write should preserve critique review metadata");
+        .expect("blocked write should still preserve critique review metadata");
     assert!(review
         .reasons
         .iter()
@@ -6631,14 +6677,10 @@ async fn critique_modifications_narrow_sensitive_write_file_path_end_to_end() {
         .reasons
         .iter()
         .any(|reason| reason == "critique_applied:file:narrow_path:path"));
-    assert!(
-        !review
-            .reasons
-            .iter()
-            .any(|reason| reason.contains("file mutation targets a sensitive path")),
-        "governance should evaluate transformed args without the original sensitive-path suspicion: {:?}",
-        review.reasons
-    );
+    assert!(review
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("file mutation targets a sensitive path")));
 }
 
 #[test]

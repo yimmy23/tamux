@@ -320,7 +320,9 @@ fn collect_plan_issues_catches_empty_summary() {
     assert!(!collect_plan_issues(&plan).is_empty());
 }
 
+#[cfg(feature = "lancedb-vector")]
 include!("tests/skill_mesh.rs");
+#[cfg(feature = "lancedb-vector")]
 include!("tests/skill_mesh_compiler.rs");
 include!("tests/goal_dossier.rs");
 

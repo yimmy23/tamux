@@ -422,6 +422,12 @@ impl TuiModel {
                                     self.config.tui_chat_history_page_size = n.clamp(20, 500);
                                 }
                             }
+                            "participant_observer_restore_window_hours" => {
+                                if let Ok(n) = value.parse::<u32>() {
+                                    self.config.participant_observer_restore_window_hours =
+                                        n.clamp(0, 24 * 30);
+                                }
+                            }
                             "max_tool_loops" => {
                                 if let Ok(n) = value.parse::<u32>() {
                                     self.config.max_tool_loops = n.clamp(0, 1000);
@@ -796,6 +802,41 @@ impl TuiModel {
                                     }
                                     raw["image"]["generation"]["model"] =
                                         serde_json::Value::String(value);
+                                }
+                            }
+                            "feat_embedding_model" => {
+                                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                    key_path: "/semantic/embedding/model".to_string(),
+                                    value_json: format!("\"{}\"", value),
+                                });
+                                if let Some(ref mut raw) = self.config.agent_config_raw {
+                                    if raw.get("semantic").is_none() {
+                                        raw["semantic"] = serde_json::json!({});
+                                    }
+                                    if raw["semantic"].get("embedding").is_none() {
+                                        raw["semantic"]["embedding"] = serde_json::json!({});
+                                    }
+                                    raw["semantic"]["embedding"]["model"] =
+                                        serde_json::Value::String(value);
+                                }
+                            }
+                            "feat_embedding_dimensions" => {
+                                if let Ok(n) = value.parse::<u64>() {
+                                    let clamped = n.clamp(1, 32768);
+                                    self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                        key_path: "/semantic/embedding/dimensions".to_string(),
+                                        value_json: clamped.to_string(),
+                                    });
+                                    if let Some(ref mut raw) = self.config.agent_config_raw {
+                                        if raw.get("semantic").is_none() {
+                                            raw["semantic"] = serde_json::json!({});
+                                        }
+                                        if raw["semantic"].get("embedding").is_none() {
+                                            raw["semantic"]["embedding"] = serde_json::json!({});
+                                        }
+                                        raw["semantic"]["embedding"]["dimensions"] =
+                                            serde_json::json!(clamped);
+                                    }
                                 }
                             }
                             _ => {}

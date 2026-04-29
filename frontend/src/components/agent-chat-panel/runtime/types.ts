@@ -48,6 +48,7 @@ export type AgentChatPanelRuntimeValue = {
   setSearchQuery: (query: string) => void;
   refreshThreadList: () => Promise<void>;
   loadOlderThreadMessages: () => Promise<boolean>;
+  trimThreadMessagesToLatestWindow: (threadId?: string | null) => boolean;
   messages: AgentMessage[];
   todos: AgentTodoItem[];
   daemonTodosByThread: Record<string, AgentTodoItem[]>;

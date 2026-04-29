@@ -9,12 +9,12 @@ use super::*;
 use crate::history::{
     AgentMessageCursor, AgentMessageSpan, HistoryStore, MemoryDistillationProgressRow,
 };
-use zorai_protocol::{AgentDbMessage, InboxNotification};
 use chrono::{SecondsFormat, Utc};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use zorai_protocol::{AgentDbMessage, InboxNotification};
 
 const MIN_FACT_CHARS: usize = 24;
 const MAX_FACT_CHARS: usize = 220;
@@ -227,10 +227,12 @@ async fn list_undistilled_threads(
                             current.created_at AS latest_message_activity_at,
                             current.id AS latest_message_id
                      FROM agent_messages AS current
-                     WHERE NOT EXISTS (
+                     WHERE current.deleted_at IS NULL
+                       AND NOT EXISTS (
                          SELECT 1
                          FROM agent_messages AS newer
                          WHERE newer.thread_id = current.thread_id
+                           AND newer.deleted_at IS NULL
                            AND (
                                newer.created_at > current.created_at
                                OR (
@@ -837,9 +839,9 @@ fn is_distilled_entry(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zorai_protocol::{AgentDbMessage, AgentDbThread};
     use std::fs;
     use uuid::Uuid;
+    use zorai_protocol::{AgentDbMessage, AgentDbThread};
 
     async fn create_thread_with_user_message(
         history: &HistoryStore,
@@ -1578,6 +1580,124 @@ mod tests {
         assert!(notification.title.contains("2 review item"));
         assert!(notification.body.contains("zorai-daemon"));
         assert!(notification.body.contains("summary-first"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn run_distillation_pass_auto_applies_and_queues_review_with_progress_persistence(
+    ) -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("zorai-distill-test-{}", Uuid::new_v4()));
+        let history = HistoryStore::new_test_store(&root).await?;
+        ensure_memory_files(&root).await?;
+
+        let thread_id = "thread-distill-e2e";
+        let message_id = format!("{thread_id}-m1");
+        let created_at = 1_000_i64;
+
+        history
+            .create_thread(&AgentDbThread {
+                id: thread_id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: Some("Rarog".to_string()),
+                title: "memory distillation e2e".to_string(),
+                created_at,
+                updated_at: created_at,
+                message_count: 0,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: None,
+            })
+            .await?;
+
+        history
+            .add_message(&AgentDbMessage {
+                id: message_id.clone(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: "user".to_string(),
+                content: concat!(
+                    "Use the cargo package name `zorai-daemon` for `cargo -p`.\n",
+                    "I prefer summary-first answers that still include the hard details below.\n",
+                    "I usually respond well to concise progress checkpoints after each major step."
+                )
+                .to_string(),
+                provider: None,
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            })
+            .await?;
+
+        let result = run_distillation_pass(&history, &DistillationConfig::default(), &root).await?;
+
+        assert_eq!(result.threads_analyzed, 1);
+        assert_eq!(result.candidates_generated, 3);
+        assert_eq!(result.auto_applied, 2);
+        assert_eq!(result.queued_for_review, 1);
+        assert_eq!(result.discarded, 0);
+        assert_eq!(result.review_notifications_emitted, 1);
+
+        let paths = memory_paths_for_scope(&root, &current_agent_scope_id());
+        let memory = tokio::fs::read_to_string(&paths.memory_path).await?;
+        let user = tokio::fs::read_to_string(&paths.user_path).await?;
+
+        assert!(memory.contains("Use the cargo package name `zorai-daemon` for `cargo -p`."));
+        assert!(user
+            .contains("I prefer summary-first answers that still include the hard details below."));
+        assert!(
+            !user.contains(
+                "I usually respond well to concise progress checkpoints after each major step."
+            ),
+            "borderline candidate should be queued for review, not auto-applied"
+        );
+
+        let notifications = history.list_notifications(false, Some(10)).await?;
+        let review_notification = notifications
+            .into_iter()
+            .find(|item| item.kind == "memory_distillation_review")
+            .expect("memory distillation review notification should exist");
+        assert!(review_notification.body.contains(
+            "I usually respond well to concise progress checkpoints after each major step."
+        ));
+
+        let progress = history
+            .get_memory_distillation_progress(thread_id)
+            .await?
+            .expect("progress row should be persisted");
+        assert_eq!(progress.source_thread_id, thread_id);
+        assert_eq!(progress.last_processed_cursor.created_at, created_at);
+        assert_eq!(progress.last_processed_cursor.message_id, message_id);
+
+        let log_rows = history.list_memory_distillation_log(10).await?;
+        let thread_rows = log_rows
+            .into_iter()
+            .filter(|row| row.source_thread_id == thread_id)
+            .collect::<Vec<_>>();
+        assert_eq!(thread_rows.len(), 3);
+        assert_eq!(
+            thread_rows
+                .iter()
+                .filter(|row| row.applied_to_memory)
+                .count(),
+            2
+        );
+        assert!(thread_rows.iter().any(|row| {
+            !row.applied_to_memory
+                && row.target_file == "USER.md"
+                && row.category == "pattern"
+                && row
+                    .distilled_fact
+                    .contains("I usually respond well to concise progress checkpoints")
+        }));
 
         fs::remove_dir_all(root)?;
         Ok(())

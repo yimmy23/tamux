@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { buildWelesHealthPresentation } from "./welesHealthPresentation";
 import { inputStyle } from "./shared";
 import { ChatComposer } from "./chat-view/Composer";
@@ -17,6 +17,8 @@ import { TodoPanel } from "./chat-view/TodoPanel";
 import { ToolEventRow } from "./chat-view/ToolEventRow";
 import type { AgentMessage } from "@/lib/agentStore";
 import type { ChatViewProps, ComposerAttachment, SendMessagePayload } from "./chat-view/types";
+
+const CHAT_SCROLL_THRESHOLD_PX = 24;
 
 function buildAttachmentSendPayload(text: string, attachments: ComposerAttachment[]): SendMessagePayload {
   const trimmedText = text.trim();
@@ -63,6 +65,8 @@ export function ChatView({
   isStreamingResponse,
   activeThread,
   messagesEndRef,
+  onLoadOlderMessages,
+  onTrimMessagesToLatestWindow,
   onSendMessage,
   onSendParticipantSuggestion,
   onDismissParticipantSuggestion,
@@ -101,6 +105,28 @@ export function ChatView({
     const started = await onStartGoalRun(text);
     if (started) {
       setInput("");
+    }
+  };
+
+  const handleMessageScroll = async (event: UIEvent<HTMLDivElement>) => {
+    const scroller = event.currentTarget;
+    if (scroller.scrollTop <= CHAT_SCROLL_THRESHOLD_PX && onLoadOlderMessages) {
+      const previousHeight = scroller.scrollHeight;
+      const previousTop = scroller.scrollTop;
+      const loaded = await onLoadOlderMessages();
+      if (loaded) {
+        requestAnimationFrame(() => {
+          scroller.scrollTop = scroller.scrollHeight - previousHeight + previousTop;
+        });
+      }
+      return;
+    }
+
+    const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    if (distanceFromBottom <= CHAT_SCROLL_THRESHOLD_PX && onTrimMessagesToLatestWindow?.()) {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ block: "end" });
+      });
     }
   };
 
@@ -251,6 +277,7 @@ export function ChatView({
   return (
     <>
       <div
+        onScroll={(event) => void handleMessageScroll(event)}
         style={{
           flex: 1,
           overflow: "auto",

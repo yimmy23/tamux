@@ -63,11 +63,39 @@ pub struct LatestSkillDiscoveryState {
     pub updated_at: u64,
 }
 
+pub(crate) const MAX_PERSISTED_SKILL_DISCOVERY_QUERY_CHARS: usize = 160;
+
+pub(crate) fn compact_skill_discovery_query_for_persistence(query: &str) -> String {
+    let mut compact = query
+        .trim()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if compact.chars().count() > MAX_PERSISTED_SKILL_DISCOVERY_QUERY_CHARS {
+        compact = compact
+            .chars()
+            .take(MAX_PERSISTED_SKILL_DISCOVERY_QUERY_CHARS)
+            .collect::<String>()
+            .trim()
+            .to_string();
+    }
+    compact
+}
+
 fn bool_is_false(value: &bool) -> bool {
     !*value
 }
 
 impl LatestSkillDiscoveryState {
+    pub(crate) fn compact_query_for_persistence(&mut self) {
+        self.query = compact_skill_discovery_query_for_persistence(&self.query);
+        if let Some(approval_id) = self.mesh_approval_id.as_ref() {
+            if approval_id.starts_with("skill-mesh-approval:") {
+                self.mesh_approval_id = Some(format!("skill-mesh-approval:{}", self.query));
+            }
+        }
+    }
+
     pub fn is_discovery_pending(&self) -> bool {
         self.discovery_pending || self.confidence_tier.eq_ignore_ascii_case("pending")
     }
@@ -354,6 +382,7 @@ pub struct ToolResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeferredVisibleThreadContinuation {
     pub agent_id: String,
+    pub task_id: Option<String>,
     pub preferred_session_hint: Option<String>,
     pub llm_user_content: String,
     pub force_compaction: bool,

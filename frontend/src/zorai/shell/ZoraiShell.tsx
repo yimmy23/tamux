@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityRail, ActivityView } from "../features/activity/ActivityView";
+import { DatabaseRail, DatabaseView } from "../features/database/DatabaseView";
 import { GoalsContext, GoalsRail, GoalsView } from "../features/goals/GoalsView";
 import { SettingsRail, SettingsView } from "../features/settings/SettingsView";
 import { getDefaultZoraiSettingsTab, type ZoraiSettingsTabId } from "../features/settings/settingsTabs";
@@ -23,6 +24,7 @@ export function ZoraiShell() {
   const [activeView, setActiveView] = useState<ZoraiViewId>(getDefaultZoraiView);
   const [activeTool, setActiveTool] = useState<ZoraiToolId>(getDefaultZoraiTool);
   const [activeSettingsTab, setActiveSettingsTab] = useState<ZoraiSettingsTabId>(getDefaultZoraiSettingsTab);
+  const [activeDatabaseTable, setActiveDatabaseTable] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [returnTarget, setReturnTarget] = useState<ZoraiReturnTarget | null>(null);
   const [goalOpenRequest, setGoalOpenRequest] = useState<GoalOpenRequest | null>(null);
@@ -49,6 +51,9 @@ export function ZoraiShell() {
     setActiveView(view);
     setReturnTarget(null);
   };
+  const selectDatabaseTable = useCallback((tableName: string) => {
+    setActiveDatabaseTable(tableName);
+  }, []);
 
   return (
     <ThreadFilePreviewProvider>
@@ -82,7 +87,7 @@ export function ZoraiShell() {
             <h2>{activeItem.railLabel}</h2>
             <p>{activeItem.description}</p>
           </div>
-          {renderRail(activeView, activeTool, setActiveTool, activeSettingsTab, setActiveSettingsTab)}
+          {renderRail(activeView, activeTool, setActiveTool, activeSettingsTab, setActiveSettingsTab, activeDatabaseTable, selectDatabaseTable)}
         </aside>
 
         <main className="zorai-main">
@@ -113,7 +118,7 @@ export function ZoraiShell() {
               </button>
             </div>
           </header>
-          <div className="zorai-main-body">{renderMain(activeView, activeTool, setActiveTool, activeSettingsTab, setActiveSettingsTab, goalOpenRequest)}</div>
+          <div className="zorai-main-body">{renderMain(activeView, activeTool, setActiveTool, activeSettingsTab, setActiveSettingsTab, goalOpenRequest, activeDatabaseTable, selectDatabaseTable)}</div>
         </main>
 
         <ZoraiContextPanel
@@ -135,10 +140,13 @@ function renderRail(
   setActiveTool: (toolId: ZoraiToolId) => void,
   activeSettingsTab: ZoraiSettingsTabId,
   setActiveSettingsTab: (tabId: ZoraiSettingsTabId) => void,
+  activeDatabaseTable: string | null,
+  setActiveDatabaseTable: (tableName: string) => void,
 ) {
   if (view === "threads") return <ThreadsRail />;
   if (view === "goals") return <GoalsRail />;
   if (view === "workspaces") return <WorkspacesRail />;
+  if (view === "database") return <DatabaseRail activeTable={activeDatabaseTable} onSelectTable={setActiveDatabaseTable} />;
   if (view === "tools") return <ToolsRail activeTool={activeTool} onSelectTool={setActiveTool} />;
   if (view === "activity") return <ActivityRail />;
   return <SettingsRail activeTab={activeSettingsTab} onSelectTab={setActiveSettingsTab} />;
@@ -151,10 +159,13 @@ function renderMain(
   activeSettingsTab: ZoraiSettingsTabId,
   setActiveSettingsTab: (tabId: ZoraiSettingsTabId) => void,
   goalOpenRequest: GoalOpenRequest | null,
+  activeDatabaseTable: string | null,
+  setActiveDatabaseTable: (tableName: string) => void,
 ) {
   if (view === "threads") return <ThreadsView />;
   if (view === "goals") return <GoalsView openGoalRunRequest={goalOpenRequest} />;
   if (view === "workspaces") return <WorkspacesView />;
+  if (view === "database") return <DatabaseView activeTable={activeDatabaseTable} onSelectTable={setActiveDatabaseTable} />;
   if (view === "tools") return <ToolsView activeTool={activeTool} onSelectTool={setActiveTool} />;
   if (view === "activity") return <ActivityView />;
   return <SettingsView activeTab={activeSettingsTab} onSelectTab={setActiveSettingsTab} />;

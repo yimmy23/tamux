@@ -55,7 +55,23 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: npm install + build
-        run: npm ci && npm run build
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+
+          max_attempts=3
+          for attempt in $(seq 1 "$max_attempts"); do
+            if npm ci --prefer-offline --no-audit; then
+              break
+            fi
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              exit 1
+            fi
+            echo "npm ci failed on attempt $attempt of $max_attempts; retrying after transient npm/network failure." >&2
+            sleep $((15 * attempt))
+          done
+          npm run build
         working-directory: frontend
 
       - name: Copy binaries to frontend/dist
@@ -200,8 +216,18 @@ jobs:
       - name: npm install + build
         shell: pwsh
         run: |
-          npm ci
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            npm ci --prefer-offline --no-audit
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq $maxAttempts) { exit $LASTEXITCODE }
+            Write-Warning "npm ci failed on attempt $attempt of $maxAttempts; retrying after transient npm/network failure."
+            Start-Sleep -Seconds (15 * $attempt)
+          }
           npm run build
         working-directory: frontend
 
@@ -287,7 +313,23 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: npm install + build
-        run: npm ci && npm run build
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+
+          max_attempts=3
+          for attempt in $(seq 1 "$max_attempts"); do
+            if npm ci --prefer-offline --no-audit; then
+              break
+            fi
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              exit 1
+            fi
+            echo "npm ci failed on attempt $attempt of $max_attempts; retrying after transient npm/network failure." >&2
+            sleep $((15 * attempt))
+          done
+          npm run build
         working-directory: frontend
 
       - name: Copy binaries to frontend/dist
@@ -367,7 +409,23 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: npm install + build
-        run: npm ci && npm run build
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+
+          max_attempts=3
+          for attempt in $(seq 1 "$max_attempts"); do
+            if npm ci --prefer-offline --no-audit; then
+              break
+            fi
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              exit 1
+            fi
+            echo "npm ci failed on attempt $attempt of $max_attempts; retrying after transient npm/network failure." >&2
+            sleep $((15 * attempt))
+          done
+          npm run build
         working-directory: frontend
 
       - name: Copy binaries to frontend/dist

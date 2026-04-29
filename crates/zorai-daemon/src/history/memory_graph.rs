@@ -275,12 +275,12 @@ impl HistoryStore {
                     |row| row.get::<_, i64>(0),
                 )?;
                 conn.execute(
-                    "DELETE FROM memory_cluster_members WHERE cluster_id = ?1",
-                    params![cluster_id],
+                    "UPDATE memory_cluster_members SET deleted_at = ?2 WHERE cluster_id = ?1 AND deleted_at IS NULL",
+                    params![cluster_id, crate::history::now_ts() as i64],
                 )?;
                 for node_id in member_node_ids {
                     conn.execute(
-                        "INSERT OR IGNORE INTO memory_cluster_members (cluster_id, node_id) VALUES (?1, ?2)",
+                        "INSERT OR REPLACE INTO memory_cluster_members (cluster_id, node_id, deleted_at) VALUES (?1, ?2, NULL)",
                         params![cluster_id, node_id],
                     )?;
                 }
@@ -303,7 +303,7 @@ impl HistoryStore {
                     "SELECT c.id, c.name, c.summary_text, c.center_node_id, c.created_at_ms
                      FROM memory_cluster_members m
                      JOIN memory_graph_clusters c ON c.id = m.cluster_id
-                     WHERE m.node_id = ?1
+                     WHERE m.node_id = ?1 AND m.deleted_at IS NULL
                      ORDER BY c.created_at_ms DESC, c.id DESC
                      LIMIT ?2",
                 )?;
@@ -321,7 +321,7 @@ impl HistoryStore {
                 let mut clusters = Vec::new();
                 for (id, name, summary_text, center_node_id, created_at_ms) in rows {
                     let mut member_stmt = conn.prepare(
-                        "SELECT node_id FROM memory_cluster_members WHERE cluster_id = ?1 ORDER BY node_id ASC",
+                        "SELECT node_id FROM memory_cluster_members WHERE cluster_id = ?1 AND deleted_at IS NULL ORDER BY node_id ASC",
                     )?;
                     let member_node_ids = member_stmt
                         .query_map(params![id], |row| row.get::<_, String>(0))?

@@ -422,6 +422,8 @@ impl TuiModel {
         patch["max_context_messages"] = serde_json::Value::from(self.config.max_context_messages);
         patch["tui_chat_history_page_size"] =
             serde_json::Value::from(self.config.tui_chat_history_page_size);
+        patch["participant_observer_restore_window_hours"] =
+            serde_json::Value::from(self.config.participant_observer_restore_window_hours);
         patch["max_tool_loops"] = serde_json::Value::from(self.config.max_tool_loops);
         patch["max_retries"] = serde_json::Value::from(self.config.max_retries);
         patch["retry_delay_ms"] = serde_json::Value::from(self.config.retry_delay_ms);

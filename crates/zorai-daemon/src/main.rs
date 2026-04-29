@@ -25,17 +25,11 @@ mod validation;
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 
-const TANTIVY_ERROR_DIRECTIVE: &str = "tantivy=error";
-
 fn daemon_log_filter_from_values(zorai_log: Option<&str>) -> EnvFilter {
     let base_spec = zorai_log
         .and_then(valid_env_filter_spec)
         .unwrap_or_else(|| "info".to_string());
-    EnvFilter::new(base_spec).add_directive(
-        TANTIVY_ERROR_DIRECTIVE
-            .parse()
-            .expect("tantivy error directive should be valid"),
-    )
+    EnvFilter::new(base_spec)
 }
 
 fn valid_env_filter_spec(value: &str) -> Option<String> {
@@ -121,20 +115,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn daemon_log_filter_forces_tantivy_to_error() {
+    fn daemon_log_filter_uses_valid_zorai_log_value() {
         let rendered = daemon_log_filter_from_values(Some("trace")).to_string();
 
         assert!(rendered.contains("trace"), "{rendered}");
-        assert!(rendered.contains("tantivy=error"), "{rendered}");
     }
 
     #[test]
-    fn daemon_log_filter_overrides_existing_tantivy_directive() {
-        let filter = daemon_log_filter_from_values(Some("tantivy=trace,info"));
-        let rendered = filter.to_string();
+    fn daemon_log_filter_falls_back_when_zorai_log_is_invalid() {
+        let rendered = daemon_log_filter_from_values(Some("not a valid filter")).to_string();
 
-        assert!(rendered.contains("tantivy=error"), "{rendered}");
-        assert!(!rendered.contains("tantivy=trace"), "{rendered}");
+        assert!(rendered.contains("info"), "{rendered}");
     }
 
     #[test]

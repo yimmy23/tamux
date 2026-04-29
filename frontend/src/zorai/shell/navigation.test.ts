@@ -11,6 +11,7 @@ describe("Zorai navigation", () => {
       "threads",
       "goals",
       "workspaces",
+      "database",
       "tools",
       "activity",
       "settings",

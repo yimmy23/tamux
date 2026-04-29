@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use zorai_protocol::parse_whatsapp_allowed_contacts;
 use anyhow::{Context, Result};
 use wa_rs::wa_rs_proto::whatsapp as wa;
+use zorai_protocol::parse_whatsapp_allowed_contacts;
 
 use super::{
     clear_persisted_provider_state, AgentEngine, CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME,

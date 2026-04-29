@@ -182,7 +182,7 @@ export type ApiTransportMode =
   | "anthropic_messages"
   | "chat_completions";
 export type NativeTransportKind = "alibaba_assistant_api";
-export type Modality = "text" | "image" | "video" | "audio";
+export type Modality = "text" | "image" | "video" | "audio" | "embedding";
 export type AgentBackend = "daemon" | "legacy";
 
 export interface ModelDefinition {

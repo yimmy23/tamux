@@ -353,7 +353,7 @@ impl AgentEngine {
             Err(_) => "[]".to_string(),
         };
 
-        let diagnostics_json = self.status_diagnostics_snapshot().await.to_string();
+        let diagnostics_json = self.status_polling_diagnostics_snapshot().await.to_string();
 
         DaemonMessage::AgentStatusResponse {
             tier: tier.to_string(),

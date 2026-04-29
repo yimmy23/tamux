@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
 use super::types::AuthSource;
-use zorai_shared::providers::PROVIDER_ID_GITHUB_COPILOT;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use zorai_shared::providers::PROVIDER_ID_GITHUB_COPILOT;
 
 const GITHUB_COPILOT_DISABLE_GH_CLI_ENV: &str = "ZORAI_GITHUB_COPILOT_DISABLE_GH_CLI";
 

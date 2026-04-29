@@ -155,6 +155,24 @@ function jsonStringContainsModality(value: unknown, modality: string): boolean {
       .some((token) => token === modality);
 }
 
+function jsonArrayContainsEmbedding(value: unknown): boolean {
+  return Array.isArray(value)
+    && value.some((entry) => {
+      if (typeof entry !== "string") return false;
+      const normalized = entry.trim().toLowerCase();
+      return normalized === "embedding" || normalized === "embeddings" || normalized === "vector";
+    });
+}
+
+function jsonStringContainsEmbedding(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return value
+    .trim()
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .some((token) => token === "embedding" || token === "embeddings" || token === "vector");
+}
+
 function fetchedModelAudioDirectionOverride(
   model: FetchedRemoteModel,
   endpoint: "stt" | "tts",
@@ -257,4 +275,39 @@ export function filterFetchedModelsForImageGeneration(
   models: FetchedRemoteModel[],
 ): FetchedRemoteModel[] {
   return models.filter((model) => modelMetadataContainsImage(model));
+}
+
+function fetchedModelEmbeddingNameOverride(model: FetchedRemoteModel): boolean {
+  const haystack = `${model.id} ${model.name}`.toLowerCase();
+  return haystack.includes("embedding")
+    || haystack.includes("embed-")
+    || haystack.includes("-embed")
+    || haystack.includes("bge-")
+    || haystack.includes("e5-");
+}
+
+function modelMetadataContainsEmbedding(model: FetchedRemoteModel): boolean {
+  const value = model.metadata;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fetchedModelEmbeddingNameOverride(model);
+  }
+  const record = value as Record<string, unknown>;
+  const architecture = record.architecture && typeof record.architecture === "object" && !Array.isArray(record.architecture)
+    ? record.architecture as Record<string, unknown>
+    : null;
+
+  return Boolean(
+    jsonArrayContainsEmbedding(architecture?.output_modalities ?? record.output_modalities)
+    || jsonArrayContainsEmbedding(architecture?.modalities ?? record.modalities)
+    || jsonArrayContainsEmbedding(record.capabilities)
+    || jsonStringContainsEmbedding(architecture?.modality ?? record.modality)
+    || jsonStringContainsEmbedding(record.endpoint)
+    || fetchedModelEmbeddingNameOverride(model)
+  );
+}
+
+export function filterFetchedModelsForEmbeddings(
+  models: FetchedRemoteModel[],
+): FetchedRemoteModel[] {
+  return models.filter((model) => modelMetadataContainsEmbedding(model));
 }

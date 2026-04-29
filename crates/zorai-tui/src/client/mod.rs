@@ -13,7 +13,7 @@ use tracing::{debug, error, info, warn};
 
 #[cfg(not(unix))]
 use zorai_protocol::default_tcp_addr;
-use zorai_protocol::{ZoraiCodec, ClientMessage, DaemonMessage};
+use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
 
 use crate::wire::{
     AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
@@ -485,8 +485,8 @@ fn get_string_lossy(value: &Value, key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zorai_protocol::ClientMessage;
     use tokio::sync::mpsc;
+    use zorai_protocol::ClientMessage;
 
     fn drain_request(rx: &mut mpsc::UnboundedReceiver<ClientMessage>) -> ClientMessage {
         rx.try_recv().expect("expected queued client message")

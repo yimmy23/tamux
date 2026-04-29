@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { AgentApprovalOverlay } from "@/components/AgentApprovalOverlay";
 import { AgentChatPanelProvider } from "@/components/agent-chat-panel/runtime";
 import { ConciergeToast } from "@/components/ConciergeToast";
@@ -10,9 +10,12 @@ import { useAgentStore } from "@/lib/agentStore";
 import { useAuditStore } from "@/lib/auditStore";
 import { useNotificationStore } from "@/lib/notificationStore";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
+import { shouldAutoStartOperatorProfileFromConcierge } from "./conciergeEvents";
 import { ZoraiShell } from "./shell/ZoraiShell";
 
 export function ZoraiApp() {
+  const operatorProfileAutoStartRequested = useRef(false);
+
   useEffect(() => {
     useWorkspaceStore.setState({ agentPanelOpen: true });
   }, []);
@@ -30,7 +33,13 @@ export function ZoraiApp() {
             actions: event.actions ?? [],
           },
         });
-        void useAgentStore.getState().maybeStartOperatorProfileOnboarding();
+        if (
+          !operatorProfileAutoStartRequested.current
+          && shouldAutoStartOperatorProfileFromConcierge(event)
+        ) {
+          operatorProfileAutoStartRequested.current = true;
+          void useAgentStore.getState().maybeStartOperatorProfileOnboarding();
+        }
       }
       if (event?.type === "operator-profile-session-started") {
         useAgentStore.getState().applyOperatorProfileSessionStarted(event.data ?? event);

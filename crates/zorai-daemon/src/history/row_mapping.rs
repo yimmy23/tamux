@@ -8,9 +8,9 @@ pub(super) fn refresh_thread_stats(
         "SELECT
             COUNT(*),
             COALESCE(SUM(total_tokens), 0),
-            COALESCE((SELECT substr(content, 1, 100) FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC LIMIT 1), ''),
-            COALESCE((SELECT created_at FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC LIMIT 1), strftime('%s','now') * 1000)
-         FROM agent_messages WHERE thread_id = ?1",
+            COALESCE((SELECT substr(content, 1, 100) FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1), ''),
+            COALESCE((SELECT created_at FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1), strftime('%s','now') * 1000)
+         FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL",
         params![thread_id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;

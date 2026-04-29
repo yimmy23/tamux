@@ -262,6 +262,10 @@ impl TuiModel {
         &mut self,
         threads: Vec<crate::wire::AgentThread>,
     ) {
+        let threads = threads
+            .into_iter()
+            .filter(|thread| !self.deleted_thread_ids.contains(&thread.id))
+            .collect::<Vec<_>>();
         let active_thread_id = self.chat.active_thread_id().map(str::to_string);
         let pending_loading_thread_id = self.thread_loading_id.clone();
         let preserve_missing_active_thread = active_thread_id.as_ref().and_then(|thread_id| {

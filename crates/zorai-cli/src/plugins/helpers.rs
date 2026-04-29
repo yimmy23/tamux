@@ -111,9 +111,12 @@ pub(super) fn validate_plugin_package(package_dir: &Path) -> Result<InstalledPlu
     let package_json: PackageJson = serde_json::from_str(&raw)
         .with_context(|| format!("failed to parse {}", package_json_path.display()))?;
 
-    let manifest = package_json
-        .zorai_plugin
-        .ok_or_else(|| anyhow!("package '{}' is missing the required 'zoraiPlugin' field", package_json.name))?;
+    let manifest = package_json.zorai_plugin.ok_or_else(|| {
+        anyhow!(
+            "package '{}' is missing the required 'zoraiPlugin' field",
+            package_json.name
+        )
+    })?;
 
     let format = manifest.format().trim().to_lowercase();
     if format != "script" {

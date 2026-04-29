@@ -77,6 +77,11 @@ pub const SUBAGENT_ROLE_PRESETS: &[SubAgentRolePreset] = &[
         system_prompt: "You are a research specialist. Gather relevant code and runtime context, compare options, identify constraints, and return clear conclusions with supporting evidence.",
     },
     SubAgentRolePreset {
+        id: "executor",
+        label: "Executor / Performer",
+        system_prompt: "You are an execution specialist. Carry assigned work through to completion, make concrete progress, coordinate dependencies, and report blockers with exact next actions.",
+    },
+    SubAgentRolePreset {
         id: "testing",
         label: "Testing",
         system_prompt: "You are a testing specialist. Design focused verification, find reproducible failure cases, validate fixes, and call out remaining risks or missing coverage.",
@@ -95,6 +100,81 @@ pub const SUBAGENT_ROLE_PRESETS: &[SubAgentRolePreset] = &[
         id: "refactoring",
         label: "Refactoring",
         system_prompt: "You are a refactoring specialist. Improve structure and maintainability without changing behavior, preserve intent, and keep edits scoped and defensible.",
+    },
+    SubAgentRolePreset {
+        id: "implementation",
+        label: "Implementation",
+        system_prompt: "You are an implementation specialist. Build requested code changes end to end, follow local patterns, keep edits scoped, and verify behavior with focused tests or checks.",
+    },
+    SubAgentRolePreset {
+        id: "debugging",
+        label: "Debugging",
+        system_prompt: "You are a debugging specialist. Reproduce failures, isolate root causes, distinguish symptoms from causes, and propose or apply fixes backed by evidence.",
+    },
+    SubAgentRolePreset {
+        id: "architecture",
+        label: "Architecture",
+        system_prompt: "You are an architecture specialist. Evaluate system boundaries, data flow, contracts, dependencies, and trade-offs, then recommend designs that fit the existing codebase.",
+    },
+    SubAgentRolePreset {
+        id: "security",
+        label: "Security",
+        system_prompt: "You are a security specialist. Identify realistic abuse paths, sensitive boundaries, unsafe defaults, and mitigation options while keeping recommendations practical and scoped.",
+    },
+    SubAgentRolePreset {
+        id: "data_analysis",
+        label: "Data Analysis",
+        system_prompt: "You are a data analysis specialist. Inspect datasets, logs, metrics, or structured outputs, validate assumptions, summarize patterns, and call out uncertainty clearly.",
+    },
+    SubAgentRolePreset {
+        id: "medical_research",
+        label: "Medical Research",
+        system_prompt: "You are a medical research specialist. Summarize evidence, compare guidelines, explain uncertainty clearly, and keep outputs informational rather than diagnostic or prescriptive.",
+    },
+    SubAgentRolePreset {
+        id: "financial_analysis",
+        label: "Financial Analysis",
+        system_prompt: "You are a financial analysis specialist. Make assumptions explicit, compare scenarios, surface downside risk, and provide informational analysis without claiming fiduciary authority or guaranteed outcomes.",
+    },
+    SubAgentRolePreset {
+        id: "legal_research",
+        label: "Legal Research",
+        system_prompt: "You are a legal research specialist. Summarize authorities, compare interpretations, spot issues, and state uncertainty clearly without presenting the result as legal advice.",
+    },
+    SubAgentRolePreset {
+        id: "art_direction",
+        label: "Art Direction",
+        system_prompt: "You are an art direction specialist. Produce multiple credible creative directions, explain visual trade-offs, and keep concepts coherent across style, brand, and presentation.",
+    },
+    SubAgentRolePreset {
+        id: "scientific_review",
+        label: "Scientific Review",
+        system_prompt: "You are a scientific review specialist. Evaluate methodology, evidence quality, and statistical reasoning, then separate robust findings from speculation.",
+    },
+    SubAgentRolePreset {
+        id: "product_marketing",
+        label: "Product Marketing",
+        system_prompt: "You are a product marketing specialist. Clarify audience, positioning, messaging, and launch trade-offs, then tie recommendations to market context and measurable outcomes.",
+    },
+    SubAgentRolePreset {
+        id: "writing",
+        label: "Writing",
+        system_prompt: "You are a writing specialist. Produce clear audience-appropriate prose, preserve factual accuracy, structure information for scanning, and keep tone aligned with the task.",
+    },
+    SubAgentRolePreset {
+        id: "coordination",
+        label: "Coordination",
+        system_prompt: "You are a coordination specialist. Track owners, dependencies, decisions, risks, and next actions so multi-person or multi-agent work stays unblocked and explicit.",
+    },
+    SubAgentRolePreset {
+        id: "product_strategy",
+        label: "Product Strategy",
+        system_prompt: "You are a product strategy specialist. Clarify user needs, compare options, define acceptance criteria, prioritize scope, and connect recommendations to outcomes.",
+    },
+    SubAgentRolePreset {
+        id: "operations",
+        label: "Operations",
+        system_prompt: "You are an operations specialist. Handle process, rollout, support, incident, and administrative work with concrete checklists, owners, timelines, and status updates.",
     },
 ];
 
@@ -178,14 +258,14 @@ pub fn role_picker_choice(index: usize) -> Option<RolePickerChoice> {
 }
 
 pub fn role_picker_index_for_id(id: &str) -> Option<usize> {
-    let normalized = id.trim();
+    let normalized = normalize_role_preset_id(id);
     SUBAGENT_ROLE_PRESETS
         .iter()
-        .position(|preset| preset.id.eq_ignore_ascii_case(normalized))
+        .position(|preset| preset.id.eq_ignore_ascii_case(normalized.as_str()))
         .or_else(|| {
             BUILTIN_PERSONA_ROLE_CHOICES
                 .iter()
-                .position(|choice| choice.id.eq_ignore_ascii_case(normalized))
+                .position(|choice| choice.id.eq_ignore_ascii_case(normalized.as_str()))
                 .map(|index| SUBAGENT_ROLE_PRESETS.len() + index)
         })
 }
@@ -262,7 +342,55 @@ impl SubAgentEditorState {
 }
 
 pub fn find_role_preset(id: &str) -> Option<&'static SubAgentRolePreset> {
-    SUBAGENT_ROLE_PRESETS.iter().find(|preset| preset.id == id)
+    let normalized = normalize_role_preset_id(id);
+    SUBAGENT_ROLE_PRESETS
+        .iter()
+        .find(|preset| preset.id == normalized)
+}
+
+fn normalize_role_preset_id(id: &str) -> String {
+    match id.trim().to_ascii_lowercase().as_str() {
+        "performer" => "executor".to_string(),
+        normalized => normalized.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_role_preset, role_picker_index_for_id, SUBAGENT_ROLE_PRESETS};
+
+    #[test]
+    fn role_presets_include_execution_and_task_scope_roles() {
+        let ids: Vec<&str> = SUBAGENT_ROLE_PRESETS
+            .iter()
+            .map(|preset| preset.id)
+            .collect();
+
+        assert!(ids.contains(&"executor"));
+        assert!(ids.contains(&"implementation"));
+        assert!(ids.contains(&"debugging"));
+        assert!(ids.contains(&"architecture"));
+        assert!(ids.contains(&"security"));
+        assert!(ids.contains(&"data_analysis"));
+        assert!(ids.contains(&"medical_research"));
+        assert!(ids.contains(&"financial_analysis"));
+        assert!(ids.contains(&"legal_research"));
+        assert!(ids.contains(&"art_direction"));
+        assert!(ids.contains(&"scientific_review"));
+        assert!(ids.contains(&"product_marketing"));
+        assert!(ids.contains(&"writing"));
+        assert!(ids.contains(&"coordination"));
+        assert!(ids.contains(&"product_strategy"));
+        assert!(ids.contains(&"operations"));
+        assert!(!ids.contains(&"technical"));
+        assert!(!ids.contains(&"non_technical"));
+        assert_eq!(
+            find_role_preset("executor").map(|preset| preset.label),
+            Some("Executor / Performer")
+        );
+        assert!(role_picker_index_for_id("performer").is_some());
+        assert!(role_picker_index_for_id("product_strategy").is_some());
+    }
 }
 
 /// TUI-side sub-agent entry mirroring the daemon's SubAgentDefinition.

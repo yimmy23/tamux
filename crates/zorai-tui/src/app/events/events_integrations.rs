@@ -1,6 +1,6 @@
 use super::*;
-use zorai_shared::providers::PROVIDER_ID_OPENAI;
 use serde_json::Value;
+use zorai_shared::providers::PROVIDER_ID_OPENAI;
 
 use zorai_protocol::AGENT_NAME_RAROG;
 

@@ -428,7 +428,7 @@ keywords: [summary, status, writing]
 }
 
 #[tokio::test]
-async fn discover_local_guidelines_indexes_guideline_documents_for_tantivy_search() -> Result<()> {
+async fn discover_local_guidelines_does_not_create_sidecar_lexical_index() -> Result<()> {
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;
     let guidelines_root = root.path().join("guidelines");
@@ -462,21 +462,10 @@ Use systematic debugging before proposing fixes.
     )
     .await?;
 
-    let hits = store
-        .search_index
-        .as_ref()
-        .expect("test store should open tantivy search index")
-        .search(crate::history::search_index::SearchRequest {
-            query: "systematic debugging fixes".to_string(),
-            limit: 3,
-            source_kinds: vec![crate::history::search_index::SearchSourceKind::Guideline],
-            workspace_id: None,
-            thread_id: None,
-            agent_id: None,
-        })?;
-
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].source_id, "coding/debugging.md");
+    assert!(
+        !root.path().join("search-index").exists(),
+        "guideline discovery should rank in memory and must not create a sidecar lexical index"
+    );
 
     Ok(())
 }
@@ -2267,11 +2256,25 @@ keywords: [rust, cargo, build]
 }
 
 #[tokio::test]
-async fn discover_local_skills_errors_when_indexed_skill_file_is_missing() -> Result<()> {
+async fn discover_local_skills_skips_missing_indexed_skill_files() -> Result<()> {
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;
     let skills_root = root.path().join("skills");
     let builtin = skills_root.clone();
+
+    let stale_skill_path = write_skill(
+        &builtin,
+        "tamux-setup-debug",
+        r#"---
+description: Debug stale generated Tamux setup files.
+keywords: [tamux, debug]
+---
+
+# Tamux Setup Debug
+"#,
+    )?;
+    store.register_skill_document(&stale_skill_path).await?;
+    fs::remove_file(&stale_skill_path)?;
 
     let skill_path = write_skill(
         &builtin,
@@ -2285,22 +2288,71 @@ keywords: [rust, cargo, build]
 "#,
     )?;
     store.register_skill_document(&skill_path).await?;
-    fs::remove_file(&skill_path)?;
 
-    let error = discover_local_skills(
+    let result = discover_local_skills(
         &store,
         &skills_root,
-        "debug rust build failure",
+        "rust debug fix",
         &["rust".to_string()],
         3,
         &SkillRecommendationConfig::default(),
     )
-    .await
-    .expect_err("missing skill file should be surfaced");
+    .await?;
 
-    assert!(error
-        .to_string()
-        .contains("failed to read skill recommendation file"));
+    assert!(result
+        .recommendations
+        .iter()
+        .any(|recommendation| recommendation.record.skill_name == "debug-rust-build"));
+    assert!(!result
+        .recommendations
+        .iter()
+        .any(|recommendation| recommendation.record.skill_name == "tamux-setup-debug"));
+
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn discover_local_guidelines_skips_missing_guideline_files() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let guidelines_root = root.path().join("guidelines");
+    fs::create_dir_all(&guidelines_root)?;
+    std::os::unix::fs::symlink(
+        guidelines_root.join("missing-guideline.md"),
+        guidelines_root.join("stale-guideline.md"),
+    )?;
+    write_markdown(
+        &guidelines_root,
+        "debug-rust.md",
+        r#"---
+name: debug-rust
+description: Debug Rust failures.
+keywords: [rust, debug]
+---
+
+# Debug Rust
+"#,
+    )?;
+
+    let result = discover_local_guidelines(
+        &store,
+        &guidelines_root,
+        "rust debug fix",
+        &["rust".to_string()],
+        3,
+        &SkillRecommendationConfig::default(),
+    )
+    .await?;
+
+    assert!(result
+        .recommendations
+        .iter()
+        .any(|recommendation| recommendation.record.relative_path == "debug-rust.md"));
+    assert!(!result
+        .recommendations
+        .iter()
+        .any(|recommendation| recommendation.record.relative_path == "stale-guideline.md"));
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 use super::*;
-use zorai_shared::providers::PROVIDER_ID_OPENAI;
 use std::ffi::OsString;
+use zorai_shared::providers::PROVIDER_ID_OPENAI;
 
 pub(super) struct EnvGuard {
     saved: Vec<(&'static str, Option<OsString>)>,

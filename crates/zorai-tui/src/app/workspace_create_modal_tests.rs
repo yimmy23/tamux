@@ -1,10 +1,10 @@
 use super::workspace_create_modal::*;
 use crate::state::{modal, DaemonCommand};
+use tokio::sync::mpsc::unbounded_channel;
 use zorai_protocol::{
     WorkspaceActor, WorkspaceOperator, WorkspacePriority, WorkspaceTask, WorkspaceTaskCreate,
     WorkspaceTaskStatus, WorkspaceTaskType, AGENT_ID_SWAROG,
 };
-use tokio::sync::mpsc::unbounded_channel;
 
 #[test]
 fn create_form_defaults_to_low_priority_and_svarog_assignee() {
@@ -412,7 +412,9 @@ fn create_modal_builtin_persona_assignee_runs_setup_then_selects_actor() {
 
     let provider_index = crate::widgets::provider_picker::available_provider_defs(&model.auth)
         .iter()
-        .position(|provider| provider.id == zorai_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN)
+        .position(|provider| {
+            provider.id == zorai_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN
+        })
         .expect("provider to exist");
     if provider_index > 0 {
         model

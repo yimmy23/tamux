@@ -468,22 +468,24 @@ fn apply_selected_message_highlight(
 fn build_visible_window_from_snapshot(
     snapshot: &SelectionSnapshot,
     chat: &ChatState,
-    all_lines: &[RenderedChatLine],
 ) -> (Vec<RenderedChatLine>, usize, usize, usize) {
     let scroll = resolved_scroll(
         chat,
-        all_lines.len(),
+        snapshot.all_lines.len(),
         snapshot.inner.height as usize,
         &snapshot.message_line_ranges,
     );
-    let (padding, start_idx, end_idx) =
-        visible_window_bounds(all_lines.len(), snapshot.inner.height as usize, scroll);
+    let (padding, start_idx, end_idx) = visible_window_bounds(
+        snapshot.all_lines.len(),
+        snapshot.inner.height as usize,
+        scroll,
+    );
 
     let mut visible = Vec::with_capacity(snapshot.inner.height as usize);
     for _ in 0..padding {
         visible.push(RenderedChatLine::padding());
     }
-    visible.extend_from_slice(&all_lines[start_idx..end_idx]);
+    visible.extend(snapshot.all_lines[start_idx..end_idx].iter().cloned());
     (visible, padding, start_idx, end_idx)
 }
 
@@ -547,10 +549,9 @@ fn render_snapshot(
     theme: &ThemeTokens,
     mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
 ) {
-    let mut all_lines = snapshot.all_lines.clone();
-    apply_selected_message_highlight(&mut all_lines, chat.selected_message());
     let (mut visible_lines, padding, start_idx, end_idx) =
-        build_visible_window_from_snapshot(snapshot, chat, &all_lines);
+        build_visible_window_from_snapshot(snapshot, chat);
+    apply_selected_message_highlight(&mut visible_lines, chat.selected_message());
     apply_mouse_selection_highlight(
         snapshot,
         &mut visible_lines,

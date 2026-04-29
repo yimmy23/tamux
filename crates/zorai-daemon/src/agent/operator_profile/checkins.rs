@@ -5,8 +5,8 @@
 
 use std::collections::VecDeque;
 
-use zorai_protocol::AgentEventRow;
 use serde::{Deserialize, Serialize};
+use zorai_protocol::AgentEventRow;
 
 use crate::agent::types::{GoalRun, GoalRunStatus, TaskPriority};
 use crate::history::{

@@ -66,6 +66,41 @@ impl Default for SnapshotRetentionSettings {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SemanticEmbeddingConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_embedding_provider")]
+    pub provider: String,
+    #[serde(default = "default_embedding_model")]
+    pub model: String,
+    #[serde(default = "default_embedding_dimensions")]
+    pub dimensions: u32,
+    #[serde(default = "default_embedding_batch_size")]
+    pub batch_size: u32,
+    #[serde(default = "default_embedding_max_concurrency")]
+    pub max_concurrency: u32,
+}
+
+impl Default for SemanticEmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_embedding_provider(),
+            model: default_embedding_model(),
+            dimensions: default_embedding_dimensions(),
+            batch_size: default_embedding_batch_size(),
+            max_concurrency: default_embedding_max_concurrency(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SemanticConfig {
+    #[serde(default)]
+    pub embedding: SemanticEmbeddingConfig,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     #[serde(default)]
@@ -114,6 +149,8 @@ pub struct AgentConfig {
     pub auto_compact_context: bool,
     #[serde(default = "default_max_context_messages")]
     pub max_context_messages: u32,
+    #[serde(default = "default_participant_observer_restore_window_hours")]
+    pub participant_observer_restore_window_hours: u32,
     #[serde(default = "default_context_window_tokens")]
     pub context_window_tokens: u32,
     #[serde(default = "default_compact_threshold_pct")]
@@ -216,6 +253,9 @@ pub struct AgentConfig {
     /// Runtime skill recommender controls.
     #[serde(default)]
     pub skill_recommendation: SkillRecommendationConfig,
+    /// Semantic search and embedding model controls.
+    #[serde(default)]
+    pub semantic: SemanticConfig,
     /// Specialist routing controls (Spec-03 probabilistic agent routing).
     #[serde(default)]
     pub routing: RoutingConfig,

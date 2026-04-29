@@ -281,6 +281,10 @@ pub(super) fn parse_thread_metadata(metadata_json: Option<&str>) -> ParsedThread
             .and_then(|value| value.get("latest_skill_discovery_state"))
             .and_then(|value| {
                 serde_json::from_value::<LatestSkillDiscoveryState>(value.clone()).ok()
+            })
+            .map(|mut state| {
+                state.compact_query_for_persistence();
+                state
             }),
         prompt_memory_injection_state: metadata
             .as_ref()
@@ -316,6 +320,31 @@ pub(super) fn parse_thread_metadata(metadata_json: Option<&str>) -> ParsedThread
             })
         }),
     }
+}
+
+pub(super) fn compact_thread_metadata_skill_discovery_query(metadata_json: &str) -> Option<String> {
+    let mut metadata = serde_json::from_str::<serde_json::Value>(metadata_json).ok()?;
+    let state_key = if metadata.get("latest_skill_discovery_state").is_some() {
+        "latest_skill_discovery_state"
+    } else {
+        "latestSkillDiscoveryState"
+    };
+    let state = metadata.get_mut(state_key)?;
+    let query = state.get("query")?.as_str()?.to_string();
+    let compact = compact_skill_discovery_query_for_persistence(&query);
+    if compact == query {
+        return None;
+    }
+    *state.get_mut("query")? = serde_json::Value::String(compact.clone());
+    if state
+        .get("mesh_approval_id")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| value.starts_with("skill-mesh-approval:"))
+    {
+        *state.get_mut("mesh_approval_id")? =
+            serde_json::Value::String(format!("skill-mesh-approval:{compact}"));
+    }
+    serde_json::to_string(&metadata).ok()
 }
 
 pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<String> {

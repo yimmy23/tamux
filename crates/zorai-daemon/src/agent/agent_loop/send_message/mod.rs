@@ -153,10 +153,13 @@ impl AgentEngine {
             }
 
             if allow_auto_participant_queue_drain && !outcome.interrupted_for_approval {
-                Box::pin(
+                let sent_any = Box::pin(
                     self.maybe_auto_send_next_thread_participant_suggestion(&outcome.thread_id),
                 )
                 .await?;
+                if sent_any {
+                    return Ok(outcome);
+                }
             }
 
             if run_participant_observers_after_turn && !outcome.interrupted_for_approval {

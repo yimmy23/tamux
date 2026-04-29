@@ -1355,11 +1355,12 @@ impl TuiModel {
                     &self.theme,
                     self.focus == FocusArea::Chat,
                 ),
-                MainPaneView::Workspace => widgets::workspace_board::render(
+                MainPaneView::Workspace => widgets::workspace_board::render_with_scroll(
                     frame,
                     layout.chat,
                     &self.workspace,
                     &self.workspace_expanded_task_ids,
+                    &self.workspace_board_scroll,
                     self.workspace_board_selection.as_ref(),
                     &self.theme,
                     self.focus == FocusArea::Chat,
@@ -1560,11 +1561,12 @@ impl TuiModel {
                     &self.theme,
                     self.focus == FocusArea::Chat,
                 ),
-                MainPaneView::Workspace => widgets::workspace_board::render(
+                MainPaneView::Workspace => widgets::workspace_board::render_with_scroll(
                     frame,
                     layout.chat,
                     &self.workspace,
                     &self.workspace_expanded_task_ids,
+                    &self.workspace_board_scroll,
                     self.workspace_board_selection.as_ref(),
                     &self.theme,
                     self.focus == FocusArea::Chat,
@@ -1881,8 +1883,8 @@ impl TuiModel {
                         overlay_area,
                         "WORKSPACE EDIT",
                         &self.workspace_edit_modal_body(),
-                        0,
-                        false,
+                        self.workspace_edit_modal_scroll,
+                        true,
                         &self.theme,
                     );
                 }
@@ -2044,6 +2046,10 @@ impl TuiModel {
                             }
                             _ => None,
                         },
+                        matches!(
+                            self.settings_picker_target,
+                            Some(SettingsPickerTarget::EmbeddingProvider)
+                        ),
                         &self.theme,
                     );
                 }

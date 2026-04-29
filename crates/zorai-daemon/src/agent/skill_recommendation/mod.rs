@@ -57,7 +57,7 @@ pub(crate) async fn discover_local_skills(
 }
 
 pub(crate) async fn discover_local_guidelines(
-    history: &HistoryStore,
+    _history: &HistoryStore,
     guidelines_root: &Path,
     query: &str,
     workspace_tags: &[String],
@@ -65,10 +65,9 @@ pub(crate) async fn discover_local_guidelines(
     cfg: &SkillRecommendationConfig,
 ) -> Result<SkillDiscoveryResult> {
     let candidates = collect_filesystem_guideline_candidates(guidelines_root)?;
-    index_guideline_candidates(history, &candidates);
     let graph_signals = HashMap::new();
 
-    let mut result = rank_skill_candidates(
+    let result = rank_skill_candidates(
         candidates,
         query,
         workspace_tags,
@@ -76,7 +75,6 @@ pub(crate) async fn discover_local_guidelines(
         limit,
         cfg,
     );
-    apply_tantivy_guideline_order(history, query, &mut result);
     Ok(result)
 }
 
@@ -282,6 +280,9 @@ fn relative_path_suffixes(relative_path: &str) -> Vec<String> {
         let Some((_, tail)) = current.split_once('/') else {
             break;
         };
+        if !tail.contains('/') && tail.eq_ignore_ascii_case("SKILL.md") {
+            break;
+        }
         current = tail.to_string();
     }
     suffixes
@@ -407,12 +408,9 @@ fn collect_registered_skill_candidates(
 
         let (skill_path, metadata_relative_path) =
             resolve_skill_document_path(skills_root, &record.relative_path);
-        let content = std::fs::read_to_string(&skill_path).with_context(|| {
-            format!(
-                "failed to read skill recommendation file {}",
-                skill_path.display()
-            )
-        })?;
+        let Some(content) = read_recommendation_document(&skill_path, "skill")? else {
+            continue;
+        };
         candidates.push(SkillCandidateInput {
             metadata: extract_skill_metadata(&metadata_relative_path, &content),
             excerpt: excerpt_skill(&content),
@@ -433,12 +431,9 @@ fn collect_filesystem_skill_candidates(skills_root: &Path) -> Result<Vec<SkillCa
             .unwrap_or(path.as_path())
             .to_string_lossy()
             .replace('\\', "/");
-        let content = std::fs::read_to_string(&path).with_context(|| {
-            format!(
-                "failed to read skill recommendation file {}",
-                path.display()
-            )
-        })?;
+        let Some(content) = read_recommendation_document(&path, "skill")? else {
+            continue;
+        };
         let derived = derive_skill_metadata(&relative_path, &content);
         candidates.push(SkillCandidateInput {
             metadata: extract_skill_metadata(&relative_path, &content),
@@ -463,12 +458,9 @@ fn collect_filesystem_guideline_candidates(
             .unwrap_or(path.as_path())
             .to_string_lossy()
             .replace('\\', "/");
-        let content = std::fs::read_to_string(&path).with_context(|| {
-            format!(
-                "failed to read guideline recommendation file {}",
-                path.display()
-            )
-        })?;
+        let Some(content) = read_recommendation_document(&path, "guideline")? else {
+            continue;
+        };
         let derived = derive_skill_metadata(&relative_path, &content);
         candidates.push(SkillCandidateInput {
             metadata: extract_skill_metadata(&relative_path, &content),
@@ -480,77 +472,24 @@ fn collect_filesystem_guideline_candidates(
     Ok(candidates)
 }
 
-fn index_guideline_candidates(history: &HistoryStore, candidates: &[SkillCandidateInput]) {
-    for candidate in candidates {
-        let mut tags = candidate.record.context_tags.clone();
-        tags.extend(candidate.metadata.keywords.iter().cloned());
-        tags.extend(candidate.metadata.triggers.iter().cloned());
-        history.upsert_search_document(crate::history::search_index::SearchDocument {
-            source_kind: crate::history::search_index::SearchSourceKind::Guideline,
-            source_id: candidate.record.relative_path.clone(),
-            title: candidate.record.skill_name.clone(),
-            body: format!("{}\n{}", candidate.metadata.search_text, candidate.excerpt),
-            tags,
-            workspace_id: None,
-            thread_id: None,
-            agent_id: None,
-            timestamp: candidate.record.updated_at as i64,
-            metadata_json: serde_json::to_string(&serde_json::json!({
-                "variant_id": candidate.record.variant_id,
-                "variant_name": candidate.record.variant_name,
-                "recommended_action": format!("read_guideline {}", candidate.record.relative_path),
-            }))
-            .ok(),
-        });
+fn read_recommendation_document(path: &Path, document_kind: &str) -> Result<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            tracing::warn!(
+                path = %path.display(),
+                document_kind,
+                "recommendation document disappeared before discovery could read it"
+            );
+            Ok(None)
+        }
+        Err(error) => Err(error).with_context(|| {
+            format!(
+                "failed to read {document_kind} recommendation file {}",
+                path.display()
+            )
+        }),
     }
-}
-
-fn apply_tantivy_guideline_order(
-    history: &HistoryStore,
-    query: &str,
-    result: &mut SkillDiscoveryResult,
-) {
-    if result.recommendations.len() < 2 {
-        return;
-    }
-    let Some(index) = &history.search_index else {
-        return;
-    };
-    let Ok(hits) = index.search(crate::history::search_index::SearchRequest {
-        query: query.to_string(),
-        limit: result.recommendations.len(),
-        source_kinds: vec![crate::history::search_index::SearchSourceKind::Guideline],
-        workspace_id: None,
-        thread_id: None,
-        agent_id: None,
-    }) else {
-        return;
-    };
-
-    let hit_order = hits
-        .into_iter()
-        .enumerate()
-        .map(|(idx, hit)| (hit.source_id, idx))
-        .collect::<HashMap<_, _>>();
-    result.recommendations.sort_by(|left, right| {
-        let left_rank = hit_order
-            .get(&left.record.relative_path)
-            .copied()
-            .unwrap_or(usize::MAX);
-        let right_rank = hit_order
-            .get(&right.record.relative_path)
-            .copied()
-            .unwrap_or(usize::MAX);
-        left_rank
-            .cmp(&right_rank)
-            .then_with(|| {
-                right
-                    .score
-                    .partial_cmp(&left.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .then_with(|| left.record.relative_path.cmp(&right.record.relative_path))
-    });
 }
 
 fn synthetic_skill_variant_record(

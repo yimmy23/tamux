@@ -1,5 +1,5 @@
-use zorai_protocol::SecurityLevel;
 use serde::Deserialize;
+use zorai_protocol::SecurityLevel;
 
 use super::agent_identity::{
     is_weles_internal_scope, WELES_BUILTIN_SUBAGENT_ID, WELES_GOVERNANCE_SCOPE,

@@ -6,6 +6,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::state::workspace::WorkspaceState;
 use crate::theme::ThemeTokens;
+use zorai_protocol::WorkspaceTaskStatus;
 
 const TASK_COLLAPSED_ROW_HEIGHT: u16 = 7;
 const TASK_EXPANDED_ROW_HEIGHT: u16 = 11;
@@ -57,11 +58,69 @@ pub enum WorkspaceBoardHitTarget {
     Toolbar(WorkspaceBoardToolbarAction),
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkspaceBoardScroll {
+    todo: usize,
+    in_progress: usize,
+    in_review: usize,
+    done: usize,
+}
+
+impl WorkspaceBoardScroll {
+    pub fn get(&self, status: &WorkspaceTaskStatus) -> usize {
+        *self.slot(status)
+    }
+
+    pub fn set(&mut self, status: &WorkspaceTaskStatus, value: usize) {
+        *self.slot_mut(status) = value;
+    }
+
+    fn slot(&self, status: &WorkspaceTaskStatus) -> &usize {
+        match status {
+            WorkspaceTaskStatus::Todo => &self.todo,
+            WorkspaceTaskStatus::InProgress => &self.in_progress,
+            WorkspaceTaskStatus::InReview => &self.in_review,
+            WorkspaceTaskStatus::Done => &self.done,
+        }
+    }
+
+    fn slot_mut(&mut self, status: &WorkspaceTaskStatus) -> &mut usize {
+        match status {
+            WorkspaceTaskStatus::Todo => &mut self.todo,
+            WorkspaceTaskStatus::InProgress => &mut self.in_progress,
+            WorkspaceTaskStatus::InReview => &mut self.in_review,
+            WorkspaceTaskStatus::Done => &mut self.done,
+        }
+    }
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     workspace: &WorkspaceState,
     expanded_task_ids: &HashSet<String>,
+    selected: Option<&WorkspaceBoardHitTarget>,
+    theme: &ThemeTokens,
+    focused: bool,
+) {
+    render_with_scroll(
+        frame,
+        area,
+        workspace,
+        expanded_task_ids,
+        &WorkspaceBoardScroll::default(),
+        selected,
+        theme,
+        focused,
+    );
+}
+
+pub fn render_with_scroll(
+    frame: &mut Frame,
+    area: Rect,
+    workspace: &WorkspaceState,
+    expanded_task_ids: &HashSet<String>,
+    column_scrolls: &WorkspaceBoardScroll,
     selected: Option<&WorkspaceBoardHitTarget>,
     theme: &ThemeTokens,
     focused: bool,
@@ -107,6 +166,7 @@ pub fn render(
             column,
             &projection.notice_summaries,
             expanded_task_ids,
+            column_scrolls.get(&column.status),
             selected,
             theme,
         );
@@ -194,6 +254,22 @@ pub fn hit_test(
     expanded_task_ids: &HashSet<String>,
     position: Position,
 ) -> Option<WorkspaceBoardHitTarget> {
+    hit_test_with_scroll(
+        area,
+        workspace,
+        expanded_task_ids,
+        &WorkspaceBoardScroll::default(),
+        position,
+    )
+}
+
+pub fn hit_test_with_scroll(
+    area: Rect,
+    workspace: &WorkspaceState,
+    expanded_task_ids: &HashSet<String>,
+    column_scrolls: &WorkspaceBoardScroll,
+    position: Position,
+) -> Option<WorkspaceBoardHitTarget> {
     let inner = block_inner(area);
     if !contains(inner, position) || inner.width < 30 || inner.height < 4 {
         return None;
@@ -214,9 +290,13 @@ pub fn hit_test(
                 status: column.status.clone(),
             });
         }
-        let Some((task_index, card_rect)) =
-            task_card_at_position(body, &column.tasks, expanded_task_ids, position)
-        else {
+        let Some((task_index, card_rect)) = task_card_at_position_with_scroll(
+            body,
+            &column.tasks,
+            expanded_task_ids,
+            column_scrolls.get(&column.status),
+            position,
+        ) else {
             return Some(WorkspaceBoardHitTarget::Column {
                 status: column.status.clone(),
             });
@@ -274,6 +354,96 @@ pub fn hit_test(
         });
     }
     None
+}
+
+pub fn column_status_at_position(
+    area: Rect,
+    workspace: &WorkspaceState,
+    position: Position,
+) -> Option<WorkspaceTaskStatus> {
+    let inner = block_inner(area);
+    if !contains(inner, position) || inner.width < 30 || inner.height < 4 {
+        return None;
+    }
+    let board = board_area(inner);
+    let columns = workspace_column_areas(board);
+    for (index, rect) in columns.iter().enumerate() {
+        if contains(*rect, position) {
+            return workspace
+                .projection()
+                .columns
+                .get(index)
+                .map(|column| column.status.clone());
+        }
+    }
+    None
+}
+
+pub fn scroll_for_target(
+    area: Rect,
+    workspace: &WorkspaceState,
+    expanded_task_ids: &HashSet<String>,
+    column_scrolls: &WorkspaceBoardScroll,
+    target: &WorkspaceBoardHitTarget,
+) -> WorkspaceBoardScroll {
+    let mut next = column_scrolls.clone();
+    let Some((status, task_id)) = target_task(target) else {
+        return next;
+    };
+    let inner = block_inner(area);
+    if inner.width < 30 || inner.height < 4 {
+        return next;
+    }
+    let board = board_area(inner);
+    let columns = workspace_column_areas(board);
+    let projection = workspace.projection();
+    let Some((column_index, column)) = projection
+        .columns
+        .iter()
+        .enumerate()
+        .find(|(_, column)| column.status == status)
+    else {
+        return next;
+    };
+    let Some(task_index) = column.tasks.iter().position(|task| task.id == task_id) else {
+        return next;
+    };
+    let body = block_inner(columns[column_index]);
+    let current = next.get(&status).min(column.tasks.len().saturating_sub(1));
+    let desired =
+        scroll_offset_for_task(body, &column.tasks, expanded_task_ids, current, task_index);
+    next.set(&status, desired);
+    next
+}
+
+pub fn stepped_scroll_for_status(
+    workspace: &WorkspaceState,
+    current: &WorkspaceBoardScroll,
+    status: &WorkspaceTaskStatus,
+    delta: i32,
+) -> WorkspaceBoardScroll {
+    let mut next = current.clone();
+    let max_scroll = workspace
+        .projection()
+        .columns
+        .iter()
+        .find(|column| column.status == *status)
+        .map(|column| column.tasks.len().saturating_sub(1))
+        .unwrap_or(0);
+    let current = next.get(status) as i32;
+    let value = (current + delta).clamp(0, max_scroll as i32) as usize;
+    next.set(status, value);
+    next
+}
+
+fn target_task(target: &WorkspaceBoardHitTarget) -> Option<(WorkspaceTaskStatus, &str)> {
+    match target {
+        WorkspaceBoardHitTarget::Task { task_id, status }
+        | WorkspaceBoardHitTarget::Action {
+            task_id, status, ..
+        } => Some((status.clone(), task_id.as_str())),
+        WorkspaceBoardHitTarget::Column { .. } | WorkspaceBoardHitTarget::Toolbar(_) => None,
+    }
 }
 
 fn render_toolbar(
@@ -338,6 +508,7 @@ fn render_column_tasks(
     column: &crate::state::workspace::WorkspaceColumn,
     notice_summaries: &std::collections::HashMap<String, String>,
     expanded_task_ids: &HashSet<String>,
+    scroll: usize,
     selected: Option<&WorkspaceBoardHitTarget>,
     theme: &ThemeTokens,
 ) {
@@ -348,8 +519,10 @@ fn render_column_tasks(
         );
         return;
     }
-    for (index, task) in column.tasks.iter().enumerate() {
-        let rect = task_card_rect(area, &column.tasks, expanded_task_ids, index);
+    let scroll = scroll.min(column.tasks.len().saturating_sub(1));
+    for (index, task) in column.tasks.iter().enumerate().skip(scroll) {
+        let rect =
+            task_card_rect_with_scroll(area, &column.tasks, expanded_task_ids, scroll, index);
         if rect.height < 3 || rect.y >= area.y.saturating_add(area.height) {
             continue;
         }
@@ -732,17 +905,93 @@ fn task_card_rect(
     )
 }
 
-fn task_card_at_position(
+fn task_card_rect_with_scroll(
     body: Rect,
     tasks: &[zorai_protocol::WorkspaceTask],
     expanded_task_ids: &HashSet<String>,
+    scroll: usize,
+    index: usize,
+) -> Rect {
+    if index < scroll {
+        return Rect::new(body.x, body.y, body.width, 0);
+    }
+    let card_body_width = body.width.saturating_sub(2);
+    let offset = tasks
+        .iter()
+        .skip(scroll)
+        .take(index.saturating_sub(scroll))
+        .fold(0u16, |offset, task| {
+            offset.saturating_add(task_card_height(task, card_body_width, expanded_task_ids))
+        });
+    let y = body.y.saturating_add(offset);
+    let height = tasks
+        .get(index)
+        .map(|task| task_card_height(task, card_body_width, expanded_task_ids))
+        .unwrap_or(TASK_COLLAPSED_ROW_HEIGHT);
+    Rect::new(
+        body.x,
+        y,
+        body.width,
+        height.min(body.y.saturating_add(body.height).saturating_sub(y)),
+    )
+}
+
+fn scroll_offset_for_task(
+    body: Rect,
+    tasks: &[zorai_protocol::WorkspaceTask],
+    expanded_task_ids: &HashSet<String>,
+    current: usize,
+    task_index: usize,
+) -> usize {
+    let max_scroll = tasks.len().saturating_sub(1);
+    let mut scroll = current.min(max_scroll);
+    if task_index < scroll {
+        return task_index;
+    }
+    while scroll < task_index {
+        let offset = task_offset_from_scroll(body, tasks, expanded_task_ids, scroll, task_index);
+        let height = tasks
+            .get(task_index)
+            .map(|task| task_card_height(task, body.width.saturating_sub(2), expanded_task_ids))
+            .unwrap_or(TASK_COLLAPSED_ROW_HEIGHT);
+        if offset.saturating_add(height) <= body.height {
+            break;
+        }
+        scroll += 1;
+    }
+    scroll.min(max_scroll)
+}
+
+fn task_offset_from_scroll(
+    body: Rect,
+    tasks: &[zorai_protocol::WorkspaceTask],
+    expanded_task_ids: &HashSet<String>,
+    scroll: usize,
+    index: usize,
+) -> u16 {
+    let card_body_width = body.width.saturating_sub(2);
+    tasks
+        .iter()
+        .skip(scroll)
+        .take(index.saturating_sub(scroll))
+        .fold(0u16, |offset, task| {
+            offset.saturating_add(task_card_height(task, card_body_width, expanded_task_ids))
+        })
+}
+
+fn task_card_at_position_with_scroll(
+    body: Rect,
+    tasks: &[zorai_protocol::WorkspaceTask],
+    expanded_task_ids: &HashSet<String>,
+    scroll: usize,
     position: Position,
 ) -> Option<(usize, Rect)> {
     if !contains(body, position) {
         return None;
     }
-    for index in 0..tasks.len() {
-        let rect = task_card_rect(body, tasks, expanded_task_ids, index);
+    let scroll = scroll.min(tasks.len().saturating_sub(1));
+    for index in scroll..tasks.len() {
+        let rect = task_card_rect_with_scroll(body, tasks, expanded_task_ids, scroll, index);
         if contains(rect, position) {
             return Some((index, rect));
         }

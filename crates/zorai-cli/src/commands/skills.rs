@@ -1,6 +1,6 @@
-use zorai_protocol::{SessionId, SessionInfo};
 use anyhow::{Context, Result};
 use std::path::Path;
+use zorai_protocol::{SessionId, SessionInfo};
 
 use crate::cli::SkillAction;
 use crate::client;
@@ -295,8 +295,8 @@ mod tests {
         infer_skill_discovery_session_for_cwd, parse_skill_discovery_session,
         render_skill_discovery,
     };
-    use zorai_protocol::SessionInfo;
     use std::path::Path;
+    use zorai_protocol::SessionInfo;
 
     #[test]
     fn render_skill_discovery_formats_ranked_candidates() {

@@ -199,6 +199,75 @@ fn message_snapshot_matches(existing: &AgentMessage, incoming: &AgentMessage) ->
     }
 }
 
+fn content_blocks_match(left: &[AgentContentBlock], right: &[AgentContentBlock]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
+    left.iter()
+        .zip(right.iter())
+        .all(|(left, right)| match (left, right) {
+            (AgentContentBlock::Text { text: left }, AgentContentBlock::Text { text: right }) => {
+                left == right
+            }
+            (
+                AgentContentBlock::Image {
+                    url: left_url,
+                    data_url: left_data_url,
+                    mime_type: left_mime_type,
+                },
+                AgentContentBlock::Image {
+                    url: right_url,
+                    data_url: right_data_url,
+                    mime_type: right_mime_type,
+                },
+            )
+            | (
+                AgentContentBlock::Audio {
+                    url: left_url,
+                    data_url: left_data_url,
+                    mime_type: left_mime_type,
+                },
+                AgentContentBlock::Audio {
+                    url: right_url,
+                    data_url: right_data_url,
+                    mime_type: right_mime_type,
+                },
+            ) => {
+                left_url == right_url
+                    && left_data_url == right_data_url
+                    && left_mime_type == right_mime_type
+            }
+            _ => false,
+        })
+}
+
+fn is_duplicate_optimistic_user_tail(existing: &AgentMessage, incoming: &AgentMessage) -> bool {
+    if existing.role != MessageRole::User || incoming.role != MessageRole::User {
+        return false;
+    }
+    let both_optimistic = existing.id.is_none() && incoming.id.is_none();
+    let optimistic_and_persisted = (existing.id.is_some() && incoming.id.is_none())
+        || (existing.id.is_none() && incoming.id.is_some());
+
+    (both_optimistic || optimistic_and_persisted)
+        && existing.content == incoming.content
+        && message_kinds_match(
+            existing.message_kind.as_str(),
+            incoming.message_kind.as_str(),
+        )
+        && existing.tool_call_id == incoming.tool_call_id
+        && existing.tool_name == incoming.tool_name
+        && content_blocks_match(&existing.content_blocks, &incoming.content_blocks)
+}
+
+fn message_kinds_match(left: &str, right: &str) -> bool {
+    matches!(
+        (left, right),
+        ("", "") | ("", "normal") | ("normal", "") | ("normal", "normal")
+    ) || left == right
+}
+
 fn overlapping_thread_messages_match(existing: &AgentThread, incoming: &AgentThread) -> bool {
     let existing_start = existing.loaded_message_start;
     let existing_end = existing
@@ -250,6 +319,43 @@ fn has_optimistic_local_tail(existing: &AgentThread, incoming: &AgentThread) -> 
     })
 }
 
+fn find_matching_message_index(thread: &AgentThread, needle: &AgentMessage) -> Option<usize> {
+    thread
+        .messages
+        .iter()
+        .position(|message| message_snapshot_matches(message, needle))
+}
+
+fn realign_short_reload_window(existing: &AgentThread, incoming: &mut AgentThread) {
+    if incoming.messages.is_empty()
+        || incoming.total_message_count >= existing.total_message_count
+        || incoming.loaded_message_start != 0
+        || incoming
+            .messages
+            .iter()
+            .any(|message| message.message_kind == "compaction_artifact")
+        || overlapping_thread_messages_match(existing, incoming)
+    {
+        return;
+    }
+
+    let existing_end = existing
+        .loaded_message_end
+        .max(existing.loaded_message_start + existing.messages.len());
+    let incoming_start = incoming
+        .messages
+        .first()
+        .and_then(|message| find_matching_message_index(existing, message))
+        .map(|index| existing.loaded_message_start + index)
+        .unwrap_or(existing_end);
+
+    incoming.loaded_message_start = incoming_start;
+    incoming.loaded_message_end = incoming_start + incoming.messages.len();
+    incoming.total_message_count = existing
+        .total_message_count
+        .max(incoming.loaded_message_end);
+}
+
 fn should_replace_thread_window(existing: &AgentThread, incoming: &AgentThread) -> bool {
     !incoming.messages.is_empty()
         && incoming.total_message_count < existing.total_message_count
@@ -278,6 +384,15 @@ fn trim_thread_to_latest_page(thread: &mut AgentThread, page_size: usize) -> usi
 
 fn append_message_to_thread(thread: &mut AgentThread, message: AgentMessage, page_size: usize) {
     normalize_thread_window(thread);
+    if let Some(existing) = thread.messages.last_mut() {
+        if is_duplicate_optimistic_user_tail(existing, &message) {
+            if existing.id.is_none() && message.id.is_some() {
+                *existing = merge_message_pair(Some(existing), Some(&message));
+                normalize_thread_window(thread);
+            }
+            return;
+        }
+    }
     thread.messages.push(message);
     thread.active_context_window_start = None;
     thread.active_context_window_end = None;
@@ -1293,21 +1408,34 @@ impl ChatState {
                 normalize_thread_window(&mut incoming);
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == incoming.id) {
                     normalize_thread_window(existing);
+                    realign_short_reload_window(existing, &mut incoming);
                     let responder_before = active_thread_responder_identity(existing);
+                    let metadata_only_detail =
+                        incoming.messages.is_empty() && !existing.messages.is_empty();
                     let replace_existing_window = should_replace_thread_window(existing, &incoming);
-                    let (merged, merged_start, merged_end, disjoint) =
-                        if replace_existing_window || existing.messages.is_empty() {
-                            (
-                                incoming.messages.clone(),
-                                incoming.loaded_message_start,
-                                incoming.loaded_message_end,
-                                false,
-                            )
-                        } else {
-                            merge_thread_window(existing, &incoming)
-                        };
+                    let (merged, merged_start, merged_end, disjoint) = if metadata_only_detail {
+                        (
+                            existing.messages.clone(),
+                            existing.loaded_message_start,
+                            existing.loaded_message_end,
+                            false,
+                        )
+                    } else if replace_existing_window || existing.messages.is_empty() {
+                        (
+                            incoming.messages.clone(),
+                            incoming.loaded_message_start,
+                            incoming.loaded_message_end,
+                            false,
+                        )
+                    } else {
+                        merge_thread_window(existing, &incoming)
+                    };
                     existing.messages = merged;
-                    existing.total_message_count = if replace_existing_window {
+                    existing.total_message_count = if metadata_only_detail {
+                        incoming
+                            .total_message_count
+                            .max(existing.total_message_count)
+                    } else if replace_existing_window {
                         incoming.total_message_count
                     } else {
                         incoming
@@ -1315,7 +1443,11 @@ impl ChatState {
                             .max(existing.total_message_count)
                     };
                     existing.loaded_message_start = merged_start;
-                    existing.loaded_message_end = merged_end.max(existing.total_message_count);
+                    existing.loaded_message_end = if metadata_only_detail {
+                        merged_end
+                    } else {
+                        merged_end.max(existing.total_message_count)
+                    };
                     existing.active_context_window_start = incoming.active_context_window_start;
                     existing.active_context_window_end = incoming.active_context_window_end;
                     existing.active_context_window_tokens = incoming.active_context_window_tokens;
@@ -1333,10 +1465,18 @@ impl ChatState {
                     existing.total_output_tokens = incoming
                         .total_output_tokens
                         .max(existing.total_output_tokens);
-                    existing.pinned_messages = effective_pinned_messages(&incoming);
-                    existing.thread_participants = incoming.thread_participants;
-                    existing.queued_participant_suggestions =
-                        incoming.queued_participant_suggestions;
+                    let incoming_pinned_messages = effective_pinned_messages(&incoming);
+                    if !metadata_only_detail || !incoming_pinned_messages.is_empty() {
+                        existing.pinned_messages = incoming_pinned_messages;
+                    }
+                    if !metadata_only_detail || !incoming.thread_participants.is_empty() {
+                        existing.thread_participants = incoming.thread_participants;
+                    }
+                    if !metadata_only_detail || !incoming.queued_participant_suggestions.is_empty()
+                    {
+                        existing.queued_participant_suggestions =
+                            incoming.queued_participant_suggestions;
+                    }
                     if incoming.agent_name.is_some() {
                         existing.agent_name = incoming.agent_name;
                     }

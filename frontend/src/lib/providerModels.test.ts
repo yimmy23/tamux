@@ -1,5 +1,6 @@
 import {
   filterFetchedModelsForAudio,
+  filterFetchedModelsForEmbeddings,
   filterFetchedModelsForImageGeneration,
   formatRemoteModelPricingSubtitle,
   normalizeFetchedRemoteModel,
@@ -186,5 +187,31 @@ test("filterFetchedModelsForImageGeneration keeps image-capable models only", ()
 
   expect(filterFetchedModelsForImageGeneration(models).map((model) => model.id)).toEqual([
     "openai/gpt-image-1",
+  ]);
+});
+
+test("filterFetchedModelsForEmbeddings keeps embedding/vector models only", () => {
+  const models = [
+    normalizeFetchedRemoteModel({
+      id: "openai/text-embedding-3-small",
+      architecture: {
+        modality: "text->embedding",
+      },
+    }),
+    normalizeFetchedRemoteModel({
+      id: "openai/gpt-5.4",
+      architecture: {
+        modality: "text->text",
+      },
+    }),
+    normalizeFetchedRemoteModel({
+      id: "local/bge-m3",
+      capabilities: ["embeddings"],
+    }),
+  ];
+
+  expect(filterFetchedModelsForEmbeddings(models).map((model) => model.id)).toEqual([
+    "openai/text-embedding-3-small",
+    "local/bge-m3",
   ]);
 });

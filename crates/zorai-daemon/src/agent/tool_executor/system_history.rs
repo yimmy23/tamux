@@ -91,7 +91,7 @@ async fn execute_list_processes(args: &serde_json::Value) -> Result<String> {
 
 async fn execute_search_history(
     args: &serde_json::Value,
-    session_manager: &Arc<SessionManager>,
+    agent: &AgentEngine,
 ) -> Result<String> {
     let query = args
         .get("query")
@@ -100,7 +100,7 @@ async fn execute_search_history(
 
     let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 
-    let (summary, hits) = session_manager.search_history(query, limit).await?;
+    let (summary, hits) = agent.search_history_semantic_first(query, limit).await?;
 
     if hits.is_empty() {
         Ok("No matching history entries.".into())

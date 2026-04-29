@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 
-use zorai_protocol::{GatewayCursorState, GatewayProviderBootstrap, GatewaySendRequest};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
+use zorai_protocol::{GatewayCursorState, GatewayProviderBootstrap, GatewaySendRequest};
 
 use crate::format::{chunk_message, markdown_to_slack_mrkdwn, SLACK_MAX_CHARS};
 use crate::health::{PlatformHealthState, TokenBucket};
@@ -420,8 +420,8 @@ fn now_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use zorai_protocol::GatewaySendRequest;
     use serde_json::json;
+    use zorai_protocol::GatewaySendRequest;
 
     use super::*;
     use crate::test_support::{HttpResponse, TestHttpServer};

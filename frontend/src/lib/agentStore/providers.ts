@@ -22,7 +22,6 @@ const GITHUB_COPILOT_AUTH_SOURCES: AuthSource[] = ["github_copilot", "api_key"];
 const M_MULTI: Modality[] = ["text", "image", "video", "audio"];
 const M_TI: Modality[] = ["text", "image"];
 const M_TA: Modality[] = ["text", "audio"];
-
 const OPENAI_API_MODELS: ModelDefinition[] = [
   { id: "gpt-5.5", name: "GPT-5.5", contextWindow: 1_000_000, modalities: M_MULTI },
   { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000, modalities: M_MULTI },
@@ -403,7 +402,7 @@ function normalizeProviderCatalogModel(raw: any): ModelDefinition | null {
       typeof raw.context_window === "number" && Number.isFinite(raw.context_window)
         ? Math.max(0, Math.trunc(raw.context_window))
         : 0,
-    modalities: Array.isArray(raw.modalities) ? raw.modalities.filter((item: unknown): item is Modality => item === "text" || item === "image" || item === "video" || item === "audio") : ["text"],
+    modalities: Array.isArray(raw.modalities) ? raw.modalities.filter((item: unknown): item is Modality => item === "text" || item === "image" || item === "video" || item === "audio" || item === "embedding") : ["text"],
   };
 }
 

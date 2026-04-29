@@ -124,6 +124,38 @@ export function taskRunBlocked(task: WorkspaceTask): boolean {
   return task.deleted_at == null && task.assignee == null;
 }
 
+export function mergeWorkspaceSettings(settings: WorkspaceSettings[], tasks: WorkspaceTask[]): WorkspaceSettings[] {
+  const byId = new Map(settings.map((workspace) => [workspace.workspace_id, workspace]));
+  for (const task of tasks) {
+    if (byId.has(task.workspace_id)) continue;
+    byId.set(task.workspace_id, {
+      workspace_id: task.workspace_id,
+      workspace_root: null,
+      operator: "user",
+      created_at: task.created_at,
+      updated_at: task.updated_at,
+    });
+  }
+  return Array.from(byId.values()).sort((left, right) => left.workspace_id.localeCompare(right.workspace_id));
+}
+
+export function chooseWorkspaceWithTasks({
+  currentWorkspaceId,
+  defaultWorkspaceId,
+  workspaces,
+  tasksByWorkspace,
+}: {
+  currentWorkspaceId: string;
+  defaultWorkspaceId: string;
+  workspaces: WorkspaceSettings[];
+  tasksByWorkspace: Record<string, WorkspaceTask[]>;
+}): string {
+  if ((tasksByWorkspace[currentWorkspaceId] ?? []).length > 0) return currentWorkspaceId;
+  if (currentWorkspaceId !== defaultWorkspaceId) return currentWorkspaceId;
+  const populated = workspaces.find((workspace) => (tasksByWorkspace[workspace.workspace_id] ?? []).length > 0);
+  return populated?.workspace_id ?? currentWorkspaceId;
+}
+
 export function actorLabel(actor: WorkspaceActor): string {
   if (!actor) return "none";
   if (actor === "user") return "user";
@@ -162,12 +194,12 @@ export function normalizeWorkspaceTask(value: unknown): WorkspaceTask | null {
     priority: priorityValue(row.priority),
     status: statusValue(row.status),
     sort_order: numberValue(row.sort_order),
-    reporter: actorValue(row.reporter) ?? "user",
-    assignee: actorValue(row.assignee),
-    reviewer: actorValue(row.reviewer),
+    reporter: actorValue(row.reporter ?? parseJsonValue(row.reporter_json)) ?? "user",
+    assignee: actorValue(row.assignee ?? parseJsonValue(row.assignee_json)),
+    reviewer: actorValue(row.reviewer ?? parseJsonValue(row.reviewer_json)),
     thread_id: nullableString(row.thread_id),
     goal_run_id: nullableString(row.goal_run_id),
-    runtime_history: Array.isArray(row.runtime_history) ? row.runtime_history.map(runtimeHistoryValue) : [],
+    runtime_history: arrayValue(row.runtime_history ?? parseJsonValue(row.runtime_history_json)).map(runtimeHistoryValue),
     created_at: numberValue(row.created_at),
     updated_at: numberValue(row.updated_at),
     started_at: nullableNumber(row.started_at),
@@ -190,7 +222,7 @@ export function normalizeWorkspaceNotices(value: unknown): WorkspaceNotice[] {
       task_id: taskId,
       notice_type: stringValue(row.notice_type) || "notice",
       message: stringValue(row.message),
-      actor: actorValue(row.actor),
+      actor: actorValue(row.actor ?? parseJsonValue(row.actor_json)),
       created_at: numberValue(row.created_at),
     };
   }).filter((notice): notice is WorkspaceNotice => Boolean(notice));
@@ -198,13 +230,24 @@ export function normalizeWorkspaceNotices(value: unknown): WorkspaceNotice[] {
 
 export async function listWorkspaceSettings(): Promise<WorkspaceSettings[]> {
   const bridge = getBridge();
-  const value = await bridge?.agentListWorkspaceSettings?.();
-  return Array.isArray(value) ? value.map(settingsValue).filter((settings): settings is WorkspaceSettings => Boolean(settings)) : [];
+  try {
+    const value = await bridge?.agentListWorkspaceSettings?.();
+    const settings = Array.isArray(value) ? value.map(settingsValue).filter((entry): entry is WorkspaceSettings => Boolean(entry)) : [];
+    const databaseTasks = await listWorkspaceTasksFromDatabaseRows(false);
+    const databaseSettings = await listWorkspaceSettingsFromDatabaseRows(databaseTasks);
+    return mergeWorkspaceSettings(settings.length > 0 ? settings : databaseSettings, databaseTasks);
+  } catch {
+    return await listWorkspaceSettingsFromDatabase();
+  }
 }
 
 export async function getWorkspaceSettings(workspaceId: string): Promise<WorkspaceSettings | null> {
-  const value = await getBridge()?.agentGetWorkspaceSettings?.(workspaceId);
-  return settingsValue(value);
+  try {
+    const value = await getBridge()?.agentGetWorkspaceSettings?.(workspaceId);
+    return settingsValue(value) ?? await getWorkspaceSettingsFromDatabase(workspaceId);
+  } catch {
+    return await getWorkspaceSettingsFromDatabase(workspaceId);
+  }
 }
 
 export async function setWorkspaceOperator(workspaceId: string, operator: WorkspaceOperator): Promise<WorkspaceSettings | null> {
@@ -213,8 +256,13 @@ export async function setWorkspaceOperator(workspaceId: string, operator: Worksp
 }
 
 export async function listWorkspaceTasks(workspaceId: string, includeDeleted = false): Promise<WorkspaceTask[]> {
-  const value = await getBridge()?.agentListWorkspaceTasks?.(workspaceId, includeDeleted);
-  return normalizeWorkspaceTasks(value);
+  try {
+    const value = await getBridge()?.agentListWorkspaceTasks?.(workspaceId, includeDeleted);
+    const tasks = normalizeWorkspaceTasks(value);
+    return tasks.length > 0 ? tasks : await listWorkspaceTasksFromDatabase(workspaceId, includeDeleted);
+  } catch {
+    return await listWorkspaceTasksFromDatabase(workspaceId, includeDeleted);
+  }
 }
 
 export async function createWorkspaceTask(request: WorkspaceTaskCreate): Promise<WorkspaceTask | null> {
@@ -247,7 +295,75 @@ export async function deleteWorkspaceTask(taskId: string): Promise<boolean> {
 }
 
 export async function listWorkspaceNotices(workspaceId: string, taskId?: string | null): Promise<WorkspaceNotice[]> {
-  return normalizeWorkspaceNotices(await getBridge()?.agentListWorkspaceNotices?.(workspaceId, taskId ?? null));
+  try {
+    const notices = normalizeWorkspaceNotices(await getBridge()?.agentListWorkspaceNotices?.(workspaceId, taskId ?? null));
+    return notices.length > 0 ? notices : await listWorkspaceNoticesFromDatabase(workspaceId, taskId);
+  } catch {
+    return await listWorkspaceNoticesFromDatabase(workspaceId, taskId);
+  }
+}
+
+async function listWorkspaceSettingsFromDatabase(): Promise<WorkspaceSettings[]> {
+  const tasks = await listWorkspaceTasksFromDatabaseRows(false);
+  return listWorkspaceSettingsFromDatabaseRows(tasks);
+}
+
+async function listWorkspaceSettingsFromDatabaseRows(tasks: WorkspaceTask[]): Promise<WorkspaceSettings[]> {
+  const rows = await queryDatabaseTableRows("workspace_settings", 500, "workspace_id", "asc");
+  return mergeWorkspaceSettings(
+    rows.map(settingsValue).filter((settings): settings is WorkspaceSettings => Boolean(settings)),
+    tasks,
+  );
+}
+
+async function getWorkspaceSettingsFromDatabase(workspaceId: string): Promise<WorkspaceSettings | null> {
+  const settings = await listWorkspaceSettingsFromDatabase();
+  return settings.find((entry) => entry.workspace_id === workspaceId) ?? null;
+}
+
+async function listWorkspaceTasksFromDatabase(workspaceId: string, includeDeleted: boolean): Promise<WorkspaceTask[]> {
+  const tasks = await listWorkspaceTasksFromDatabaseRows(includeDeleted);
+  return tasks
+    .filter((task) => task.workspace_id === workspaceId)
+    .filter((task) => includeDeleted || task.deleted_at == null);
+}
+
+async function listWorkspaceTasksFromDatabaseRows(includeDeleted: boolean): Promise<WorkspaceTask[]> {
+  const rows = await queryDatabaseTableRows("workspace_tasks", 1000, "created_at", "asc");
+  return normalizeWorkspaceTasks(rows)
+    .filter((task) => includeDeleted || task.deleted_at == null);
+}
+
+async function listWorkspaceNoticesFromDatabase(workspaceId: string, taskId?: string | null): Promise<WorkspaceNotice[]> {
+  const rows = await queryDatabaseTableRows("workspace_notices", 1000, "created_at", "asc");
+  return normalizeWorkspaceNotices(rows)
+    .filter((notice) => notice.workspace_id === workspaceId)
+    .filter((notice) => !taskId || notice.task_id === taskId);
+}
+
+async function queryDatabaseTableRows(
+  tableName: string,
+  limit: number,
+  sortColumn: string,
+  sortDirection: "asc" | "desc",
+): Promise<unknown[]> {
+  const page = await getBridge()?.dbQueryDatabaseRows?.({
+    tableName,
+    offset: 0,
+    limit,
+    sortColumn,
+    sortDirection,
+  });
+  const rows = page && typeof page === "object" && Array.isArray((page as { rows?: unknown }).rows)
+    ? (page as { rows: unknown[] }).rows
+    : [];
+  return rows.map((row) => {
+    if (row && typeof row === "object" && "values" in row) {
+      const values = (row as { values?: unknown }).values;
+      return values && typeof values === "object" ? values : {};
+    }
+    return row;
+  });
 }
 
 function settingsValue(value: unknown): WorkspaceSettings | null {
@@ -289,6 +405,19 @@ function actorValue(value: unknown): WorkspaceActor {
   const subagent = stringValue(row.subagent);
   if (subagent) return { subagent };
   return null;
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== "string" || !value.trim()) return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function taskTypeValue(value: unknown): WorkspaceTaskType {

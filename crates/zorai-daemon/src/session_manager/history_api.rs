@@ -75,6 +75,16 @@ impl SessionManager {
         self.history.list_messages(thread_id, limit).await
     }
 
+    pub async fn list_agent_messages_with_deleted(
+        &self,
+        thread_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<AgentDbMessage>> {
+        self.history
+            .list_messages_with_deleted(thread_id, limit)
+            .await
+    }
+
     pub async fn upsert_transcript_index(&self, entry: &TranscriptIndexEntry) -> Result<()> {
         self.history.upsert_transcript_index(entry).await
     }
@@ -109,6 +119,50 @@ impl SessionManager {
     ) -> Result<Vec<AgentEventRow>> {
         self.history
             .list_agent_events(category, pane_id, limit)
+            .await
+    }
+
+    pub async fn list_database_tables(&self) -> Result<Vec<DatabaseTableSummary>> {
+        self.history.list_database_tables().await
+    }
+
+    pub async fn query_database_table_rows(
+        &self,
+        table_name: &str,
+        offset: usize,
+        limit: usize,
+        sort_column: Option<&str>,
+        sort_direction: Option<&str>,
+    ) -> Result<DatabaseTablePage> {
+        self.history
+            .query_database_table_rows(table_name, offset, limit, sort_column, sort_direction)
+            .await
+    }
+
+    pub async fn update_database_table_rows(
+        &self,
+        table_name: &str,
+        updates: Vec<DatabaseRowUpdate>,
+    ) -> Result<usize> {
+        self.history
+            .update_database_table_rows(table_name, updates)
+            .await
+    }
+
+    pub async fn queue_semantic_backfill(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<crate::history::SemanticBackfillResult> {
+        self.history.queue_semantic_backfill(limit).await
+    }
+
+    pub async fn semantic_index_status(
+        &self,
+        embedding_model: &str,
+        dimensions: u32,
+    ) -> Result<crate::history::SemanticIndexStatus> {
+        self.history
+            .semantic_index_status(embedding_model, dimensions)
             .await
     }
 

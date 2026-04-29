@@ -190,12 +190,12 @@ impl HistoryStore {
             .call(move |conn| {
                 let tx = conn.transaction()?;
                 tx.execute(
-                    "DELETE FROM protocol_steps WHERE protocol_id = ?1",
-                    params![protocol_id],
+                    "UPDATE protocol_steps SET deleted_at = ?2 WHERE protocol_id = ?1 AND deleted_at IS NULL",
+                    params![protocol_id, now_ts() as i64],
                 )?;
                 for step in steps {
                     tx.execute(
-                        "INSERT INTO protocol_steps (protocol_id, step_index, intent, tool_name, args_template_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        "INSERT OR REPLACE INTO protocol_steps (protocol_id, step_index, intent, tool_name, args_template_json, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
                         params![
                             step.protocol_id,
                             step.step_index as i64,
@@ -217,7 +217,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT protocol_id, step_index, intent, tool_name, args_template_json FROM protocol_steps WHERE protocol_id = ?1 ORDER BY step_index ASC",
+                    "SELECT protocol_id, step_index, intent, tool_name, args_template_json FROM protocol_steps WHERE protocol_id = ?1 AND deleted_at IS NULL ORDER BY step_index ASC",
                 )?;
                 let rows = stmt.query_map(params![protocol_id], |row| {
                     Ok(ProtocolStepRow {

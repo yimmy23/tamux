@@ -221,6 +221,51 @@ export async function loadDaemonThreadPageIntoLocalState({
   return true;
 }
 
+export function trimDaemonThreadMessagesToLatestWindow({
+  localThreadId,
+  messageLimit,
+}: {
+  localThreadId: string;
+  messageLimit?: number | null;
+}): boolean {
+  if (!Number.isFinite(messageLimit) || (messageLimit ?? 0) <= 0) {
+    return false;
+  }
+
+  const limit = Math.floor(messageLimit as number);
+  let didTrim = false;
+  useAgentStore.setState((state) => {
+    const currentMessages = state.messages[localThreadId] ?? [];
+    if (currentMessages.length <= limit) {
+      return {};
+    }
+
+    const thread = state.threads.find((entry) => entry.id === localThreadId);
+    if (!thread) {
+      return {};
+    }
+
+    const keptMessages = currentMessages.slice(-limit);
+    const loadedMessageEnd = thread.loadedMessageEnd ?? thread.messageCount ?? currentMessages.length;
+    const loadedMessageStart = Math.max(0, loadedMessageEnd - keptMessages.length);
+    didTrim = true;
+
+    return {
+      threads: state.threads.map((entry) => entry.id === localThreadId ? {
+        ...entry,
+        loadedMessageStart,
+        loadedMessageEnd,
+      } : entry),
+      messages: {
+        ...state.messages,
+        [localThreadId]: keptMessages,
+      },
+    };
+  });
+
+  return didTrim;
+}
+
 function mergeMessages(prefix: AgentMessage[], existing: AgentMessage[]): AgentMessage[] {
   const seen = new Set<string>();
   const merged: AgentMessage[] = [];

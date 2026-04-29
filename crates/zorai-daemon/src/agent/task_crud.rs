@@ -137,10 +137,12 @@ fn work_context_detail_frame_fits_ipc(thread_id: &str, context: &ThreadWorkConte
         return false;
     };
 
-    zorai_protocol::daemon_message_fits_ipc(&zorai_protocol::DaemonMessage::AgentWorkContextDetail {
-        thread_id: thread_id.to_string(),
-        context_json,
-    })
+    zorai_protocol::daemon_message_fits_ipc(
+        &zorai_protocol::DaemonMessage::AgentWorkContextDetail {
+            thread_id: thread_id.to_string(),
+            context_json,
+        },
+    )
 }
 
 fn cap_todos_for_ipc(thread_id: &str, todos: Vec<TodoItem>) -> (Vec<TodoItem>, bool) {

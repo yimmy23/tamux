@@ -61,4 +61,17 @@ describe("thread filters", () => {
       goalThreadIds: new Set(),
     }).map((item) => item.id)).toEqual(["dazhbog-thread"]);
   });
+
+  it("does not treat missing agent ownership as Svarog-owned", () => {
+    const swarozyc = thread({ id: "swarozyc-thread", agent_name: "", title: "Swarozyc worker" });
+    const svarog = thread({ id: "svarog-thread", agent_name: "Svarog" });
+
+    expect(filterThreads([swarozyc, svarog], {
+      tab: "svarog",
+      dateFilter: "all",
+      fromDate: "",
+      toDate: "",
+      goalThreadIds: new Set(),
+    }).map((item) => item.id)).toEqual(["svarog-thread"]);
+  });
 });

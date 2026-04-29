@@ -3,6 +3,15 @@ import { buildDaemonAgentConfig } from "./agentDaemonConfig";
 import { DEFAULT_AGENT_SETTINGS } from "./agentStore/settings";
 
 describe("daemon agent config audio wiring", () => {
+  it("serializes participant observer restore window settings", () => {
+    const daemonConfig = buildDaemonAgentConfig({
+      ...DEFAULT_AGENT_SETTINGS,
+      participant_observer_restore_window_hours: 12,
+    });
+
+    expect(daemonConfig.participant_observer_restore_window_hours).toBe(12);
+  });
+
   it("serializes canonical nested audio settings and referenced audio providers", () => {
     const daemonConfig = buildDaemonAgentConfig({
       ...DEFAULT_AGENT_SETTINGS,

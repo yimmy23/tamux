@@ -1,3 +1,8 @@
+function isActionableConciergeWelcomeEvent(event) {
+    return event?.type !== 'concierge_welcome'
+        || (Array.isArray(event.actions) && event.actions.length > 0);
+}
+
 function createAgentDbBridgeRuntime(options) {
     const {
         fs,
@@ -38,13 +43,13 @@ function createAgentDbBridgeRuntime(options) {
         return left.some((eventType) => right.includes(eventType));
     }
 
-    function hasPendingResponseType(pending, responseType) {
+    function findPendingResponseType(pending, responseType) {
         for (const [, handler] of pending.entries()) {
             if (responseTypesOverlap(handler.responseType, responseType)) {
-                return true;
+                return handler;
             }
         }
-        return false;
+        return null;
     }
 
     function ensureAgentBridge() {
@@ -93,6 +98,10 @@ function createAgentDbBridgeRuntime(options) {
                             logToFile('warn', 'failed to restore daemon WhatsApp subscription', { error: error?.message || String(error) });
                         }
                     }
+                    continue;
+                }
+
+                if (!isActionableConciergeWelcomeEvent(event)) {
                     continue;
                 }
 
@@ -278,26 +287,41 @@ function createAgentDbBridgeRuntime(options) {
     }
 
     function sendAgentQuery(command, responseType, timeoutMs = 5000) {
-        return new Promise((resolve, reject) => {
-            const bridge = ensureAgentBridge();
-            if (!bridge) return reject(new Error('Agent bridge not available'));
-            if (hasPendingResponseType(bridge.pending, responseType)) {
-                return reject(new Error(`Agent query already pending for response type: ${Array.isArray(responseType) ? responseType.join('|') : responseType}`));
+        const bridge = ensureAgentBridge();
+        if (!bridge) return Promise.reject(new Error('Agent bridge not available'));
+
+        const responseKey = Array.isArray(responseType) ? responseType.join('|') : responseType;
+        const commandKey = JSON.stringify(command);
+        const pending = findPendingResponseType(bridge.pending, responseType);
+        if (pending) {
+            if (pending.commandKey === commandKey && pending.promise) {
+                return pending.promise;
             }
-            const responseKey = Array.isArray(responseType) ? responseType.join('|') : responseType;
-            const reqId = `${responseKey}_${Date.now()}_${Math.random()}`;
-            const timer = setTimeout(() => {
-                bridge.pending.delete(reqId);
-                reject(new Error(`Agent query timeout: ${responseKey}`));
-            }, timeoutMs);
-            bridge.pending.set(reqId, {
-                responseType,
-                ts: Date.now(),
-                resolve: (data) => { clearTimeout(timer); resolve(data); },
-                reject: (err) => { clearTimeout(timer); reject(err); },
-            });
-            sendAgentCommand(command);
+            return Promise.reject(new Error(`Agent query already pending for response type: ${responseKey}`));
+        }
+
+        const reqId = `${responseKey}_${Date.now()}_${Math.random()}`;
+        let timer;
+        let resolvePromise;
+        let rejectPromise;
+        const promise = new Promise((resolve, reject) => {
+            resolvePromise = resolve;
+            rejectPromise = reject;
         });
+        timer = setTimeout(() => {
+            bridge.pending.delete(reqId);
+            rejectPromise(new Error(`Agent query timeout: ${responseKey}`));
+        }, timeoutMs);
+        bridge.pending.set(reqId, {
+            commandKey,
+            promise,
+            responseType,
+            ts: Date.now(),
+            resolve: (data) => { clearTimeout(timer); resolvePromise(data); },
+            reject: (err) => { clearTimeout(timer); rejectPromise(err); },
+        });
+        sendAgentCommand(command);
+        return promise;
     }
 
     function sendDbQuery(command, responseType, timeoutMs = 5000) {
@@ -327,4 +351,4 @@ function createAgentDbBridgeRuntime(options) {
     };
 }
 
-module.exports = { createAgentDbBridgeRuntime };
+module.exports = { createAgentDbBridgeRuntime, isActionableConciergeWelcomeEvent };

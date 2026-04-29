@@ -1,14 +1,14 @@
 use super::*;
 use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
+use rusqlite::Connection;
+use std::sync::mpsc;
+use tempfile::tempdir;
+use tokio::sync::mpsc::unbounded_channel;
 use zorai_shared::providers::{
     PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM,
     PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI,
     PROVIDER_ID_OPENROUTER,
 };
-use rusqlite::Connection;
-use std::sync::mpsc;
-use tempfile::tempdir;
-use tokio::sync::mpsc::unbounded_channel;
 
 fn make_model() -> TuiModel {
     let (_client_tx, client_rx) = mpsc::channel();

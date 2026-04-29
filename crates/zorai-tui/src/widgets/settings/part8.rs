@@ -375,6 +375,69 @@ fn render_features_tab<'a>(
         theme,
     );
 
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled("  Semantic Search", theme.fg_active)));
+    lines.push(Line::from(Span::styled(
+        "  Embedding model used for LanceDB vector rows",
+        theme.fg_dim,
+    )));
+    lines.push(Line::raw(""));
+
+    render_feature_field_line(
+        &mut lines,
+        settings,
+        25,
+        "Embeddings",
+        if config.semantic_embedding_enabled() {
+            "enabled"
+        } else {
+            "disabled"
+        },
+        "  [Enter: toggle]",
+        theme,
+    );
+
+    let embedding_provider = config.semantic_embedding_provider();
+    render_feature_field_line(
+        &mut lines,
+        settings,
+        26,
+        "Embedding Provider",
+        if embedding_provider.is_empty() {
+            "openai"
+        } else {
+            &embedding_provider
+        },
+        "  [Enter: edit]",
+        theme,
+    );
+
+    let embedding_model = config.semantic_embedding_model();
+    render_feature_field_line(
+        &mut lines,
+        settings,
+        27,
+        "Embedding Model",
+        if embedding_model.is_empty() {
+            "text-embedding-3-small"
+        } else {
+            &embedding_model
+        },
+        "  [Enter: edit]",
+        theme,
+    );
+
+    let embedding_dimensions = config.semantic_embedding_dimensions().to_string();
+    render_feature_field_line(
+        &mut lines,
+        settings,
+        28,
+        "Embedding Dimensions",
+        &embedding_dimensions,
+        "  [Enter: edit]",
+        theme,
+    );
+
     // Hotkey hint row (non-editable)
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![

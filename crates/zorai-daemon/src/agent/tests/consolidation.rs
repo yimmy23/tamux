@@ -1,11 +1,11 @@
 use super::*;
-use zorai_shared::providers::PROVIDER_ID_OPENAI;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex as StdMutex};
 use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::time::Duration;
+use zorai_shared::providers::PROVIDER_ID_OPENAI;
 
 async fn spawn_recording_openai_server(recorded_bodies: Arc<StdMutex<VecDeque<String>>>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -329,6 +329,102 @@ async fn maybe_run_consolidation_if_idle_persists_dream_note_when_strategy_learn
         !main_content.contains("[dream]"),
         "dream state should not persist daemon learning into main-agent memory; content was: {main_content}"
     );
+}
+
+#[tokio::test]
+async fn maybe_run_consolidation_if_idle_records_forge_dream_hint_provenance() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.enabled = true;
+    config.consolidation.enabled = true;
+    config.consolidation.idle_threshold_secs = 0;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let weles_scope = crate::agent::agent_identity::WELES_AGENT_ID;
+    crate::agent::ensure_memory_files_for_scope(engine.data_dir.as_path(), weles_scope)
+        .await
+        .expect("seed memory files for weles scope");
+    crate::agent::ensure_memory_files_for_scope(
+        engine.data_dir.as_path(),
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+    )
+    .await
+    .expect("seed memory files for main scope");
+    let weles_memory_path =
+        crate::agent::task_prompt::memory_paths_for_scope(engine.data_dir.as_path(), weles_scope)
+            .memory_path;
+    let main_memory_path = crate::agent::task_prompt::memory_paths_for_scope(
+        engine.data_dir.as_path(),
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+    )
+    .memory_path;
+    tokio::fs::write(&weles_memory_path, "# Memory\n")
+        .await
+        .expect("shrink weles memory file for deterministic idle-learning test");
+    tokio::fs::write(&main_memory_path, "# Memory\n")
+        .await
+        .expect("shrink main memory file for deterministic idle-learning test");
+    let now = now_millis();
+    let metrics_json = serde_json::json!({
+        "total_duration_ms": 45_000,
+        "step_count": 2,
+        "success_rate": 0.5,
+        "operator_revisions": 1,
+        "exit_code": 1,
+    })
+    .to_string();
+
+    for idx in 0..3u64 {
+        let started_at = now.saturating_sub(1_000 + idx);
+        let completed_at = started_at + 100;
+        engine
+            .history
+            .insert_execution_trace(
+                &format!("dream-trace-{idx}"),
+                None,
+                None,
+                Some(&format!("task-{idx}")),
+                "coding",
+                "success",
+                Some(0.6),
+                "[\"bash_command\",\"read_file\"]",
+                &metrics_json,
+                45_000,
+                120,
+                weles_scope,
+                started_at,
+                completed_at,
+                completed_at,
+            )
+            .await
+            .expect("seed execution trace");
+    }
+
+    let result = engine
+        .maybe_run_consolidation_if_idle(Duration::from_millis(50))
+        .await
+        .expect("expected idle consolidation to run");
+    assert!(result.forge_hints_auto_applied > 0);
+
+    let report = engine
+        .history
+        .provenance_report(32)
+        .expect("provenance report after idle consolidation");
+    let carryover = crate::agent::provenance::adaptive_carryover_provenance_summary(&report, 8);
+    assert!(carryover["persisted_event_count"]
+        .as_u64()
+        .is_some_and(|value| value >= 1));
+    assert!(carryover["forge_hint_event_count"]
+        .as_u64()
+        .is_some_and(|value| value >= 1));
+    let recent = carryover["recent_events"]
+        .as_array()
+        .expect("recent adaptive carryover provenance events array");
+    assert!(recent.iter().any(|entry| {
+        entry["event_type"].as_str()
+            == Some(crate::agent::provenance::PROVENANCE_EVENT_FORGE_DREAM_HINTS_PERSISTED)
+    }));
 }
 
 #[tokio::test]

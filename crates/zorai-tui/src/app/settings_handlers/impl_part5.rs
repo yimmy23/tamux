@@ -236,6 +236,23 @@ impl TuiModel {
                     raw["audio"]["tts"]["enabled"] = serde_json::Value::Bool(next);
                 }
             }
+            "feat_embedding_enabled" => {
+                let current = self.config.semantic_embedding_enabled();
+                let next = !current;
+                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                    key_path: "/semantic/embedding/enabled".to_string(),
+                    value_json: next.to_string(),
+                });
+                if let Some(ref mut raw) = self.config.agent_config_raw {
+                    if raw.get("semantic").is_none() {
+                        raw["semantic"] = serde_json::json!({});
+                    }
+                    if raw["semantic"].get("embedding").is_none() {
+                        raw["semantic"]["embedding"] = serde_json::json!({});
+                    }
+                    raw["semantic"]["embedding"]["enabled"] = serde_json::Value::Bool(next);
+                }
+            }
             "whatsapp_link_device" => {
                 self.activate_settings_field();
             }

@@ -198,6 +198,7 @@ async fn make_test_engine(
         watcher_refresh_rx: Mutex::new(Some(watcher_refresh_rx)),
         skill_discovery_result_tx,
         skill_discovery_test_runner: std::sync::OnceLock::new(),
+        force_mesh_discovery_degraded_for_tests: std::sync::atomic::AtomicBool::new(false),
         aline_startup_reconcile_started: std::sync::atomic::AtomicBool::new(false),
         aline_startup_test_completion: std::sync::OnceLock::new(),
         aline_startup_test_runner: std::sync::OnceLock::new(),

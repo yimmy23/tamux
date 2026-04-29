@@ -1,8 +1,8 @@
 use super::*;
-use zorai_shared::providers::PROVIDER_ID_CUSTOM;
 use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
+use zorai_shared::providers::PROVIDER_ID_CUSTOM;
 
 #[tokio::test]
 async fn truncated_stream_with_accumulated_content_still_emits_done_event() {

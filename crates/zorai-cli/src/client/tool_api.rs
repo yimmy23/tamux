@@ -1,5 +1,5 @@
-use zorai_protocol::{ClientMessage, DaemonMessage, ToolListResultPublic, ToolSearchResultPublic};
 use anyhow::Result;
+use zorai_protocol::{ClientMessage, DaemonMessage, ToolListResultPublic, ToolSearchResultPublic};
 
 use super::connection::roundtrip;
 

@@ -25,7 +25,8 @@ pub(super) fn base_schema_sql() -> &'static str {
                 surface_id   TEXT,
                 pane_id      TEXT,
                 exit_code    INTEGER,
-                duration_ms  INTEGER
+                duration_ms  INTEGER,
+                deleted_at   INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_command_log_ts ON command_log(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_command_log_pane ON command_log(pane_id);
@@ -41,12 +42,13 @@ pub(super) fn base_schema_sql() -> &'static str {
                 message_count  INTEGER NOT NULL DEFAULT 0,
                 total_tokens   INTEGER NOT NULL DEFAULT 0,
                 last_preview   TEXT NOT NULL DEFAULT '',
-                metadata_json  TEXT
+                metadata_json  TEXT,
+                deleted_at     INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_threads_updated ON agent_threads(updated_at DESC);
             CREATE TABLE IF NOT EXISTS agent_messages (
                 id              TEXT PRIMARY KEY,
-                thread_id       TEXT NOT NULL REFERENCES agent_threads(id) ON DELETE CASCADE,
+                thread_id       TEXT NOT NULL REFERENCES agent_threads(id),
                 created_at      INTEGER NOT NULL,
                 role            TEXT NOT NULL,
                 content         TEXT NOT NULL DEFAULT '',
@@ -58,6 +60,7 @@ pub(super) fn base_schema_sql() -> &'static str {
                 cost_usd        REAL,
                 reasoning       TEXT,
                 tool_calls_json TEXT,
+                deleted_at      INTEGER,
                 metadata_json   TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_messages_thread ON agent_messages(thread_id, created_at);
@@ -129,25 +132,28 @@ pub(super) fn base_schema_sql() -> &'static str {
                 termination_conditions TEXT,
                 success_criteria     TEXT,
                 max_duration_secs    INTEGER,
-                supervisor_config_json TEXT
+                supervisor_config_json TEXT,
+                deleted_at           INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status, priority, created_at DESC);
             CREATE TABLE IF NOT EXISTS agent_task_dependencies (
-                task_id             TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+                task_id             TEXT NOT NULL REFERENCES agent_tasks(id),
                 depends_on_task_id  TEXT NOT NULL,
                 ordinal             INTEGER NOT NULL DEFAULT 0,
+                deleted_at          INTEGER,
                 PRIMARY KEY (task_id, depends_on_task_id)
             );
             CREATE INDEX IF NOT EXISTS idx_agent_task_deps_parent ON agent_task_dependencies(depends_on_task_id);
             CREATE TABLE IF NOT EXISTS agent_task_logs (
                 id         TEXT PRIMARY KEY,
-                task_id    TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+                task_id    TEXT NOT NULL REFERENCES agent_tasks(id),
                 timestamp  INTEGER NOT NULL,
                 level      TEXT NOT NULL,
                 phase      TEXT NOT NULL,
                 message    TEXT NOT NULL,
                 details    TEXT,
-                attempt    INTEGER NOT NULL DEFAULT 0
+                attempt    INTEGER NOT NULL DEFAULT 0,
+                deleted_at INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_agent_task_logs_task_ts ON agent_task_logs(task_id, timestamp ASC);
             CREATE TABLE IF NOT EXISTS transcript_index (
@@ -170,7 +176,8 @@ pub(super) fn base_schema_sql() -> &'static str {
                 label        TEXT,
                 path         TEXT NOT NULL,
                 created_at   INTEGER NOT NULL,
-                details_json TEXT
+                details_json TEXT,
+                deleted_at   INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_snapshot_ts ON snapshot_index(created_at DESC);
             CREATE TABLE IF NOT EXISTS goal_runs (
@@ -220,12 +227,13 @@ pub(super) fn base_schema_sql() -> &'static str {
                 runtime_assignment_list_json TEXT NOT NULL DEFAULT '[]',
                 root_thread_id      TEXT,
                 active_thread_id    TEXT,
-                execution_thread_ids_json TEXT NOT NULL DEFAULT '[]'
+                execution_thread_ids_json TEXT NOT NULL DEFAULT '[]',
+                deleted_at          INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_goal_runs_status ON goal_runs(status, updated_at DESC);
             CREATE TABLE IF NOT EXISTS goal_run_steps (
                 id                TEXT PRIMARY KEY,
-                goal_run_id       TEXT NOT NULL REFERENCES goal_runs(id) ON DELETE CASCADE,
+                goal_run_id       TEXT NOT NULL REFERENCES goal_runs(id),
                 ordinal           INTEGER NOT NULL,
                 title             TEXT NOT NULL,
                 instructions      TEXT NOT NULL,
@@ -237,18 +245,20 @@ pub(super) fn base_schema_sql() -> &'static str {
                 summary           TEXT,
                 error             TEXT,
                 started_at        INTEGER,
-                completed_at      INTEGER
+                completed_at      INTEGER,
+                deleted_at        INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_goal_run_steps_goal_run ON goal_run_steps(goal_run_id, ordinal ASC);
             CREATE TABLE IF NOT EXISTS goal_run_events (
                 id          TEXT PRIMARY KEY,
-                goal_run_id TEXT NOT NULL REFERENCES goal_runs(id) ON DELETE CASCADE,
+                goal_run_id TEXT NOT NULL REFERENCES goal_runs(id),
                 timestamp   INTEGER NOT NULL,
                 phase       TEXT NOT NULL,
                 message     TEXT NOT NULL,
                 details     TEXT,
                 step_index  INTEGER,
-                todo_snapshot_json TEXT
+                todo_snapshot_json TEXT,
+                deleted_at  INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_goal_run_events_goal_run_ts ON goal_run_events(goal_run_id, timestamp ASC);
             CREATE TABLE IF NOT EXISTS subagent_metrics (
@@ -275,7 +285,8 @@ pub(super) fn base_schema_sql() -> &'static str {
                 checkpoint_type   TEXT NOT NULL,
                 state_json        TEXT NOT NULL,
                 context_summary   TEXT,
-                created_at        INTEGER NOT NULL
+                created_at        INTEGER NOT NULL,
+                deleted_at        INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_agent_checkpoints_goal_run ON agent_checkpoints(goal_run_id, created_at DESC);
 

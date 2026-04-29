@@ -192,6 +192,40 @@ pub(super) fn active_agent_name_for_thread(
     MAIN_AGENT_NAME.to_string()
 }
 
+pub(super) fn visible_thread_owner_agent_name_for_handoff_state(
+    thread_id: &str,
+    state: &ThreadHandoffState,
+    has_thread_participants: bool,
+) -> Option<String> {
+    if !has_thread_participants
+        || is_internal_dm_thread(thread_id)
+        || is_participant_playground_thread(thread_id)
+        || is_internal_handoff_thread(thread_id)
+    {
+        return None;
+    }
+
+    Some(canonical_agent_name(&state.origin_agent_id).to_string())
+}
+
+pub(super) fn persisted_agent_name_for_thread_surface(
+    thread: &AgentThread,
+    state: Option<&ThreadHandoffState>,
+    has_thread_participants: bool,
+) -> String {
+    if let Some(owner_name) = state.and_then(|state| {
+        visible_thread_owner_agent_name_for_handoff_state(
+            &thread.id,
+            state,
+            has_thread_participants,
+        )
+    }) {
+        return owner_name;
+    }
+
+    active_agent_name_for_thread(thread, state)
+}
+
 fn resolve_thread_handoff_agent(alias: &str) -> Option<(String, String)> {
     let trimmed = alias.trim();
     if trimmed.is_empty() {
@@ -314,12 +348,24 @@ impl AgentEngine {
             .unwrap_or_else(now_millis);
         let normalized = normalized_thread_handoff_state(thread_id, None, created_at, Some(state));
         let active_name = canonical_agent_name(&normalized.active_agent_id).to_string();
+        let has_thread_participants = self
+            .thread_participants
+            .read()
+            .await
+            .get(thread_id)
+            .is_some_and(|participants| !participants.is_empty());
+        let thread_agent_name = visible_thread_owner_agent_name_for_handoff_state(
+            thread_id,
+            &normalized,
+            has_thread_participants,
+        )
+        .unwrap_or(active_name);
         self.thread_handoff_states
             .write()
             .await
             .insert(thread_id.to_string(), normalized);
         if let Some(thread) = self.threads.write().await.get_mut(thread_id) {
-            thread.agent_name = Some(active_name);
+            thread.agent_name = Some(thread_agent_name);
         }
     }
 

@@ -6,8 +6,8 @@ use crate::governance::{
     GovernanceVerdict, RiskClass, TransitionKind, VerdictClass,
 };
 use crate::history::{ApprovalRecordRow, AuditEntryRow, GovernanceEvaluationRow};
-use zorai_protocol::ApprovalPayload;
 use serde_json::json;
+use zorai_protocol::ApprovalPayload;
 
 fn transition_kind_str(kind: &TransitionKind) -> &'static str {
     match kind {

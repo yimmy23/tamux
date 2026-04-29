@@ -254,6 +254,13 @@ fn render_chat_tab<'a>(
         "Visible Msgs:   ",
         config.tui_chat_history_page_size.to_string(),
         "tui_chat_history_page_size",
+    ), (
+        20usize,
+        "Restore Hours:  ",
+        config
+            .participant_observer_restore_window_hours
+            .to_string(),
+        "participant_observer_restore_window_hours",
     )] {
         render_gateway_text_field(
             settings, theme, &mut lines, idx, label, &value, field_name, false,
@@ -261,10 +268,10 @@ fn render_chat_tab<'a>(
     }
 
     for (idx, label) in [
-        (20usize, "Inspect Operator Model"),
-        (21usize, "Reset Operator Model"),
-        (22usize, "Inspect Collaboration"),
-        (23usize, "Inspect Generated Tools"),
+        (21usize, "Inspect Operator Model"),
+        (22usize, "Reset Operator Model"),
+        (23usize, "Inspect Collaboration"),
+        (24usize, "Inspect Generated Tools"),
     ] {
         let is_selected = settings.field_cursor() == idx;
         lines.push(Line::from(vec![

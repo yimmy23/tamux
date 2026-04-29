@@ -90,6 +90,24 @@ function Write-Warn($msg) {
     Write-Host "  WARNING: $msg" -ForegroundColor Yellow
 }
 
+function Invoke-NpmCiWithRetries {
+    & npm config set fetch-retries 5
+    if ($LASTEXITCODE -ne 0) { throw "npm config failed" }
+    & npm config set fetch-retry-mintimeout 20000
+    if ($LASTEXITCODE -ne 0) { throw "npm config failed" }
+    & npm config set fetch-retry-maxtimeout 120000
+    if ($LASTEXITCODE -ne 0) { throw "npm config failed" }
+
+    $maxAttempts = 3
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        & npm ci --prefer-offline --no-audit
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($attempt -eq $maxAttempts) { throw "npm ci failed" }
+        Write-Warn "npm ci failed on attempt $attempt of $maxAttempts; retrying after transient npm/network failure."
+        Start-Sleep -Seconds (15 * $attempt)
+    }
+}
+
 function Sign-Binary([string]$FilePath) {
     if (-not (Test-Path $FilePath)) {
         Write-Warn "Skipping $FilePath (not found)"
@@ -262,7 +280,7 @@ if ($SkipFrontend) {
     Write-Step $step $totalSteps "Building frontend..."
     Push-Location $FrontendDir
     try {
-        & npm ci --silent 2>$null
+        Invoke-NpmCiWithRetries
         & npm run build
         if ($LASTEXITCODE -ne 0) { throw "Frontend build failed" }
         Write-Ok "Frontend build complete"

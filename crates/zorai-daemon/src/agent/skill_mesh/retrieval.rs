@@ -13,8 +13,6 @@ use crate::agent::skill_recommendation::{
 use crate::agent::types::SkillRecommendationConfig;
 use crate::history::{HistoryStore, SkillVariantRecord};
 
-use super::types::{SkillMeshConfidenceBand, SkillMeshNextStep, SkillMeshPolicyDecision};
-
 pub(crate) async fn discover_local_skills_via_mesh(
     history: &HistoryStore,
     skills_root: &Path,
@@ -238,57 +236,4 @@ fn build_reason(
         record.use_count
     ));
     reasons.join("; ")
-}
-
-pub fn policy_decision_for_legacy_discovery(
-    result: &crate::agent::skill_recommendation::SkillDiscoveryResult,
-) -> SkillMeshPolicyDecision {
-    let top_recommendation = result.recommendations.first();
-    let recommended_skill = top_recommendation.map(|item| item.record.skill_name.clone());
-    let read_skill_identifier = top_recommendation.map(|item| item.record.variant_id.clone());
-
-    let confidence_band = match result.confidence {
-        crate::agent::skill_recommendation::SkillRecommendationConfidence::Strong => {
-            SkillMeshConfidenceBand::Strong
-        }
-        crate::agent::skill_recommendation::SkillRecommendationConfidence::Weak => {
-            SkillMeshConfidenceBand::Weak
-        }
-        crate::agent::skill_recommendation::SkillRecommendationConfidence::None => {
-            SkillMeshConfidenceBand::None
-        }
-    };
-
-    match confidence_band {
-        SkillMeshConfidenceBand::Strong => SkillMeshPolicyDecision {
-            confidence_band,
-            next_step: SkillMeshNextStep::ReadSkill,
-            recommended_action: recommended_skill
-                .as_deref()
-                .map(|skill| format!("read_skill {skill}"))
-                .unwrap_or_else(|| SkillMeshNextStep::JustifySkillSkip.as_str().to_string()),
-            recommended_skill,
-            read_skill_identifier,
-            requires_approval: false,
-        },
-        SkillMeshConfidenceBand::Weak => SkillMeshPolicyDecision {
-            confidence_band,
-            next_step: SkillMeshNextStep::ChooseOrBypass,
-            recommended_action: recommended_skill
-                .as_deref()
-                .map(|skill| format!("read_skill {skill}"))
-                .unwrap_or_else(|| SkillMeshNextStep::JustifySkillSkip.as_str().to_string()),
-            recommended_skill,
-            read_skill_identifier,
-            requires_approval: false,
-        },
-        SkillMeshConfidenceBand::None => SkillMeshPolicyDecision {
-            confidence_band,
-            next_step: SkillMeshNextStep::JustifySkillSkip,
-            recommended_action: SkillMeshNextStep::JustifySkillSkip.as_str().to_string(),
-            recommended_skill: None,
-            read_skill_identifier: None,
-            requires_approval: false,
-        },
-    }
 }

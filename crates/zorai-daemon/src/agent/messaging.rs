@@ -261,6 +261,47 @@ impl AgentEngine {
         Ok(total)
     }
 
+    pub async fn restore_thread_messages(
+        &self,
+        thread_id: &str,
+        message_ids: &[String],
+    ) -> Result<usize> {
+        if message_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let id_refs: Vec<&str> = message_ids.iter().map(String::as_str).collect();
+        let restored = self
+            .history
+            .restore_messages(thread_id, &id_refs)
+            .await
+            .unwrap_or(0);
+
+        if restored > 0 {
+            let existing_pinned = {
+                let threads = self.threads.read().await;
+                threads.get(thread_id).map(|thread| thread.pinned)
+            };
+
+            if let Some(mut restored_thread) = self.restore_thread_from_db(thread_id).await {
+                if let Some(pinned) = existing_pinned {
+                    restored_thread.pinned = pinned;
+                }
+
+                let mut threads = self.threads.write().await;
+                threads.insert(thread_id.to_string(), restored_thread);
+            }
+
+            self.repair_tool_call_sequence(thread_id).await;
+            let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+                thread_id: thread_id.to_string(),
+            });
+            tracing::info!(thread_id, restored, "restored soft-deleted messages");
+        }
+
+        Ok(restored)
+    }
+
     pub async fn seed_thread_context(
         &self,
         thread_id: Option<&str>,
@@ -565,6 +606,12 @@ impl AgentEngine {
             db_thread.created_at as u64,
             thread_metadata.handoff_state,
         );
+        let hydrated_agent_name = visible_thread_owner_agent_name_for_handoff_state(
+            thread_id,
+            &handoff_state,
+            !thread_metadata.thread_participants.is_empty(),
+        )
+        .unwrap_or_else(|| canonical_agent_name(&handoff_state.active_agent_id).to_string());
         self.thread_handoff_states
             .write()
             .await
@@ -580,7 +627,7 @@ impl AgentEngine {
 
         Some(AgentThread {
             id: thread_id.to_string(),
-            agent_name: Some(canonical_agent_name(&handoff_state.active_agent_id).to_string()),
+            agent_name: Some(hydrated_agent_name),
             title: db_thread.title,
             messages,
             pinned: false,

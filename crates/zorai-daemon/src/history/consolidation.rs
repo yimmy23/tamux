@@ -22,7 +22,7 @@ impl HistoryStore {
         let now = created_at as i64;
         self.conn.call(move |conn| {
             conn.execute(
-                "INSERT OR REPLACE INTO memory_tombstones (id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT OR REPLACE INTO memory_tombstones (id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
                 params![id, target, original_content, fact_key, replaced_by, now, source_kind, provenance_id, now],
             )?;
             Ok(())
@@ -38,7 +38,7 @@ impl HistoryStore {
         self.read_conn.call(move |conn| {
             if let Some(target) = target {
                 let mut stmt = conn.prepare(
-                    "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE target = ?1 ORDER BY created_at DESC LIMIT ?2",
+                    "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE target = ?1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ?2",
                 )?;
                 let rows = stmt.query_map(params![target, limit as i64], |row| {
                     Ok(MemoryTombstoneRow {
@@ -56,7 +56,7 @@ impl HistoryStore {
                 rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
             } else {
                 let mut stmt = conn.prepare(
-                    "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones ORDER BY created_at DESC LIMIT ?1",
+                    "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?1",
                 )?;
                 let rows = stmt.query_map(params![limit as i64], |row| {
                     Ok(MemoryTombstoneRow {
@@ -81,8 +81,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 let count = conn.execute(
-                    "DELETE FROM memory_tombstones WHERE created_at < ?1",
-                    params![cutoff],
+                    "UPDATE memory_tombstones SET deleted_at = ?2 WHERE created_at < ?1 AND deleted_at IS NULL",
+                    params![cutoff, now_ts() as i64],
                 )?;
                 Ok(count)
             })
@@ -97,7 +97,7 @@ impl HistoryStore {
         let tombstone_id = tombstone_id.to_string();
         self.conn.call(move |conn| {
             let row: Option<MemoryTombstoneRow> = conn.query_row(
-                "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE id = ?1",
+                "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE id = ?1 AND deleted_at IS NULL",
                 params![tombstone_id],
                 |row| {
                     Ok(MemoryTombstoneRow {
@@ -114,7 +114,10 @@ impl HistoryStore {
                 },
             ).optional()?;
             if row.is_some() {
-                conn.execute("DELETE FROM memory_tombstones WHERE id = ?1", params![tombstone_id])?;
+                conn.execute(
+                    "UPDATE memory_tombstones SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+                    params![tombstone_id, now_ts() as i64],
+                )?;
             }
             Ok(row)
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
@@ -128,7 +131,7 @@ impl HistoryStore {
             .call(move |conn| {
                 let value: Option<String> = conn
                     .query_row(
-                        "SELECT value FROM consolidation_state WHERE key = ?1",
+                        "SELECT value FROM consolidation_state WHERE key = ?1 AND deleted_at IS NULL",
                         params![key],
                         |row| row.get(0),
                     )
@@ -144,7 +147,7 @@ impl HistoryStore {
         let value = value.to_string();
         self.conn.call(move |conn| {
             conn.execute(
-                "INSERT OR REPLACE INTO consolidation_state (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                "INSERT OR REPLACE INTO consolidation_state (key, value, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
                 params![key, value, now as i64],
             )?;
             Ok(())
@@ -156,8 +159,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "DELETE FROM consolidation_state WHERE key = ?1",
-                    params![key],
+                    "UPDATE consolidation_state SET deleted_at = ?2 WHERE key = ?1 AND deleted_at IS NULL",
+                    params![key, now_ts() as i64],
                 )?;
                 Ok(())
             })
@@ -174,7 +177,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt =
-                    conn.prepare("SELECT key, value FROM consolidation_state WHERE key LIKE ?1")?;
+                    conn.prepare("SELECT key, value FROM consolidation_state WHERE key LIKE ?1 AND deleted_at IS NULL")?;
                 let rows = stmt.query_map(params![like], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })?;

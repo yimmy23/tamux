@@ -5,13 +5,13 @@
 //! auto-detects which language servers are available on `$PATH` and falls back
 //! gracefully (returning an empty `Vec`) when none are found.
 
-use zorai_protocol::SymbolMatch;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read as _, Write as _};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI64, Ordering};
+use zorai_protocol::SymbolMatch;
 
 /// Supported language server binaries and the file extensions they handle.
 const KNOWN_SERVERS: &[(&str, &[&str])] = &[

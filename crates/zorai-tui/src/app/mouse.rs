@@ -90,6 +90,14 @@ impl TuiModel {
         match mouse.kind {
             MouseEventKind::ScrollUp => {
                 if cursor_in_chat {
+                    if matches!(self.main_pane_view, MainPaneView::Workspace) {
+                        self.step_workspace_board_scroll_at(
+                            Position::new(mouse.column, mouse.row),
+                            -1,
+                        );
+                        self.input.set_mode(input::InputMode::Insert);
+                        return;
+                    }
                     if matches!(
                         self.main_pane_view,
                         MainPaneView::Task(_)
@@ -210,6 +218,14 @@ impl TuiModel {
             }
             MouseEventKind::ScrollDown => {
                 if cursor_in_chat {
+                    if matches!(self.main_pane_view, MainPaneView::Workspace) {
+                        self.step_workspace_board_scroll_at(
+                            Position::new(mouse.column, mouse.row),
+                            1,
+                        );
+                        self.input.set_mode(input::InputMode::Insert);
+                        return;
+                    }
                     if matches!(
                         self.main_pane_view,
                         MainPaneView::Task(_)
@@ -347,10 +363,11 @@ impl TuiModel {
                     self.focus = FocusArea::Chat;
                     if matches!(self.main_pane_view, MainPaneView::Workspace) {
                         let pos = Position::new(mouse.column, mouse.row);
-                        match widgets::workspace_board::hit_test(
+                        match widgets::workspace_board::hit_test_with_scroll(
                             chat_area,
                             &self.workspace,
                             &self.workspace_expanded_task_ids,
+                            &self.workspace_board_scroll,
                             pos,
                         ) {
                             Some(widgets::workspace_board::WorkspaceBoardHitTarget::Toolbar(
@@ -1012,10 +1029,11 @@ impl TuiModel {
                     let start_target = self.workspace_drag_start_target.take();
                     if cursor_in_chat && matches!(self.main_pane_view, MainPaneView::Workspace) {
                         let pos = Position::new(mouse.column, mouse.row);
-                        let drop_target = widgets::workspace_board::hit_test(
+                        let drop_target = widgets::workspace_board::hit_test_with_scroll(
                             chat_area,
                             &self.workspace,
                             &self.workspace_expanded_task_ids,
+                            &self.workspace_board_scroll,
                             pos,
                         );
                         if start_target == drop_target {

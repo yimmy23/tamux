@@ -172,9 +172,9 @@ pub struct SkillRecommendationConfig {
     pub community_preapprove_timeout_secs: u64,
     #[serde(default = "default_skill_recommendation_suggest_global_enable_after_approvals")]
     pub suggest_global_enable_after_approvals: u32,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub llm_normalize_on_no_match: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub llm_semantic_search_on_no_match: bool,
     #[serde(default = "default_skill_recommendation_llm_semantic_search_max_skills")]
     pub llm_semantic_search_max_skills: u32,
@@ -222,8 +222,8 @@ impl Default for SkillRecommendationConfig {
                 default_skill_recommendation_community_preapprove_timeout_secs(),
             suggest_global_enable_after_approvals:
                 default_skill_recommendation_suggest_global_enable_after_approvals(),
-            llm_normalize_on_no_match: default_true(),
-            llm_semantic_search_on_no_match: default_true(),
+            llm_normalize_on_no_match: false,
+            llm_semantic_search_on_no_match: false,
             llm_semantic_search_max_skills:
                 default_skill_recommendation_llm_semantic_search_max_skills(),
         }

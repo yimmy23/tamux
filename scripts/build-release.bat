@@ -58,13 +58,38 @@ REM Step 2: Build frontend
 REM -----------------------------------------------------------
 echo [2/5] Building frontend...
 cd /d "%PROJECT_ROOT%\frontend"
-call npm ci --silent
+call npm config set fetch-retries 5
+if errorlevel 1 goto npm_failed
+call npm config set fetch-retry-mintimeout 20000
+if errorlevel 1 goto npm_failed
+call npm config set fetch-retry-maxtimeout 120000
+if errorlevel 1 goto npm_failed
+set NPM_CI_OK=0
+for /L %%A in (1,1,3) do (
+    call npm ci --prefer-offline --no-audit
+    if not errorlevel 1 (
+        set NPM_CI_OK=1
+        goto npm_ci_done
+    )
+    if %%A==3 goto npm_failed
+    echo WARNING: npm ci failed on attempt %%A of 3; retrying after transient npm/network failure.
+    powershell -NoProfile -Command "Start-Sleep -Seconds (15 * %%A)"
+)
+:npm_ci_done
+if "%NPM_CI_OK%"=="0" goto npm_failed
 call npm run build
 if errorlevel 1 (
     echo ERROR: Frontend build failed.
     exit /b 1
 )
 echo       Done.
+goto frontend_done
+
+:npm_failed
+echo ERROR: npm ci failed.
+exit /b 1
+
+:frontend_done
 
 REM -----------------------------------------------------------
 REM Step 3: Collect binaries

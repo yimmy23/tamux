@@ -38,6 +38,164 @@
   padding: 22px;
 }
 
+.zorai-database-surface {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+  overflow: hidden;
+  padding: 16px;
+}
+
+.zorai-database-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--zorai-border);
+  padding-bottom: 12px;
+}
+
+.zorai-database-toolbar h2 {
+  margin: 3px 0 0;
+  font-size: 18px;
+}
+
+.zorai-database-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--zorai-muted);
+  font-size: 12px;
+}
+
+.zorai-database-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zorai-database-page-size {
+  width: 74px;
+  border-radius: 7px;
+  border: 1px solid var(--zorai-border-strong);
+  background: #0c111a;
+  color: var(--zorai-text);
+  padding: 8px 9px;
+}
+
+.zorai-database-table-wrap {
+  min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+  border: 1px solid var(--zorai-border);
+  background: #070b11;
+}
+
+.zorai-database-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.zorai-database-table th,
+.zorai-database-table td {
+  border-right: 1px solid var(--zorai-border);
+  border-bottom: 1px solid var(--zorai-border);
+  min-width: 150px;
+  max-width: 320px;
+  padding: 0;
+}
+
+.zorai-database-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #101722;
+  color: var(--zorai-text);
+  text-align: left;
+  padding: 8px;
+}
+
+.zorai-database-table th span,
+.zorai-database-table th small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zorai-database-table th small {
+  color: var(--zorai-muted);
+  font-size: 10px;
+  margin-top: 3px;
+}
+
+.zorai-database-sort-button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  padding: 0;
+  text-align: left;
+}
+
+.zorai-database-sort-icon {
+  min-width: 16px;
+  color: var(--zorai-accent);
+  text-align: center;
+}
+
+.zorai-database-rowid {
+  color: var(--zorai-muted);
+  padding: 8px !important;
+  min-width: 72px !important;
+  max-width: 90px !important;
+  background: #0a0f17;
+}
+
+.zorai-database-cell-editor {
+  width: 100%;
+  min-height: 44px;
+  max-height: 180px;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--zorai-text);
+  padding: 8px;
+  font: inherit;
+  line-height: 1.35;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+.zorai-database-cell-editor:disabled {
+  color: var(--zorai-muted);
+  cursor: default;
+  resize: none;
+}
+
+.zorai-database-cell--dirty .zorai-database-cell-editor {
+  background: rgba(119, 216, 197, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(119, 216, 197, 0.35);
+}
+
 .zorai-settings-tab-strip {
   display: none;
   flex-wrap: wrap;

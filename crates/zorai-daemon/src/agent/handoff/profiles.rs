@@ -22,7 +22,7 @@ pub struct LearnedRoutingWeight {
     pub weight: f64,
 }
 
-/// Returns the 5 built-in specialist profiles.
+/// Returns the built-in specialist profiles.
 pub fn default_specialist_profiles() -> Vec<SpecialistProfile> {
     vec![
         SpecialistProfile {
@@ -54,6 +54,114 @@ pub fn default_specialist_profiles() -> Vec<SpecialistProfile> {
                 "You are a research specialist. Focus on thorough investigation, \
                  source verification, and structured analysis. Provide evidence-based \
                  findings with clear citations."
+                    .to_string(),
+            ),
+            escalation_chain: Vec::new(),
+            is_builtin: true,
+        },
+        SpecialistProfile {
+            id: "medical-research".to_string(),
+            name: "Medical Research Specialist".to_string(),
+            role: "medical-research".to_string(),
+            capabilities: vec![
+                CapabilityTag {
+                    tag: "medical".to_string(),
+                    proficiency: Proficiency::Expert,
+                },
+                CapabilityTag {
+                    tag: "evidence-synthesis".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "clinical-guidelines".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "patient-explanation".to_string(),
+                    proficiency: Proficiency::Competent,
+                },
+            ],
+            tool_filter: None,
+            system_prompt_snippet: Some(
+                "You are a medical research specialist. Summarize evidence, compare \
+                 guidelines, and explain findings clearly. Provide informational \
+                 decision support only: do not diagnose, prescribe, or present \
+                 output as a substitute for licensed clinical judgment. Flag \
+                 uncertainty and escalate emergency-risk situations immediately."
+                    .to_string(),
+            ),
+            escalation_chain: Vec::new(),
+            is_builtin: true,
+        },
+        SpecialistProfile {
+            id: "financial-analyst".to_string(),
+            name: "Financial Analyst".to_string(),
+            role: "financial-analyst".to_string(),
+            capabilities: vec![
+                CapabilityTag {
+                    tag: "finance".to_string(),
+                    proficiency: Proficiency::Expert,
+                },
+                CapabilityTag {
+                    tag: "modeling".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "risk-analysis".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "budgeting".to_string(),
+                    proficiency: Proficiency::Competent,
+                },
+                CapabilityTag {
+                    tag: "market-analysis".to_string(),
+                    proficiency: Proficiency::Competent,
+                },
+            ],
+            tool_filter: None,
+            system_prompt_snippet: Some(
+                "You are a financial analysis specialist. Build explicit assumptions, \
+                 compare scenarios, and surface downside cases and uncertainty. \
+                 Provide informational analysis only: do not claim fiduciary \
+                 authority, guaranteed returns, or personalized licensed advice."
+                    .to_string(),
+            ),
+            escalation_chain: Vec::new(),
+            is_builtin: true,
+        },
+        SpecialistProfile {
+            id: "legal-research".to_string(),
+            name: "Legal Research Specialist".to_string(),
+            role: "legal-research".to_string(),
+            capabilities: vec![
+                CapabilityTag {
+                    tag: "legal".to_string(),
+                    proficiency: Proficiency::Expert,
+                },
+                CapabilityTag {
+                    tag: "contract-analysis".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "issue-spotting".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "jurisdictional-comparison".to_string(),
+                    proficiency: Proficiency::Competent,
+                },
+                CapabilityTag {
+                    tag: "compliance".to_string(),
+                    proficiency: Proficiency::Competent,
+                },
+            ],
+            tool_filter: None,
+            system_prompt_snippet: Some(
+                "You are a legal research specialist. Summarize authorities, compare \
+                 jurisdictions, and spot contract or compliance issues with clear \
+                 uncertainty notes. Provide informational research only: do not \
+                 claim the final legal answer or present output as legal advice."
                     .to_string(),
             ),
             escalation_chain: Vec::new(),
@@ -124,6 +232,115 @@ pub fn default_specialist_profiles() -> Vec<SpecialistProfile> {
             system_prompt_snippet: Some(
                 "You are a frontend development specialist. Build responsive, \
                  accessible React components with TypeScript strict mode compliance."
+                    .to_string(),
+            ),
+            escalation_chain: Vec::new(),
+            is_builtin: true,
+        },
+        SpecialistProfile {
+            id: "art-director".to_string(),
+            name: "Art Director".to_string(),
+            role: "art-director".to_string(),
+            capabilities: vec![
+                CapabilityTag {
+                    tag: "art-direction".to_string(),
+                    proficiency: Proficiency::Expert,
+                },
+                CapabilityTag {
+                    tag: "branding".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "visual-design".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "critique".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "concept-development".to_string(),
+                    proficiency: Proficiency::Expert,
+                },
+            ],
+            tool_filter: None,
+            system_prompt_snippet: Some(
+                "You are an art direction specialist. Generate multiple credible \
+                 visual directions, articulate taste and style trade-offs, and \
+                 maintain coherence across concepts, branding, and presentation."
+                    .to_string(),
+            ),
+            escalation_chain: Vec::new(),
+            is_builtin: true,
+        },
+        SpecialistProfile {
+            id: "scientific-reviewer".to_string(),
+            name: "Scientific Reviewer".to_string(),
+            role: "scientific-reviewer".to_string(),
+            capabilities: vec![
+                CapabilityTag {
+                    tag: "science".to_string(),
+                    proficiency: Proficiency::Expert,
+                },
+                CapabilityTag {
+                    tag: "methodology".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "statistics".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "peer-review".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "evidence-synthesis".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+            ],
+            tool_filter: None,
+            system_prompt_snippet: Some(
+                "You are a scientific review specialist. Evaluate study design, \
+                 evidence quality, methodology, and statistical reasoning. \
+                 Separate strong findings from speculation and call out the key \
+                 limitations that affect confidence."
+                    .to_string(),
+            ),
+            escalation_chain: Vec::new(),
+            is_builtin: true,
+        },
+        SpecialistProfile {
+            id: "product-marketing-strategist".to_string(),
+            name: "Product Marketing Strategist".to_string(),
+            role: "product-marketing-strategist".to_string(),
+            capabilities: vec![
+                CapabilityTag {
+                    tag: "marketing".to_string(),
+                    proficiency: Proficiency::Expert,
+                },
+                CapabilityTag {
+                    tag: "positioning".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "messaging".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "go-to-market".to_string(),
+                    proficiency: Proficiency::Advanced,
+                },
+                CapabilityTag {
+                    tag: "product-strategy".to_string(),
+                    proficiency: Proficiency::Competent,
+                },
+            ],
+            tool_filter: None,
+            system_prompt_snippet: Some(
+                "You are a product marketing specialist. Clarify audience, \
+                 positioning, messaging, and launch trade-offs. Tie recommendations \
+                 to customer understanding, market context, and measurable outcomes."
                     .to_string(),
             ),
             escalation_chain: Vec::new(),
@@ -448,9 +665,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_profiles_returns_5() {
+    fn default_profiles_include_expanded_specialist_catalog() {
         let profiles = default_specialist_profiles();
-        assert_eq!(profiles.len(), 5, "expected exactly 5 default profiles");
+        assert_eq!(
+            profiles.len(),
+            11,
+            "expected expanded default specialist profile catalog"
+        );
     }
 
     #[test]
@@ -507,6 +728,73 @@ mod tests {
         assert!(result.is_some());
         let (idx, _) = result.unwrap();
         assert_eq!(profiles[idx].id, "reviewer");
+    }
+
+    #[test]
+    fn match_medical_specialist_for_medical_evidence_work() {
+        let profiles = default_specialist_profiles();
+        let tags = vec!["medical".to_string(), "clinical-guidelines".to_string()];
+        let result = match_specialist(&profiles, &tags, 0.3);
+        assert!(result.is_some());
+        let (idx, score) = result.unwrap();
+        assert_eq!(profiles[idx].id, "medical-research");
+        assert!(
+            score >= 0.8,
+            "medical specialist should score strongly, got {score}"
+        );
+    }
+
+    #[test]
+    fn match_financial_specialist_for_finance_and_risk() {
+        let profiles = default_specialist_profiles();
+        let tags = vec!["finance".to_string(), "risk-analysis".to_string()];
+        let result = match_specialist(&profiles, &tags, 0.3);
+        assert!(result.is_some());
+        let (idx, _) = result.unwrap();
+        assert_eq!(profiles[idx].id, "financial-analyst");
+    }
+
+    #[test]
+    fn match_legal_specialist_for_contract_analysis() {
+        let profiles = default_specialist_profiles();
+        let tags = vec!["legal".to_string(), "contract-analysis".to_string()];
+        let result = match_specialist(&profiles, &tags, 0.3);
+        assert!(result.is_some());
+        let (idx, _) = result.unwrap();
+        assert_eq!(profiles[idx].id, "legal-research");
+    }
+
+    #[test]
+    fn match_art_director_for_visual_concept_work() {
+        let profiles = default_specialist_profiles();
+        let tags = vec![
+            "art-direction".to_string(),
+            "concept-development".to_string(),
+        ];
+        let result = match_specialist(&profiles, &tags, 0.3);
+        assert!(result.is_some());
+        let (idx, _) = result.unwrap();
+        assert_eq!(profiles[idx].id, "art-director");
+    }
+
+    #[test]
+    fn match_scientific_reviewer_for_methodology_and_statistics() {
+        let profiles = default_specialist_profiles();
+        let tags = vec!["methodology".to_string(), "statistics".to_string()];
+        let result = match_specialist(&profiles, &tags, 0.3);
+        assert!(result.is_some());
+        let (idx, _) = result.unwrap();
+        assert_eq!(profiles[idx].id, "scientific-reviewer");
+    }
+
+    #[test]
+    fn match_product_marketing_strategist_for_positioning_work() {
+        let profiles = default_specialist_profiles();
+        let tags = vec!["marketing".to_string(), "positioning".to_string()];
+        let result = match_specialist(&profiles, &tags, 0.3);
+        assert!(result.is_some());
+        let (idx, _) = result.unwrap();
+        assert_eq!(profiles[idx].id, "product-marketing-strategist");
     }
 
     #[test]

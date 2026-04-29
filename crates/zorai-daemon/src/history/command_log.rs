@@ -6,8 +6,8 @@ impl HistoryStore {
         self.conn.call(move |conn| {
         conn.execute(
             "INSERT OR REPLACE INTO command_log \
-             (id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             (id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms, deleted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL)",
             params![
                 entry.id,
                 entry.command,
@@ -35,7 +35,7 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "UPDATE command_log SET exit_code = ?2, duration_ms = ?3 WHERE id = ?1",
+                    "UPDATE command_log SET exit_code = ?2, duration_ms = ?3 WHERE id = ?1 AND deleted_at IS NULL",
                     params![id, exit_code, duration_ms],
                 )?;
                 Ok(())
@@ -58,22 +58,22 @@ impl HistoryStore {
         let sql = match (workspace_id.is_some(), pane_id.is_some()) {
             (true, true) => {
                 "SELECT id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms \
-                 FROM command_log WHERE workspace_id = ?1 AND pane_id = ?2 \
+                 FROM command_log WHERE workspace_id = ?1 AND pane_id = ?2 AND deleted_at IS NULL \
                  ORDER BY timestamp DESC LIMIT ?3"
             }
             (true, false) => {
                 "SELECT id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms \
-                 FROM command_log WHERE workspace_id = ?1 \
+                 FROM command_log WHERE workspace_id = ?1 AND deleted_at IS NULL \
                  ORDER BY timestamp DESC LIMIT ?2"
             }
             (false, true) => {
                 "SELECT id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms \
-                 FROM command_log WHERE pane_id = ?1 \
+                 FROM command_log WHERE pane_id = ?1 AND deleted_at IS NULL \
                  ORDER BY timestamp DESC LIMIT ?2"
             }
             (false, false) => {
                 "SELECT id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms \
-                 FROM command_log ORDER BY timestamp DESC LIMIT ?1"
+                 FROM command_log WHERE deleted_at IS NULL ORDER BY timestamp DESC LIMIT ?1"
             }
         };
 
@@ -98,7 +98,10 @@ impl HistoryStore {
     pub async fn clear_command_log(&self) -> Result<()> {
         self.conn
             .call(move |conn| {
-                conn.execute("DELETE FROM command_log", [])?;
+                conn.execute(
+                    "UPDATE command_log SET deleted_at = ?1 WHERE deleted_at IS NULL",
+                    params![now_ts() as i64],
+                )?;
                 Ok(())
             })
             .await

@@ -69,6 +69,7 @@ export const useStatusStore = create<StatusState>((set) => ({
 }));
 
 let _pollInterval: ReturnType<typeof setInterval> | null = null;
+let _pollInFlight = false;
 
 /** Start polling daemon for status updates every 10 seconds. */
 export function hydrateStatusStore(): void {
@@ -82,8 +83,10 @@ const VALID_ACTIVITIES: AgentActivityState[] = [
 ];
 
 async function pollStatus(): Promise<void> {
+    if (_pollInFlight) return;
     const bridge = getBridge();
     if (!bridge?.agentGetStatus) return;
+    _pollInFlight = true;
     try {
         const status = await bridge.agentGetStatus();
         if (!status) return;
@@ -164,6 +167,8 @@ async function pollStatus(): Promise<void> {
         });
     } catch (e) {
         console.warn("[status] poll failed:", e);
+    } finally {
+        _pollInFlight = false;
     }
 }
 
@@ -173,4 +178,5 @@ export function destroyStatusStore(): void {
         clearInterval(_pollInterval);
         _pollInterval = null;
     }
+    _pollInFlight = false;
 }

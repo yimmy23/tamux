@@ -65,3 +65,20 @@ fn classify_domains_falls_back_to_general_when_no_signal_exists() {
 
     assert_eq!(domains, vec!["general".to_string()]);
 }
+
+#[test]
+fn classify_domains_infers_regulated_and_creative_domains_from_prompt() {
+    let domains = crate::agent::morphogenesis::task_router::classify_domains(
+        "Compare clinical guidelines for a patient scenario, assess contract compliance risk, and suggest art direction for the launch campaign",
+        &[],
+    );
+
+    assert!(domains.iter().any(|domain| domain == "medical"));
+    assert!(domains.iter().any(|domain| domain == "clinical-guidelines"));
+    assert!(domains.iter().any(|domain| domain == "legal"));
+    assert!(domains.iter().any(|domain| domain == "issue-spotting"));
+    assert!(domains.iter().any(|domain| domain == "art-direction"));
+    assert!(domains.iter().any(|domain| domain == "concept-development"));
+    assert!(domains.iter().any(|domain| domain == "marketing"));
+    assert!(domains.iter().any(|domain| domain == "positioning"));
+}

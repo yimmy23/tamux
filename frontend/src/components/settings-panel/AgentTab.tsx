@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getDaemonOwnedAuthCapability, getProviderAuthSupportOptions } from "@/lib/agentDaemonConfig";
 import { getBridge } from "@/lib/bridge";
 import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
-import { filterFetchedModelsForAudio, filterFetchedModelsForImageGeneration } from "@/lib/providerModels";
+import { filterFetchedModelsForAudio, filterFetchedModelsForEmbeddings, filterFetchedModelsForImageGeneration } from "@/lib/providerModels";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
 import { DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW, getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, modelUsesContextWindowOverride, normalizeAuthSource, providerUsesConfigurableBaseUrl, resolveProviderModelDefinition } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
@@ -12,8 +12,11 @@ import {
     audioModelOptions,
     buildProviderOptions,
     filterAudioProviderOptions,
+    filterEmbeddingProviderOptions,
     filterImageGenerationProviderOptions,
+    embeddingModelOptions,
     imageGenerationModelOptions,
+    normalizeEmbeddingModelForProviderChange,
     normalizeAudioModelForProviderChange,
     normalizeImageGenerationModelForProviderChange,
     normalizeLlmStreamTimeoutInput,
@@ -32,6 +35,16 @@ import {
 } from "../../lib/chatHistoryPageSize";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
+type SemanticIndexStatus = {
+    queued_jobs?: number;
+    pending_for_model?: number;
+    completed_for_model?: number;
+    queued_deletions?: number;
+    failed_jobs?: number;
+    failed_deletions?: number;
+    error?: string;
+};
+
 export function AgentTab({
     settings, updateSetting, resetSettings,
 }: {
@@ -43,6 +56,8 @@ export function AgentTab({
     const [subscriptionAuthStatus, setSubscriptionAuthStatus] = useState<any>(null);
     const [subscriptionAuthBusy, setSubscriptionAuthBusy] = useState(false);
     const [pendingSttReuseModelId, setPendingSttReuseModelId] = useState<string | null>(null);
+    const [semanticStatus, setSemanticStatus] = useState<SemanticIndexStatus | null>(null);
+    const [semanticBackfillBusy, setSemanticBackfillBusy] = useState(false);
     const providerAuthStates = useAgentStore((s) => s.providerAuthStates);
     const refreshProviderAuthStates = useAgentStore((s) => s.refreshProviderAuthStates);
 
@@ -90,11 +105,13 @@ export function AgentTab({
     const audioSttProviderOptions = filterAudioProviderOptions(providerOptions, "stt");
     const audioTtsProviderOptions = filterAudioProviderOptions(providerOptions, "tts");
     const imageGenerationProviderOptions = filterImageGenerationProviderOptions(providerOptions);
+    const embeddingProviderOptions = filterEmbeddingProviderOptions(providerOptions);
 
     const providerConfig = settings[settings.active_provider] as AgentProviderConfig;
     const audioSttProviderConfig = settings[settings.audio_stt_provider] as AgentProviderConfig;
     const audioTtsProviderConfig = settings[settings.audio_tts_provider] as AgentProviderConfig;
     const imageGenerationProviderConfig = settings[settings.image_generation_provider] as AgentProviderConfig;
+    const embeddingProviderConfig = settings[settings.semantic_embedding_provider] as AgentProviderConfig;
     const authCapability = getDaemonOwnedAuthCapability(settings.agent_backend);
     const authSupportOptions = getProviderAuthSupportOptions(settings.agent_backend);
     const providerDef = getProviderDefinition(settings.active_provider);
@@ -127,10 +144,36 @@ export function AgentTab({
             : Boolean(providerConfig.api_key || activeProviderAuthState?.authenticated);
     const daemonDelayInputStyle = { ...inputStyle, width: 80 };
     const reactHistoryIsUnlimited = settings.react_chat_history_page_size === REACT_CHAT_HISTORY_PAGE_SIZE_ALL;
+    const refreshSemanticIndexStatus = useCallback(async () => {
+        const zorai = getBridge();
+        if (!zorai?.dbGetSemanticIndexStatus) return;
+        const status = await zorai.dbGetSemanticIndexStatus({
+            embeddingModel: settings.semantic_embedding_model,
+            dimensions: settings.semantic_embedding_dimensions,
+        });
+        if (status && typeof status === "object") {
+            setSemanticStatus(status as SemanticIndexStatus);
+        }
+    }, [settings.semantic_embedding_dimensions, settings.semantic_embedding_model]);
+    const queueSemanticBackfill = async () => {
+        const zorai = getBridge();
+        if (!zorai?.dbQueueSemanticBackfill) return;
+        setSemanticBackfillBusy(true);
+        try {
+            await zorai.dbQueueSemanticBackfill(null);
+            await refreshSemanticIndexStatus();
+        } finally {
+            setSemanticBackfillBusy(false);
+        }
+    };
 
     useEffect(() => {
         void refreshProviderAuthStates();
     }, [refreshProviderAuthStates]);
+
+    useEffect(() => {
+        void refreshSemanticIndexStatus();
+    }, [refreshSemanticIndexStatus]);
 
     useEffect(() => {
         if (
@@ -416,6 +459,91 @@ export function AgentTab({
                         modelOptions={imageGenerationModelOptions(settings.image_generation_provider)}
                         remoteModelFilter={(model) => filterFetchedModelsForImageGeneration([model]).length > 0}
                     />
+                </SettingRow>
+            </Section>
+
+            <Section title="Semantic Search">
+                <SettingRow label="Enable Embeddings">
+                    <Toggle
+                        value={settings.semantic_embedding_enabled}
+                        onChange={(value) => updateSetting("semantic_embedding_enabled", value)}
+                    />
+                </SettingRow>
+                <SettingRow label="Embedding Provider">
+                    <SelectInput
+                        value={settings.semantic_embedding_provider}
+                        options={embeddingProviderOptions.map((provider) => provider.id)}
+                        onChange={(value) => {
+                            const providerId = value as AgentProviderId;
+                            updateSetting("semantic_embedding_provider", providerId);
+                            updateSetting(
+                                "semantic_embedding_model",
+                                normalizeEmbeddingModelForProviderChange(
+                                    providerId,
+                                    settings.semantic_embedding_model,
+                                ),
+                            );
+                        }}
+                    />
+                </SettingRow>
+                <SettingRow label="Embedding Model">
+                    <ModelSelector
+                        providerId={settings.semantic_embedding_provider}
+                        value={settings.semantic_embedding_model}
+                        customName={embeddingProviderConfig.custom_model_name}
+                        onChange={(value) => updateSetting("semantic_embedding_model", value)}
+                        base_url={embeddingProviderConfig.base_url}
+                        api_key={embeddingProviderConfig.api_key}
+                        auth_source={embeddingProviderConfig.auth_source}
+                        allowProviderAuthFetch={providerHasDaemonAuth(settings.semantic_embedding_provider)}
+                        modelOptions={embeddingModelOptions(settings.semantic_embedding_provider)}
+                        remoteModelFilter={(model) => filterFetchedModelsForEmbeddings([model]).length > 0}
+                        disabled={!settings.semantic_embedding_enabled}
+                    />
+                </SettingRow>
+                <SettingRow label="Dimensions">
+                    <NumberInput
+                        value={settings.semantic_embedding_dimensions}
+                        min={1}
+                        max={32768}
+                        onChange={(value) => updateSetting("semantic_embedding_dimensions", Math.floor(value))}
+                    />
+                </SettingRow>
+                <SettingRow label="Batch Size">
+                    <NumberInput
+                        value={settings.semantic_embedding_batch_size}
+                        min={1}
+                        max={512}
+                        onChange={(value) => updateSetting("semantic_embedding_batch_size", Math.floor(value))}
+                    />
+                </SettingRow>
+                <SettingRow label="Concurrency">
+                    <NumberInput
+                        value={settings.semantic_embedding_max_concurrency}
+                        min={1}
+                        max={16}
+                        onChange={(value) => updateSetting("semantic_embedding_max_concurrency", Math.floor(value))}
+                    />
+                </SettingRow>
+                <SettingRow label="Index Status">
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                            {semanticStatus?.error
+                                ? semanticStatus.error
+                                : `pending ${semanticStatus?.pending_for_model ?? 0} / indexed ${semanticStatus?.completed_for_model ?? 0} / deletes ${semanticStatus?.queued_deletions ?? 0}`}
+                        </span>
+                        <button type="button" style={smallBtnStyle} onClick={() => void refreshSemanticIndexStatus()}>
+                            Refresh
+                        </button>
+                        <button
+                            type="button"
+                            style={addBtnStyle}
+                            onClick={() => void queueSemanticBackfill()}
+                            disabled={semanticBackfillBusy}
+                        >
+                            {semanticBackfillBusy ? "Queueing..." : "Rebuild"}
+                        </button>
+                    </div>
                 </SettingRow>
             </Section>
 
@@ -1032,6 +1160,15 @@ export function AgentTab({
                             All
                         </button>
                     </div>
+                </SettingRow>
+                <SettingRow label="Startup Restore Hours">
+                    <NumberInput
+                        value={settings.participant_observer_restore_window_hours}
+                        min={0}
+                        max={24 * 30}
+                        onChange={(value) =>
+                            updateSetting("participant_observer_restore_window_hours", value)}
+                    />
                 </SettingRow>
                 <SettingRow label="Max Tool Loops">
                     <NumberInput value={settings.max_tool_loops} min={0} max={1000}

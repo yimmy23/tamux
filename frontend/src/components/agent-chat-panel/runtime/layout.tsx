@@ -218,7 +218,7 @@ function AgentChatPanelThreadBrowserSurface({
 }: {
   browserView: "threads" | "internal" | "gateway";
 }) {
-  const { filteredThreads, searchQuery, setSearchQuery, refreshThreadList, setActiveThread, setView, setChatBackView, deleteThread } = useAgentChatPanelRuntime();
+  const { filteredThreads, searchQuery, setSearchQuery, refreshThreadList, openThread, setView, setChatBackView, deleteThread } = useAgentChatPanelRuntime();
 
   return (
     <ThreadList
@@ -227,7 +227,7 @@ function AgentChatPanelThreadBrowserSurface({
       onSearch={setSearchQuery}
       onRefresh={() => void refreshThreadList()}
       onSelect={(thread) => {
-        setActiveThread(thread.id);
+        openThread(thread.id);
         setChatBackView(browserView);
         setView("chat");
       }}
@@ -284,6 +284,8 @@ export function AgentChatPanelChatSurface() {
           isStreamingResponse={runtime.isStreamingResponse}
           activeThread={runtime.activeThread}
           messagesEndRef={runtime.messagesEndRef}
+          onLoadOlderMessages={runtime.loadOlderThreadMessages}
+          onTrimMessagesToLatestWindow={() => runtime.trimThreadMessagesToLatestWindow(runtime.activeThreadId)}
           onSendMessage={runtime.sendMessage}
           onSendParticipantSuggestion={runtime.sendParticipantSuggestion}
           onDismissParticipantSuggestion={runtime.dismissParticipantSuggestion}

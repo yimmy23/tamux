@@ -26,7 +26,6 @@ impl HistoryStore {
         let skill_dir = root.join("skills").join("generated");
         let telemetry_dir = root.join("semantic-logs");
         let worm_dir = telemetry_dir.join("worm");
-        let search_index_dir = root.join("search-index").join("tantivy");
 
         std::fs::create_dir_all(&history_dir)?;
         std::fs::create_dir_all(&skill_dir)?;
@@ -57,17 +56,6 @@ impl HistoryStore {
         let store = Self {
             conn,
             read_conn,
-            search_index: match super::search_index::SearchIndex::open(&search_index_dir) {
-                Ok(index) => Some(index),
-                Err(error) => {
-                    tracing::warn!(
-                        error = %error,
-                        path = %search_index_dir.display(),
-                        "tantivy search index unavailable; falling back to sqlite search"
-                    );
-                    None
-                }
-            },
             skill_dir,
             telemetry_dir,
             worm_dir,
@@ -124,7 +112,7 @@ impl HistoryStore {
     pub async fn list_agent_config_items(&self) -> Result<Vec<(String, serde_json::Value)>> {
         self.read_conn.call(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT key_path, value_json FROM agent_config_items ORDER BY length(key_path) ASC, key_path ASC",
+                "SELECT key_path, value_json FROM agent_config_items WHERE deleted_at IS NULL ORDER BY length(key_path) ASC, key_path ASC",
             )?;
             let rows = stmt.query_map([], |row| {
                 let key_path = row.get::<_, String>(0)?;
@@ -153,11 +141,14 @@ impl HistoryStore {
         let items = items.clone();
         self.conn.call(move |conn| {
             let transaction = conn.unchecked_transaction()?;
-            transaction.execute("DELETE FROM agent_config_items", [])?;
             let now = now_ts() as i64;
+            transaction.execute(
+                "UPDATE agent_config_items SET deleted_at = ?1 WHERE deleted_at IS NULL",
+                params![now],
+            )?;
             for (key_path, value_json) in &items {
                 transaction.execute(
-                    "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at) VALUES (?1, ?2, ?3)",
+                    "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
                     params![key_path, value_json, now],
                 )?;
             }
@@ -179,12 +170,12 @@ impl HistoryStore {
             let prefix = format!("{key_path}/%");
             let now = now_ts() as i64;
             transaction.execute(
-                "DELETE FROM agent_config_items \
-                 WHERE key_path = ?1 OR key_path LIKE ?2 OR ?1 LIKE key_path || '/%'",
-                params![key_path, prefix],
+                "UPDATE agent_config_items SET deleted_at = ?3 \
+                 WHERE deleted_at IS NULL AND (key_path = ?1 OR key_path LIKE ?2 OR ?1 LIKE key_path || '/%')",
+                params![key_path, prefix, now],
             )?;
             transaction.execute(
-                "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at) VALUES (?1, ?2, ?3)",
+                "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
                 params![key_path, value_json.clone(), now],
             )?;
             transaction.execute(
@@ -209,7 +200,7 @@ impl HistoryStore {
                     .query_row(
                         "SELECT provider_id, auth_mode, state_json, updated_at
                          FROM provider_auth_state
-                         WHERE provider_id = ?1 AND auth_mode = ?2",
+                         WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
                         params![provider_id, auth_mode],
                         |row| {
                             let state_json = row.get::<_, String>(2)?;
@@ -245,8 +236,8 @@ impl HistoryStore {
             .call(move |conn| {
                 conn.execute(
                     "INSERT OR REPLACE INTO provider_auth_state
-                     (provider_id, auth_mode, state_json, updated_at)
-                     VALUES (?1, ?2, ?3, ?4)",
+                     (provider_id, auth_mode, state_json, updated_at, deleted_at)
+                     VALUES (?1, ?2, ?3, ?4, NULL)",
                     params![provider_id, auth_mode, state_json, now_ts() as i64],
                 )?;
                 Ok(())
@@ -265,8 +256,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "DELETE FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
-                    params![provider_id, auth_mode],
+                    "UPDATE provider_auth_state SET deleted_at = ?3 WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
+                    params![provider_id, auth_mode, now_ts() as i64],
                 )?;
                 Ok(())
             })
@@ -317,26 +308,6 @@ impl HistoryStore {
             )?;
             Ok(())
         }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-
-        self.upsert_search_document(super::search_index::SearchDocument {
-            source_kind: super::search_index::SearchSourceKind::HistoryEntry,
-            source_id: record.execution_id.clone(),
-            title: record.command.clone(),
-            body: format!("{}\n{}", record.command, record.rationale),
-            tags: vec!["managed-command".to_string(), record.source.clone()],
-            workspace_id: record.workspace_id.clone(),
-            thread_id: None,
-            agent_id: None,
-            timestamp,
-            metadata_json: Some(
-                serde_json::to_string(&json!({
-                    "exit_code": record.exit_code,
-                    "duration_ms": record.duration_ms,
-                    "snapshot_path": record.snapshot_path,
-                }))
-                .unwrap_or_else(|_| "{}".to_string()),
-            ),
-        });
 
         self.append_telemetry(
             "operational",
@@ -416,30 +387,6 @@ impl HistoryStore {
         query: &str,
         limit: usize,
     ) -> Result<(String, Vec<HistorySearchHit>)> {
-        if let Some(index) = &self.search_index {
-            match index.search(super::search_index::SearchRequest {
-                query: query.to_string(),
-                limit,
-                source_kinds: Vec::new(),
-                workspace_id: None,
-                thread_id: None,
-                agent_id: None,
-            }) {
-                Ok(hit_refs) if !hit_refs.is_empty() => {
-                    let hits = self.materialize_search_hits(hit_refs).await?;
-                    if !hits.is_empty() {
-                        let summary =
-                            format!("Found {} searchable matches for '{query}'.", hits.len());
-                        return Ok((summary, hits));
-                    }
-                }
-                Ok(_) => {}
-                Err(error) => {
-                    tracing::warn!(error = %error, "tantivy history search failed; falling back to sqlite fts");
-                }
-            }
-        }
-
         self.search_with_sqlite_fts(query, limit).await
     }
 
@@ -475,76 +422,6 @@ impl HistoryStore {
             };
             Ok((summary, hits))
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
-    }
-
-    async fn hydrate_history_search_hits(
-        &self,
-        hit_refs: Vec<super::search_index::SearchHitRef>,
-    ) -> Result<Vec<HistorySearchHit>> {
-        self.read_conn
-            .call(move |conn| {
-                let mut hits = Vec::new();
-                for hit_ref in hit_refs {
-                    let hit = conn
-                        .query_row(
-                            "SELECT id, kind, title, excerpt, path, timestamp \
-                             FROM history_entries WHERE id = ?1",
-                            params![hit_ref.source_id],
-                            |row| {
-                                Ok(HistorySearchHit {
-                                    id: row.get(0)?,
-                                    kind: row.get(1)?,
-                                    title: row.get(2)?,
-                                    excerpt: row.get(3)?,
-                                    path: row.get(4)?,
-                                    timestamp: row.get::<_, i64>(5)? as u64,
-                                    score: f64::from(hit_ref.score),
-                                })
-                            },
-                        )
-                        .optional()?;
-                    if let Some(hit) = hit {
-                        hits.push(hit);
-                    }
-                }
-                Ok(hits)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
-    }
-
-    async fn materialize_search_hits(
-        &self,
-        hit_refs: Vec<super::search_index::SearchHitRef>,
-    ) -> Result<Vec<HistorySearchHit>> {
-        let mut materialized = Vec::new();
-        let mut history_refs = Vec::new();
-
-        for hit_ref in hit_refs {
-            if hit_ref.source_kind == super::search_index::SearchSourceKind::HistoryEntry {
-                history_refs.push(hit_ref);
-            } else {
-                materialized.push(HistorySearchHit {
-                    id: hit_ref.source_id,
-                    kind: hit_ref.source_kind.as_str().to_string(),
-                    title: hit_ref.title.clone(),
-                    excerpt: hit_ref.snippet.unwrap_or(hit_ref.title),
-                    path: None,
-                    timestamp: hit_ref.timestamp.unwrap_or_default().max(0) as u64,
-                    score: f64::from(hit_ref.score),
-                });
-            }
-        }
-
-        materialized.extend(self.hydrate_history_search_hits(history_refs).await?);
-        materialized.sort_by(|left, right| {
-            right
-                .score
-                .partial_cmp(&left.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| right.timestamp.cmp(&left.timestamp))
-        });
-        Ok(materialized)
     }
 
     pub async fn generate_skill(

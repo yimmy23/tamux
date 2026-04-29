@@ -67,6 +67,9 @@ function ChatPanel() {
         <SettingRow label="Visible Msgs" description="Messages visible in the terminal chat history page.">
           <input className="zorai-input" type="number" min={25} max={1000} value={agentSettings.tui_chat_history_page_size} onChange={(event) => updateAgentSetting("tui_chat_history_page_size", Number(event.target.value))} />
         </SettingRow>
+        <SettingRow label="Restore Hours" description="Recent lazy participant threads and stalled-turn supervision scanned by the daemon on startup.">
+          <input className="zorai-input" type="number" min={0} max={24 * 30} value={agentSettings.participant_observer_restore_window_hours} onChange={(event) => updateAgentSetting("participant_observer_restore_window_hours", Number(event.target.value))} />
+        </SettingRow>
       </Panel>
       <Panel section="Chat" title="Operational intelligence">
         <SettingRow label="Anticipatory Support" description="Enable proactive operator support."><Switch checked={agentSettings.anticipatory_enabled} onChange={(checked) => updateAgentSetting("anticipatory_enabled", checked)} /></SettingRow>

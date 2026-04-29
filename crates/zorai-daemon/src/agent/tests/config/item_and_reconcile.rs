@@ -104,6 +104,30 @@ async fn set_config_item_json_persists_sleep_delay_settings() {
 }
 
 #[tokio::test]
+async fn set_config_item_json_persists_participant_observer_restore_window() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .set_config_item_json("/participant_observer_restore_window_hours", "12")
+        .await
+        .expect("participant observer restore window should update");
+
+    let updated = engine.get_config().await;
+    assert_eq!(updated.participant_observer_restore_window_hours, 12);
+
+    let persisted_items = engine
+        .history
+        .list_agent_config_items()
+        .await
+        .expect("persisted config should be readable");
+    let rehydrated =
+        load_config_from_items(persisted_items).expect("persisted config should deserialize");
+    assert_eq!(rehydrated.participant_observer_restore_window_hours, 12);
+}
+
+#[tokio::test]
 async fn set_config_item_json_persists_snapshot_retention_settings() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

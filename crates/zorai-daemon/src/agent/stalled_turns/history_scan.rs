@@ -5,8 +5,6 @@ use crate::agent::liveness::stuck_detection::{DetectionSnapshot, StuckDetector};
 use crate::agent::types::StuckReason;
 use crate::history::SubagentMetrics;
 
-const RECENT_THREAD_ACTIVITY_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
-
 impl AgentEngine {
     pub(super) async fn collect_stalled_turn_observations(&self) -> Vec<ThreadStallObservation> {
         let active_streams = {
@@ -27,7 +25,11 @@ impl AgentEngine {
         let pending_operator_question_thread_ids =
             self.pending_operator_question_thread_ids().await;
         let now = now_millis();
-        let recent_cutoff = now.saturating_sub(RECENT_THREAD_ACTIVITY_WINDOW_MS);
+        let recent_window_ms = self.stalled_turn_activity_window_ms().await;
+        if recent_window_ms == 0 {
+            return Vec::new();
+        }
+        let recent_cutoff = now.saturating_sub(recent_window_ms);
 
         let mut observations = threads
             .values()
@@ -64,6 +66,7 @@ impl AgentEngine {
                 &goal_runs,
                 &subagent_runtime,
                 now,
+                recent_window_ms,
                 &observed_ids,
                 &pending_operator_question_thread_ids,
             )
@@ -80,6 +83,7 @@ impl AgentEngine {
         goal_runs: &VecDeque<GoalRun>,
         subagent_runtime: &HashMap<String, SubagentRuntimeStats>,
         now_ms: u64,
+        recent_window_ms: u64,
         observed_ids: &HashSet<String>,
         pending_operator_question_thread_ids: &HashSet<String>,
     ) -> Vec<ThreadStallObservation> {
@@ -127,7 +131,7 @@ impl AgentEngine {
             );
             let last_activity_at =
                 latest_task_activity_at(task, thread, subagent_runtime, persisted_metrics.as_ref());
-            if now_ms.saturating_sub(last_activity_at) > RECENT_THREAD_ACTIVITY_WINDOW_MS {
+            if now_ms.saturating_sub(last_activity_at) > recent_window_ms {
                 continue;
             }
 
@@ -165,6 +169,15 @@ impl AgentEngine {
 
         observations
     }
+
+    async fn stalled_turn_activity_window_ms(&self) -> u64 {
+        let window_hours = self
+            .config
+            .read()
+            .await
+            .participant_observer_restore_window_hours;
+        (window_hours as u64).saturating_mul(60 * 60 * 1000)
+    }
 }
 
 fn latest_stalled_turn_observation(
@@ -172,6 +185,12 @@ fn latest_stalled_turn_observation(
     tasks: &VecDeque<AgentTask>,
     goal_runs: &VecDeque<GoalRun>,
 ) -> Option<ThreadStallObservation> {
+    if terminal_work_owns_thread(thread.id.as_str(), tasks, goal_runs)
+        && !active_work_owns_thread(thread.id.as_str(), tasks, goal_runs)
+    {
+        return None;
+    }
+
     let last_message = thread.messages.last()?;
     if last_message.role != MessageRole::Assistant
         || last_message.tool_calls.is_some()
@@ -258,8 +277,55 @@ fn active_task_id_for_thread(thread_id: &str, tasks: &VecDeque<AgentTask>) -> Op
 fn goal_run_id_for_thread(thread_id: &str, goal_runs: &VecDeque<GoalRun>) -> Option<String> {
     goal_runs
         .iter()
-        .find(|goal_run| goal_run.thread_id.as_deref() == Some(thread_id))
+        .find(|goal_run| goal_run_matches_thread(goal_run, thread_id))
         .map(|goal_run| goal_run.id.clone())
+}
+
+fn active_work_owns_thread(
+    thread_id: &str,
+    tasks: &VecDeque<AgentTask>,
+    goal_runs: &VecDeque<GoalRun>,
+) -> bool {
+    tasks.iter().any(|task| {
+        task.thread_id.as_deref() == Some(thread_id)
+            && matches!(
+                task.status,
+                TaskStatus::InProgress | TaskStatus::Blocked | TaskStatus::AwaitingApproval
+            )
+    }) || goal_runs.iter().any(|goal_run| {
+        goal_run_matches_thread(goal_run, thread_id)
+            && !goal_run_status_is_terminal(goal_run.status)
+    })
+}
+
+fn terminal_work_owns_thread(
+    thread_id: &str,
+    tasks: &VecDeque<AgentTask>,
+    goal_runs: &VecDeque<GoalRun>,
+) -> bool {
+    tasks.iter().any(|task| {
+        task.thread_id.as_deref() == Some(thread_id)
+            && crate::agent::task_scheduler::is_task_terminal_status(task.status)
+    }) || goal_runs.iter().any(|goal_run| {
+        goal_run_matches_thread(goal_run, thread_id) && goal_run_status_is_terminal(goal_run.status)
+    })
+}
+
+fn goal_run_matches_thread(goal_run: &GoalRun, thread_id: &str) -> bool {
+    goal_run.thread_id.as_deref() == Some(thread_id)
+        || goal_run.root_thread_id.as_deref() == Some(thread_id)
+        || goal_run.active_thread_id.as_deref() == Some(thread_id)
+        || goal_run
+            .execution_thread_ids
+            .iter()
+            .any(|candidate| candidate == thread_id)
+}
+
+fn goal_run_status_is_terminal(status: GoalRunStatus) -> bool {
+    matches!(
+        status,
+        GoalRunStatus::Completed | GoalRunStatus::Failed | GoalRunStatus::Cancelled
+    )
 }
 
 fn goal_progressed_after(

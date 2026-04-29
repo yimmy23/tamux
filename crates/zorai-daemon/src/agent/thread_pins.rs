@@ -62,15 +62,12 @@ pub(crate) fn pinned_for_compaction_budget_chars(
     config: &AgentConfig,
     provider_config: &ProviderConfig,
 ) -> usize {
-    model_context_window(
-        &config.provider,
-        &provider_config.model,
-        provider_config
-            .context_window_tokens
-            .max(config.context_window_tokens),
-    )
-    .saturating_mul(APPROX_CHARS_PER_TOKEN as u32)
-    .saturating_div(PINNED_CONTEXT_BUDGET_DENOMINATOR as u32) as usize
+    provider_config
+        .context_window_tokens
+        .max(config.context_window_tokens)
+        .max(1)
+        .saturating_mul(APPROX_CHARS_PER_TOKEN as u32)
+        .saturating_div(PINNED_CONTEXT_BUDGET_DENOMINATOR as u32) as usize
 }
 
 pub(crate) fn pinned_for_compaction_chars_used(thread: &AgentThread) -> usize {

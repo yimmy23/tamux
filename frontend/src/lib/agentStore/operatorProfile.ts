@@ -75,6 +75,22 @@ export const DEFAULT_OPERATOR_PROFILE_STATE: OperatorProfileState = {
   lastCompletedAt: null,
 };
 
+export type OperatorProfileInputKindUi = "text" | "bool" | "select";
+
+export function normalizeOperatorProfileInputKind(inputKind: string | null | undefined): OperatorProfileInputKindUi {
+  switch (inputKind) {
+    case "boolean":
+    case "bool":
+      return "bool";
+    case "select":
+      return "select";
+    case "text":
+      return "text";
+    default:
+      return "text";
+  }
+}
+
 const OPERATOR_PROFILE_REQUIRED_FIELDS = ["name", "role", "primary_language"] as const;
 
 export function isOperatorProfileError(value: unknown): value is { error: string } {
@@ -129,7 +145,8 @@ export function isOperatorProfileSessionCompleted(
   return Boolean(
     value
     && typeof value === "object"
-    && typeof (value as OperatorProfileSessionCompleted).session_id === "string",
+    && typeof (value as OperatorProfileSessionCompleted).session_id === "string"
+    && Array.isArray((value as OperatorProfileSessionCompleted).updated_fields),
   );
 }
 

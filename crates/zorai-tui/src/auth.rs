@@ -51,12 +51,18 @@ fn ensure_provider_auth_schema(conn: &Connection) -> Result<()> {
             auth_mode   TEXT NOT NULL,
             state_json  TEXT NOT NULL,
             updated_at  INTEGER NOT NULL,
+            deleted_at  INTEGER,
             PRIMARY KEY (provider_id, auth_mode)
         );
         CREATE INDEX IF NOT EXISTS idx_provider_auth_state_updated
-        ON provider_auth_state(updated_at DESC);
+        ON provider_auth_state(deleted_at, updated_at DESC);
         ",
     )?;
+    conn.execute(
+        "ALTER TABLE provider_auth_state ADD COLUMN deleted_at INTEGER",
+        [],
+    )
+    .ok();
     Ok(())
 }
 
@@ -75,10 +81,11 @@ fn open_provider_auth_db() -> Result<Connection> {
 pub fn clear_github_copilot_auth() -> Result<()> {
     let conn = open_provider_auth_db()?;
     conn.execute(
-        "DELETE FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
+        "UPDATE provider_auth_state SET deleted_at = ?3 WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
         params![
             zorai_shared::providers::PROVIDER_ID_GITHUB_COPILOT,
-            "github_copilot"
+            "github_copilot",
+            now_millis()
         ],
     )?;
     Ok(())
@@ -88,7 +95,7 @@ fn read_stored_github_copilot_auth() -> Option<StoredGithubCopilotAuth> {
     let conn = open_provider_auth_db().ok()?;
     let raw = conn
         .query_row(
-            "SELECT state_json FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
+            "SELECT state_json FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
             params![
                 zorai_shared::providers::PROVIDER_ID_GITHUB_COPILOT,
                 "github_copilot"
@@ -103,8 +110,8 @@ fn read_stored_github_copilot_auth() -> Option<StoredGithubCopilotAuth> {
 fn write_stored_github_copilot_auth(auth: &StoredGithubCopilotAuth) -> Result<()> {
     let conn = open_provider_auth_db()?;
     conn.execute(
-        "INSERT OR REPLACE INTO provider_auth_state (provider_id, auth_mode, state_json, updated_at)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT OR REPLACE INTO provider_auth_state (provider_id, auth_mode, state_json, updated_at, deleted_at)
+         VALUES (?1, ?2, ?3, ?4, NULL)",
         params![
             zorai_shared::providers::PROVIDER_ID_GITHUB_COPILOT,
             "github_copilot",

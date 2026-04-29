@@ -351,6 +351,16 @@ impl AgentEngine {
             if crate::agent::agent_identity::is_participant_playground_thread(&thread_id) {
                 continue;
             }
+            if !self
+                .should_restore_participant_observers_after_hydrate(&thread_id)
+                .await
+            {
+                tracing::debug!(
+                    thread_id = %thread_id,
+                    "skipping participant observer restore for stale lazy thread"
+                );
+                continue;
+            }
             if let Err(error) = self
                 .maybe_auto_send_next_thread_participant_suggestion(&thread_id)
                 .await
@@ -369,6 +379,38 @@ impl AgentEngine {
                 );
             }
         }
+    }
+
+    async fn should_restore_participant_observers_after_hydrate(&self, thread_id: &str) -> bool {
+        let is_lazy = self
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id);
+        if !is_lazy {
+            return true;
+        }
+
+        let restore_window_hours = self
+            .config
+            .read()
+            .await
+            .participant_observer_restore_window_hours;
+        if restore_window_hours == 0 {
+            return false;
+        }
+
+        let Some(updated_at) = self
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .map(|thread| thread.updated_at)
+        else {
+            return false;
+        };
+        let window_ms = (restore_window_hours as u64).saturating_mul(60 * 60 * 1000);
+        updated_at.saturating_add(window_ms) >= now_millis()
     }
 
     pub(crate) async fn trim_persisted_participant_playground_threads_on_hydrate(&self) -> usize {

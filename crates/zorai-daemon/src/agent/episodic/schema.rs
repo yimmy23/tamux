@@ -31,7 +31,8 @@ const EPISODIC_TABLES: &str = "
         confidence_before REAL,
         confidence_after REAL,
         created_at     INTEGER NOT NULL,
-        expires_at     INTEGER
+        expires_at     INTEGER,
+        deleted_at     INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS episode_links (
@@ -59,7 +60,8 @@ const EPISODIC_TABLES: &str = "
         derived_from_constraint_ids TEXT NOT NULL DEFAULT '[]',
         related_subject_tokens      TEXT NOT NULL DEFAULT '[]',
         valid_until                 INTEGER,
-        created_at                  INTEGER NOT NULL
+        created_at                  INTEGER NOT NULL,
+        deleted_at                  INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS counter_who_state (
@@ -142,8 +144,10 @@ fn ensure_episode_columns(conn: &rusqlite::Connection) -> Result<()> {
     ensure_column(conn, "episodes", "goal_type", "TEXT")?;
     ensure_column(conn, "episodes", "confidence_before", "REAL")?;
     ensure_column(conn, "episodes", "confidence_after", "REAL")?;
+    ensure_column(conn, "episodes", "deleted_at", "INTEGER")?;
     ensure_column(conn, "episode_links", "agent_id", "TEXT")?;
     ensure_column(conn, "negative_knowledge", "agent_id", "TEXT")?;
+    ensure_column(conn, "negative_knowledge", "deleted_at", "INTEGER")?;
     ensure_column(
         conn,
         "negative_knowledge",

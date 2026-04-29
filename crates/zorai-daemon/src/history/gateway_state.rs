@@ -12,7 +12,7 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO gateway_threads (channel_key, thread_id, updated_at) VALUES (?1, ?2, ?3)",
+                    "INSERT OR REPLACE INTO gateway_threads (channel_key, thread_id, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
                     params![channel_key, thread_id, updated_at as i64],
                 )?;
                 Ok(())
@@ -26,8 +26,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "DELETE FROM gateway_threads WHERE channel_key = ?1",
-                    params![channel_key],
+                    "UPDATE gateway_threads SET deleted_at = ?2 WHERE channel_key = ?1 AND deleted_at IS NULL",
+                    params![channel_key, now_ts() as i64],
                 )?;
                 Ok(())
             })
@@ -39,7 +39,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT channel_key, thread_id FROM gateway_threads ORDER BY updated_at DESC",
+                    "SELECT channel_key, thread_id FROM gateway_threads WHERE deleted_at IS NULL ORDER BY updated_at DESC",
                 )?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -61,7 +61,7 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO gateway_channel_modes (channel_key, route_mode, updated_at) VALUES (?1, ?2, ?3)",
+                    "INSERT OR REPLACE INTO gateway_channel_modes (channel_key, route_mode, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
                     params![channel_key, route_mode, updated_at as i64],
                 )?;
                 Ok(())
@@ -75,8 +75,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "DELETE FROM gateway_channel_modes WHERE channel_key = ?1",
-                    params![channel_key],
+                    "UPDATE gateway_channel_modes SET deleted_at = ?2 WHERE channel_key = ?1 AND deleted_at IS NULL",
+                    params![channel_key, now_ts() as i64],
                 )?;
                 Ok(())
             })
@@ -88,7 +88,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT channel_key, route_mode FROM gateway_channel_modes ORDER BY updated_at DESC",
+                    "SELECT channel_key, route_mode FROM gateway_channel_modes WHERE deleted_at IS NULL ORDER BY updated_at DESC",
                 )?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -107,8 +107,8 @@ impl HistoryStore {
             .call(move |conn| {
                 conn.execute(
                     "INSERT OR REPLACE INTO whatsapp_provider_state \
-                     (provider_id, linked_phone, auth_json, metadata_json, last_reset_at, last_linked_at, updated_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                     (provider_id, linked_phone, auth_json, metadata_json, last_reset_at, last_linked_at, updated_at, deleted_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)",
                     params![
                         state.provider_id,
                         state.linked_phone,
@@ -134,7 +134,7 @@ impl HistoryStore {
             .call(move |conn| {
                 conn.query_row(
                     "SELECT provider_id, linked_phone, auth_json, metadata_json, last_reset_at, last_linked_at, updated_at \
-                     FROM whatsapp_provider_state WHERE provider_id = ?1",
+                     FROM whatsapp_provider_state WHERE provider_id = ?1 AND deleted_at IS NULL",
                     params![provider_id],
                     |row| {
                         Ok(WhatsAppProviderStateRow {
@@ -160,8 +160,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "DELETE FROM whatsapp_provider_state WHERE provider_id = ?1",
-                    params![provider_id],
+                    "UPDATE whatsapp_provider_state SET deleted_at = ?2 WHERE provider_id = ?1 AND deleted_at IS NULL",
+                    params![provider_id, now_ts() as i64],
                 )?;
                 Ok(())
             })
@@ -299,7 +299,7 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT OR REPLACE INTO operator_profile_sessions (session_id, kind, session_json, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                    "INSERT OR REPLACE INTO operator_profile_sessions (session_id, kind, session_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, ?4, NULL)",
                     params![session_id, kind, session_json, updated_at as i64],
                 )?;
                 Ok(())
@@ -313,8 +313,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "DELETE FROM operator_profile_sessions WHERE session_id = ?1",
-                    params![session_id],
+                    "UPDATE operator_profile_sessions SET deleted_at = ?2 WHERE session_id = ?1 AND deleted_at IS NULL",
+                    params![session_id, now_ts() as i64],
                 )?;
                 Ok(())
             })
@@ -326,7 +326,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT session_id, kind, session_json, updated_at FROM operator_profile_sessions ORDER BY updated_at DESC",
+                    "SELECT session_id, kind, session_json, updated_at FROM operator_profile_sessions WHERE deleted_at IS NULL ORDER BY updated_at DESC",
                 )?;
                 let rows = stmt.query_map([], |row| {
                     Ok(OperatorProfileSessionRow {

@@ -1,5 +1,5 @@
-use zorai_protocol::AgentDbMessage;
 use std::collections::HashMap;
+use zorai_protocol::AgentDbMessage;
 
 use super::types::{
     EmergentProtocolStore, ProtocolCandidate, ProtocolCandidateState, ProtocolObservation,

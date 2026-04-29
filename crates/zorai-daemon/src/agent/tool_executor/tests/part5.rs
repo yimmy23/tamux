@@ -751,7 +751,7 @@
         let temp_dir = std::env::temp_dir();
         let mut config = AgentConfig::default();
         config.provider = zorai_shared::providers::PROVIDER_ID_OPENAI.to_string();
-        config.model = "gpt-4o".to_string();
+        config.model = "gpt-5.4".to_string();
         config.tools.vision = false;
 
         let tools = get_available_tools(&config, &temp_dir, false);

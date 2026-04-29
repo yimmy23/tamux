@@ -131,8 +131,8 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "DELETE FROM offloaded_payloads WHERE payload_id = ?1",
-                    params![payload_id],
+                    "UPDATE offloaded_payloads SET deleted_at = ?2 WHERE payload_id = ?1 AND deleted_at IS NULL",
+                    params![payload_id, now_ts() as i64],
                 )?;
                 Ok(())
             })
