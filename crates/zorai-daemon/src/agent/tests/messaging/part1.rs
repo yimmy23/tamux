@@ -1193,6 +1193,103 @@ async fn thread_metadata_round_trips_latest_skill_discovery_state() {
 }
 
 #[tokio::test]
+async fn thread_metadata_hydrate_compacts_large_latest_skill_discovery_query() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread_large_skill_discovery_metadata";
+    let large_query = format!(
+        "HEARTBEAT SYNTHESIS\n{}",
+        "large heartbeat context ".repeat(200)
+    );
+
+    seed_engine
+        .history
+        .create_thread(&zorai_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Discovery metadata".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "heartbeat".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "latest_skill_discovery_state": {
+                        "query": large_query,
+                        "confidence_tier": "pending",
+                        "recommended_action": "await_skill_discovery",
+                        "discovery_pending": true,
+                        "skill_read_completed": false,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&zorai_protocol::AgentDbMessage {
+            id: "seed-message-large-query".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "heartbeat".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+
+    let state = engine
+        .get_thread_skill_discovery_state(thread_id)
+        .await
+        .expect("skill discovery state should hydrate");
+    assert!(
+        state.query.chars().count() <= 160,
+        "hydrated query should be compact, got {} chars",
+        state.query.chars().count()
+    );
+    assert!(state.query.starts_with("HEARTBEAT SYNTHESIS"));
+
+    let persisted = engine
+        .history
+        .get_thread(thread_id)
+        .await
+        .expect("read thread")
+        .expect("thread should persist");
+    let metadata = persisted.metadata_json.expect("metadata should persist");
+    let metadata: serde_json::Value = serde_json::from_str(&metadata).expect("metadata json");
+    let persisted_query = metadata
+        .pointer("/latest_skill_discovery_state/query")
+        .and_then(|value| value.as_str())
+        .expect("persisted query");
+    assert!(
+        persisted_query.chars().count() <= 160,
+        "persisted query should be compact, got {} chars",
+        persisted_query.chars().count()
+    );
+}
+
+#[tokio::test]
 async fn thread_metadata_round_trips_memory_injection_state() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

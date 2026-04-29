@@ -32,9 +32,13 @@ export function resolveDaemonEventLocalThreadId(
   event: any,
   fallbackLocalThreadId: string | null,
   fallbackDaemonThreadId: string | null,
+  options: { allowThreadlessFallback?: boolean } = {},
 ): string | null {
   const daemonThreadId = typeof event?.thread_id === "string" ? event.thread_id : null;
   if (!daemonThreadId) {
+    if (options.allowThreadlessFallback === false) {
+      return null;
+    }
     return fallbackLocalThreadId;
   }
 
@@ -44,6 +48,29 @@ export function resolveDaemonEventLocalThreadId(
   }
 
   return daemonThreadId === fallbackDaemonThreadId ? fallbackLocalThreadId : null;
+}
+
+const THREADLESS_STREAM_EVENT_TYPES = new Set([
+  "delta",
+  "reasoning",
+  "done",
+  "tool_call",
+  "tool_result",
+  "error",
+]);
+
+export function isThreadlessDaemonStreamEvent(event: any): boolean {
+  return THREADLESS_STREAM_EVENT_TYPES.has(String(event?.type ?? ""))
+    && typeof event?.thread_id !== "string";
+}
+
+export function hasOpenLocalAssistantStream(localThreadId: string | null): boolean {
+  if (!localThreadId) {
+    return false;
+  }
+  const messages = useAgentStore.getState().getThreadMessages(localThreadId);
+  const last = messages[messages.length - 1];
+  return last?.role === "assistant" && last.isStreaming === true;
 }
 
 export function useDaemonAgentEvents({
@@ -172,7 +199,14 @@ export function useDaemonAgentEvents({
     const unsubscribe = zorai.onAgentEvent((event: any) => {
       if (!event?.type) return;
 
-      const tid = resolveDaemonEventLocalThreadId(event, daemonLocalThreadRef.current, daemonThreadIdRef.current);
+      const allowThreadlessFallback = !isThreadlessDaemonStreamEvent(event)
+        || hasOpenLocalAssistantStream(daemonLocalThreadRef.current);
+      const tid = resolveDaemonEventLocalThreadId(
+        event,
+        daemonLocalThreadRef.current,
+        daemonThreadIdRef.current,
+        { allowThreadlessFallback },
+      );
 
       switch (event.type) {
         case "delta": {

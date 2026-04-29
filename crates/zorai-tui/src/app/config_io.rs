@@ -426,6 +426,12 @@ impl TuiModel {
             20,
         )
         .clamp(20, 500);
+        self.config.participant_observer_restore_window_hours = get_u32(
+            "participant_observer_restore_window_hours",
+            "participant_observer_restore_window_hours",
+            24,
+        )
+        .clamp(0, 24 * 30);
         self.config.max_tool_loops = get_u32("max_tool_loops", "max_tool_loops", 25);
         self.config.max_retries = get_u32("max_retries", "max_retries", 3);
         self.config.retry_delay_ms = get_u32("retry_delay_ms", "retry_delay_ms", 5_000);

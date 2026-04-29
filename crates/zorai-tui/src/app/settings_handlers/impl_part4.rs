@@ -307,6 +307,13 @@ impl TuiModel {
                 "tui_chat_history_page_size",
                 &self.config.tui_chat_history_page_size.to_string(),
             ),
+            "participant_observer_restore_window_hours" => self.settings.start_editing(
+                "participant_observer_restore_window_hours",
+                &self
+                    .config
+                    .participant_observer_restore_window_hours
+                    .to_string(),
+            ),
             "max_tool_loops" => self
                 .settings
                 .start_editing("max_tool_loops", &self.config.max_tool_loops.to_string()),

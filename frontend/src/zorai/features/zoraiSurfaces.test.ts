@@ -295,12 +295,41 @@ describe("Zorai feature surfaces", () => {
     expect(css).toMatch(/\.zorai-file-preview-overlay\s*{[^}]*position:\s*absolute/s);
   });
 
-  it("collapses completed reasoning while keeping active reasoning expanded", () => {
+  it("keeps native thread message content bounded to the card width", () => {
+    const css = readFeature("../styles/zorai.css");
+
+    expect(css).toMatch(/\.zorai-native-thread-surface\s*{[^}]*grid-template-areas:/s);
+    expect(css).toMatch(/\.zorai-thread-chat-scroll\s*{[^}]*grid-area:\s*messages/s);
+    expect(css).toMatch(/\.zorai-thread-composer\s*{[^}]*grid-area:\s*composer/s);
+    expect(css).toMatch(/\.zorai-thread-chat-scroll\s*>\s*\*\s*{[^}]*min-width:\s*0/s);
+    expect(css).toMatch(/\.zorai-message\s*{[^}]*box-sizing:\s*border-box/s);
+    expect(css).toMatch(/\.zorai-message__content\s*{[^}]*overflow-wrap:\s*anywhere/s);
+  });
+
+  it("keeps assistant reasoning separate from visible message content", () => {
     const source = readFeature("./threads/ThreadsView.tsx");
+    const css = readFeature("../styles/zorai.css");
 
     expect(source).toContain("zorai-message__reasoning-toggle");
-    expect(source).toContain("open={message.isStreaming ? true : undefined}");
+    expect(source).toContain("hasVisibleContent");
+    expect(source).not.toContain("reasoningPreview");
+    expect(source).not.toContain("zorai-message__content--preview");
+    expect(source).not.toContain("summarizeThreadMessageText");
+    expect(source).toContain("Reasoning");
+    expect(source).not.toContain("open={message.isStreaming ? true : undefined}");
     expect(source).not.toContain("<p className=\"zorai-message__reasoning\">");
+    expect(css).toMatch(/\.zorai-message__reasoning\s*{[^}]*border:\s*1px solid var\(--zorai-border\)/s);
+    expect(css).toMatch(/\.zorai-message__reasoning\s*>\s*div\s*{[^}]*max-height:\s*min\(42vh, 360px\)/s);
+  });
+
+  it("renders system metacognition messages as collapsed rows like tool calls", () => {
+    const source = readFeature("./threads/ThreadsView.tsx");
+
+    expect(source).toContain("isMetacognitionSystemMessage");
+    expect(source).toContain("Meta-cognitive intervention");
+    expect(source).toContain("MetacognitionEventRow");
+    expect(source).toContain("const [collapsed, setCollapsed] = useState(true)");
+    expect(source).toContain("return <MetacognitionEventRow");
   });
 
   it("fetches latest thread pages on selection and older pages on scroll-up", () => {

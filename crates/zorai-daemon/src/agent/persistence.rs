@@ -191,6 +191,23 @@ impl AgentEngine {
                     let thread_title = thread_row.title.clone();
                     let thread_metadata =
                         parse_thread_metadata(thread_row.metadata_json.as_deref());
+                    if let Some(raw_metadata) = thread_row.metadata_json.as_deref() {
+                        if let Some(compacted_metadata) =
+                            compact_thread_metadata_skill_discovery_query(raw_metadata)
+                        {
+                            if let Err(error) = self
+                                .history
+                                .update_thread_metadata_json(&thread_id, Some(compacted_metadata))
+                                .await
+                            {
+                                tracing::warn!(
+                                    thread_id = %thread_id,
+                                    %error,
+                                    "failed to compact persisted thread skill discovery metadata"
+                                );
+                            }
+                        }
+                    }
                     if let Some(client_surface) = thread_metadata.client_surface {
                         thread_client_surfaces.insert(thread_id.clone(), client_surface);
                     }

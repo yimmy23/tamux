@@ -465,6 +465,24 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn update_thread_metadata_json(
+        &self,
+        id: &str,
+        metadata_json: Option<String>,
+    ) -> Result<()> {
+        let id = id.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "UPDATE agent_threads SET metadata_json = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+                    params![id, metadata_json],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn add_message(&self, message: &AgentDbMessage) -> Result<()> {
         let message = message.clone();
         self.conn.call(move |conn| {

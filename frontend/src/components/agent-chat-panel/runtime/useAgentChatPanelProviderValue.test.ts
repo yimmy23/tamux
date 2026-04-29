@@ -403,6 +403,68 @@ describe("openSpawnedAgentThreadFromRun", () => {
     expect(useAgentStore.getState().threadHistoryStack).toEqual(["local-upstream", "local-other"]);
   });
 
+  it("hydrates an existing empty spawned daemon thread before navigating", async () => {
+    const liveStore = createLiveStoreWrappers();
+    const existingChild = makeThread("local-child", "Existing Child", "daemon-child");
+    useAgentStore.setState((state) => ({
+      threads: [...state.threads, existingChild],
+      messages: {
+        ...state.messages,
+        [existingChild.id]: [],
+      },
+      todos: {
+        ...state.todos,
+        [existingChild.id]: [],
+      },
+    }) as any);
+    const getRemoteThread = vi.fn(async () => ({
+      id: "daemon-child",
+      title: "Hydrated Existing Child",
+      messages: [
+        {
+          id: "message-existing-1",
+          role: "assistant",
+          content: "spawned output",
+          timestamp: 10,
+          input_tokens: 0,
+          output_tokens: 0,
+        },
+      ],
+      total_message_count: 1,
+      loaded_message_start: 0,
+      loaded_message_end: 1,
+    }));
+    const fetchThreadTodos = vi.fn(async () => [{ id: "todo-existing" }]);
+
+    const result = await openSpawnedAgentThreadFromRun({
+      activeThreadId: "local-root",
+      threads: useAgentStore.getState().threads,
+      workspaces: [makeWorkspace("session-child")],
+      run: makeRun({
+        id: "run-child",
+        task_id: "task-child",
+        title: "Spawned Child",
+        thread_id: "daemon-child",
+        session_id: "session-child",
+      }),
+      messageLimit: 75,
+      getRemoteThread,
+      fetchThreadTodos,
+      ...liveStore,
+    });
+
+    expect(result).toBe(true);
+    expect(getRemoteThread).toHaveBeenCalledWith("daemon-child", { messageLimit: 75 });
+    expect(liveStore.createThread).not.toHaveBeenCalled();
+    expect(liveStore.openSpawnedThread).toHaveBeenCalledWith("local-root", "local-child");
+    expect(useAgentStore.getState().activeThreadId).toBe("local-child");
+    expect(useAgentStore.getState().threads.find((thread) => thread.id === "local-child")?.title)
+      .toBe("Hydrated Existing Child");
+    expect(useAgentStore.getState().messages["local-child"]).toHaveLength(1);
+    expect(useAgentStore.getState().messages["local-child"][0].content).toBe("spawned output");
+    expect(liveStore.setThreadTodos).toHaveBeenCalledWith("local-child", [{ id: "todo-existing" }]);
+  });
+
   it("clears pending hydration state after a failed daemon fetch", async () => {
     const error = new Error("boom");
     const getRemoteThread = vi.fn()

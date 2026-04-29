@@ -82,6 +82,7 @@ fn single_line_edit_layout(
         },
         SettingsTab::Chat => match field {
             "tui_chat_history_page_size" => Some((23, 19)),
+            "participant_observer_restore_window_hours" => Some((24, 19)),
             "honcho_editor_api_key" => Some((9, 19)),
             "honcho_editor_base_url" => Some((10, 19)),
             "honcho_editor_workspace_id" => Some((11, 19)),

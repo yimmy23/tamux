@@ -165,6 +165,7 @@ export interface AgentSettings {
   max_context_messages: number;
   react_chat_history_page_size: number;
   tui_chat_history_page_size: number;
+  participant_observer_restore_window_hours: number;
   max_tool_loops: number;
   max_retries: number;
   retry_delay_ms: number;
@@ -289,6 +290,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   max_context_messages: 100,
   react_chat_history_page_size: DEFAULT_CHAT_HISTORY_PAGE_SIZE,
   tui_chat_history_page_size: DEFAULT_CHAT_HISTORY_PAGE_SIZE,
+  participant_observer_restore_window_hours: 24,
   max_tool_loops: 0,
   max_retries: 3,
   retry_delay_ms: 2000,
@@ -343,6 +345,14 @@ function normalizeManagedSecurityLevel(value: unknown): AgentSettings["managed_s
     return value as AgentSettings["managed_security_level"];
   }
   return DEFAULT_AGENT_SETTINGS.managed_security_level;
+}
+
+function normalizeParticipantObserverRestoreWindowHours(value: unknown): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_AGENT_SETTINGS.participant_observer_restore_window_hours;
+  }
+  return Math.max(0, Math.min(24 * 30, Math.trunc(numericValue)));
 }
 
 export function loadAgentSettings(): AgentSettings {
@@ -402,6 +412,7 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
   max_context_messages?: number;
   react_chat_history_page_size?: number;
   tui_chat_history_page_size?: number;
+  participant_observer_restore_window_hours?: number;
   max_tool_loops?: number;
   max_retries?: number;
   retry_delay_ms?: number;
@@ -602,6 +613,10 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     tui_chat_history_page_size: normalizeTuiChatHistoryPageSize(
       source.tui_chat_history_page_size
         ?? DEFAULT_AGENT_SETTINGS.tui_chat_history_page_size,
+    ),
+    participant_observer_restore_window_hours: normalizeParticipantObserverRestoreWindowHours(
+      source.participant_observer_restore_window_hours
+        ?? DEFAULT_AGENT_SETTINGS.participant_observer_restore_window_hours,
     ),
     max_tool_loops: source.max_tool_loops ?? DEFAULT_AGENT_SETTINGS.max_tool_loops,
     max_retries: source.max_retries ?? DEFAULT_AGENT_SETTINGS.max_retries,

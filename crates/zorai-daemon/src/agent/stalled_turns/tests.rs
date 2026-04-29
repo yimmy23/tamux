@@ -1230,6 +1230,72 @@ async fn collect_stalled_turn_observations_ignores_threads_inactive_for_over_24_
 }
 
 #[tokio::test]
+async fn collect_stalled_turn_observations_uses_configured_restore_window() {
+    let engine = build_test_engine("Acknowledged.").await;
+    {
+        let mut config = engine.config.write().await;
+        config.participant_observer_restore_window_hours = 1;
+    }
+    let now = super::now_millis();
+    let two_hours_ms = 2 * 60 * 60 * 1000;
+    let thread_id = "thread-subagent-outside-config-window";
+    let task_id = "task-subagent-outside-config-window";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some("Dazhbog".to_string()),
+                title: "Outside configured window".to_string(),
+                messages: vec![AgentMessage::user(
+                    "This request is outside the restore window.",
+                    now.saturating_sub(two_hours_ms),
+                )],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: now.saturating_sub(two_hours_ms + 60_000),
+                updated_at: now.saturating_sub(two_hours_ms),
+            },
+        );
+    }
+
+    let mut task = spawned_task(thread_id, task_id, TaskStatus::InProgress, now);
+    task.title = "Outside configured window".to_string();
+    task.description = "Too old for configured stalled-turn retry".to_string();
+    task.created_at = now.saturating_sub(two_hours_ms + 60_000);
+    task.started_at = Some(now.saturating_sub(two_hours_ms + 60_000));
+    {
+        let mut tasks = engine.tasks.lock().await;
+        tasks.push_back(task.clone());
+    }
+    engine.ensure_subagent_runtime(&task, Some(thread_id)).await;
+    {
+        let mut runtime = engine.subagent_runtime.write().await;
+        let stats = runtime
+            .get_mut(task_id)
+            .expect("subagent runtime should exist after initialization");
+        stats.started_at = now.saturating_sub(two_hours_ms + 60_000);
+        stats.updated_at = now.saturating_sub(two_hours_ms);
+        stats.last_tool_call_at = Some(now.saturating_sub(two_hours_ms));
+        stats.last_progress_at = Some(now.saturating_sub(two_hours_ms));
+    }
+
+    let observations = engine.collect_stalled_turn_observations().await;
+    assert!(
+        observations.is_empty(),
+        "stalled-turn supervision must honor the configured restore window"
+    );
+}
+
+#[tokio::test]
 async fn collect_stalled_turn_observations_detects_recent_subagent_no_progress() {
     let engine = build_test_engine("Acknowledged.").await;
     let now = super::now_millis();

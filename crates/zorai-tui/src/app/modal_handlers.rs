@@ -422,6 +422,12 @@ impl TuiModel {
                                     self.config.tui_chat_history_page_size = n.clamp(20, 500);
                                 }
                             }
+                            "participant_observer_restore_window_hours" => {
+                                if let Ok(n) = value.parse::<u32>() {
+                                    self.config.participant_observer_restore_window_hours =
+                                        n.clamp(0, 24 * 30);
+                                }
+                            }
                             "max_tool_loops" => {
                                 if let Ok(n) = value.parse::<u32>() {
                                     self.config.max_tool_loops = n.clamp(0, 1000);

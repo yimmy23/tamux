@@ -5,8 +5,6 @@ use crate::agent::liveness::stuck_detection::{DetectionSnapshot, StuckDetector};
 use crate::agent::types::StuckReason;
 use crate::history::SubagentMetrics;
 
-const RECENT_THREAD_ACTIVITY_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
-
 impl AgentEngine {
     pub(super) async fn collect_stalled_turn_observations(&self) -> Vec<ThreadStallObservation> {
         let active_streams = {
@@ -27,7 +25,11 @@ impl AgentEngine {
         let pending_operator_question_thread_ids =
             self.pending_operator_question_thread_ids().await;
         let now = now_millis();
-        let recent_cutoff = now.saturating_sub(RECENT_THREAD_ACTIVITY_WINDOW_MS);
+        let recent_window_ms = self.stalled_turn_activity_window_ms().await;
+        if recent_window_ms == 0 {
+            return Vec::new();
+        }
+        let recent_cutoff = now.saturating_sub(recent_window_ms);
 
         let mut observations = threads
             .values()
@@ -64,6 +66,7 @@ impl AgentEngine {
                 &goal_runs,
                 &subagent_runtime,
                 now,
+                recent_window_ms,
                 &observed_ids,
                 &pending_operator_question_thread_ids,
             )
@@ -80,6 +83,7 @@ impl AgentEngine {
         goal_runs: &VecDeque<GoalRun>,
         subagent_runtime: &HashMap<String, SubagentRuntimeStats>,
         now_ms: u64,
+        recent_window_ms: u64,
         observed_ids: &HashSet<String>,
         pending_operator_question_thread_ids: &HashSet<String>,
     ) -> Vec<ThreadStallObservation> {
@@ -127,7 +131,7 @@ impl AgentEngine {
             );
             let last_activity_at =
                 latest_task_activity_at(task, thread, subagent_runtime, persisted_metrics.as_ref());
-            if now_ms.saturating_sub(last_activity_at) > RECENT_THREAD_ACTIVITY_WINDOW_MS {
+            if now_ms.saturating_sub(last_activity_at) > recent_window_ms {
                 continue;
             }
 
@@ -164,6 +168,15 @@ impl AgentEngine {
         }
 
         observations
+    }
+
+    async fn stalled_turn_activity_window_ms(&self) -> u64 {
+        let window_hours = self
+            .config
+            .read()
+            .await
+            .participant_observer_restore_window_hours;
+        (window_hours as u64).saturating_mul(60 * 60 * 1000)
     }
 }
 

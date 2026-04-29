@@ -481,9 +481,20 @@ impl<'a> SendMessageRunner<'a> {
         };
         let preferred_session_id =
             resolve_preferred_session_id(&engine.session_manager, preferred_session_hint).await;
-        let skill_preflight = engine
-            .build_skill_preflight_context(&tid, stored_user_content, preferred_session_id.clone())
-            .await?;
+        let skill_preflight = if super::skill_preflight::should_run_skill_preflight_for_message(
+            record_operator,
+            stored_user_content,
+        ) {
+            engine
+                .build_skill_preflight_context(
+                    &tid,
+                    stored_user_content,
+                    preferred_session_id.clone(),
+                )
+                .await?
+        } else {
+            None
+        };
         let mut skill_preflight = match skill_preflight {
             Some(context) => Some(context),
             None => engine

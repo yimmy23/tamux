@@ -292,9 +292,10 @@ impl AgentEngine {
             return Ok(None);
         }
 
+        let skill_query = compact_skill_discovery_query_for_persistence(content);
         let previous_state = self.get_thread_skill_discovery_state(thread_id).await;
         if let Some(state) = previous_state.as_ref() {
-            if state.is_discovery_pending() && state.query == content {
+            if state.is_discovery_pending() && state.query == skill_query {
                 return Ok(Some(build_skill_preflight_context_from_state(
                     state.clone(),
                 )));
@@ -312,13 +313,13 @@ impl AgentEngine {
         #[cfg(test)]
         if self.skill_discovery_test_runner.get().is_none() {
             let mut state = build_latest_skill_discovery_state(
-                content,
+                &skill_query,
                 &execute_skill_discovery_backend(
                     self.force_mesh_discovery_degraded_for_tests
                         .load(std::sync::atomic::Ordering::SeqCst),
                     &self.history,
                     &self.history.data_dir().to_path_buf(),
-                    content,
+                    &skill_query,
                     &context_tags,
                     MAX_SKILL_PREFLIGHT_MATCHES,
                     &cfg,
@@ -334,7 +335,7 @@ impl AgentEngine {
             return Ok(Some(build_skill_preflight_context_from_state(state)));
         }
 
-        let mut pending_state = build_pending_skill_discovery_state(content);
+        let mut pending_state = build_pending_skill_discovery_state(&skill_query);
         if let Some(previous_state) = previous_state.as_ref() {
             preserve_noncompliant_mesh_state(previous_state, &mut pending_state);
         }
@@ -343,7 +344,7 @@ impl AgentEngine {
             .await;
         self.spawn_background_skill_discovery(AsyncSkillDiscoveryRequest {
             thread_id: thread_id.to_string(),
-            query: content.to_string(),
+            query: skill_query,
             context_tags,
             limit: MAX_SKILL_PREFLIGHT_MATCHES,
             history_root: self.history.data_root().to_path_buf(),
@@ -1436,14 +1437,19 @@ fn should_run_skill_preflight(content: &str) -> bool {
     .any(|keyword| normalized.contains(keyword))
 }
 
+pub(super) fn should_run_skill_preflight_for_message(record_operator: bool, content: &str) -> bool {
+    record_operator && should_run_skill_preflight(content)
+}
+
 fn build_latest_skill_discovery_state(
     query: &str,
     result: &super::skill_recommendation::SkillDiscoveryResult,
 ) -> LatestSkillDiscoveryState {
     let decision = policy_decision_for_legacy_discovery(result);
+    let query = compact_skill_discovery_query_for_persistence(query);
 
     LatestSkillDiscoveryState {
-        query: query.to_string(),
+        query: query.clone(),
         confidence_tier: decision.confidence_band.as_str().to_string(),
         recommended_skill: decision.recommended_skill,
         recommended_action: decision.recommended_action,
@@ -1546,8 +1552,9 @@ pub(super) fn build_reflection_skill_activation_state(
 }
 
 fn build_pending_skill_discovery_state(query: &str) -> LatestSkillDiscoveryState {
+    let query = compact_skill_discovery_query_for_persistence(query);
     LatestSkillDiscoveryState {
-        query: query.to_string(),
+        query,
         confidence_tier: "pending".to_string(),
         recommended_skill: None,
         recommended_action: "await_skill_discovery".to_string(),
@@ -1946,6 +1953,35 @@ mod tests {
 
         assert!(!cfg.llm_normalize_on_no_match);
         assert!(!cfg.llm_semantic_search_on_no_match);
+    }
+
+    #[test]
+    fn daemon_internal_messages_do_not_run_skill_preflight() {
+        assert!(!should_run_skill_preflight_for_message(
+            false,
+            "HEARTBEAT SYNTHESIS\nYou are performing a scheduled heartbeat check for the operator."
+        ));
+        assert!(should_run_skill_preflight_for_message(
+            true,
+            "debug daemon startup CPU and memory growth"
+        ));
+    }
+
+    #[test]
+    fn persisted_skill_discovery_query_is_compact() {
+        let huge_query = format!(
+            "HEARTBEAT SYNTHESIS\n{}",
+            "large heartbeat context ".repeat(200)
+        );
+
+        let state = build_pending_skill_discovery_state(&huge_query);
+
+        assert!(
+            state.query.chars().count() <= MAX_NORMALIZED_SKILL_QUERY_CHARS,
+            "persisted query should be compact, got {} chars",
+            state.query.chars().count()
+        );
+        assert!(state.query.starts_with("HEARTBEAT SYNTHESIS"));
     }
 
     #[test]

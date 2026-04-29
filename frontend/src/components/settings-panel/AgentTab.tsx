@@ -1161,6 +1161,15 @@ export function AgentTab({
                         </button>
                     </div>
                 </SettingRow>
+                <SettingRow label="Startup Restore Hours">
+                    <NumberInput
+                        value={settings.participant_observer_restore_window_hours}
+                        min={0}
+                        max={24 * 30}
+                        onChange={(value) =>
+                            updateSetting("participant_observer_restore_window_hours", value)}
+                    />
+                </SettingRow>
                 <SettingRow label="Max Tool Loops">
                     <NumberInput value={settings.max_tool_loops} min={0} max={1000}
                         onChange={(value) => updateSetting("max_tool_loops", value)} />

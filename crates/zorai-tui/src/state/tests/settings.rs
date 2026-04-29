@@ -335,6 +335,11 @@ fn current_field_name_chat_tab() {
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "tui_chat_history_page_size");
     state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(
+        state.current_field_name(),
+        "participant_observer_restore_window_hours"
+    );
+    state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "operator_model_inspect");
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "operator_model_reset");
@@ -344,7 +349,7 @@ fn current_field_name_chat_tab() {
     assert_eq!(state.current_field_name(), "generated_tools_inspect");
     state.reduce(SettingsAction::NavigateField(4));
     assert_eq!(state.current_field_name(), "generated_tools_inspect");
-    assert_eq!(state.field_cursor(), 23);
+    assert_eq!(state.field_cursor(), 24);
 }
 
 #[test]

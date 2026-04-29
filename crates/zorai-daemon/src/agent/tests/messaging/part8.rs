@@ -2588,3 +2588,87 @@ async fn hydrate_does_not_rerun_participant_observers_for_already_reviewed_messa
         "hydrate should not rerun participant observers for the same already-reviewed visible message"
     );
 }
+
+#[tokio::test]
+async fn hydrate_keeps_stale_participant_threads_lazy_during_observer_restore() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread_hydrate_stale_participant_lazy";
+    let participant_id = "weles";
+    let old_timestamp = now_millis().saturating_sub(25 * 60 * 60 * 1000);
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Stale participant lazy hydrate".to_string(),
+            messages: vec![
+                AgentMessage::user("old request", old_timestamp),
+                AgentMessage {
+                    id: generate_message_id(),
+                    role: MessageRole::Assistant,
+                    content: "Old participant reply.".to_string(),
+                    content_blocks: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    weles_review: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost: None,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
+                    author_agent_id: Some(participant_id.to_string()),
+                    author_agent_name: Some("Weles".to_string()),
+                    reasoning: None,
+                    message_kind: AgentMessageKind::Normal,
+                    compaction_strategy: None,
+                    compaction_payload: None,
+                    offloaded_payload_id: None,
+                    tool_output_preview_path: None,
+                    structural_refs: Vec::new(),
+                    pinned_for_compaction: false,
+                    timestamp: old_timestamp + 1,
+                },
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: old_timestamp,
+            updated_at: old_timestamp + 1,
+        },
+    );
+    engine
+        .upsert_thread_participant(thread_id, participant_id, "watch for issues")
+        .await
+        .expect("participant should register");
+    engine.persist_thread_by_id(thread_id).await;
+    drop(engine);
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let reloaded = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    reloaded.hydrate().await.expect("hydrate should succeed");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    assert!(
+        reloaded
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id),
+        "stale participant observer restore should not hydrate full thread messages"
+    );
+}

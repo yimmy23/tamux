@@ -102,6 +102,9 @@ fn default_auto_compact_context() -> bool {
 fn default_max_context_messages() -> u32 {
     100
 }
+fn default_participant_observer_restore_window_hours() -> u32 {
+    24
+}
 fn default_context_window_tokens() -> u32 {
     128_000
 }
@@ -191,6 +194,8 @@ impl Default for AgentConfig {
             auto_retry: default_auto_retry(),
             auto_compact_context: default_auto_compact_context(),
             max_context_messages: default_max_context_messages(),
+            participant_observer_restore_window_hours:
+                default_participant_observer_restore_window_hours(),
             context_window_tokens: default_context_window_tokens(),
             compact_threshold_pct: default_compact_threshold_pct(),
             keep_recent_on_compact: default_keep_recent_on_compact(),

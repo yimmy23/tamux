@@ -204,11 +204,13 @@ export function MessageBubble({
   }
 
   return (
-    <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
+    <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", minWidth: 0, maxWidth: "100%" }}>
       <div
         id={`agent-message-${message.id}`}
         style={{
-          maxWidth: "85%",
+          maxWidth: "min(85%, 100%)",
+          minWidth: 0,
+          boxSizing: "border-box",
           position: "relative",
           borderRadius: "var(--radius-lg)",
           fontSize: "var(--text-sm)",
@@ -218,6 +220,7 @@ export function MessageBubble({
           border: "1px solid",
           borderColor: isUser ? "rgba(94, 231, 223, 0.28)" : isSystem || isTool ? "rgba(120, 168, 209, 0.22)" : "transparent",
           wordBreak: "break-word",
+          overflowWrap: "anywhere",
           userSelect: "auto",
           fontFamily: "var(--font-mono)",
           padding: isAssistant ? 0 : "var(--space-3)",
@@ -243,11 +246,31 @@ export function MessageBubble({
         )}
 
         {isAssistant && message.reasoning && (
-          <details style={{ marginTop: 8 }}>
+          <details
+            style={{
+              marginTop: 8,
+              minWidth: 0,
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "var(--radius-sm)",
+              background: "rgba(255,255,255,0.01)",
+              padding: 8,
+            }}
+          >
             <summary style={{ cursor: "pointer", fontSize: 11, color: "var(--text-muted)", userSelect: "auto" }}>
               Reasoning
             </summary>
-            <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-secondary)", userSelect: "auto" }}>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                userSelect: "auto",
+                maxHeight: "min(42vh, 360px)",
+                overflow: "auto",
+                minWidth: 0,
+                overflowWrap: "anywhere",
+              }}
+            >
               <MarkdownContent content={message.reasoning} />
             </div>
           </details>

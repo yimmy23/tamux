@@ -195,6 +195,10 @@ export function ThreadsView() {
           }
 
           const message = item.message;
+          if (isMetacognitionSystemMessage(message)) {
+            return <MetacognitionEventRow key={message.id} message={message} />;
+          }
+
           return (
             <MessageBubble
               key={message.id}
@@ -304,6 +308,8 @@ function MessageBubble({
   const fromUser = message.role === "user";
   const author = message.authorAgentName ?? (fromUser ? "You" : message.role === "assistant" ? "Zorai" : message.role);
   const tokenText = message.totalTokens > 0 ? `${message.totalTokens.toLocaleString()} tokens` : null;
+  const hasVisibleContent = message.content.trim().length > 0;
+  const shouldRenderContent = hasVisibleContent || !message.reasoning;
 
   return (
     <article id={`zorai-message-${message.id}`} className={["zorai-message", fromUser ? "zorai-message--user" : "", message.pinnedForCompaction ? "zorai-message--pinned" : ""].filter(Boolean).join(" ")}>
@@ -312,12 +318,14 @@ function MessageBubble({
         <span>{formatTime(message.createdAt)}{tokenText ? ` / ${tokenText}` : ""}</span>
       </div>
       {message.reasoning ? (
-        <details className="zorai-message__reasoning" open={message.isStreaming ? true : undefined}>
+        <details className="zorai-message__reasoning">
           <summary className="zorai-message__reasoning-toggle">Reasoning</summary>
           <div>{message.reasoning}</div>
         </details>
       ) : null}
-      <div className="zorai-message__content">{message.content || "No text content"}</div>
+      {shouldRenderContent ? (
+        <div className="zorai-message__content">{hasVisibleContent ? message.content : "No text content"}</div>
+      ) : null}
       {message.toolCalls && message.toolCalls.length > 0 ? (
         <div className="zorai-message__tools">{message.toolCalls.length} tool calls</div>
       ) : null}
@@ -333,6 +341,48 @@ function MessageBubble({
         )}
       </div>
     </article>
+  );
+}
+
+function isMetacognitionSystemMessage(message: AgentMessage): boolean {
+  return message.role === "system"
+    && message.content.trimStart().startsWith("Meta-cognitive intervention");
+}
+
+function MetacognitionEventRow({ message }: { message: AgentMessage }) {
+  const [collapsed, setCollapsed] = useState(true);
+  const content = message.content;
+
+  return (
+    <div style={{ border: "1px solid rgba(255,255,255,0.1)", padding: 8, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere", display: "flex", flexDirection: "column", gap: 6, borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.01)", minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }}>
+      <button
+        type="button"
+        onClick={() => setCollapsed((prev) => !prev)}
+        style={{
+          border: "none",
+          background: "transparent",
+          padding: 0,
+          color: "var(--text-primary)",
+          cursor: "pointer",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-sm)",
+          display: "flex",
+          alignItems: "center",
+          width: "100%",
+          gap: 8,
+          minWidth: 0,
+        }}
+      >
+        <span style={{ color: "#DE600A" }}>{collapsed ? "▸" : "▾"}</span>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Metacognition</span>
+      </button>
+
+      {!collapsed && (
+        <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.45, color: "var(--zorai-text)", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere", overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)", maxHeight: "min(42vh, 360px)" }}>
+          {content}
+        </pre>
+      )}
+    </div>
   );
 }
 
