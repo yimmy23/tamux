@@ -1358,6 +1358,120 @@ fn older_thread_page_prepends_into_loaded_window() {
 }
 
 #[test]
+fn older_thread_page_preserves_live_context_window_metadata() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        active_context_window_start: Some(105),
+        active_context_window_end: Some(120),
+        active_context_window_tokens: Some(4_800),
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 20,
+        loaded_message_end: 70,
+        active_context_window_start: Some(20),
+        active_context_window_end: Some(70),
+        active_context_window_tokens: Some(98_000),
+        messages: (20..70)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert_eq!(thread.loaded_message_start, 20);
+    assert_eq!(thread.loaded_message_end, 120);
+    assert_eq!(thread.active_context_window_start, Some(105));
+    assert_eq!(thread.active_context_window_end, Some(120));
+    assert_eq!(thread.active_context_window_tokens, Some(4_800));
+}
+
+#[test]
+fn older_thread_page_does_not_replace_active_responder_metadata() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        agent_name: Some("Dola".into()),
+        profile_provider: Some("chutes".into()),
+        profile_model: Some("zaj-org/GLM-5.1-TEE".into()),
+        profile_reasoning_effort: Some("xhigh".into()),
+        profile_context_window_tokens: Some(128_000),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        agent_name: Some("Svarog".into()),
+        profile_provider: Some("openai".into()),
+        profile_model: Some("gpt-5.4".into()),
+        profile_reasoning_effort: Some("medium".into()),
+        profile_context_window_tokens: Some(400_000),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 20,
+        loaded_message_end: 70,
+        messages: (20..70)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert_eq!(thread.agent_name.as_deref(), Some("Dola"));
+    assert_eq!(thread.profile_provider.as_deref(), Some("chutes"));
+    assert_eq!(thread.profile_model.as_deref(), Some("zaj-org/GLM-5.1-TEE"));
+    assert_eq!(thread.profile_reasoning_effort.as_deref(), Some("xhigh"));
+    assert_eq!(thread.profile_context_window_tokens, Some(128_000));
+}
+
+#[test]
 fn thread_detail_refresh_replaces_window_when_total_visible_messages_shrink() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadDetailReceived(AgentThread {

@@ -449,7 +449,9 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
                                 call_type: "function".into(),
                                 function: ApiToolCallFunction {
                                     name: tc.function.name.clone(),
-                                    arguments: tc.function.arguments.clone(),
+                                    arguments: normalize_tool_call_arguments_for_api(
+                                        &tc.function.arguments,
+                                    ),
                                 },
                             }
                         })
@@ -509,7 +511,9 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
                                 call_type: "function".into(),
                                 function: ApiToolCallFunction {
                                     name: tc.function.name.clone(),
-                                    arguments: tc.function.arguments.clone(),
+                                    arguments: normalize_tool_call_arguments_for_api(
+                                        &tc.function.arguments,
+                                    ),
                                 },
                             })
                             .collect()
@@ -518,6 +522,18 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
             })
         })
         .collect()
+}
+
+fn normalize_tool_call_arguments_for_api(arguments: &str) -> String {
+    let trimmed = arguments.trim();
+    if trimmed.is_empty() {
+        return "{}".to_string();
+    }
+    if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
+        return trimmed.to_string();
+    }
+
+    serde_json::json!({ "_invalid_tool_arguments": arguments }).to_string()
 }
 
 fn agent_message_content_to_api_content(message: &super::types::AgentMessage) -> ApiContent {
