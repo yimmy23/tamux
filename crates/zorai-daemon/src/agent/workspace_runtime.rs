@@ -14,6 +14,62 @@ struct WorkspaceTaskRunStart {
 }
 
 impl AgentEngine {
+    async fn apply_workspace_actor_identity_to_agent_task(
+        &self,
+        agent_task: &mut AgentTask,
+        actor: &WorkspaceActor,
+    ) {
+        let Some(target_agent_id) = actor_target(actor) else {
+            return;
+        };
+        let sub_agents = self.list_sub_agents().await;
+        let resolved =
+            crate::agent::agent_identity::resolve_agent_target(&target_agent_id, &sub_agents);
+        if resolved.scope_id == crate::agent::agent_identity::MAIN_AGENT_ID {
+            return;
+        }
+
+        let matched_def = resolved.matched_sub_agent.as_ref();
+        if let Some(def) = matched_def {
+            agent_task.override_provider = Some(def.provider.clone());
+            agent_task.override_model = Some(def.model.clone());
+            agent_task.sub_agent_def_id = Some(def.id.clone());
+            if def.tool_whitelist.is_some() {
+                agent_task.tool_whitelist = def.tool_whitelist.clone();
+            }
+            if def.tool_blacklist.is_some() {
+                agent_task.tool_blacklist = def.tool_blacklist.clone();
+            }
+            if def.context_budget_tokens.is_some() {
+                agent_task.context_budget_tokens = def.context_budget_tokens;
+            }
+            if def.max_duration_secs.is_some() {
+                agent_task.max_duration_secs = def.max_duration_secs;
+            }
+            if def.supervisor_config.is_some() {
+                agent_task.supervisor_config = def.supervisor_config.clone();
+            }
+        }
+
+        let persona_prompt = if resolved.scope_id == crate::agent::agent_identity::WELES_AGENT_ID {
+            crate::agent::agent_identity::build_weles_persona_prompt(
+                crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
+            )
+        } else if let Some(def) = matched_def.filter(|def| !def.builtin) {
+            crate::agent::agent_identity::build_user_subagent_persona_prompt(def)
+        } else {
+            build_spawned_persona_prompt(&resolved.scope_id)
+        };
+        agent_task.override_system_prompt = Some(
+            matched_def
+                .and_then(|def| def.system_prompt.as_deref())
+                .map(str::trim)
+                .filter(|prompt| !prompt.is_empty())
+                .map(|prompt| format!("{persona_prompt}\n\n{prompt}"))
+                .unwrap_or(persona_prompt),
+        );
+    }
+
     pub async fn run_workspace_task(&self, task_id: &str) -> Result<WorkspaceTask> {
         let start = self.begin_workspace_task_run(task_id).await?;
         self.finish_workspace_task_run(start).await
@@ -435,7 +491,7 @@ impl AgentEngine {
         let review_task_id = match reviewer {
             WorkspaceActor::Agent(_) | WorkspaceActor::Subagent(_) => {
                 let delivery_summary = workspace_delivery_summary(task);
-                let review_task = self
+                let mut review_task = self
                     .enqueue_task(
                         format!("Review workspace task: {}", task.title),
                         format!(
@@ -463,6 +519,17 @@ impl AgentEngine {
                         actor_target(&reviewer),
                     )
                     .await;
+                self.apply_workspace_actor_identity_to_agent_task(&mut review_task, &reviewer)
+                    .await;
+                {
+                    let mut tasks = self.tasks.lock().await;
+                    if let Some(existing) =
+                        tasks.iter_mut().find(|entry| entry.id == review_task.id)
+                    {
+                        *existing = review_task.clone();
+                    }
+                }
+                self.persist_tasks().await;
                 self.record_workspace_review_task_history(task, &review_task)
                     .await?;
                 Some(review_task.id)

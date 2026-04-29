@@ -438,6 +438,81 @@ async fn moving_to_review_with_agent_reviewer_records_review_request_notice() ->
 }
 
 #[tokio::test]
+async fn moving_to_review_with_subagent_reviewer_queues_reviewer_persona_task() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.sub_agents.push(SubAgentDefinition {
+        id: "qa".to_string(),
+        name: "QA".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("reviewer".to_string()),
+        system_prompt: Some("Review workspace delivery as QA.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        created_at: 1,
+    });
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut request = workspace_request(WorkspaceTaskType::Thread);
+    request.reviewer = Some(WorkspaceActor::Subagent("qa".to_string()));
+    let task = engine
+        .create_workspace_task(request, WorkspaceActor::User)
+        .await?;
+
+    engine
+        .move_workspace_task(WorkspaceTaskMove {
+            task_id: task.id.clone(),
+            status: WorkspaceTaskStatus::InReview,
+            sort_order: None,
+        })
+        .await?;
+
+    let reviewed = engine
+        .get_workspace_task(&task.id)
+        .await?
+        .expect("task should exist");
+    let review_task_id = reviewed
+        .runtime_history
+        .iter()
+        .find(|entry| entry.source.as_deref() == Some("workspace_review"))
+        .and_then(|entry| entry.agent_task_id.clone())
+        .expect("review task should be recorded");
+    let review_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == review_task_id)
+        .cloned()
+        .expect("review task should remain queued");
+
+    assert_eq!(review_task.sub_agent_def_id.as_deref(), Some("qa"));
+    assert_eq!(review_task.override_provider.as_deref(), Some("openai"));
+    assert_eq!(review_task.override_model.as_deref(), Some("gpt-5.4-mini"));
+    let prompt = review_task
+        .override_system_prompt
+        .as_deref()
+        .expect("review task should carry reviewer persona prompt");
+    assert!(prompt.contains("Agent persona id: qa"), "{prompt}");
+    assert!(
+        prompt.contains("Review workspace delivery as QA."),
+        "{prompt}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn failed_workspace_review_archives_runtime_and_starts_new_follow_up() -> Result<()> {
     let root = tempfile::tempdir()?;
     let recorded = Arc::new(std::sync::Mutex::new(VecDeque::new()));

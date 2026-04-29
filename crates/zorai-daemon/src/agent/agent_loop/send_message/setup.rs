@@ -481,8 +481,9 @@ impl<'a> SendMessageRunner<'a> {
         };
         let preferred_session_id =
             resolve_preferred_session_id(&engine.session_manager, preferred_session_hint).await;
-        let skill_preflight = if super::skill_preflight::should_run_skill_preflight_for_message(
+        let skill_preflight = if super::skill_preflight::should_run_skill_preflight_for_turn(
             record_operator,
+            task_id.is_some(),
             stored_user_content,
         ) {
             engine
@@ -1513,6 +1514,100 @@ mod tests {
         .expect("runner should initialize");
 
         assert_eq!(runner.provider_config.reasoning_effort, "high");
+    }
+
+    #[tokio::test]
+    async fn agent_task_prompt_runs_skill_preflight_without_operator_recording() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.base_url = "http://127.0.0.1:1/v1".to_string();
+        config.api_key = "test-key".to_string();
+        config.system_prompt = "Main system prompt".to_string();
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let task_id = "task_workspace_review_preflight";
+        engine.tasks.lock().await.push_back(AgentTask {
+            id: task_id.to_string(),
+            title: "Review workspace task".to_string(),
+            description: "Review completion of the workspace implementation task.".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: None,
+            source: "workspace_review".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: Some("openai".to_string()),
+            override_model: Some("gpt-5.4-mini".to_string()),
+            override_system_prompt: Some(build_spawned_persona_prompt("qa")),
+            sub_agent_def_id: None,
+        });
+
+        let prompt = "Review the delivered workspace task against the definition of done and submit the workspace review verdict.";
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            None,
+            prompt,
+            &[],
+            prompt,
+            Some(task_id),
+            None,
+            None,
+            None,
+            false,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        assert!(
+            runner.system_prompt.contains("## Local Guidelines"),
+            "agent task prompt should include the normal guideline section"
+        );
+        assert!(
+            runner.system_prompt.contains("## Preloaded Skills"),
+            "agent task prompt should run skill preflight even when the message is not recorded as an operator turn"
+        );
     }
 
     #[tokio::test]
