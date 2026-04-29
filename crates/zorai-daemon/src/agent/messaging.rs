@@ -543,8 +543,45 @@ impl AgentEngine {
             }
         }
         drop(threads);
+        if let Some(target) = resolved_target.as_ref().filter(|_| !created) {
+            self.retarget_existing_thread_to_agent(&id, target).await;
+        }
         self.clear_thread_message_hydration_pending(&id).await;
         (id, created)
+    }
+
+    async fn retarget_existing_thread_to_agent(
+        &self,
+        thread_id: &str,
+        target: &crate::agent::agent_identity::ResolvedAgentTarget,
+    ) {
+        let entered_at = now_millis();
+        let previous_state = self.thread_handoff_state(thread_id).await;
+        let mut state = previous_state.unwrap_or_else(|| {
+            initial_thread_handoff_state(thread_id, Some(target.agent_name.as_str()), entered_at)
+        });
+        state.origin_agent_id = target.scope_id.clone();
+        state.active_agent_id = target.scope_id.clone();
+        state.responder_stack = vec![ThreadResponderFrame {
+            agent_id: target.scope_id.clone(),
+            agent_name: target.agent_name.clone(),
+            entered_at,
+            entered_via_handoff_event_id: None,
+            linked_thread_id: None,
+        }];
+        state.pending_approval_id = None;
+        self.thread_handoff_states
+            .write()
+            .await
+            .insert(thread_id.to_string(), state);
+        if let Some(thread) = self.threads.write().await.get_mut(thread_id) {
+            thread.agent_name = Some(target.agent_name.clone());
+            thread.updated_at = entered_at;
+        }
+        self.thread_execution_profiles
+            .write()
+            .await
+            .remove(thread_id);
     }
 
     /// Attempt to restore a thread and its messages from the SQLite history database.

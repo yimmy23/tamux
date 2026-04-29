@@ -2,7 +2,7 @@ use super::*;
 use zorai_protocol::{
     WorkspaceActor, WorkspacePriority, WorkspaceReviewSubmission, WorkspaceReviewVerdict,
     WorkspaceTaskCreate, WorkspaceTaskMove, WorkspaceTaskStatus, WorkspaceTaskType,
-    AGENT_ID_SWAROG,
+    WorkspaceTaskUpdate, AGENT_ID_SWAROG,
 };
 
 async fn test_engine(root: &std::path::Path) -> Result<Arc<AgentEngine>> {
@@ -109,6 +109,137 @@ async fn run_thread_workspace_task_stays_in_progress_until_thread_done() -> Resu
         .iter()
         .any(|entry| entry.thread_id == running.thread_id
             && entry.source.as_deref() == Some("workspace_runtime")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let recorded = Arc::new(std::sync::Mutex::new(VecDeque::new()));
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.model = "gpt-main".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.base_url = crate::agent::tests::spawn_goal_recording_server(
+        recorded.clone(),
+        "Thread work complete".to_string(),
+    )
+    .await;
+    config.sub_agents.push(SubAgentDefinition {
+        id: "first".to_string(),
+        name: "First".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-first".to_string(),
+        role: Some("worker".to_string()),
+        system_prompt: Some("First worker.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        created_at: 1,
+    });
+    config.sub_agents.push(SubAgentDefinition {
+        id: "second".to_string(),
+        name: "Second".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-second".to_string(),
+        role: Some("worker".to_string()),
+        system_prompt: Some("Second worker.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        created_at: 2,
+    });
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut request = workspace_request(WorkspaceTaskType::Thread);
+    request.assignee = Some(WorkspaceActor::Subagent("first".to_string()));
+    request.reviewer = Some(WorkspaceActor::User);
+    let task = engine
+        .create_workspace_task(request, WorkspaceActor::User)
+        .await?;
+
+    let first_run = engine.run_workspace_task(&task.id).await?;
+    let first_thread_id = first_run.thread_id.as_deref().expect("thread id");
+    let first_profile = engine
+        .thread_execution_profiles
+        .read()
+        .await
+        .get(first_thread_id)
+        .cloned()
+        .expect("first run should store thread execution profile");
+    assert_eq!(first_profile.model.as_deref(), Some("gpt-first"));
+    engine.stop_workspace_task(&task.id).await?;
+    engine
+        .update_workspace_task(
+            &task.id,
+            WorkspaceTaskUpdate {
+                assignee: Some(Some(WorkspaceActor::Subagent("second".to_string()))),
+                ..WorkspaceTaskUpdate::default()
+            },
+        )
+        .await?;
+
+    let second_run = engine.run_workspace_task(&task.id).await?;
+
+    assert_eq!(first_run.thread_id, second_run.thread_id);
+    let bodies = recorded.lock().expect("request log").clone();
+    assert_eq!(bodies.len(), 2, "expected one request per workspace run");
+    let second_thread_id = second_run.thread_id.as_deref().expect("thread id");
+    let second_profile = engine
+        .thread_execution_profiles
+        .read()
+        .await
+        .get(second_thread_id)
+        .cloned()
+        .expect("second run should store thread execution profile");
+    assert_eq!(second_profile.model.as_deref(), Some("gpt-second"));
+    let active_agent_id = engine.active_agent_id_for_thread(second_thread_id).await;
+    assert_eq!(active_agent_id.as_deref(), Some("second"));
+    engine.stop_workspace_task(&task.id).await?;
+    engine
+        .update_workspace_task(
+            &task.id,
+            WorkspaceTaskUpdate {
+                assignee: Some(Some(WorkspaceActor::Agent(AGENT_ID_SWAROG.to_string()))),
+                ..WorkspaceTaskUpdate::default()
+            },
+        )
+        .await?;
+
+    let third_run = engine.run_workspace_task(&task.id).await?;
+
+    assert_eq!(first_run.thread_id, third_run.thread_id);
+    let bodies = recorded.lock().expect("request log").clone();
+    assert_eq!(bodies.len(), 3, "expected one request per workspace run");
+    let third_thread_id = third_run.thread_id.as_deref().expect("thread id");
+    let third_profile = engine
+        .thread_execution_profiles
+        .read()
+        .await
+        .get(third_thread_id)
+        .cloned()
+        .expect("third run should store thread execution profile");
+    assert_eq!(third_profile.model.as_deref(), Some("gpt-main"));
+    let active_agent_id = engine.active_agent_id_for_thread(third_thread_id).await;
+    assert_eq!(active_agent_id.as_deref(), Some(AGENT_ID_SWAROG));
     Ok(())
 }
 
