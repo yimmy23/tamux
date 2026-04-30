@@ -2,7 +2,7 @@ use super::*;
 use zorai_protocol::{
     WorkspaceActor, WorkspacePriority, WorkspaceReviewSubmission, WorkspaceReviewVerdict,
     WorkspaceTaskCreate, WorkspaceTaskMove, WorkspaceTaskStatus, WorkspaceTaskType,
-    AGENT_ID_SWAROG,
+    WorkspaceTaskUpdate, AGENT_ID_SWAROG,
 };
 
 async fn test_engine(root: &std::path::Path) -> Result<Arc<AgentEngine>> {
@@ -109,6 +109,137 @@ async fn run_thread_workspace_task_stays_in_progress_until_thread_done() -> Resu
         .iter()
         .any(|entry| entry.thread_id == running.thread_id
             && entry.source.as_deref() == Some("workspace_runtime")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let recorded = Arc::new(std::sync::Mutex::new(VecDeque::new()));
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.model = "gpt-main".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.base_url = crate::agent::tests::spawn_goal_recording_server(
+        recorded.clone(),
+        "Thread work complete".to_string(),
+    )
+    .await;
+    config.sub_agents.push(SubAgentDefinition {
+        id: "first".to_string(),
+        name: "First".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-first".to_string(),
+        role: Some("worker".to_string()),
+        system_prompt: Some("First worker.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        created_at: 1,
+    });
+    config.sub_agents.push(SubAgentDefinition {
+        id: "second".to_string(),
+        name: "Second".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-second".to_string(),
+        role: Some("worker".to_string()),
+        system_prompt: Some("Second worker.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        created_at: 2,
+    });
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut request = workspace_request(WorkspaceTaskType::Thread);
+    request.assignee = Some(WorkspaceActor::Subagent("first".to_string()));
+    request.reviewer = Some(WorkspaceActor::User);
+    let task = engine
+        .create_workspace_task(request, WorkspaceActor::User)
+        .await?;
+
+    let first_run = engine.run_workspace_task(&task.id).await?;
+    let first_thread_id = first_run.thread_id.as_deref().expect("thread id");
+    let first_profile = engine
+        .thread_execution_profiles
+        .read()
+        .await
+        .get(first_thread_id)
+        .cloned()
+        .expect("first run should store thread execution profile");
+    assert_eq!(first_profile.model.as_deref(), Some("gpt-first"));
+    engine.stop_workspace_task(&task.id).await?;
+    engine
+        .update_workspace_task(
+            &task.id,
+            WorkspaceTaskUpdate {
+                assignee: Some(Some(WorkspaceActor::Subagent("second".to_string()))),
+                ..WorkspaceTaskUpdate::default()
+            },
+        )
+        .await?;
+
+    let second_run = engine.run_workspace_task(&task.id).await?;
+
+    assert_eq!(first_run.thread_id, second_run.thread_id);
+    let bodies = recorded.lock().expect("request log").clone();
+    assert_eq!(bodies.len(), 2, "expected one request per workspace run");
+    let second_thread_id = second_run.thread_id.as_deref().expect("thread id");
+    let second_profile = engine
+        .thread_execution_profiles
+        .read()
+        .await
+        .get(second_thread_id)
+        .cloned()
+        .expect("second run should store thread execution profile");
+    assert_eq!(second_profile.model.as_deref(), Some("gpt-second"));
+    let active_agent_id = engine.active_agent_id_for_thread(second_thread_id).await;
+    assert_eq!(active_agent_id.as_deref(), Some("second"));
+    engine.stop_workspace_task(&task.id).await?;
+    engine
+        .update_workspace_task(
+            &task.id,
+            WorkspaceTaskUpdate {
+                assignee: Some(Some(WorkspaceActor::Agent(AGENT_ID_SWAROG.to_string()))),
+                ..WorkspaceTaskUpdate::default()
+            },
+        )
+        .await?;
+
+    let third_run = engine.run_workspace_task(&task.id).await?;
+
+    assert_eq!(first_run.thread_id, third_run.thread_id);
+    let bodies = recorded.lock().expect("request log").clone();
+    assert_eq!(bodies.len(), 3, "expected one request per workspace run");
+    let third_thread_id = third_run.thread_id.as_deref().expect("thread id");
+    let third_profile = engine
+        .thread_execution_profiles
+        .read()
+        .await
+        .get(third_thread_id)
+        .cloned()
+        .expect("third run should store thread execution profile");
+    assert_eq!(third_profile.model.as_deref(), Some("gpt-main"));
+    let active_agent_id = engine.active_agent_id_for_thread(third_thread_id).await;
+    assert_eq!(active_agent_id.as_deref(), Some(AGENT_ID_SWAROG));
     Ok(())
 }
 
@@ -434,6 +565,81 @@ async fn moving_to_review_with_agent_reviewer_records_review_request_notice() ->
     assert!(reviewed.runtime_history.iter().any(|entry| {
         entry.agent_task_id.is_some() && entry.source.as_deref() == Some("workspace_review")
     }));
+    Ok(())
+}
+
+#[tokio::test]
+async fn moving_to_review_with_subagent_reviewer_queues_reviewer_persona_task() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.sub_agents.push(SubAgentDefinition {
+        id: "qa".to_string(),
+        name: "QA".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("reviewer".to_string()),
+        system_prompt: Some("Review workspace delivery as QA.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        created_at: 1,
+    });
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut request = workspace_request(WorkspaceTaskType::Thread);
+    request.reviewer = Some(WorkspaceActor::Subagent("qa".to_string()));
+    let task = engine
+        .create_workspace_task(request, WorkspaceActor::User)
+        .await?;
+
+    engine
+        .move_workspace_task(WorkspaceTaskMove {
+            task_id: task.id.clone(),
+            status: WorkspaceTaskStatus::InReview,
+            sort_order: None,
+        })
+        .await?;
+
+    let reviewed = engine
+        .get_workspace_task(&task.id)
+        .await?
+        .expect("task should exist");
+    let review_task_id = reviewed
+        .runtime_history
+        .iter()
+        .find(|entry| entry.source.as_deref() == Some("workspace_review"))
+        .and_then(|entry| entry.agent_task_id.clone())
+        .expect("review task should be recorded");
+    let review_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == review_task_id)
+        .cloned()
+        .expect("review task should remain queued");
+
+    assert_eq!(review_task.sub_agent_def_id.as_deref(), Some("qa"));
+    assert_eq!(review_task.override_provider.as_deref(), Some("openai"));
+    assert_eq!(review_task.override_model.as_deref(), Some("gpt-5.4-mini"));
+    let prompt = review_task
+        .override_system_prompt
+        .as_deref()
+        .expect("review task should carry reviewer persona prompt");
+    assert!(prompt.contains("Agent persona id: qa"), "{prompt}");
+    assert!(
+        prompt.contains("Review workspace delivery as QA."),
+        "{prompt}"
+    );
     Ok(())
 }
 

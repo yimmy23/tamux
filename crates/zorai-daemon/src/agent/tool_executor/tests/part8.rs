@@ -2510,13 +2510,15 @@ async fn ingest_webhook_event_tool_routes_seeded_default_trigger_without_manual_
 }
 
 #[tokio::test]
-async fn show_import_report_tool_returns_persisted_external_runtime_profiles() {
+async fn import_external_runtime_tool_supports_dry_run_and_real_import() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
     let (event_tx, _) = broadcast::channel(8);
 
-    let hermes_profile = crate::agent::external_runtime_import::parse_hermes_config_profile(
+    let config_path = root.path().join("hermes-config.yaml");
+    tokio::fs::write(
+        &config_path,
         r#"
 provider: openrouter
 model: nousresearch/hermes-4-70b
@@ -2525,18 +2527,159 @@ terminal:
 mcp_servers:
   zorai:
     command: zorai-mcp
+  github:
+    command: github-mcp
+persona: helpful migration assistant
 "#,
-        "~/.hermes/config.yaml",
-        1_777_200_000_000,
     )
-    .expect("hermes profile should parse");
-    engine
-        .history
-        .upsert_external_runtime_profile("hermes", &hermes_profile)
-        .await
-        .expect("hermes profile should persist");
+    .await
+    .expect("fixture should write");
 
-    let openclaw_profile = crate::agent::external_runtime_import::parse_openclaw_config_profile(
+    let dry_run_call = ToolCall::with_default_weles_review(
+        "tool-import-external-runtime-dry-run".to_string(),
+        ToolFunction {
+            name: "import_external_runtime".to_string(),
+            arguments: serde_json::json!({
+                "runtime": "hermes",
+                "config_path": config_path.display().to_string(),
+                "dry_run": true,
+                "conflict_policy": "stage_for_review"
+            })
+            .to_string(),
+        },
+    );
+
+    let dry_run_result = execute_tool(
+        &dry_run_call,
+        &engine,
+        "thread-import-external-runtime",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !dry_run_result.is_error,
+        "dry-run import should succeed: {}",
+        dry_run_result.content
+    );
+    let dry_run_payload: serde_json::Value = serde_json::from_str(&dry_run_result.content)
+        .expect("dry-run import should return JSON");
+    assert_eq!(dry_run_payload["dry_run"], true);
+    assert_eq!(dry_run_payload["persisted"], false);
+    assert_eq!(
+        engine
+            .history
+            .list_external_runtime_profiles()
+            .await
+            .expect("history should list profiles")
+            .len(),
+        0,
+        "dry-run import must not mutate persisted profiles"
+    );
+
+    let real_import_call = ToolCall::with_default_weles_review(
+        "tool-import-external-runtime-real".to_string(),
+        ToolFunction {
+            name: "import_external_runtime".to_string(),
+            arguments: serde_json::json!({
+                "runtime": "hermes",
+                "config_path": config_path.display().to_string(),
+                "dry_run": false,
+                "conflict_policy": "stage_for_review"
+            })
+            .to_string(),
+        },
+    );
+
+    let real_import_result = execute_tool(
+        &real_import_call,
+        &engine,
+        "thread-import-external-runtime",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !real_import_result.is_error,
+        "real import should succeed: {}",
+        real_import_result.content
+    );
+    let real_payload: serde_json::Value = serde_json::from_str(&real_import_result.content)
+        .expect("real import should return JSON");
+    assert_eq!(real_payload["dry_run"], false);
+    assert_eq!(real_payload["persisted"], true);
+    assert_eq!(real_payload["asset_summary"]["count"].as_u64(), Some(8));
+    assert_eq!(
+        real_payload["archive_search"]["query_hint"].as_str(),
+        Some("hermes")
+    );
+
+    let persisted_profiles = engine
+        .history
+        .list_external_runtime_profiles()
+        .await
+        .expect("profiles should persist");
+    assert_eq!(persisted_profiles.len(), 1);
+    let session_id = persisted_profiles[0]
+        .session_id
+        .clone()
+        .expect("profile should point at session");
+
+    let assets = engine
+        .history
+        .list_imported_runtime_assets(Some("hermes"), Some(&session_id))
+        .await
+        .expect("assets should persist");
+    assert_eq!(assets.len(), 8);
+
+    let archive_hits = engine
+        .history
+        .search_context_archive(
+            &format!("imported-runtime:hermes:{session_id}"),
+            "hermes",
+            10,
+        )
+        .await
+        .expect("archive search should succeed");
+    assert!(!archive_hits.is_empty(), "archive search should return imported snapshot");
+}
+
+#[tokio::test]
+async fn show_import_report_tool_returns_persisted_external_runtime_profiles() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let hermes_config_path = root.path().join("report-hermes.yaml");
+    tokio::fs::write(
+        &hermes_config_path,
+        r#"
+provider: openrouter
+model: nousresearch/hermes-4-70b
+terminal:
+  cwd: /workspace/repo
+mcp_servers:
+  zorai:
+    command: zorai-mcp
+persona: helpful migration assistant
+"#,
+    )
+    .await
+    .expect("hermes fixture should write");
+    let openclaw_config_path = root.path().join("report-openclaw.json");
+    tokio::fs::write(
+        &openclaw_config_path,
         r#"{
   "agents": {
     "defaults": {
@@ -2552,15 +2695,28 @@ mcp_servers:
     }
   }
 }"#,
-        "~/.openclaw/openclaw.json",
-        1_777_200_000_001,
     )
-    .expect("openclaw profile should parse");
+    .await
+    .expect("openclaw fixture should write");
+
     engine
-        .history
-        .upsert_external_runtime_profile("openclaw", &openclaw_profile)
+        .import_external_runtime_json(
+            "hermes",
+            Some(&hermes_config_path.display().to_string()),
+            false,
+            ExternalRuntimeConflictPolicy::StageForReview,
+        )
         .await
-        .expect("openclaw profile should persist");
+        .expect("hermes import should persist");
+    engine
+        .import_external_runtime_json(
+            "openclaw",
+            Some(&openclaw_config_path.display().to_string()),
+            false,
+            ExternalRuntimeConflictPolicy::StageForReview,
+        )
+        .await
+        .expect("openclaw import should persist");
 
     let tool_call = ToolCall::with_default_weles_review(
         "tool-show-import-report".to_string(),
@@ -2597,6 +2753,9 @@ mcp_servers:
     assert_eq!(payload["summary"]["count"], 2);
     assert_eq!(payload["summary"]["with_zorai_mcp"], 2);
     assert_eq!(payload["summary"]["limit"], 10);
+    assert!(payload["summary"]["recommended_actions"].is_array());
+    assert!(payload["reports"].is_array());
+    assert!(payload["summary"]["readiness_score"].as_u64().is_some());
 
     let profiles = payload["profiles"]
         .as_array()
@@ -2614,6 +2773,14 @@ mcp_servers:
             && profile["model"] == "anthropic/claude-sonnet-4-6"
             && profile["has_zorai_mcp"] == true
     }));
+    let reports = payload["reports"]
+        .as_array()
+        .expect("show_import_report should return reports array");
+    assert!(reports.iter().any(|report| {
+        report["runtime"] == "hermes"
+            && report["asset_buckets"]["imported"].as_u64().unwrap_or_default() >= 1
+            && report["readiness"]["score"].as_u64().is_some()
+    }));
 }
 
 #[tokio::test]
@@ -2626,7 +2793,9 @@ async fn preview_shadow_run_tool_returns_isolated_comparison_without_enqueuing_t
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
     let (event_tx, _) = broadcast::channel(8);
 
-    let hermes_profile = crate::agent::external_runtime_import::parse_hermes_config_profile(
+    let config_path = root.path().join("shadow-hermes.yaml");
+    tokio::fs::write(
+        &config_path,
         r#"
 provider: openrouter
 model: nousresearch/hermes-4-70b
@@ -2635,16 +2804,22 @@ terminal:
 mcp_servers:
   zorai:
     command: zorai-mcp
+  github:
+    command: github-mcp
+persona: helpful migration assistant
 "#,
-        "~/.hermes/config.yaml",
-        1_777_200_000_000,
     )
-    .expect("hermes profile should parse");
+    .await
+    .expect("fixture should write");
     engine
-        .history
-        .upsert_external_runtime_profile("hermes", &hermes_profile)
+        .import_external_runtime_json(
+            "hermes",
+            Some(&config_path.display().to_string()),
+            false,
+            ExternalRuntimeConflictPolicy::StageForReview,
+        )
         .await
-        .expect("hermes profile should persist");
+        .expect("hermes import should persist");
 
     assert_eq!(engine.tasks.lock().await.len(), 0, "task queue should start empty");
 
@@ -2684,14 +2859,24 @@ mcp_servers:
     assert_eq!(payload["guardrails"]["will_enqueue_tasks"], false);
     assert_eq!(payload["guardrails"]["will_launch_runner"], false);
     assert_eq!(payload["guardrails"]["will_spawn_session"], false);
+    assert_eq!(payload["guardrails"]["will_mutate_live_state"], false);
     assert_eq!(payload["imported"]["runtime"], "hermes");
     assert_eq!(payload["imported"]["provider"], "openrouter");
     assert_eq!(payload["current"]["provider"], "openai");
     assert_eq!(payload["current"]["model"], "gpt-5.4");
     assert_eq!(payload["comparison"]["provider"]["matches"], false);
     assert_eq!(payload["comparison"]["has_zorai_mcp"]["matches"], true);
+    assert!(payload["projected_effects"]["connector_calls"].as_u64().unwrap_or_default() >= 1);
+    assert!(payload["readiness"]["score"].as_u64().is_some());
+    assert!(payload.get("previous_outcome").is_some());
 
     assert_eq!(engine.tasks.lock().await.len(), 0, "preview_shadow_run must not enqueue tasks");
+    let shadow_runs = engine
+        .history
+        .list_external_runtime_shadow_runs(Some("hermes"), None)
+        .await
+        .expect("shadow run history should persist");
+    assert_eq!(shadow_runs.len(), 1, "preview_shadow_run should persist comparable outcome");
 }
 
 #[tokio::test]

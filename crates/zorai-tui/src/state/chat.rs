@@ -363,6 +363,46 @@ fn should_replace_thread_window(existing: &AgentThread, incoming: &AgentThread) 
             && overlapping_thread_messages_match(existing, incoming))
 }
 
+fn should_reanchor_unloaded_optimistic_tail(
+    existing: &AgentThread,
+    incoming: &AgentThread,
+) -> bool {
+    !existing.messages.is_empty()
+        && existing.loaded_message_start == 0
+        && existing.loaded_message_end == existing.messages.len()
+        && existing.total_message_count == existing.messages.len()
+        && incoming.loaded_message_start > existing.loaded_message_end
+        && incoming.loaded_message_end >= incoming.total_message_count
+        && existing.messages.iter().all(|message| message.id.is_none())
+}
+
+fn reanchor_unloaded_optimistic_tail(existing: &mut AgentThread, incoming: &AgentThread) {
+    if !should_reanchor_unloaded_optimistic_tail(existing, incoming) {
+        return;
+    }
+
+    existing.loaded_message_start = incoming.loaded_message_end;
+    existing.loaded_message_end = existing
+        .loaded_message_start
+        .saturating_add(existing.messages.len());
+    existing.total_message_count = incoming
+        .total_message_count
+        .saturating_add(existing.messages.len());
+}
+
+fn is_older_thread_page(existing: &AgentThread, incoming: &AgentThread) -> bool {
+    if incoming.messages.is_empty() {
+        return false;
+    }
+
+    let incoming_end = incoming.loaded_message_end.max(
+        incoming
+            .loaded_message_start
+            .saturating_add(incoming.messages.len()),
+    );
+    incoming_end <= existing.loaded_message_start
+}
+
 fn trim_thread_to_latest_page(thread: &mut AgentThread, page_size: usize) -> usize {
     normalize_thread_window(thread);
     if thread.messages.len() <= page_size {
@@ -1408,10 +1448,12 @@ impl ChatState {
                 normalize_thread_window(&mut incoming);
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == incoming.id) {
                     normalize_thread_window(existing);
+                    reanchor_unloaded_optimistic_tail(existing, &incoming);
                     realign_short_reload_window(existing, &mut incoming);
                     let responder_before = active_thread_responder_identity(existing);
                     let metadata_only_detail =
                         incoming.messages.is_empty() && !existing.messages.is_empty();
+                    let older_history_page = is_older_thread_page(existing, &incoming);
                     let replace_existing_window = should_replace_thread_window(existing, &incoming);
                     let (merged, merged_start, merged_end, disjoint) = if metadata_only_detail {
                         (
@@ -1448,9 +1490,12 @@ impl ChatState {
                     } else {
                         merged_end.max(existing.total_message_count)
                     };
-                    existing.active_context_window_start = incoming.active_context_window_start;
-                    existing.active_context_window_end = incoming.active_context_window_end;
-                    existing.active_context_window_tokens = incoming.active_context_window_tokens;
+                    if !older_history_page {
+                        existing.active_context_window_start = incoming.active_context_window_start;
+                        existing.active_context_window_end = incoming.active_context_window_end;
+                        existing.active_context_window_tokens =
+                            incoming.active_context_window_tokens;
+                    }
                     existing.older_page_pending = false;
                     existing.older_page_request_cooldown_until_tick = existing
                         .older_page_request_cooldown_until_tick
@@ -1477,19 +1522,19 @@ impl ChatState {
                         existing.queued_participant_suggestions =
                             incoming.queued_participant_suggestions;
                     }
-                    if incoming.agent_name.is_some() {
+                    if !older_history_page && incoming.agent_name.is_some() {
                         existing.agent_name = incoming.agent_name;
                     }
-                    if incoming.profile_provider.is_some() {
+                    if !older_history_page && incoming.profile_provider.is_some() {
                         existing.profile_provider = incoming.profile_provider;
                     }
-                    if incoming.profile_model.is_some() {
+                    if !older_history_page && incoming.profile_model.is_some() {
                         existing.profile_model = incoming.profile_model;
                     }
-                    if incoming.profile_reasoning_effort.is_some() {
+                    if !older_history_page && incoming.profile_reasoning_effort.is_some() {
                         existing.profile_reasoning_effort = incoming.profile_reasoning_effort;
                     }
-                    if incoming.profile_context_window_tokens.is_some() {
+                    if !older_history_page && incoming.profile_context_window_tokens.is_some() {
                         existing.profile_context_window_tokens =
                             incoming.profile_context_window_tokens;
                     }

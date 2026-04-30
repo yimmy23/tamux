@@ -1731,6 +1731,7 @@ async fn dispatch_tool_execution(
         "show_harness_state" => {
             execute_show_harness_state(args, agent, thread_id, task_id).await
         },
+        "import_external_runtime" => execute_import_external_runtime(args, agent).await,
         "show_import_report" => execute_show_import_report(args, agent).await,
         "preview_shadow_run" => execute_preview_shadow_run(args, agent).await,
         "get_todos" => execute_get_todos(args, agent, task_id).await,

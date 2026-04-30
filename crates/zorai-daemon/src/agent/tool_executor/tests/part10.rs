@@ -1,5 +1,5 @@
 #[tokio::test]
-async fn workspace_task_mutation_tools_are_only_exposed_to_svarog_scope() {
+async fn workspace_task_tools_are_exposed_to_all_agent_scopes() {
     let config = AgentConfig::default();
     let temp_dir = tempfile::tempdir().expect("tempdir");
 
@@ -34,7 +34,10 @@ async fn workspace_task_mutation_tools_are_only_exposed_to_svarog_scope() {
         .any(|tool| tool.function.name == "workspace_submit_completion"));
     assert!(rarog_tools
         .iter()
-        .all(|tool| tool.function.name != "workspace_create_task"));
+        .any(|tool| tool.function.name == "workspace_create_task"));
+    assert!(rarog_tools
+        .iter()
+        .any(|tool| tool.function.name == "workspace_move_task"));
 }
 
 #[tokio::test]

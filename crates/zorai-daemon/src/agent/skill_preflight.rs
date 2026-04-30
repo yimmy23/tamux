@@ -1437,8 +1437,12 @@ fn should_run_skill_preflight(content: &str) -> bool {
     .any(|keyword| normalized.contains(keyword))
 }
 
-pub(super) fn should_run_skill_preflight_for_message(record_operator: bool, content: &str) -> bool {
-    record_operator && should_run_skill_preflight(content)
+pub(super) fn should_run_skill_preflight_for_turn(
+    record_operator: bool,
+    agent_task_turn: bool,
+    content: &str,
+) -> bool {
+    (record_operator || agent_task_turn) && should_run_skill_preflight(content)
 }
 
 fn build_latest_skill_discovery_state(
@@ -1957,11 +1961,18 @@ mod tests {
 
     #[test]
     fn daemon_internal_messages_do_not_run_skill_preflight() {
-        assert!(!should_run_skill_preflight_for_message(
+        assert!(!should_run_skill_preflight_for_turn(
+            false,
             false,
             "HEARTBEAT SYNTHESIS\nYou are performing a scheduled heartbeat check for the operator."
         ));
-        assert!(should_run_skill_preflight_for_message(
+        assert!(should_run_skill_preflight_for_turn(
+            true,
+            false,
+            "debug daemon startup CPU and memory growth"
+        ));
+        assert!(should_run_skill_preflight_for_turn(
+            false,
             true,
             "debug daemon startup CPU and memory growth"
         ));

@@ -597,9 +597,14 @@ impl AgentEngine {
         let mut prompt = build_task_prompt(&task);
         task_prompt::append_goal_run_context(self, &mut prompt, &task).await;
         task_prompt::append_effective_sub_agent_registry(self, &mut prompt).await;
-        let weles_sender_scope = if task.sub_agent_def_id.as_deref()
+        let use_internal_weles_dm = task.sub_agent_def_id.as_deref()
             == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
-        {
+            && task.source != "workspace_review";
+        let workspace_review_target_agent_id = (!use_internal_weles_dm
+            && task.source == "workspace_review")
+            .then(|| task.sub_agent_def_id.as_deref())
+            .flatten();
+        let weles_sender_scope = if use_internal_weles_dm {
             let tasks = self.tasks.lock().await;
             task.parent_task_id
                 .as_deref()
@@ -609,13 +614,30 @@ impl AgentEngine {
         } else {
             String::new()
         };
-        let outcome = if task.sub_agent_def_id.as_deref()
-            == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
-        {
+        let outcome = if use_internal_weles_dm {
             self.send_internal_task_message(
                 &weles_sender_scope,
                 crate::agent::agent_identity::WELES_AGENT_ID,
                 &task.id,
+                task.session_id.as_deref(),
+                Some(task.runtime.as_str()),
+                &prompt,
+            )
+            .await
+        } else if let Some(target_agent_id) = workspace_review_target_agent_id {
+            let requested_thread_id = task.thread_id.as_deref().filter(|thread_id| {
+                !crate::agent::agent_identity::is_internal_dm_thread(thread_id)
+            });
+            let (review_thread_id, _) = self
+                .get_or_create_thread_with_target(
+                    requested_thread_id,
+                    &prompt,
+                    Some(target_agent_id),
+                )
+                .await;
+            self.send_task_message(
+                &task.id,
+                Some(&review_thread_id),
                 task.session_id.as_deref(),
                 Some(task.runtime.as_str()),
                 &prompt,

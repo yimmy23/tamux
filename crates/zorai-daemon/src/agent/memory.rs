@@ -315,7 +315,7 @@ pub(super) async fn apply_memory_update(
         ));
     }
 
-    if matches!(mode, MemoryUpdateMode::Append | MemoryUpdateMode::Replace) {
+    if mode == MemoryUpdateMode::Append {
         let contradictions = detect_memory_contradictions(&existing, trimmed);
         if !contradictions.is_empty() {
             let repaired = repair_memory_contradictions(
@@ -621,10 +621,7 @@ async fn repair_memory_contradictions(
     let mut retracted_fact_keys = Vec::new();
 
     for (current, proposed) in contradictions {
-        let Some(line_match) = existing
-            .lines()
-            .find(|line| strip_memory_markup(line) == current.display)
-        else {
+        let Some(line_match) = find_active_memory_line(existing, &current.display) else {
             continue;
         };
 
@@ -710,7 +707,12 @@ async fn repair_memory_contradictions(
 
 pub(super) fn extract_memory_fact_candidates(content: &str) -> Vec<MemoryFactCandidate> {
     let mut facts = Vec::new();
+    let mut in_superseded_block = false;
     for raw_line in content.lines() {
+        if should_skip_superseded_line(raw_line, &mut in_superseded_block) {
+            continue;
+        }
+
         let cleaned = strip_memory_markup(raw_line);
         if cleaned.is_empty() || cleaned.starts_with('#') {
             continue;
@@ -735,6 +737,37 @@ pub(super) fn extract_memory_fact_candidates(content: &str) -> Vec<MemoryFactCan
     });
     facts.dedup();
     facts
+}
+
+fn find_active_memory_line<'a>(content: &'a str, display: &str) -> Option<&'a str> {
+    let mut in_superseded_block = false;
+    for raw_line in content.lines() {
+        if should_skip_superseded_line(raw_line, &mut in_superseded_block) {
+            continue;
+        }
+        if strip_memory_markup(raw_line) == display {
+            return Some(raw_line);
+        }
+    }
+    None
+}
+
+fn should_skip_superseded_line(line: &str, in_superseded_block: &mut bool) -> bool {
+    if is_superseded_heading(line) {
+        *in_superseded_block = true;
+        return true;
+    }
+    if *in_superseded_block {
+        if line.trim().is_empty() {
+            *in_superseded_block = false;
+        }
+        return true;
+    }
+    false
+}
+
+fn is_superseded_heading(line: &str) -> bool {
+    line.trim().eq_ignore_ascii_case("## [SUPERSEDED]")
 }
 
 fn strip_memory_markup(line: &str) -> String {

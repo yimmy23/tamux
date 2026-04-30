@@ -88,6 +88,23 @@ fn detect_memory_contradictions_returns_pairs_for_conflicting_facts() {
     assert_eq!(contradictions[0].1.display, "shell: zsh");
 }
 
+#[test]
+fn extract_fact_candidates_skips_superseded_blocks() {
+    let facts = extract_memory_fact_candidates(
+        "# Memory\n\
+         - shell: bash\n\n\
+         ## [SUPERSEDED]\n\
+         - editor: vim\n\
+         - uncertainty: superseded by editor: helix\n\n\
+         - editor: helix\n",
+    );
+
+    assert!(facts.iter().any(|fact| fact.display == "shell: bash"));
+    assert!(facts.iter().any(|fact| fact.display == "editor: helix"));
+    assert!(!facts.iter().any(|fact| fact.display == "editor: vim"));
+    assert!(!facts.iter().any(|fact| fact.key == "uncertainty"));
+}
+
 #[tokio::test]
 async fn conflicting_memory_update_records_conflict_provenance_relationship() -> Result<()> {
     let root = std::env::temp_dir().join(format!("zorai-memory-test-{}", Uuid::new_v4()));
@@ -152,6 +169,64 @@ async fn conflicting_memory_update_records_conflict_provenance_relationship() ->
         "baseline-shell"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn append_memory_update_does_not_resupersede_inactive_fact() -> Result<()> {
+    let root = std::env::temp_dir().join(format!("zorai-memory-test-{}", Uuid::new_v4()));
+    let history = HistoryStore::new_test_store(&root).await?;
+    ensure_memory_files(&root).await?;
+    let memory_path = active_memory_dir(&root).join(MemoryTarget::Memory.file_name());
+    tokio::fs::write(
+        &memory_path,
+        "# Memory\n\n## [SUPERSEDED]\n- action: old cleanup plan\n- uncertainty: superseded by action: newer cleanup plan\n",
+    )
+    .await?;
+
+    let result = apply_memory_update(
+        &root,
+        &history,
+        MemoryTarget::Memory,
+        MemoryUpdateMode::Append,
+        "- action: review stale TODOs from the task inbox",
+        test_write_context(),
+    )
+    .await?;
+
+    assert!(result.contains("append mode"), "{result}");
+    let final_content = tokio::fs::read_to_string(&memory_path).await?;
+    assert_eq!(final_content.matches("## [SUPERSEDED]").count(), 1);
+    assert!(final_content.contains("- action: review stale TODOs from the task inbox"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn replace_memory_update_sizes_replacement_not_old_plus_new() -> Result<()> {
+    let root = std::env::temp_dir().join(format!("zorai-memory-test-{}", Uuid::new_v4()));
+    let history = HistoryStore::new_test_store(&root).await?;
+    ensure_memory_files(&root).await?;
+    let memory_path = active_memory_dir(&root).join(MemoryTarget::Memory.file_name());
+    let existing = format!(
+        "# Memory\n- shell: bash\n{}",
+        "existing stable context\n".repeat(160)
+    );
+    tokio::fs::write(&memory_path, existing).await?;
+
+    let replacement = "# Memory\n- shell: zsh\n- editor: helix\n";
+    let result = apply_memory_update(
+        &root,
+        &history,
+        MemoryTarget::Memory,
+        MemoryUpdateMode::Replace,
+        replacement,
+        test_write_context(),
+    )
+    .await?;
+
+    assert!(result.contains("replace mode"), "{result}");
+    let final_content = tokio::fs::read_to_string(&memory_path).await?;
+    assert_eq!(final_content, replacement.trim());
     Ok(())
 }
 

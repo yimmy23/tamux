@@ -5,6 +5,7 @@ use crate::agent::types::{
     AgentTask, AgentTaskLogEntry, GoalRun, GoalRunEvent, GoalRunStatus, GoalRunStep,
     GoalRunStepKind, GoalRunStepStatus, TaskLogLevel, TaskPriority, TaskStatus,
 };
+use crate::governance::{GovernanceConstraint, TransitionKind};
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -12,9 +13,9 @@ use serde_json::json;
 use tokio_rusqlite;
 use zorai_protocol::{
     AgentDbMessage, AgentDbThread, AgentEventRow, AgentStatisticsSnapshot, AgentStatisticsTotals,
-    AgentStatisticsWindow, CommandLogEntry, GatewayHealthState, HistorySearchHit,
-    ModelStatisticsRow, ProviderStatisticsRow, SnapshotIndexEntry, TranscriptIndexEntry,
-    WormChainTip,
+    AgentStatisticsWindow, ApprovalPayload, CommandLogEntry, GatewayHealthState, HistorySearchHit,
+    ManagedCommandRequest, ModelStatisticsRow, ProviderStatisticsRow, SnapshotIndexEntry,
+    TranscriptIndexEntry, WormChainTip,
 };
 
 /// Helper trait to convert any error into `tokio_rusqlite::Error` inside `.call()` closures.
@@ -441,6 +442,54 @@ pub struct ProviderAuthStateRow {
 pub struct ExternalRuntimeProfileRow {
     pub runtime: String,
     pub profile_json: String,
+    pub session_id: Option<String>,
+    pub source_config_path: Option<String>,
+    pub source_fingerprint: Option<String>,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalRuntimeImportSessionRow {
+    pub session_id: String,
+    pub runtime: String,
+    pub source_config_path: String,
+    pub source_fingerprint: String,
+    pub dry_run: bool,
+    pub conflict_policy: String,
+    pub source_surface: String,
+    pub session_json: String,
+    pub imported_at_ms: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportedRuntimeAssetRow {
+    pub asset_id: String,
+    pub session_id: String,
+    pub runtime: String,
+    pub asset_kind: String,
+    pub bucket: String,
+    pub severity: String,
+    pub recommended_action: Option<String>,
+    pub source_path: Option<String>,
+    pub source_fingerprint: Option<String>,
+    pub conflict_policy: String,
+    pub asset_json: String,
+    pub created_at_ms: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalRuntimeShadowRunRow {
+    pub run_id: String,
+    pub runtime: String,
+    pub session_id: String,
+    pub workflow: String,
+    pub readiness_score: u8,
+    pub blocker_count: u32,
+    pub summary: String,
+    pub payload_json: String,
+    pub created_at_ms: u64,
     pub updated_at: u64,
 }
 
@@ -723,6 +772,25 @@ pub struct ApprovalRecordRow {
     pub resolution: Option<String>,
     pub invalidated_at: Option<u64>,
     pub invalidation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalInboxEntry {
+    pub approval_id: String,
+    pub session_id: String,
+    pub workspace_id: Option<String>,
+    pub execution_id: String,
+    pub request: ManagedCommandRequest,
+    pub approval: ApprovalPayload,
+    pub policy_fingerprint: String,
+    pub constraints: Vec<GovernanceConstraint>,
+    pub transition_kind: TransitionKind,
+    pub requested_at: u64,
+    pub expires_at: Option<u64>,
+    pub gateway_surface: Option<String>,
+    pub gateway_channel: Option<String>,
+    pub gateway_thread: Option<String>,
+    pub rendered_prompt: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

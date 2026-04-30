@@ -253,6 +253,16 @@ fn add_available_tools_part_d(
             "limit": { "type": "integer", "description": "Maximum number of recent items per harness section to include" }
         }
     })));
+    tools.push(tool_def("import_external_runtime", "Import Hermes/OpenClaw migration data into persisted import sessions and asset records. Supports dry-run and real imports with conflict policy provenance.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "runtime": { "type": "string", "description": "Runtime to import, such as hermes or openclaw" },
+            "config_path": { "type": "string", "description": "Optional config path override" },
+            "dry_run": { "type": "boolean", "description": "When true, return a projected import without mutating state" },
+            "conflict_policy": { "type": "string", "enum": ["skip", "merge", "replace", "stage_for_review"], "description": "Conflict handling policy for imported assets" }
+        },
+        "required": ["runtime"]
+    })));
     tools.push(tool_def("show_import_report", "Show the persisted import report for Hermes/OpenClaw runtime-profile migration data, including imported config summaries and zorai MCP readiness.", serde_json::json!({
         "type": "object",
         "properties": {

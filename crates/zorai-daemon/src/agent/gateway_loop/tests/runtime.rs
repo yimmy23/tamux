@@ -490,6 +490,331 @@ async fn gateway_approval_reply_fast_path_resolves_pending_task_and_notifies_cha
 }
 
 #[tokio::test]
+async fn gateway_approval_reply_rejects_session_backed_reply_from_wrong_channel() {
+    let root = make_test_root("gateway-approval-reply-wrong-channel");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.operator_model.enabled = true;
+    config.operator_model.allow_approval_learning = true;
+    let engine = AgentEngine::new_test(manager.clone(), config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-wrong-channel-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Approval pending")
+        .await
+        .expect("persist fast-path exchange");
+
+    let (session_id, _rx) = manager
+        .spawn(Some("/bin/sh".to_string()), None, None, None, 80, 24)
+        .await
+        .expect("spawn test session");
+
+    let request = zorai_protocol::ManagedCommandRequest {
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        allow_network: true,
+        sandbox_enabled: false,
+        security_level: zorai_protocol::SecurityLevel::Moderate,
+        cwd: Some("/tmp".to_string()),
+        language_hint: Some("bash".to_string()),
+        source: zorai_protocol::ManagedCommandSource::Agent,
+    };
+
+    let approval = match manager
+        .execute_managed_command(session_id, request.clone())
+        .await
+        .expect("managed command should return approval")
+    {
+        zorai_protocol::DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let pending = ToolPendingApproval {
+        approval_id: approval.approval_id.clone(),
+        execution_id: approval.execution_id.clone(),
+        command: approval.command.clone(),
+        rationale: approval.rationale.clone(),
+        risk_level: approval.risk_level.clone(),
+        blast_radius: approval.blast_radius.clone(),
+        reasons: approval.reasons.clone(),
+        session_id: Some(session_id.to_string()),
+    };
+    engine.remember_pending_approval_command(&pending).await;
+    engine
+        .record_operator_approval_requested(&pending)
+        .await
+        .expect("record pending operator approval");
+    engine
+        .add_assistant_message(
+            &thread_id,
+            &format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                pending.approval_id,
+                pending.risk_level,
+                pending.blast_radius,
+                pending.command,
+                pending.reasons.join("\n- ")
+            ),
+            0,
+            0,
+            None,
+            Some("gateway".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    let wrong_reply = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-once".to_string(),
+        channel: "user:999999999".to_string(),
+        message_id: Some("discord-approval-wrong-channel-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(wrong_reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway rejection should be emitted")
+        .expect("gateway rejection should exist")
+    {
+        zorai_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:999999999");
+    assert!(request.content.to_ascii_lowercase().contains("stale"));
+
+    engine
+        .complete_gateway_send_result(zorai_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:999999999".to_string(),
+            requested_channel_id: Some("user:999999999".to_string()),
+            delivery_id: Some("delivery-approval-wrong-channel-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    assert!(
+        manager
+            .resolve_approval_by_id(
+                &pending.approval_id,
+                zorai_protocol::ApprovalDecision::ApproveOnce
+            )
+            .await
+            .is_ok(),
+        "wrong-channel reply must not resolve the approval"
+    );
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_approval_reply_rejects_cross_platform_reply_when_other_thread_is_bound() {
+    let root = make_test_root("gateway-approval-reply-cross-platform-bound-thread");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let discord_seed = gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need approval".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-cross-platform-1".to_string()),
+        thread_context: None,
+    };
+    let discord_thread_id = engine
+        .persist_gateway_fast_path_exchange(
+            "Discord:user:123456789",
+            &discord_seed,
+            "Approval pending",
+        )
+        .await
+        .expect("persist discord fast-path exchange");
+
+    let slack_seed = gateway::IncomingMessage {
+        platform: "Slack".to_string(),
+        sender: "alice".to_string(),
+        content: "Other thread".to_string(),
+        channel: "C123".to_string(),
+        message_id: Some("slack-seed-cross-platform-1".to_string()),
+        thread_context: Some(gateway::ThreadContext {
+            slack_thread_ts: Some("1712345678.000100".to_string()),
+            ..Default::default()
+        }),
+    };
+    let slack_thread_id = engine
+        .persist_gateway_fast_path_exchange("Slack:C123", &slack_seed, "Other reply")
+        .await
+        .expect("persist slack fast-path exchange");
+
+    let approval_id = "approval-cross-platform-1";
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "approval-task-cross-platform".to_string(),
+        title: "approval task".to_string(),
+        description: "awaiting approval".to_string(),
+        status: TaskStatus::AwaitingApproval,
+        priority: TaskPriority::Normal,
+        progress: 10,
+        created_at: now_millis(),
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(discord_thread_id.clone()),
+        source: "managed_command".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: Some("echo ok".to_string()),
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: Some("awaiting approval".to_string()),
+        awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let reply = gateway::IncomingMessage {
+        platform: "Slack".to_string(),
+        sender: "alice".to_string(),
+        content: "approve-once".to_string(),
+        channel: "C123".to_string(),
+        message_id: Some("slack-approval-cross-platform-1".to_string()),
+        thread_context: Some(gateway::ThreadContext {
+            slack_thread_ts: Some("1712345678.000100".to_string()),
+            ..Default::default()
+        }),
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(reply)
+            .await
+            .expect("enqueue reply should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway stale rejection should be emitted")
+        .expect("gateway stale rejection should exist")
+    {
+        zorai_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "slack");
+    assert_eq!(request.channel_id, "C123");
+    assert_eq!(request.thread_id.as_deref(), Some("1712345678.000100"));
+    assert!(request.content.to_ascii_lowercase().contains("stale"));
+
+    engine
+        .complete_gateway_send_result(zorai_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "slack".to_string(),
+            channel_id: "C123".to_string(),
+            requested_channel_id: Some("C123".to_string()),
+            delivery_id: Some("delivery-approval-cross-platform-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+
+    let tasks = engine.tasks.lock().await;
+    let discord_task = tasks
+        .iter()
+        .find(|task| task.id == "approval-task-cross-platform")
+        .cloned()
+        .expect("discord approval task should exist");
+    assert_eq!(discord_task.status, TaskStatus::AwaitingApproval);
+    assert_eq!(
+        discord_task.awaiting_approval_id.as_deref(),
+        Some(approval_id)
+    );
+    drop(tasks);
+
+    let slack_thread = engine
+        .threads
+        .read()
+        .await
+        .get(&slack_thread_id)
+        .cloned()
+        .expect("slack thread should exist");
+    assert!(slack_thread.messages.iter().any(|message| {
+        message.role == MessageRole::Assistant
+            && message.content.to_ascii_lowercase().contains("stale")
+    }));
+
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
 async fn slack_gateway_approval_reply_fast_path_resolves_pending_task_and_notifies_channel() {
     let root = make_test_root("slack-gateway-approval-reply-fast-path");
     let manager = SessionManager::new_test(&root).await;
@@ -6528,5 +6853,331 @@ async fn inbound_gateway_messages_reuse_same_thread_binding_for_same_discord_dm_
         .expect("reply context should be retained for dm alias");
     assert_eq!(reply_context.discord_message_id.as_deref(), Some("222"));
 
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_status_command_reports_workspace_thread_task_state() {
+    let root = make_test_root("gateway-status-command-workspace-thread-task");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = super::gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need status".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-status-thread-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Ready")
+        .await
+        .expect("persist fast-path exchange");
+
+    let created = engine
+        .create_workspace_task(
+            zorai_protocol::WorkspaceTaskCreate {
+                workspace_id: "main".to_string(),
+                title: "Remote status thread task".to_string(),
+                task_type: zorai_protocol::WorkspaceTaskType::Thread,
+                description: "Check remote status command".to_string(),
+                definition_of_done: None,
+                priority: Some(zorai_protocol::WorkspacePriority::High),
+                assignee: Some(zorai_protocol::WorkspaceActor::Agent(
+                    zorai_protocol::AGENT_ID_SWAROG.to_string(),
+                )),
+                reviewer: Some(zorai_protocol::WorkspaceActor::User),
+            },
+            zorai_protocol::WorkspaceActor::User,
+        )
+        .await
+        .expect("create workspace task");
+
+    let mut task = engine
+        .get_workspace_task(&created.id)
+        .await
+        .expect("read workspace task")
+        .expect("workspace task should exist");
+    task.thread_id = Some(thread_id.clone());
+    task.status = zorai_protocol::WorkspaceTaskStatus::InProgress;
+    task.started_at = Some(now_millis());
+    task.updated_at = now_millis();
+    engine
+        .history
+        .upsert_workspace_task(&task)
+        .await
+        .expect("persist workspace task");
+
+    let status_msg = super::gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "!status".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-status-thread-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(status_msg)
+            .await
+            .expect("enqueue status should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway status reply should be emitted")
+        .expect("gateway status reply should exist")
+    {
+        zorai_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert_eq!(request.channel_id, "user:123456789");
+    let lower = request.content.to_ascii_lowercase();
+    assert!(
+        lower.contains("remote status thread task"),
+        "{}",
+        request.content
+    );
+    assert!(lower.contains("in progress"), "{}", request.content);
+    assert!(
+        lower.contains(&created.id.to_ascii_lowercase()),
+        "{}",
+        request.content
+    );
+
+    engine
+        .complete_gateway_send_result(zorai_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-status-thread-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_status_command_reports_goal_run_state_for_thread() {
+    let root = make_test_root("gateway-status-command-goal-run");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = super::gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need goal status".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-status-goal-1".to_string()),
+        thread_context: None,
+    };
+
+    let thread_id = engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Ready")
+        .await
+        .expect("persist fast-path exchange");
+
+    engine.goal_runs.lock().await.push_back(GoalRun {
+        id: "goal-status-1".to_string(),
+        title: "Remote status goal".to_string(),
+        goal: "Test remote status goal command".to_string(),
+        client_request_id: None,
+        status: GoalRunStatus::Paused,
+        priority: TaskPriority::High,
+        created_at: now_millis(),
+        updated_at: now_millis(),
+        started_at: Some(now_millis()),
+        completed_at: None,
+        thread_id: Some(thread_id.clone()),
+        session_id: None,
+        current_step_index: 0,
+        current_step_title: Some("step-1".to_string()),
+        current_step_kind: Some(GoalRunStepKind::Command),
+        planner_owner_profile: None,
+        current_step_owner_profile: None,
+        replan_count: 0,
+        max_replans: 2,
+        plan_summary: Some("Remote status plan".to_string()),
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: None,
+        last_error: None,
+        failure_cause: None,
+        stopped_reason: None,
+        child_task_ids: Vec::new(),
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        active_task_id: None,
+        duration_ms: None,
+        dossier: None,
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        model_usage: Vec::new(),
+        autonomy_level: super::super::autonomy::AutonomyLevel::Supervised,
+        authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
+        steps: Vec::new(),
+        events: Vec::new(),
+    });
+
+    let status_msg = super::gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "!status".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-status-goal-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(status_msg)
+            .await
+            .expect("enqueue status should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway status reply should be emitted")
+        .expect("gateway status reply should exist")
+    {
+        zorai_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    let lower = request.content.to_ascii_lowercase();
+    assert!(lower.contains("remote status goal"), "{}", request.content);
+    assert!(
+        lower.contains("goal paused") || lower.contains("paused"),
+        "{}",
+        request.content
+    );
+    assert!(lower.contains("goal-status-1"), "{}", request.content);
+
+    engine
+        .complete_gateway_send_result(zorai_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-status-goal-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
+#[tokio::test]
+async fn gateway_status_command_reports_no_active_work_for_thread() {
+    let root = make_test_root("gateway-status-command-no-active-work");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let seed = super::gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "Need idle status".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-seed-status-idle-1".to_string()),
+        thread_context: None,
+    };
+
+    engine
+        .persist_gateway_fast_path_exchange("Discord:user:123456789", &seed, "Ready")
+        .await
+        .expect("persist fast-path exchange");
+
+    let status_msg = super::gateway::IncomingMessage {
+        platform: "Discord".to_string(),
+        sender: "alice".to_string(),
+        content: "!status".to_string(),
+        channel: "user:123456789".to_string(),
+        message_id: Some("discord-status-idle-1".to_string()),
+        thread_context: None,
+    };
+
+    let helper_engine = engine.clone();
+    let helper_task = tokio::spawn(async move {
+        helper_engine
+            .enqueue_gateway_message(status_msg)
+            .await
+            .expect("enqueue status should succeed");
+        helper_engine.process_gateway_messages().await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("gateway status reply should be emitted")
+        .expect("gateway status reply should exist")
+    {
+        zorai_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    let lower = request.content.to_ascii_lowercase();
+    assert!(
+        lower.contains("no active") || lower.contains("nothing active"),
+        "{}",
+        request.content
+    );
+
+    engine
+        .complete_gateway_send_result(zorai_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: "user:123456789".to_string(),
+            requested_channel_id: Some("user:123456789".to_string()),
+            delivery_id: Some("delivery-status-idle-1".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    helper_task.await.expect("helper task should join");
     fs::remove_dir_all(&root).expect("cleanup test root");
 }

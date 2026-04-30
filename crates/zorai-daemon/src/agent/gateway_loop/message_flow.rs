@@ -62,14 +62,28 @@ impl AgentEngine {
         }
 
         let existing_thread = self.gateway_threads.read().await.get(&channel_key).cloned();
-        if self
-            .handle_gateway_task_approval_reply(
+        if let Some(command) = parse_gateway_control_command(&msg.content) {
+            if Box::pin(self.handle_gateway_control_command(
+                command,
                 &msg,
                 &channel_key,
                 existing_thread.as_deref(),
                 reply_tool_name,
-            )
+            ))
             .await
+            {
+                self.release_gateway_inflight_channel(&channel_key).await;
+                return;
+            }
+        }
+
+        if Box::pin(self.handle_gateway_task_approval_reply(
+            &msg,
+            &channel_key,
+            existing_thread.as_deref(),
+            reply_tool_name,
+        ))
+        .await
         {
             self.release_gateway_inflight_channel(&channel_key).await;
             return;

@@ -333,12 +333,13 @@ fn message_responder_label(
 
 fn initial_responder_name(thread: &crate::state::chat::AgentThread) -> Option<String> {
     thread
-        .messages
-        .iter()
-        .find_map(|msg| {
-            handoff_responder_event_for_message(msg).and_then(|event| event.from_agent_name)
+        .agent_name
+        .clone()
+        .or_else(|| {
+            thread.messages.iter().find_map(|msg| {
+                handoff_responder_event_for_message(msg).and_then(|event| event.from_agent_name)
+            })
         })
-        .or_else(|| thread.agent_name.clone())
         .or_else(|| Some(zorai_protocol::AGENT_NAME_SWAROG.to_string()))
 }
 

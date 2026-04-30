@@ -116,6 +116,36 @@ use zorai_shared::providers::{
     }
 
     #[test]
+    fn messages_to_api_format_normalizes_invalid_tool_call_arguments() {
+        let mut message = AgentMessage::user("", 42);
+        message.role = MessageRole::Assistant;
+        message.tool_calls = Some(vec![ToolCall {
+            id: "call_bad_args".to_string(),
+            function: ToolFunction {
+                name: "update_todo".to_string(),
+                arguments: r#"{"items":[{"content":"Read spec","status":"in_progress"}]"#
+                    .to_string(),
+            },
+            weles_review: None,
+        }]);
+
+        let api_messages = messages_to_api_format(&[message]);
+        let arguments = api_messages[0]
+            .tool_calls
+            .as_ref()
+            .and_then(|calls| calls.first())
+            .map(|call| call.function.arguments.as_str())
+            .expect("tool call arguments should exist");
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(arguments).expect("tool call arguments should be valid JSON");
+        assert_eq!(
+            parsed["_invalid_tool_arguments"],
+            r#"{"items":[{"content":"Read spec","status":"in_progress"}]"#
+        );
+    }
+
+    #[test]
     fn chat_completion_messages_null_assistant_content_for_tool_calls() {
         let messages = vec![ApiMessage {
             role: "assistant".to_string(),

@@ -356,6 +356,26 @@ pub(super) fn base_schema_sql() -> &'static str {
             CREATE INDEX IF NOT EXISTS idx_approval_records_requested_at ON approval_records(requested_at DESC);
             CREATE INDEX IF NOT EXISTS idx_approval_records_policy ON approval_records(policy_fingerprint, requested_at DESC);
 
+            CREATE TABLE IF NOT EXISTS approval_inbox (
+                approval_id         TEXT PRIMARY KEY,
+                session_id          TEXT NOT NULL,
+                workspace_id        TEXT,
+                execution_id        TEXT NOT NULL,
+                request_json        TEXT NOT NULL,
+                approval_json       TEXT NOT NULL,
+                policy_fingerprint  TEXT NOT NULL,
+                constraints_json    TEXT NOT NULL DEFAULT '[]',
+                transition_kind     TEXT NOT NULL,
+                requested_at        INTEGER NOT NULL,
+                expires_at          INTEGER,
+                gateway_surface     TEXT,
+                gateway_channel     TEXT,
+                gateway_thread      TEXT,
+                rendered_prompt     TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_approval_inbox_requested_at ON approval_inbox(requested_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_approval_inbox_session ON approval_inbox(session_id, requested_at DESC);
+
             CREATE TABLE IF NOT EXISTS governance_evaluations (
                 id                 TEXT PRIMARY KEY,
                 run_id             TEXT,

@@ -1921,8 +1921,8 @@ impl TuiModel {
                         overlay_area,
                         title,
                         &self.workspace_actor_picker_body(),
-                        0,
-                        false,
+                        self.workspace_actor_picker_scroll(),
+                        true,
                         &self.theme,
                     );
                 }

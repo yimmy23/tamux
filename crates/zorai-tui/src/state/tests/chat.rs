@@ -1179,6 +1179,91 @@ fn append_message_does_not_duplicate_persisted_normal_echo_after_optimistic_tail
 }
 
 #[test]
+fn disjoint_latest_page_reanchors_optimistic_prompt_from_unloaded_thread() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        ..Default::default()
+    }]));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::User,
+            content: "new prompt".into(),
+            timestamp: 100,
+            ..Default::default()
+        },
+    });
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("old {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        total_message_count: 121,
+        loaded_message_start: 71,
+        loaded_message_end: 121,
+        messages: (71..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("old {index}"),
+                ..Default::default()
+            })
+            .chain(std::iter::once(AgentMessage {
+                id: Some("persisted-user".into()),
+                role: MessageRole::User,
+                content: "new prompt".into(),
+                message_kind: "normal".into(),
+                timestamp: 101,
+                ..Default::default()
+            }))
+            .collect(),
+        ..Default::default()
+    }));
+
+    let thread = state
+        .active_thread()
+        .expect("thread should remain selected");
+    let prompt_count = thread
+        .messages
+        .iter()
+        .filter(|message| message.role == MessageRole::User && message.content == "new prompt")
+        .count();
+    assert_eq!(
+        prompt_count, 1,
+        "persisted prompt should replace the optimistic prompt instead of duplicating it"
+    );
+    assert_eq!(thread.loaded_message_start, 70);
+    assert_eq!(thread.loaded_message_end, 121);
+    assert_eq!(thread.total_message_count, 121);
+    assert_eq!(
+        thread
+            .messages
+            .last()
+            .and_then(|message| message.id.as_deref()),
+        Some("persisted-user")
+    );
+}
+
+#[test]
 fn dismiss_concierge_welcome_removes_only_welcome_messages() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {
@@ -1355,6 +1440,120 @@ fn older_thread_page_prepends_into_loaded_window() {
             .and_then(|message| message.id.as_deref()),
         Some("msg-119")
     );
+}
+
+#[test]
+fn older_thread_page_preserves_live_context_window_metadata() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        active_context_window_start: Some(105),
+        active_context_window_end: Some(120),
+        active_context_window_tokens: Some(4_800),
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 20,
+        loaded_message_end: 70,
+        active_context_window_start: Some(20),
+        active_context_window_end: Some(70),
+        active_context_window_tokens: Some(98_000),
+        messages: (20..70)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert_eq!(thread.loaded_message_start, 20);
+    assert_eq!(thread.loaded_message_end, 120);
+    assert_eq!(thread.active_context_window_start, Some(105));
+    assert_eq!(thread.active_context_window_end, Some(120));
+    assert_eq!(thread.active_context_window_tokens, Some(4_800));
+}
+
+#[test]
+fn older_thread_page_does_not_replace_active_responder_metadata() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        agent_name: Some("Dola".into()),
+        profile_provider: Some("chutes".into()),
+        profile_model: Some("zaj-org/GLM-5.1-TEE".into()),
+        profile_reasoning_effort: Some("xhigh".into()),
+        profile_context_window_tokens: Some(128_000),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        agent_name: Some("Svarog".into()),
+        profile_provider: Some("openai".into()),
+        profile_model: Some("gpt-5.4".into()),
+        profile_reasoning_effort: Some("medium".into()),
+        profile_context_window_tokens: Some(400_000),
+        title: "Test".into(),
+        total_message_count: 120,
+        loaded_message_start: 20,
+        loaded_message_end: 70,
+        messages: (20..70)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert_eq!(thread.agent_name.as_deref(), Some("Dola"));
+    assert_eq!(thread.profile_provider.as_deref(), Some("chutes"));
+    assert_eq!(thread.profile_model.as_deref(), Some("zaj-org/GLM-5.1-TEE"));
+    assert_eq!(thread.profile_reasoning_effort.as_deref(), Some("xhigh"));
+    assert_eq!(thread.profile_context_window_tokens, Some(128_000));
 }
 
 #[test]

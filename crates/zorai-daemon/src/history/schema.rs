@@ -1,6 +1,8 @@
 use super::*;
 
-use super::schema_migrations::{apply_schema_migrations, ensure_context_archive_fts};
+use super::schema_migrations::{
+    apply_schema_migrations, ensure_context_archive_fts, prepare_extended_schema_migrations,
+};
 use super::schema_sql::base_schema_sql;
 use super::schema_sql_extra::extended_schema_sql;
 
@@ -79,8 +81,9 @@ pub(super) fn init_schema_on_connection(
     connection: &rusqlite::Connection,
     offloaded_payloads_dir: &std::path::Path,
 ) -> rusqlite::Result<()> {
-    let schema_sql = format!("{}{}", base_schema_sql(), extended_schema_sql());
-    connection.execute_batch(&schema_sql)?;
+    connection.execute_batch(base_schema_sql())?;
+    prepare_extended_schema_migrations(connection)?;
+    connection.execute_batch(extended_schema_sql())?;
     ensure_execution_traces_extended_schema(connection)?;
     ensure_context_archive_fts(connection);
     apply_schema_migrations(connection, offloaded_payloads_dir)?;

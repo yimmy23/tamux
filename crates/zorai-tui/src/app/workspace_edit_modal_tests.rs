@@ -31,6 +31,24 @@ fn task() -> WorkspaceTask {
     }
 }
 
+fn subagent(id: &str) -> crate::state::SubAgentEntry {
+    crate::state::SubAgentEntry {
+        id: id.to_string(),
+        name: id.to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4".to_string(),
+        role: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: None,
+        raw_json: None,
+    }
+}
+
 #[test]
 fn edit_form_loads_task_and_builds_update() {
     let mut form = WorkspaceEditForm::from_task(&task());
@@ -194,5 +212,59 @@ fn edit_modal_navigation_scrolls_selected_field_into_view() {
     assert!(
         model.workspace_edit_modal_scroll > 0,
         "navigating past long wrapped fields should scroll the edit modal"
+    );
+}
+
+#[test]
+fn actor_picker_scroll_follows_arrow_and_mouse_navigation() {
+    let (_event_tx, event_rx) = std::sync::mpsc::channel();
+    let (daemon_tx, _daemon_rx) = unbounded_channel();
+    let mut model = crate::app::TuiModel::new(event_rx, daemon_tx);
+    model.width = 80;
+    model.height = 18;
+    model
+        .subagents
+        .entries
+        .extend((0..30).map(|index| subagent(&format!("agent-{index:02}"))));
+
+    model.open_workspace_edit_modal_for_task(task());
+    model
+        .pending_workspace_edit_form
+        .as_mut()
+        .expect("form")
+        .field = WorkspaceEditField::Reviewer;
+    model.handle_workspace_edit_modal_key(
+        crossterm::event::KeyCode::Enter,
+        crossterm::event::KeyModifiers::NONE,
+    );
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::WorkspaceActorPicker)
+    );
+
+    for _ in 0..24 {
+        model.handle_key_modal(
+            crossterm::event::KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+            modal::ModalKind::WorkspaceActorPicker,
+        );
+    }
+    let scrolled_by_keys = model.workspace_actor_picker_scroll();
+    assert!(
+        scrolled_by_keys > 0,
+        "arrow navigation should keep the selected actor visible"
+    );
+
+    let (_, area) = model.current_modal_area().expect("actor picker area");
+    model.handle_mouse(crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::ScrollUp,
+        column: area.x.saturating_add(1),
+        row: area.y.saturating_add(1),
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    });
+
+    assert!(
+        model.workspace_actor_picker_scroll() <= scrolled_by_keys,
+        "mouse wheel should move the actor picker selection without losing scroll sync"
     );
 }

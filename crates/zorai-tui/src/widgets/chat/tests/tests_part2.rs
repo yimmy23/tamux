@@ -361,6 +361,53 @@ fn assistant_messages_fall_back_to_thread_agent_name_when_handoff_marker_is_miss
 }
 
 #[test]
+fn historical_handoff_from_agent_does_not_override_thread_responder_fallback() {
+    let mut chat = ChatState::new();
+    chat.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    chat.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        agent_name: Some("Dola".into()),
+        title: "Test".into(),
+        messages: vec![
+            AgentMessage {
+                role: MessageRole::System,
+                content: "[[handoff_event]]{\"from_agent_name\":\"Svarog\"}".into(),
+                ..Default::default()
+            },
+            AgentMessage {
+                role: MessageRole::Assistant,
+                content: "Current responder reply".into(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }));
+
+    let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+    let message_lines: Vec<String> = lines
+        .iter()
+        .filter(|line| line.message_index == Some(1))
+        .map(rendered_line_plain_text)
+        .collect();
+
+    assert!(
+        message_lines
+            .iter()
+            .any(|line| line.contains("Responder: Dola")),
+        "explicit thread responder fallback should survive historical markers: {message_lines:?}"
+    );
+    assert!(
+        !message_lines
+            .iter()
+            .any(|line| line.contains("Responder: Svarog")),
+        "historical from_agent marker should not reseed the current responder: {message_lines:?}"
+    );
+}
+
+#[test]
 fn concierge_thread_messages_render_rarog_as_the_responder() {
     let mut chat = ChatState::new();
     chat.reduce(ChatAction::ThreadCreated {
@@ -556,13 +603,11 @@ fn different_responders_get_distinct_label_colors() {
         "different responders should render with distinct label colors"
     );
     assert_eq!(
-        main_label_style.fg,
-        theme.accent_assistant.fg,
+        main_label_style.fg, theme.accent_assistant.fg,
         "main responder label should use the assistant violet accent"
     );
     assert_ne!(
-        main_label_style.fg,
-        theme.accent_success.fg,
+        main_label_style.fg, theme.accent_success.fg,
         "main responder label should stay visually distinct from done/success green"
     );
 }

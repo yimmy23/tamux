@@ -1,6 +1,25 @@
 use super::*;
 
 impl AgentEngine {
+    fn workspace_task_status_label(status: zorai_protocol::WorkspaceTaskStatus) -> &'static str {
+        match status {
+            zorai_protocol::WorkspaceTaskStatus::Todo => "todo",
+            zorai_protocol::WorkspaceTaskStatus::InProgress => "in progress",
+            zorai_protocol::WorkspaceTaskStatus::InReview => "in review",
+            zorai_protocol::WorkspaceTaskStatus::Done => "done",
+        }
+    }
+
+    fn goal_run_matches_thread(goal_run: &GoalRun, thread_id: &str) -> bool {
+        goal_run.thread_id.as_deref() == Some(thread_id)
+            || goal_run.root_thread_id.as_deref() == Some(thread_id)
+            || goal_run.active_thread_id.as_deref() == Some(thread_id)
+            || goal_run
+                .execution_thread_ids
+                .iter()
+                .any(|id| id == thread_id)
+    }
+
     fn extract_gateway_approval_id_from_message(content: &str) -> Option<String> {
         let (_, remainder) = content.split_once("Approval ID:")?;
         remainder
@@ -20,6 +39,53 @@ impl AgentEngine {
             pending_approval.command,
             pending_approval.reasons.join("\n- "),
         )
+    }
+
+    fn gateway_stale_approval_reply_text(&self) -> &'static str {
+        "That approval reply is stale or from the wrong chat/thread. Please reply from the same channel/thread where the approval prompt was sent, or ask me to resend the approval request."
+    }
+
+    async fn send_gateway_stale_approval_reply(
+        &self,
+        msg: &gateway::IncomingMessage,
+        channel_key: &str,
+        reply_tool_name: &str,
+    ) -> bool {
+        let response_text = self.gateway_stale_approval_reply_text();
+        let thread_id = match self
+            .persist_gateway_fast_path_exchange(channel_key, msg, response_text)
+            .await
+        {
+            Ok(thread_id) => thread_id,
+            Err(error) => {
+                tracing::error!(
+                    platform = %msg.platform,
+                    channel = %msg.channel,
+                    %error,
+                    "gateway: failed to persist stale approval reply exchange"
+                );
+                return true;
+            }
+        };
+
+        let tool_result = self
+            .send_gateway_platform_tool(
+                &thread_id,
+                "gateway_approval_stale",
+                reply_tool_name,
+                msg,
+                response_text,
+            )
+            .await;
+        if tool_result.is_error {
+            tracing::error!(
+                platform = %msg.platform,
+                channel = %msg.channel,
+                error = %tool_result.content,
+                "gateway: failed to send stale approval rejection"
+            );
+        }
+        true
     }
 
     pub(in crate::agent) async fn maybe_send_gateway_thread_approval_request(
@@ -127,6 +193,21 @@ impl AgentEngine {
             .find(|approval_id| pending.contains_key(approval_id))
     }
 
+    async fn gateway_has_pending_approval_anywhere(&self) -> bool {
+        {
+            let tasks = self.tasks.lock().await;
+            if tasks.iter().any(|task| task.awaiting_approval_id.is_some()) {
+                return true;
+            }
+        }
+
+        if !self.critique_approval_continuations.lock().await.is_empty() {
+            return true;
+        }
+
+        !self.pending_operator_approvals.read().await.is_empty()
+    }
+
     async fn gateway_resolve_thread_approval(
         &self,
         approval_id: &str,
@@ -181,6 +262,137 @@ impl AgentEngine {
         }
     }
 
+    async fn gateway_status_reply_text(&self, thread_id: Option<&str>) -> String {
+        let Some(thread_id) = thread_id else {
+            return "No active work is bound to this chat yet.".to_string();
+        };
+
+        if let Ok(Some(task)) = self
+            .history
+            .get_workspace_task_by_thread_id(thread_id)
+            .await
+        {
+            let task = match self.sync_workspace_task_runtime_state(task).await {
+                Ok(task) => task,
+                Err(_) => match self
+                    .history
+                    .get_workspace_task_by_thread_id(thread_id)
+                    .await
+                {
+                    Ok(Some(task)) => task,
+                    _ => {
+                        return "No active work is bound to this chat right now.".to_string();
+                    }
+                },
+            };
+
+            if task.status != zorai_protocol::WorkspaceTaskStatus::Done {
+                return format!(
+                    "Workspace task {} ({}) is {}.",
+                    task.title,
+                    task.id,
+                    Self::workspace_task_status_label(task.status)
+                );
+            }
+        }
+
+        let goal_run = {
+            let goal_runs = self.goal_runs.lock().await;
+            goal_runs
+                .iter()
+                .filter(|goal_run| Self::goal_run_matches_thread(goal_run, thread_id))
+                .max_by_key(|goal_run| goal_run.updated_at)
+                .cloned()
+        };
+
+        if let Some(goal_run) = goal_run {
+            let mut response = format!(
+                "{} ({}) — {}.",
+                goal_run.title,
+                goal_run.id,
+                goal_run_status_message(&goal_run)
+            );
+
+            if let Some(step_title) = goal_run
+                .current_step_title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                response.push_str(&format!(" Current step: {step_title}."));
+            } else if let Some(summary) = goal_run
+                .plan_summary
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                response.push_str(&format!(" Summary: {summary}."));
+            }
+
+            return response;
+        }
+
+        "No active work is bound to this chat right now.".to_string()
+    }
+
+    pub(super) async fn handle_gateway_control_command(
+        &self,
+        command: GatewayControlCommand,
+        msg: &gateway::IncomingMessage,
+        channel_key: &str,
+        existing_thread: Option<&str>,
+        reply_tool_name: &str,
+    ) -> bool {
+        let response_text = match command {
+            GatewayControlCommand::Status => self.gateway_status_reply_text(existing_thread).await,
+            GatewayControlCommand::Pause => {
+                "Pause is not available from chat for this thread yet.".to_string()
+            }
+            GatewayControlCommand::Resume => {
+                "Resume is not available from chat for this thread yet.".to_string()
+            }
+            GatewayControlCommand::Rerun => {
+                "Rerun is not available from chat for this thread yet.".to_string()
+            }
+        };
+
+        let thread_id = match self
+            .persist_gateway_fast_path_exchange(channel_key, msg, &response_text)
+            .await
+        {
+            Ok(thread_id) => thread_id,
+            Err(error) => {
+                tracing::error!(
+                    platform = %msg.platform,
+                    channel = %msg.channel,
+                    %error,
+                    "gateway: failed to persist control-command exchange"
+                );
+                return true;
+            }
+        };
+
+        let tool_result = self
+            .send_gateway_platform_tool(
+                &thread_id,
+                "gateway_control",
+                reply_tool_name,
+                msg,
+                &response_text,
+            )
+            .await;
+        if tool_result.is_error {
+            tracing::error!(
+                platform = %msg.platform,
+                channel = %msg.channel,
+                error = %tool_result.content,
+                "gateway: failed to send control-command response"
+            );
+        }
+
+        true
+    }
+
     pub(in crate::agent) async fn handle_gateway_task_approval_reply(
         &self,
         msg: &gateway::IncomingMessage,
@@ -193,10 +405,30 @@ impl AgentEngine {
         };
 
         let Some(thread_id) = existing_thread else {
-            return false;
+            return self
+                .send_gateway_stale_approval_reply(msg, channel_key, reply_tool_name)
+                .await;
         };
 
+        let approval_target_mismatch = {
+            let gateway_threads = self.gateway_threads.read().await;
+            gateway_threads
+                .get(channel_key)
+                .map(|mapped| mapped != thread_id)
+                .unwrap_or(true)
+        };
+        if approval_target_mismatch {
+            return self
+                .send_gateway_stale_approval_reply(msg, channel_key, reply_tool_name)
+                .await;
+        }
+
         let Some(approval_id) = self.gateway_pending_approval_for_thread(thread_id).await else {
+            if self.gateway_has_pending_approval_anywhere().await {
+                return self
+                    .send_gateway_stale_approval_reply(msg, channel_key, reply_tool_name)
+                    .await;
+            }
             return false;
         };
 
