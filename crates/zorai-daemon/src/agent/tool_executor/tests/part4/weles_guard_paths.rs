@@ -419,3 +419,79 @@ async fn execute_tool_weles_internal_task_allows_low_risk_shell_python_without_r
     assert_eq!(review.verdict, crate::agent::types::WelesVerdict::Allow);
     assert_eq!(engine.list_tasks().await.len(), before_tasks);
 }
+
+#[tokio::test]
+async fn tui_parent_surface_keeps_weles_internal_shell_headless_with_hardened_args() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let parent_thread_id = "thread-tui-weles-parent";
+    let weles_thread_id = "thread-tui-weles-internal";
+    engine
+        .set_thread_client_surface(parent_thread_id, zorai_protocol::ClientSurface::Tui)
+        .await;
+
+    let weles_task = super::spawn_weles_internal_subagent(
+        &engine,
+        parent_thread_id,
+        None,
+        "governance",
+        "bash_command",
+        &serde_json::json!({"command": "printf weles-headless-ok"}),
+        SecurityLevel::Highest,
+        &[],
+    )
+    .await
+    .expect("daemon-owned WELES governance spawn should succeed");
+
+    {
+        let mut tasks = engine.tasks.lock().await;
+        let task = tasks
+            .iter_mut()
+            .find(|task| task.id == weles_task.id)
+            .expect("WELES task should be in queue");
+        task.thread_id = Some(weles_thread_id.to_string());
+    }
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-tui-weles-hardened-shell".to_string(),
+        ToolFunction {
+            name: "bash_command".to_string(),
+            arguments: serde_json::json!({
+                "command": "printf weles-headless-ok",
+                "allow_network": false,
+                "sandbox_enabled": true,
+                "security_level": "highest",
+                "wait_for_completion": true,
+                "timeout_seconds": 30,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        weles_thread_id,
+        Some(&weles_task.id),
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "TUI-inherited WELES shell tools should stay headless even with hardened args: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("weles-headless-ok"),
+        "headless WELES execution should return command output: {}",
+        result.content
+    );
+}

@@ -940,6 +940,26 @@ impl SessionManager {
                     })
                     .await?;
 
+                self.history
+                    .insert_approval_inbox_entry(&crate::history::ApprovalInboxEntry {
+                        approval_id: approval.approval_id.clone(),
+                        session_id: id.to_string(),
+                        workspace_id: workspace_id.clone(),
+                        execution_id: execution_id.clone(),
+                        request: request.clone(),
+                        approval: approval.clone(),
+                        policy_fingerprint: verdict.policy_fingerprint.clone(),
+                        constraints: constraints.clone(),
+                        transition_kind: governance_input.transition_kind.clone(),
+                        requested_at,
+                        expires_at,
+                        gateway_surface: None,
+                        gateway_channel: None,
+                        gateway_thread: None,
+                        rendered_prompt: None,
+                    })
+                    .await?;
+
                 self.pending_approvals.write().await.insert(
                     approval.approval_id.clone(),
                     PendingApproval {
@@ -947,9 +967,11 @@ impl SessionManager {
                         workspace_id,
                         execution_id,
                         request,
+                        approval: approval.clone(),
                         policy_fingerprint: verdict.policy_fingerprint.clone(),
                         constraints: constraints.clone(),
                         transition_kind: governance_input.transition_kind.clone(),
+                        requested_at,
                         expires_at,
                     },
                 );
@@ -989,6 +1011,7 @@ impl SessionManager {
             .unwrap_or(false)
         {
             self.pending_approvals.write().await.remove(approval_id);
+            let _ = self.history.remove_inbox_entry(approval_id).await;
             self.history
                 .invalidate_approval_record(approval_id, "approval expired before resolution", now)
                 .await?;
@@ -1005,6 +1028,7 @@ impl SessionManager {
         let fresh_verdict = evaluate_governance(&fresh_input);
         if fresh_verdict.policy_fingerprint != pending.policy_fingerprint {
             self.pending_approvals.write().await.remove(approval_id);
+            let _ = self.history.remove_inbox_entry(approval_id).await;
             self.history
                 .invalidate_approval_record(
                     approval_id,
@@ -1021,6 +1045,8 @@ impl SessionManager {
             .await
             .remove(approval_id)
             .ok_or_else(|| anyhow::anyhow!("approval not found: {approval_id}"))?;
+
+        self.history.remove_inbox_entry(approval_id).await?;
 
         self.history
             .resolve_approval_record(approval_id, approval_resolution_str(decision), now)
@@ -1101,6 +1127,49 @@ impl SessionManager {
 
         self.resolve_approval(session_id, approval_id, decision)
             .await
+    }
+
+    pub async fn list_pending_approvals(&self) -> Vec<ApprovalPayload> {
+        self.pending_approvals
+            .read()
+            .await
+            .values()
+            .map(|pending| pending.approval.clone())
+            .collect()
+    }
+
+    pub async fn hydrate_pending_approvals(&self) -> Result<()> {
+        let entries = self.history.list_pending_inbox_entries().await?;
+        let mut pending = self.pending_approvals.write().await;
+        pending.clear();
+
+        for entry in entries {
+            let session_id = match uuid::Uuid::parse_str(&entry.session_id) {
+                Ok(session_id) => session_id,
+                Err(_) => {
+                    self.history.remove_inbox_entry(&entry.approval_id).await?;
+                    continue;
+                }
+            };
+
+            pending.insert(
+                entry.approval_id.clone(),
+                PendingApproval {
+                    session_id,
+                    workspace_id: entry.workspace_id,
+                    execution_id: entry.execution_id,
+                    request: entry.request,
+                    approval: entry.approval,
+                    policy_fingerprint: entry.policy_fingerprint,
+                    constraints: entry.constraints,
+                    transition_kind: entry.transition_kind,
+                    requested_at: entry.requested_at,
+                    expires_at: entry.expires_at,
+                },
+            );
+        }
+
+        Ok(())
     }
 
     pub fn verify_telemetry_integrity(&self) -> Result<Vec<TelemetryLedgerStatus>> {

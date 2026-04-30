@@ -72,6 +72,10 @@ pub async fn run() -> Result<()> {
 
     let manager =
         SessionManager::new_with_history(history.clone(), agent_config.pty_channel_capacity);
+    manager
+        .hydrate_pending_approvals()
+        .await
+        .context("failed to hydrate approval inbox")?;
     let reaper_manager = manager.clone();
 
     tokio::spawn(async move {

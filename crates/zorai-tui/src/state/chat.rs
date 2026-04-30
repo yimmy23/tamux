@@ -363,6 +363,33 @@ fn should_replace_thread_window(existing: &AgentThread, incoming: &AgentThread) 
             && overlapping_thread_messages_match(existing, incoming))
 }
 
+fn should_reanchor_unloaded_optimistic_tail(
+    existing: &AgentThread,
+    incoming: &AgentThread,
+) -> bool {
+    !existing.messages.is_empty()
+        && existing.loaded_message_start == 0
+        && existing.loaded_message_end == existing.messages.len()
+        && existing.total_message_count == existing.messages.len()
+        && incoming.loaded_message_start > existing.loaded_message_end
+        && incoming.loaded_message_end >= incoming.total_message_count
+        && existing.messages.iter().all(|message| message.id.is_none())
+}
+
+fn reanchor_unloaded_optimistic_tail(existing: &mut AgentThread, incoming: &AgentThread) {
+    if !should_reanchor_unloaded_optimistic_tail(existing, incoming) {
+        return;
+    }
+
+    existing.loaded_message_start = incoming.loaded_message_end;
+    existing.loaded_message_end = existing
+        .loaded_message_start
+        .saturating_add(existing.messages.len());
+    existing.total_message_count = incoming
+        .total_message_count
+        .saturating_add(existing.messages.len());
+}
+
 fn is_older_thread_page(existing: &AgentThread, incoming: &AgentThread) -> bool {
     if incoming.messages.is_empty() {
         return false;
@@ -1421,6 +1448,7 @@ impl ChatState {
                 normalize_thread_window(&mut incoming);
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == incoming.id) {
                     normalize_thread_window(existing);
+                    reanchor_unloaded_optimistic_tail(existing, &incoming);
                     realign_short_reload_window(existing, &mut incoming);
                     let responder_before = active_thread_responder_identity(existing);
                     let metadata_only_detail =

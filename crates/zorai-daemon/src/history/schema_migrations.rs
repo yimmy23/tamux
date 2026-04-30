@@ -159,6 +159,10 @@ pub(super) fn apply_schema_migrations(
     offloaded_payloads_dir: &Path,
 ) -> rusqlite::Result<()> {
     ensure_offloaded_payloads_schema(connection, offloaded_payloads_dir)?;
+    ensure_column(connection, "approval_inbox", "gateway_surface", "TEXT")?;
+    ensure_column(connection, "approval_inbox", "gateway_channel", "TEXT")?;
+    ensure_column(connection, "approval_inbox", "gateway_thread", "TEXT")?;
+    ensure_column(connection, "approval_inbox", "rendered_prompt", "TEXT")?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS embedding_jobs (
             source_kind TEXT NOT NULL,

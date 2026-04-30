@@ -94,6 +94,34 @@ impl ToolFilter {
             .collect()
     }
 
+    /// Ensure specific tools remain available even when a task or sub-agent
+    /// profile uses a whitelist/blacklist for its normal tool surface.
+    pub fn allow_tools<I, S>(&mut self, tools: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let required = tools
+            .into_iter()
+            .map(|tool| tool.as_ref().to_string())
+            .collect::<Vec<_>>();
+        if required.is_empty() {
+            return;
+        }
+
+        if let Some(blacklist) = &mut self.blacklist {
+            blacklist.retain(|tool| !required.iter().any(|required| required == tool));
+        }
+
+        if let Some(whitelist) = &mut self.whitelist {
+            for tool in required {
+                if !whitelist.iter().any(|existing| existing == &tool) {
+                    whitelist.push(tool);
+                }
+            }
+        }
+    }
+
     /// If a tool is denied, return a human-readable reason.
     pub fn deny_reason(&self, tool_name: &str) -> Option<String> {
         if let Some(whitelist) = &self.whitelist {
@@ -279,6 +307,23 @@ mod tests {
         let tools = vec![make_tool("a"), make_tool("b"), make_tool("c")];
         let filtered = filter.filtered_tools(tools);
         assert_eq!(filtered.len(), 3);
+    }
+
+    #[test]
+    fn allow_tools_extends_whitelist_and_removes_blacklist_entries() {
+        let mut filter = ToolFilter::new(
+            Some(vec!["cancel_task".into()]),
+            Some(vec!["deny_me".into()]),
+        )
+        .unwrap();
+
+        filter.allow_tools(["workspace_submit_review", "workspace_list_tasks", "deny_me"]);
+
+        assert!(filter.is_allowed("cancel_task"));
+        assert!(filter.is_allowed("workspace_submit_review"));
+        assert!(filter.is_allowed("workspace_list_tasks"));
+        assert!(filter.is_allowed("deny_me"));
+        assert!(!filter.is_allowed("workspace_create_task"));
     }
 
     // --- deny_reason ---

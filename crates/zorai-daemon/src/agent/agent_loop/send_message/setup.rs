@@ -23,6 +23,22 @@ struct DirectThreadResponderConfig {
     tool_filter: Option<crate::agent::subagent::tool_filter::ToolFilter>,
 }
 
+fn is_workspace_agent_task(task: &AgentTask) -> bool {
+    task.source.starts_with("workspace_")
+        || task
+            .thread_id
+            .as_deref()
+            .is_some_and(|thread_id| thread_id.starts_with("workspace-thread:"))
+}
+
+fn allow_workspace_task_tools(filter: &mut crate::agent::subagent::tool_filter::ToolFilter) {
+    filter.allow_tools(
+        crate::agent::tool_executor::workspace_task_tool_names()
+            .iter()
+            .copied(),
+    );
+}
+
 fn thread_artifact_prompt_block(data_root: &Path, thread_id: &str) -> String {
     let specs_dir = zorai_protocol::thread_specs_dir(data_root, thread_id);
     let media_dir = zorai_protocol::thread_media_dir(data_root, thread_id);
@@ -391,7 +407,7 @@ impl<'a> SendMessageRunner<'a> {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
-        let direct_thread_responder = task_id
+        let mut direct_thread_responder = task_id
             .is_none()
             .then(|| {
                 build_direct_thread_responder_config(
@@ -575,11 +591,15 @@ impl<'a> SendMessageRunner<'a> {
                 .is_some();
             let filter = current_task.as_ref().and_then(|task| {
                 if task.tool_whitelist.is_some() || task.tool_blacklist.is_some() {
-                    crate::agent::subagent::tool_filter::ToolFilter::new(
+                    let mut filter = crate::agent::subagent::tool_filter::ToolFilter::new(
                         task.tool_whitelist.clone(),
                         task.tool_blacklist.clone(),
                     )
-                    .ok()
+                    .ok()?;
+                    if is_workspace_agent_task(task) {
+                        allow_workspace_task_tools(&mut filter);
+                    }
+                    Some(filter)
                 } else {
                     None
                 }
@@ -616,6 +636,25 @@ impl<'a> SendMessageRunner<'a> {
         let participant_playground_thread = is_participant_playground_thread(&tid);
         if internal_dm_thread && !participant_playground_thread {
             task_tool_filter = Some(crate::agent::subagent::tool_filter::ToolFilter::deny_all());
+        }
+        let workspace_task_context = current_task_snapshot
+            .as_ref()
+            .is_some_and(is_workspace_agent_task)
+            || engine
+                .history
+                .get_workspace_task_by_thread_id(&tid)
+                .await?
+                .is_some();
+        if workspace_task_context && !(internal_dm_thread && !participant_playground_thread) {
+            if let Some(filter) = task_tool_filter.as_mut() {
+                allow_workspace_task_tools(filter);
+            }
+            if let Some(filter) = direct_thread_responder
+                .as_mut()
+                .and_then(|responder| responder.tool_filter.as_mut())
+            {
+                allow_workspace_task_tools(filter);
+            }
         }
         let initial_copilot_initiator = if record_operator {
             CopilotInitiator::User
@@ -1607,6 +1646,239 @@ mod tests {
         assert!(
             runner.system_prompt.contains("## Preloaded Skills"),
             "agent task prompt should run skill preflight even when the message is not recorded as an operator turn"
+        );
+    }
+
+    #[tokio::test]
+    async fn workspace_review_task_whitelist_keeps_workspace_review_tools() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.base_url = "http://127.0.0.1:1/v1".to_string();
+        config.api_key = "test-key".to_string();
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let task_id = "task_workspace_review_whitelist";
+        engine.tasks.lock().await.push_back(AgentTask {
+            id: task_id.to_string(),
+            title: "Review workspace task".to_string(),
+            description: "Review completion of the workspace implementation task.".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: None,
+            source: "workspace_review".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: Some(vec!["cancel_task".to_string()]),
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: Some("openai".to_string()),
+            override_model: Some("gpt-5.4-mini".to_string()),
+            override_system_prompt: Some(build_spawned_persona_prompt("qa")),
+            sub_agent_def_id: None,
+        });
+
+        let prompt = "Review the delivered workspace task against the definition of done and submit the workspace review verdict.";
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            None,
+            prompt,
+            &[],
+            prompt,
+            Some(task_id),
+            None,
+            None,
+            None,
+            false,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+        let tool_names = runner
+            .tools
+            .iter()
+            .map(|tool| tool.function.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            tool_names.contains(&"cancel_task"),
+            "original task whitelist entries should stay available"
+        );
+        assert!(
+            tool_names.contains(&"workspace_submit_review"),
+            "workspace reviewer must be able to close the workspace task"
+        );
+        assert!(
+            tool_names.contains(&"workspace_list_tasks"),
+            "workspace reviewer should retain workspace task context tools"
+        );
+    }
+
+    #[tokio::test]
+    async fn workspace_assignee_thread_whitelist_keeps_workspace_completion_tools() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.base_url = "http://127.0.0.1:1/v1".to_string();
+        config.api_key = "test-key".to_string();
+        config.sub_agents.push(SubAgentDefinition {
+            id: "qa".to_string(),
+            name: "QA".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            role: Some("reviewer".to_string()),
+            system_prompt: Some("Handle workspace tasks.".to_string()),
+            tool_whitelist: Some(vec!["cancel_task".to_string()]),
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: false,
+            immutable_identity: false,
+            disable_allowed: true,
+            delete_allowed: true,
+            protected_reason: None,
+            reasoning_effort: Some("medium".to_string()),
+            created_at: 1,
+        });
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let mut task = engine
+            .create_workspace_task(
+                zorai_protocol::WorkspaceTaskCreate {
+                    workspace_id: "main".to_string(),
+                    title: "Implement workspace item".to_string(),
+                    task_type: zorai_protocol::WorkspaceTaskType::Thread,
+                    description: "Complete this workspace thread task.".to_string(),
+                    definition_of_done: None,
+                    priority: None,
+                    assignee: Some(zorai_protocol::WorkspaceActor::Subagent("qa".to_string())),
+                    reviewer: Some(zorai_protocol::WorkspaceActor::Subagent("qa".to_string())),
+                },
+                zorai_protocol::WorkspaceActor::User,
+            )
+            .await
+            .expect("create workspace task");
+        task.status = zorai_protocol::WorkspaceTaskStatus::InProgress;
+        engine
+            .history
+            .upsert_workspace_task(&task)
+            .await
+            .expect("persist workspace task");
+        let thread_id = task.thread_id.clone().expect("workspace thread id");
+        engine.threads.write().await.insert(
+            thread_id.clone(),
+            AgentThread {
+                id: thread_id.clone(),
+                agent_name: Some("QA".to_string()),
+                title: "Workspace assignee thread".to_string(),
+                messages: vec![AgentMessage::user("continue", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+        engine
+            .set_thread_handoff_state(
+                &thread_id,
+                ThreadHandoffState {
+                    origin_agent_id: MAIN_AGENT_ID.to_string(),
+                    active_agent_id: "qa".to_string(),
+                    responder_stack: vec![ThreadResponderFrame {
+                        agent_id: "qa".to_string(),
+                        agent_name: "QA".to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    }],
+                    events: Vec::new(),
+                    pending_approval_id: None,
+                },
+            )
+            .await;
+
+        let runner = crate::agent::agent_identity::run_with_agent_scope("qa".to_string(), async {
+            SendMessageRunner::initialize(
+                &engine,
+                Some(&thread_id),
+                "continue",
+                &[],
+                "continue",
+                None,
+                None,
+                None,
+                None,
+                true,
+                true,
+                0,
+            )
+            .await
+        })
+        .await
+        .expect("runner should initialize");
+        let tool_names = runner
+            .tools
+            .iter()
+            .map(|tool| tool.function.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            tool_names.contains(&"cancel_task"),
+            "original subagent whitelist entries should stay available"
+        );
+        assert!(
+            tool_names.contains(&"workspace_submit_completion"),
+            "workspace assignee must be able to submit completion"
+        );
+        assert!(
+            tool_names.contains(&"workspace_submit_review"),
+            "workspace reviewer must be able to submit review from the workspace thread"
         );
     }
 

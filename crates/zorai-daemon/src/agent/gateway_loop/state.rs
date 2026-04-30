@@ -151,6 +151,24 @@ pub(super) fn parse_gateway_approval_decision(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum GatewayControlCommand {
+    Status,
+    Pause,
+    Resume,
+    Rerun,
+}
+
+pub(super) fn parse_gateway_control_command(content: &str) -> Option<GatewayControlCommand> {
+    match content.trim().to_ascii_lowercase().as_str() {
+        "!status" => Some(GatewayControlCommand::Status),
+        "!pause" => Some(GatewayControlCommand::Pause),
+        "!resume" => Some(GatewayControlCommand::Resume),
+        "!rerun" => Some(GatewayControlCommand::Rerun),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct GatewayRouteRequest {
     pub(super) mode: gateway::GatewayRouteMode,
     pub(super) ack_only: bool,

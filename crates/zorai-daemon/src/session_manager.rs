@@ -7,9 +7,10 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use uuid::Uuid;
 use zorai_protocol::{
-    AgentDbMessage, AgentDbThread, AgentEventRow, ApprovalDecision, CommandLogEntry, DaemonMessage,
-    HistorySearchHit, ManagedCommandRequest, SessionId, SessionInfo, SnapshotIndexEntry,
-    SnapshotInfo, SymbolMatch, TelemetryLedgerStatus, TranscriptIndexEntry, WorkspaceTopology,
+    AgentDbMessage, AgentDbThread, AgentEventRow, ApprovalDecision, ApprovalPayload,
+    CommandLogEntry, DaemonMessage, HistorySearchHit, ManagedCommandRequest, SessionId,
+    SessionInfo, SnapshotIndexEntry, SnapshotInfo, SymbolMatch, TelemetryLedgerStatus,
+    TranscriptIndexEntry, WorkspaceTopology,
 };
 
 use crate::history::{DatabaseRowUpdate, DatabaseTablePage, DatabaseTableSummary, HistoryStore};
@@ -38,9 +39,11 @@ struct PendingApproval {
     workspace_id: Option<String>,
     execution_id: String,
     request: ManagedCommandRequest,
+    approval: ApprovalPayload,
     policy_fingerprint: String,
     constraints: Vec<crate::governance::GovernanceConstraint>,
     transition_kind: crate::governance::TransitionKind,
+    requested_at: u64,
     expires_at: Option<u64>,
 }
 
@@ -87,7 +90,12 @@ impl SessionManager {
                 .await
                 .expect("test history store initialization failed"),
         );
-        Self::new_with_history(history, 256)
+        let manager = Self::new_with_history(history, 256);
+        manager
+            .hydrate_pending_approvals()
+            .await
+            .expect("test approval inbox hydration failed");
+        manager
     }
 
     pub fn new_with_history(history: Arc<HistoryStore>, pty_channel_capacity: usize) -> Arc<Self> {

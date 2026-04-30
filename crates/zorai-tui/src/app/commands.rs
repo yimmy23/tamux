@@ -3805,6 +3805,7 @@ impl TuiModel {
                 widgets::workspace_board::WorkspaceBoardAction::Run
                     | widgets::workspace_board::WorkspaceBoardAction::Pause
                     | widgets::workspace_board::WorkspaceBoardAction::Stop
+                    | widgets::workspace_board::WorkspaceBoardAction::OpenRuntime
             )
         {
             self.activate_workspace_review_task_action(&task_id, action);

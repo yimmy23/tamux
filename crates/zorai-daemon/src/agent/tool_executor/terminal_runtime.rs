@@ -176,15 +176,35 @@ async fn resolve_shell_tool_client_surface(
     }
 
     let task_id = task_id?;
-    let goal_run_id = {
+    let (task_thread_ids, goal_run_id) = {
         let tasks = agent.tasks.lock().await;
-        tasks
+        let task = tasks
             .iter()
-            .find(|task| task.id == task_id)
-            .and_then(|task| task.goal_run_id.clone())
-    }?;
+            .find(|task| task.id == task_id)?;
+        let mut thread_ids = Vec::new();
+        if let Some(task_thread_id) = task.thread_id.as_deref() {
+            thread_ids.push(task_thread_id.to_string());
+        }
+        if let Some(parent_thread_id) = task.parent_thread_id.as_deref() {
+            thread_ids.push(parent_thread_id.to_string());
+        }
+        (thread_ids, task.goal_run_id.clone())
+    };
 
-    agent.get_goal_run_client_surface(&goal_run_id).await
+    for task_thread_id in task_thread_ids {
+        if task_thread_id == thread_id {
+            continue;
+        }
+        if let Some(client_surface) = agent.get_thread_client_surface(&task_thread_id).await {
+            return Some(client_surface);
+        }
+    }
+
+    if let Some(goal_run_id) = goal_run_id {
+        return agent.get_goal_run_client_surface(&goal_run_id).await;
+    }
+
+    None
 }
 
 fn should_use_managed_execution(args: &serde_json::Value) -> bool {

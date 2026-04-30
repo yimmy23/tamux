@@ -1179,6 +1179,91 @@ fn append_message_does_not_duplicate_persisted_normal_echo_after_optimistic_tail
 }
 
 #[test]
+fn disjoint_latest_page_reanchors_optimistic_prompt_from_unloaded_thread() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        ..Default::default()
+    }]));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            role: MessageRole::User,
+            content: "new prompt".into(),
+            timestamp: 100,
+            ..Default::default()
+        },
+    });
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("old {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        total_message_count: 121,
+        loaded_message_start: 71,
+        loaded_message_end: 121,
+        messages: (71..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("old {index}"),
+                ..Default::default()
+            })
+            .chain(std::iter::once(AgentMessage {
+                id: Some("persisted-user".into()),
+                role: MessageRole::User,
+                content: "new prompt".into(),
+                message_kind: "normal".into(),
+                timestamp: 101,
+                ..Default::default()
+            }))
+            .collect(),
+        ..Default::default()
+    }));
+
+    let thread = state
+        .active_thread()
+        .expect("thread should remain selected");
+    let prompt_count = thread
+        .messages
+        .iter()
+        .filter(|message| message.role == MessageRole::User && message.content == "new prompt")
+        .count();
+    assert_eq!(
+        prompt_count, 1,
+        "persisted prompt should replace the optimistic prompt instead of duplicating it"
+    );
+    assert_eq!(thread.loaded_message_start, 70);
+    assert_eq!(thread.loaded_message_end, 121);
+    assert_eq!(thread.total_message_count, 121);
+    assert_eq!(
+        thread
+            .messages
+            .last()
+            .and_then(|message| message.id.as_deref()),
+        Some("persisted-user")
+    );
+}
+
+#[test]
 fn dismiss_concierge_welcome_removes_only_welcome_messages() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {

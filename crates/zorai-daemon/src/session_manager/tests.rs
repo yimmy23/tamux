@@ -1,5 +1,7 @@
 use super::*;
 
+use std::fs;
+
 #[cfg(unix)]
 #[tokio::test]
 async fn list_omits_dead_sessions_and_managed_execution_rejects_them() {
@@ -317,6 +319,146 @@ async fn resolve_approval_updates_persisted_resolution() {
         .expect("approval record should exist");
     assert_eq!(approval.resolution.as_deref(), Some("denied"));
     assert!(approval.resolved_at.is_some());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn managed_command_approval_persists_inbox_entry_and_rehydrates_manager_state() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let history = std::sync::Arc::new(
+        HistoryStore::new_test_store(root.path())
+            .await
+            .expect("test history store initialization failed"),
+    );
+    let manager = SessionManager::new_with_history(history.clone(), 256);
+    let (session_id, _rx) = manager
+        .spawn(
+            Some("/bin/sh".to_string()),
+            None,
+            Some("workspace-a".to_string()),
+            None,
+            80,
+            24,
+        )
+        .await
+        .expect("spawn test session");
+
+    let approval = match manager
+        .execute_managed_command(
+            session_id,
+            ManagedCommandRequest {
+                command: "sudo terraform destroy".to_string(),
+                rationale: "apply risky infra change".to_string(),
+                allow_network: true,
+                sandbox_enabled: false,
+                security_level: zorai_protocol::SecurityLevel::Moderate,
+                cwd: Some("/tmp".to_string()),
+                language_hint: Some("bash".to_string()),
+                source: zorai_protocol::ManagedCommandSource::Agent,
+            },
+        )
+        .await
+        .expect("managed command should return approval")
+    {
+        DaemonMessage::ApprovalRequired { approval, .. } => approval,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    let inbox_entries = history
+        .list_pending_inbox_entries()
+        .await
+        .expect("approval inbox query should succeed");
+    assert_eq!(inbox_entries.len(), 1);
+    let inbox = &inbox_entries[0];
+    assert_eq!(inbox.approval_id, approval.approval_id);
+    assert_eq!(inbox.session_id, session_id.to_string());
+    assert_eq!(inbox.execution_id, approval.execution_id);
+    assert_eq!(inbox.workspace_id.as_deref(), Some("workspace-a"));
+    assert_eq!(inbox.request.command, "sudo terraform destroy");
+    assert_eq!(inbox.approval.command, "sudo terraform destroy");
+    assert_eq!(inbox.gateway_surface, None);
+
+    let rehydrated = SessionManager::new_with_history(history.clone(), 256);
+    rehydrated
+        .hydrate_pending_approvals()
+        .await
+        .expect("pending approvals should rehydrate from inbox");
+    let pending = rehydrated.list_pending_approvals().await;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].approval_id, approval.approval_id);
+    assert_eq!(pending[0].execution_id, approval.execution_id);
+
+    fs::remove_dir_all(root.path()).expect("cleanup test root");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn resolving_approval_removes_inbox_entry() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let history = std::sync::Arc::new(
+        HistoryStore::new_test_store(root.path())
+            .await
+            .expect("test history store initialization failed"),
+    );
+    let manager = SessionManager::new_with_history(history.clone(), 256);
+    let (session_id, _rx) = manager
+        .spawn(
+            Some("/bin/sh".to_string()),
+            None,
+            Some("workspace-a".to_string()),
+            None,
+            80,
+            24,
+        )
+        .await
+        .expect("spawn test session");
+
+    let approval_id = match manager
+        .execute_managed_command(
+            session_id,
+            ManagedCommandRequest {
+                command: "sudo terraform destroy".to_string(),
+                rationale: "apply risky infra change".to_string(),
+                allow_network: true,
+                sandbox_enabled: false,
+                security_level: zorai_protocol::SecurityLevel::Moderate,
+                cwd: Some("/tmp".to_string()),
+                language_hint: Some("bash".to_string()),
+                source: zorai_protocol::ManagedCommandSource::Agent,
+            },
+        )
+        .await
+        .expect("managed command should return approval")
+    {
+        DaemonMessage::ApprovalRequired { approval, .. } => approval.approval_id,
+        other => panic!("expected approval required, got {other:?}"),
+    };
+
+    assert_eq!(
+        history
+            .list_pending_inbox_entries()
+            .await
+            .expect("approval inbox query should succeed")
+            .len(),
+        1
+    );
+
+    manager
+        .resolve_approval(
+            session_id,
+            &approval_id,
+            zorai_protocol::ApprovalDecision::Deny,
+        )
+        .await
+        .expect("approval resolution should succeed");
+
+    assert!(history
+        .list_pending_inbox_entries()
+        .await
+        .expect("approval inbox query should succeed")
+        .is_empty());
+
+    fs::remove_dir_all(root.path()).expect("cleanup test root");
 }
 
 #[cfg(unix)]

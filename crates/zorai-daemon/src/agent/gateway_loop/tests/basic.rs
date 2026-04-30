@@ -107,6 +107,27 @@ fn gateway_approval_decision_parser_accepts_canonical_reply_tokens() {
 }
 
 #[test]
+fn gateway_control_command_parser_accepts_supported_commands() {
+    assert_eq!(
+        parse_gateway_control_command("!status"),
+        Some(GatewayControlCommand::Status)
+    );
+    assert_eq!(
+        parse_gateway_control_command("!pause"),
+        Some(GatewayControlCommand::Pause)
+    );
+    assert_eq!(
+        parse_gateway_control_command("!resume"),
+        Some(GatewayControlCommand::Resume)
+    );
+    assert_eq!(
+        parse_gateway_control_command("!rerun"),
+        Some(GatewayControlCommand::Rerun)
+    );
+    assert_eq!(parse_gateway_control_command("status"), None);
+}
+
+#[test]
 fn gateway_prompt_prefers_auto_delivery_over_forced_send_tool() {
     let prompt = build_gateway_agent_prompt(
         "discord",

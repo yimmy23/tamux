@@ -4,14 +4,14 @@ use zorai_protocol::{
     WorkspaceTaskStatus, WorkspaceTaskType,
 };
 
-const WORKSPACE_READ_TOOLS: [&str; 4] = [
+const WORKSPACE_READ_TOOLS: &[&str] = &[
     "workspace_get_settings",
     "workspace_list_tasks",
     "workspace_get_task",
     "workspace_list_notices",
 ];
 
-const WORKSPACE_MUTATION_TOOLS: [&str; 9] = [
+const WORKSPACE_MUTATION_TOOLS: &[&str] = &[
     "workspace_set_operator",
     "workspace_create_task",
     "workspace_update_task",
@@ -23,7 +23,28 @@ const WORKSPACE_MUTATION_TOOLS: [&str; 9] = [
     "workspace_submit_review",
 ];
 
-const WORKSPACE_ASSIGNEE_TOOLS: [&str; 1] = ["workspace_submit_completion"];
+const WORKSPACE_ASSIGNEE_TOOLS: &[&str] = &["workspace_submit_completion"];
+
+pub(crate) const WORKSPACE_TASK_TOOL_NAMES: &[&str] = &[
+    "workspace_get_settings",
+    "workspace_list_tasks",
+    "workspace_get_task",
+    "workspace_list_notices",
+    "workspace_set_operator",
+    "workspace_create_task",
+    "workspace_update_task",
+    "workspace_move_task",
+    "workspace_run_task",
+    "workspace_pause_task",
+    "workspace_stop_task",
+    "workspace_delete_task",
+    "workspace_submit_review",
+    "workspace_submit_completion",
+];
+
+pub(crate) fn workspace_task_tool_names() -> &'static [&'static str] {
+    WORKSPACE_TASK_TOOL_NAMES
+}
 
 fn add_workspace_task_tools(tools: &mut Vec<ToolDefinition>) {
     tools.push(tool_def("workspace_get_settings", "Read workspace board settings and operator mode.", serde_json::json!({
@@ -49,11 +70,6 @@ fn add_workspace_task_tools(tools: &mut Vec<ToolDefinition>) {
             "task_id": { "type": "string" }
         }
     })));
-    if current_agent_scope_id() != MAIN_AGENT_ID {
-        add_workspace_submit_review_tool(tools);
-        add_workspace_submit_completion_tool(tools);
-        return;
-    }
     tools.push(tool_def("workspace_set_operator", "Switch workspace operator mode between user-dependent and automatic Svarog operation.", serde_json::json!({
         "type": "object",
         "properties": {
