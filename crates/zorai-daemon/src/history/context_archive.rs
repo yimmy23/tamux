@@ -49,8 +49,8 @@ impl HistoryStore {
         })();
 
         match fts_result {
-            Ok(ids) => Ok(ids),
-            Err(_) => {
+            Ok(ids) if !ids.is_empty() => Ok(ids),
+            Ok(_) | Err(_) => {
                 // Fallback: simple LIKE search
                 let like_pattern = format!("%{query}%");
                 let mut stmt = conn.prepare(

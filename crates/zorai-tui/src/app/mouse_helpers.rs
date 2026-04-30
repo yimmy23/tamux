@@ -1247,11 +1247,15 @@ impl TuiModel {
                             )
                         })
                         .unwrap_or_default();
-                    let options_start_row = inner.y.saturating_add(3);
-                    if mouse.row >= options_start_row
-                        && mouse.row < options_start_row.saturating_add(options.len() as u16)
-                    {
-                        let index = mouse.row.saturating_sub(options_start_row) as usize;
+                    let body_bottom = inner.y.saturating_add(inner.height.saturating_sub(1));
+                    if mouse.row >= inner.y && mouse.row < body_bottom {
+                        let body_line = self
+                            .workspace_actor_picker_scroll()
+                            .saturating_add(mouse.row.saturating_sub(inner.y) as usize);
+                        let index = body_line.saturating_sub(3);
+                        if body_line < 3 || index >= options.len() {
+                            return;
+                        }
                         self.modal_navigate_to(index);
                         self.handle_modal_enter(kind);
                     }

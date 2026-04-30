@@ -357,11 +357,63 @@ pub(super) fn extended_schema_sql() -> &'static str {
             CREATE INDEX IF NOT EXISTS idx_operator_profile_sessions_updated ON operator_profile_sessions(updated_at DESC);
 
             CREATE TABLE IF NOT EXISTS external_runtime_profiles (
-                runtime      TEXT PRIMARY KEY,
-                profile_json TEXT NOT NULL,
-                updated_at   INTEGER NOT NULL
+                runtime             TEXT PRIMARY KEY,
+                profile_json        TEXT NOT NULL,
+                session_id          TEXT,
+                source_config_path  TEXT,
+                source_fingerprint  TEXT,
+                updated_at          INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_external_runtime_profiles_updated ON external_runtime_profiles(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_external_runtime_profiles_session ON external_runtime_profiles(session_id, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS external_runtime_import_sessions (
+                session_id          TEXT PRIMARY KEY,
+                runtime             TEXT NOT NULL,
+                source_config_path  TEXT NOT NULL,
+                source_fingerprint  TEXT NOT NULL,
+                dry_run             INTEGER NOT NULL DEFAULT 0,
+                conflict_policy     TEXT NOT NULL,
+                source_surface      TEXT NOT NULL,
+                session_json        TEXT NOT NULL,
+                imported_at_ms      INTEGER NOT NULL,
+                updated_at          INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_external_runtime_import_sessions_runtime ON external_runtime_import_sessions(runtime, updated_at DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_external_runtime_import_sessions_fingerprint ON external_runtime_import_sessions(runtime, source_config_path, source_fingerprint, dry_run);
+
+            CREATE TABLE IF NOT EXISTS imported_runtime_assets (
+                asset_id            TEXT PRIMARY KEY,
+                session_id          TEXT NOT NULL,
+                runtime             TEXT NOT NULL,
+                asset_kind          TEXT NOT NULL,
+                bucket              TEXT NOT NULL,
+                severity            TEXT NOT NULL,
+                recommended_action  TEXT,
+                source_path         TEXT,
+                source_fingerprint  TEXT,
+                conflict_policy     TEXT NOT NULL,
+                asset_json          TEXT NOT NULL,
+                created_at_ms       INTEGER NOT NULL,
+                updated_at          INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_imported_runtime_assets_session ON imported_runtime_assets(session_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_imported_runtime_assets_runtime_kind ON imported_runtime_assets(runtime, asset_kind, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS external_runtime_shadow_runs (
+                run_id             TEXT PRIMARY KEY,
+                runtime            TEXT NOT NULL,
+                session_id         TEXT NOT NULL,
+                workflow           TEXT NOT NULL,
+                readiness_score    INTEGER NOT NULL,
+                blocker_count      INTEGER NOT NULL,
+                summary            TEXT NOT NULL,
+                payload_json       TEXT NOT NULL,
+                created_at_ms      INTEGER NOT NULL,
+                updated_at         INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_external_runtime_shadow_runs_runtime ON external_runtime_shadow_runs(runtime, created_at_ms DESC);
+            CREATE INDEX IF NOT EXISTS idx_external_runtime_shadow_runs_session ON external_runtime_shadow_runs(session_id, created_at_ms DESC);
 
             CREATE TABLE IF NOT EXISTS browser_profiles (
                 profile_id   TEXT PRIMARY KEY,

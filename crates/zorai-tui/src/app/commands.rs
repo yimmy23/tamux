@@ -3403,6 +3403,27 @@ impl TuiModel {
         )
     }
 
+    pub(super) fn workspace_actor_picker_scroll(&self) -> usize {
+        let Some(pending) = self.pending_workspace_actor_picker.as_ref() else {
+            return 0;
+        };
+        let options = crate::app::workspace_actor_picker::workspace_actor_picker_options(
+            pending.mode,
+            &self.subagents,
+        );
+        let viewport_lines = self
+            .current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::WorkspaceActorPicker)
+            .map(|(_, area)| area.height.saturating_sub(3) as usize)
+            .unwrap_or(1)
+            .max(1);
+        let total_lines = 3usize.saturating_add(options.len()).saturating_add(2);
+        let selected_line = 3usize.saturating_add(self.modal.picker_cursor());
+        selected_line
+            .saturating_sub(viewport_lines.saturating_sub(1))
+            .min(total_lines.saturating_sub(viewport_lines))
+    }
+
     pub(super) fn submit_workspace_actor_picker(&mut self) {
         let Some(pending) = self.pending_workspace_actor_picker.clone() else {
             self.close_top_modal();
@@ -3919,6 +3940,13 @@ impl TuiModel {
             .task_by_id(&review_task_id)
             .and_then(|task| task.thread_id.clone())
         {
+            if thread_id.starts_with("dm:") {
+                self.send_daemon_command(DaemonCommand::ListTasks);
+                self.status_line = format!(
+                    "Review task {review_task_id} points to an internal thread; refreshing tasks"
+                );
+                return;
+            }
             self.open_thread_conversation(thread_id.clone());
             self.status_line = format!("Opened review task {review_task_id}");
         } else {

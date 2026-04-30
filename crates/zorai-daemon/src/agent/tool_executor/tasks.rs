@@ -1114,6 +1114,40 @@ async fn execute_show_import_report(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
+async fn execute_import_external_runtime(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let runtime = args
+        .get("runtime")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'runtime' argument"))?;
+    let config_path = args
+        .get("config_path")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let dry_run = args
+        .get("dry_run")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    let conflict_policy = args
+        .get("conflict_policy")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("stage_for_review")
+        .parse::<ExternalRuntimeConflictPolicy>()
+        .map_err(anyhow::Error::msg)?;
+
+    let payload = agent
+        .import_external_runtime_json(runtime, config_path, dry_run, conflict_policy)
+        .await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
 async fn execute_preview_shadow_run(
     args: &serde_json::Value,
     agent: &AgentEngine,

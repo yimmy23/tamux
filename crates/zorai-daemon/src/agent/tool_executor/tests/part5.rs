@@ -551,6 +551,27 @@
             );
         }
 
+        let import_external_runtime = tools
+            .iter()
+            .find(|tool| tool.function.name == "import_external_runtime")
+            .expect("import_external_runtime tool should be available");
+        assert!(import_external_runtime
+            .function
+            .description
+            .contains("dry-run"));
+        let import_external_runtime_properties = import_external_runtime
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("import_external_runtime schema should expose properties object");
+        for expected in ["runtime", "config_path", "dry_run", "conflict_policy"] {
+            assert!(
+                import_external_runtime_properties.contains_key(expected),
+                "import_external_runtime should expose {expected}"
+            );
+        }
+
         let show_import_report = tools
             .iter()
             .find(|tool| tool.function.name == "show_import_report")

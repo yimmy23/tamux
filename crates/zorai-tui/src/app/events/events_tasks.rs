@@ -273,6 +273,7 @@ impl TuiModel {
             let is_missing_from_refresh = !threads.iter().any(|thread| thread.id == *thread_id);
             let should_preserve = is_missing_from_refresh
                 && (thread_id.starts_with("local-")
+                    || thread_id.starts_with("workspace-thread:")
                     || pending_loading_thread_id.as_deref() == Some(thread_id.as_str())
                     || self.pending_prompt_response_threads.contains(thread_id)
                     || self.assistant_busy());

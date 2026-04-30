@@ -199,6 +199,14 @@ impl TuiModel {
                 }
             }
             ClientEvent::ThreadDetail(None) => {
+                if let Some(thread_id) = self.thread_loading_id.clone() {
+                    if self.chat.active_thread_id() == Some(thread_id.as_str()) {
+                        self.finish_thread_loading(&thread_id);
+                        self.send_daemon_command(DaemonCommand::Refresh);
+                        self.status_line =
+                            "Thread is not loaded yet; refreshing runtime context".to_string();
+                    }
+                }
                 let _ = self.fallback_pending_reconnect_restore();
             }
             ClientEvent::ThreadCreated {
@@ -289,7 +297,22 @@ impl TuiModel {
                 self.status_line = "Workspace refreshed".to_string();
             }
             ClientEvent::WorkspaceTaskUpdated(task) => {
+                let active_runtime_thread_id = workspace_task_active_thread_id(&task);
+                let should_refresh_active_runtime = active_runtime_thread_id
+                    .as_deref()
+                    .is_some_and(|thread_id| {
+                        self.chat.active_thread_id() == Some(thread_id)
+                            && self
+                                .chat
+                                .active_thread()
+                                .is_some_and(|thread| thread.messages.is_empty())
+                    });
                 self.workspace.upsert_task(task);
+                if let Some(thread_id) =
+                    active_runtime_thread_id.filter(|_| should_refresh_active_runtime)
+                {
+                    self.request_latest_thread_page(thread_id, true);
+                }
                 self.status_line = "Workspace task updated".to_string();
             }
             ClientEvent::WorkspaceTaskDeleted {
@@ -898,6 +921,14 @@ impl TuiModel {
             }
         }
     }
+}
+
+fn workspace_task_active_thread_id(task: &zorai_protocol::WorkspaceTask) -> Option<String> {
+    task.thread_id.clone().or_else(|| {
+        task.runtime_history
+            .iter()
+            .find_map(|entry| entry.thread_id.clone())
+    })
 }
 
 #[cfg(test)]

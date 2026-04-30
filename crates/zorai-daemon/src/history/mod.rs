@@ -442,6 +442,54 @@ pub struct ProviderAuthStateRow {
 pub struct ExternalRuntimeProfileRow {
     pub runtime: String,
     pub profile_json: String,
+    pub session_id: Option<String>,
+    pub source_config_path: Option<String>,
+    pub source_fingerprint: Option<String>,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalRuntimeImportSessionRow {
+    pub session_id: String,
+    pub runtime: String,
+    pub source_config_path: String,
+    pub source_fingerprint: String,
+    pub dry_run: bool,
+    pub conflict_policy: String,
+    pub source_surface: String,
+    pub session_json: String,
+    pub imported_at_ms: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportedRuntimeAssetRow {
+    pub asset_id: String,
+    pub session_id: String,
+    pub runtime: String,
+    pub asset_kind: String,
+    pub bucket: String,
+    pub severity: String,
+    pub recommended_action: Option<String>,
+    pub source_path: Option<String>,
+    pub source_fingerprint: Option<String>,
+    pub conflict_policy: String,
+    pub asset_json: String,
+    pub created_at_ms: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalRuntimeShadowRunRow {
+    pub run_id: String,
+    pub runtime: String,
+    pub session_id: String,
+    pub workflow: String,
+    pub readiness_score: u8,
+    pub blocker_count: u32,
+    pub summary: String,
+    pub payload_json: String,
+    pub created_at_ms: u64,
     pub updated_at: u64,
 }
 
