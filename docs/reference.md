@@ -2,7 +2,7 @@
 
 This document collects the practical reference material that used to live in the top-level README: providers, configuration, shortcuts, packaging, runtime integration, and development notes.
 
-For onboarding, see [getting-started.md](getting-started.md). For runtime architecture, see [how-zorai-works.md](how-zorai-works.md). For deeper agent internals, see [self-orchestrating-agent.md](self-orchestrating-agent.md). For the canonical memory architecture, see [zorai-memory.md](zorai-memory.md). For the canonical security and governance model, see [zorai-security.md](zorai-security.md).
+For onboarding, see [getting-started.md](getting-started.md). For runtime architecture, see [how-zorai-works.md](how-zorai-works.md). For deeper agent internals, see [self-orchestrating-agent.md](self-orchestrating-agent.md). For the canonical memory architecture, see [zorai-memory.md](zorai-memory.md). For the canonical security and governance model, see [zorai-security.md](zorai-security.md). For routine creation, preview, run-now, rerun, and recovery workflows, see [operating/routines.md](operating/routines.md).
 
 ## Paths And Locations
 

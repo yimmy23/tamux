@@ -1432,6 +1432,33 @@ fn compaction_candidate_ignores_messages_before_latest_artifact() {
 }
 
 #[test]
+fn compaction_payload_budget_caps_oversized_model_checkpoint() {
+    let target_tokens = 32_000;
+    let oversized_payload = format!(
+        "{}\n{}",
+        COMPACTION_CHECKPOINT_SCHEMA,
+        "verbose historical detail\n".repeat(10_000)
+    );
+
+    let (capped, was_capped) =
+        fit_compaction_payload_to_budget(oversized_payload.clone(), target_tokens);
+
+    assert!(was_capped, "oversized checkpoint should be capped");
+    assert!(
+        capped.chars().count() <= compaction_payload_max_chars(target_tokens),
+        "capped checkpoint should fit the retained artifact budget"
+    );
+    assert!(
+        capped.contains("Compaction checkpoint truncated"),
+        "capped checkpoint should disclose truncation"
+    );
+    assert!(
+        capped.chars().count() < oversized_payload.chars().count() / 10,
+        "capped checkpoint should not keep a near-full-context baseline"
+    );
+}
+
+#[test]
 fn owner_compaction_appends_pinned_messages_after_artifact() {
     let mut config = AgentConfig::default();
     config.auto_compact_context = true;

@@ -266,6 +266,9 @@ impl TuiModel {
             .into_iter()
             .filter(|thread| !self.deleted_thread_ids.contains(&thread.id))
             .collect::<Vec<_>>();
+        for thread in &threads {
+            self.missing_runtime_thread_ids.remove(&thread.id);
+        }
         let active_thread_id = self.chat.active_thread_id().map(str::to_string);
         let pending_loading_thread_id = self.thread_loading_id.clone();
         let preserve_missing_active_thread = active_thread_id.as_ref().and_then(|thread_id| {
@@ -474,6 +477,7 @@ impl TuiModel {
         title: String,
         agent_name: Option<String>,
     ) {
+        let was_missing_runtime_thread = self.missing_runtime_thread_ids.remove(&thread_id);
         let pending_local_activity = self
             .chat
             .active_thread_id()
@@ -538,6 +542,9 @@ impl TuiModel {
         }
         self.sync_open_thread_picker();
         self.sync_pending_approvals_from_tasks();
+        if was_missing_runtime_thread && self.chat.active_thread_id() == Some(thread_id.as_str()) {
+            self.request_latest_thread_page(thread_id, true);
+        }
     }
 
     pub(in crate::app) fn handle_thread_reload_required_event(&mut self, thread_id: String) {

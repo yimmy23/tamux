@@ -264,10 +264,30 @@ pub struct RoutineDefinitionRow {
     pub schedule_expression: String,
     pub target_kind: String,
     pub target_payload_json: String,
+    pub schema_version: u32,
     pub next_run_at: Option<u64>,
     pub last_run_at: Option<u64>,
+    pub last_result: Option<String>,
+    pub last_error: Option<String>,
+    pub last_success_summary: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RoutineRunRow {
+    pub id: String,
+    pub routine_id: String,
+    pub trigger_kind: String,
+    pub status: String,
+    pub started_at: u64,
+    pub finished_at: Option<u64>,
+    pub created_task_id: Option<String>,
+    pub created_goal_run_id: Option<String>,
+    pub payload_json: String,
+    pub result_summary: Option<String>,
+    pub error: Option<String>,
+    pub rerun_of_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]

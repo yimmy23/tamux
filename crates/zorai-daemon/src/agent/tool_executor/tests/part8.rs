@@ -2042,7 +2042,7 @@ async fn list_tools_tool_returns_paginated_catalog() {
 }
 
 #[tokio::test]
-async fn routine_tools_round_trip_create_list_get() {
+async fn routine_tools_round_trip_create_preview_run_history_get() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
@@ -2060,7 +2060,8 @@ async fn routine_tools_round_trip_create_list_get() {
                 "target_kind": "task",
                 "target_payload": {
                     "description": "Prepare daily brief",
-                    "priority": "normal"
+                    "priority": "normal",
+                    "notify_channels": ["slack", "telegram"]
                 },
                 "next_run_at": 1800
             })
@@ -2091,18 +2092,22 @@ async fn routine_tools_round_trip_create_list_get() {
         serde_json::from_str(&create_result.content).expect("create_routine should return JSON");
     assert_eq!(created["status"], "created");
     assert_eq!(created["routine"]["id"], "routine-daily-brief-tool");
+    assert_eq!(created["routine"]["schema_version"], 1);
     assert_eq!(created["routine"]["target_kind"], "task");
 
-    let list_call = ToolCall::with_default_weles_review(
-        "tool-list-routines".to_string(),
+    let preview_call = ToolCall::with_default_weles_review(
+        "tool-preview-routine".to_string(),
         ToolFunction {
-            name: "list_routines".to_string(),
-            arguments: serde_json::json!({}).to_string(),
+            name: "preview_routine".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-daily-brief-tool",
+                "fire_count": 2
+            })
+            .to_string(),
         },
     );
-
-    let list_result = execute_tool(
-        &list_call,
+    let preview_result = execute_tool(
+        &preview_call,
         &engine,
         "thread-routine-tools",
         None,
@@ -2114,16 +2119,92 @@ async fn routine_tools_round_trip_create_list_get() {
         None,
     )
     .await;
-
     assert!(
-        !list_result.is_error,
-        "list_routines should succeed: {}",
-        list_result.content
+        !preview_result.is_error,
+        "preview_routine should succeed: {}",
+        preview_result.content
     );
-    let listed: serde_json::Value =
-        serde_json::from_str(&list_result.content).expect("list_routines should return JSON");
-    let rows = listed.as_array().expect("list_routines should return array payload");
-    assert!(rows.iter().any(|row| row["id"] == "routine-daily-brief-tool"));
+    let previewed: serde_json::Value =
+        serde_json::from_str(&preview_result.content).expect("preview_routine should return JSON");
+    assert_eq!(previewed["preview"]["dry_run"], true);
+    assert_eq!(previewed["preview"]["would_mutate_state"], false);
+    assert_eq!(engine.tasks.lock().await.len(), 0, "preview must not enqueue tasks");
+    assert_eq!(
+        previewed["preview"]["delivery_fan_out"]["channels"],
+        serde_json::json!(["slack", "telegram"])
+    );
+
+    let run_call = ToolCall::with_default_weles_review(
+        "tool-run-routine-now".to_string(),
+        ToolFunction {
+            name: "run_routine_now".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-daily-brief-tool"
+            })
+            .to_string(),
+        },
+    );
+    let run_result = execute_tool(
+        &run_call,
+        &engine,
+        "thread-routine-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !run_result.is_error,
+        "run_routine_now should succeed: {}",
+        run_result.content
+    );
+    let ran: serde_json::Value =
+        serde_json::from_str(&run_result.content).expect("run_routine_now should return JSON");
+    assert_eq!(ran["status"], "success");
+    assert_eq!(ran["run"]["trigger_kind"], "run_now");
+    assert!(ran["created_task"]["id"].as_str().is_some());
+
+    let history_call = ToolCall::with_default_weles_review(
+        "tool-list-routine-history".to_string(),
+        ToolFunction {
+            name: "list_routine_history".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-daily-brief-tool",
+                "limit": 5
+            })
+            .to_string(),
+        },
+    );
+    let history_result = execute_tool(
+        &history_call,
+        &engine,
+        "thread-routine-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !history_result.is_error,
+        "list_routine_history should succeed: {}",
+        history_result.content
+    );
+    let history_payload: serde_json::Value = serde_json::from_str(&history_result.content)
+        .expect("list_routine_history should return JSON");
+    let runs = history_payload["runs"]
+        .as_array()
+        .expect("history should return run array");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["trigger_kind"], "run_now");
+    let first_run_id = runs[0]["id"].as_str().expect("run id").to_string();
 
     let get_call = ToolCall::with_default_weles_review(
         "tool-get-routine".to_string(),
@@ -2157,10 +2238,11 @@ async fn routine_tools_round_trip_create_list_get() {
     );
     let loaded: serde_json::Value =
         serde_json::from_str(&get_result.content).expect("get_routine should return JSON");
-    assert_eq!(loaded["id"], "routine-daily-brief-tool");
-    assert_eq!(loaded["title"], "Daily brief");
-    assert_eq!(loaded["schedule_expression"], "0 9 * * *");
-    assert_eq!(loaded["target_kind"], "task");
+    assert_eq!(loaded["routine"]["id"], "routine-daily-brief-tool");
+    assert_eq!(loaded["routine"]["title"], "Daily brief");
+    assert_eq!(loaded["routine"]["schedule_expression"], "0 9 * * *");
+    assert_eq!(loaded["routine"]["last_result"], "success");
+    assert_eq!(loaded["history"][0]["id"], first_run_id);
 }
 
 #[tokio::test]
@@ -3393,6 +3475,176 @@ async fn read_offloaded_payload_tool_reads_canonical_path_even_if_metadata_stora
     );
     assert!(result.pending_approval.is_none());
     assert_eq!(result.content, raw_payload);
+}
+
+#[tokio::test]
+async fn read_offloaded_payload_tool_defaults_to_compact_thread_payload_and_full_opt_in() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let thread_id = "thread-offloaded-compact";
+    let payload_id = "payload-compact-thread-123";
+    let raw_payload = serde_json::json!({
+        "loaded_message_start": 10,
+        "loaded_message_end": 14,
+        "active_context_window_start": 0,
+        "active_context_window_end": 14,
+        "pinned_messages": [],
+        "thread": {
+            "id": thread_id,
+            "title": "Full metadata should be hidden by default",
+            "total_input_tokens": 123,
+            "total_output_tokens": 456,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "outside requested window",
+                    "reasoning": "never expose me"
+                },
+                {
+                    "role": "assistant",
+                    "content": "I will inspect it.",
+                    "reasoning": "hidden assistant chain",
+                    "tool_calls": [
+                        {
+                            "id": "call-1",
+                            "function": {
+                                "name": "bash_command",
+                                "arguments": "{\"command\":\"pwd\"}"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "role": "tool",
+                    "content": "command output",
+                    "tool_name": "bash_command",
+                    "tool_status": "done",
+                    "reasoning": "hidden tool reasoning"
+                },
+                {
+                    "role": "tool",
+                    "content": "pending output should not be returned",
+                    "tool_name": "pending_tool"
+                }
+            ]
+        }
+    })
+    .to_string();
+    let payload_path = root
+        .path()
+        .join("offloaded-payloads")
+        .join(thread_id)
+        .join(format!("{payload_id}.txt"));
+    std::fs::create_dir_all(payload_path.parent().expect("payload parent"))
+        .expect("create payload directory");
+    std::fs::write(&payload_path, &raw_payload).expect("write raw offloaded payload");
+    engine
+        .history
+        .upsert_offloaded_payload_metadata(
+            payload_id,
+            thread_id,
+            "get_thread",
+            Some("tool-call-compact"),
+            "application/json",
+            raw_payload.len() as u64,
+            "summary placeholder",
+            1_700_000_003,
+        )
+        .await
+        .expect("store offloaded payload metadata");
+
+    let compact_call = ToolCall::with_default_weles_review(
+        "tool-read-offloaded-payload-compact".to_string(),
+        ToolFunction {
+            name: "read_offloaded_payload".to_string(),
+            arguments: serde_json::json!({
+                "payload_id": payload_id,
+                "start": 11,
+                "end": 13
+            })
+            .to_string(),
+        },
+    );
+
+    let compact_result = execute_tool(
+        &compact_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !compact_result.is_error,
+        "compact read should succeed: {}",
+        compact_result.content
+    );
+    let compact: serde_json::Value =
+        serde_json::from_str(&compact_result.content).expect("compact payload should be JSON");
+    assert_eq!(
+        compact,
+        serde_json::json!({
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "I will inspect it.",
+                    "tool_calls": ["bash_command"]
+                },
+                {
+                    "role": "tool",
+                    "content": "command output",
+                    "tool_name": "bash_command",
+                    "tool_status": "done"
+                }
+            ]
+        })
+    );
+    assert!(!compact_result.content.contains("total_input_tokens"));
+    assert!(!compact_result.content.contains("active_context_window"));
+    assert!(!compact_result.content.contains("reasoning"));
+    assert!(!compact_result.content.contains("pending output should not be returned"));
+
+    let full_call = ToolCall::with_default_weles_review(
+        "tool-read-offloaded-payload-full".to_string(),
+        ToolFunction {
+            name: "read_offloaded_payload".to_string(),
+            arguments: serde_json::json!({
+                "payload_id": payload_id,
+                "full": true
+            })
+            .to_string(),
+        },
+    );
+
+    let full_result = execute_tool(
+        &full_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !full_result.is_error,
+        "full read should succeed: {}",
+        full_result.content
+    );
+    assert_eq!(full_result.content, raw_payload);
 }
 
 #[tokio::test]
@@ -7039,6 +7291,206 @@ fn apply_critique_modifications_uses_typed_directive_for_sensitive_file_narrowin
 
     assert_eq!(adjusted["path"].as_str(), Some(".env"));
     assert!(changes.iter().any(|item| item == "file:narrow_path:path"));
+}
+
+#[tokio::test]
+async fn routine_tools_update_rerun_and_validation_flow() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let invalid_create = ToolCall::with_default_weles_review(
+        "tool-create-routine-invalid".to_string(),
+        ToolFunction {
+            name: "create_routine".to_string(),
+            arguments: serde_json::json!({
+                "id": "routine-invalid-tool",
+                "title": "Invalid routine",
+                "description": "Should fail validation",
+                "schedule_expression": "not-a-cron",
+                "target_kind": "task",
+                "target_payload": {
+                    "description": "Broken"
+                }
+            })
+            .to_string(),
+        },
+    );
+    let invalid_result = execute_tool(
+        &invalid_create,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(invalid_result.is_error, "invalid create should fail");
+    assert!(invalid_result.content.contains("invalid 'schedule_expression'"));
+
+    let create_call = ToolCall::with_default_weles_review(
+        "tool-create-routine-update-rerun".to_string(),
+        ToolFunction {
+            name: "create_routine".to_string(),
+            arguments: serde_json::json!({
+                "id": "routine-update-rerun-tool",
+                "title": "Routine update rerun",
+                "description": "Initial description",
+                "schedule_expression": "*/5 * * * *",
+                "target_kind": "task",
+                "target_payload": {
+                    "title": "Prepare digest",
+                    "description": "Prepare the initial digest",
+                    "priority": "normal"
+                }
+            })
+            .to_string(),
+        },
+    );
+    let create_result = execute_tool(
+        &create_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(!create_result.is_error, "valid create should succeed: {}", create_result.content);
+
+    let update_call = ToolCall::with_default_weles_review(
+        "tool-update-routine".to_string(),
+        ToolFunction {
+            name: "update_routine".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-update-rerun-tool",
+                "description": "Updated description",
+                "target_payload": {
+                    "title": "Prepare digest",
+                    "description": "Prepare the updated digest",
+                    "priority": "high",
+                    "notify_channels": ["slack", "telegram"]
+                }
+            })
+            .to_string(),
+        },
+    );
+    let update_result = execute_tool(
+        &update_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(!update_result.is_error, "update_routine should succeed: {}", update_result.content);
+    let updated: serde_json::Value =
+        serde_json::from_str(&update_result.content).expect("update_routine should return JSON");
+    assert_eq!(updated["status"], "updated");
+    assert_eq!(updated["routine"]["description"], "Updated description");
+
+    let run_call = ToolCall::with_default_weles_review(
+        "tool-run-routine-update-rerun".to_string(),
+        ToolFunction {
+            name: "run_routine_now".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-update-rerun-tool"
+            })
+            .to_string(),
+        },
+    );
+    let run_result = execute_tool(
+        &run_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(!run_result.is_error, "run_routine_now should succeed: {}", run_result.content);
+    let run_payload: serde_json::Value =
+        serde_json::from_str(&run_result.content).expect("run_routine_now should return JSON");
+    let first_run_id = run_payload["run"]["id"].as_str().expect("run id").to_string();
+
+    let rerun_call = ToolCall::with_default_weles_review(
+        "tool-rerun-routine".to_string(),
+        ToolFunction {
+            name: "rerun_routine".to_string(),
+            arguments: serde_json::json!({
+                "run_id": first_run_id
+            })
+            .to_string(),
+        },
+    );
+    let rerun_result = execute_tool(
+        &rerun_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(!rerun_result.is_error, "rerun_routine should succeed: {}", rerun_result.content);
+    let rerun_payload: serde_json::Value =
+        serde_json::from_str(&rerun_result.content).expect("rerun_routine should return JSON");
+    assert_eq!(rerun_payload["run"]["trigger_kind"], "rerun");
+    assert_eq!(rerun_payload["run"]["rerun_of_run_id"], rerun_payload["rerun_of"]["id"]);
+
+    let history_call = ToolCall::with_default_weles_review(
+        "tool-list-routine-history-rerun".to_string(),
+        ToolFunction {
+            name: "list_routine_history".to_string(),
+            arguments: serde_json::json!({
+                "routine_id": "routine-update-rerun-tool",
+                "limit": 10
+            })
+            .to_string(),
+        },
+    );
+    let history_result = execute_tool(
+        &history_call,
+        &engine,
+        "thread-routine-control-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(!history_result.is_error, "history should succeed: {}", history_result.content);
+    let history_payload: serde_json::Value = serde_json::from_str(&history_result.content)
+        .expect("history should return JSON");
+    let runs = history_payload["runs"].as_array().expect("runs array");
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0]["trigger_kind"], "rerun");
+    assert_eq!(runs[1]["trigger_kind"], "run_now");
 }
 
 #[tokio::test]

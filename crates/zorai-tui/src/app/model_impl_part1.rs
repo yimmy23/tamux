@@ -85,6 +85,7 @@ impl TuiModel {
             pending_new_thread_target_agent: None,
             pending_builtin_persona_setup: None,
             thread_loading_id: None,
+            missing_runtime_thread_ids: std::collections::HashSet::new(),
             pending_reconnect_restore: None,
             pending_goal_hydration_refreshes: std::collections::HashSet::new(),
             ignore_pending_concierge_welcome: false,

@@ -371,6 +371,32 @@
             );
         }
 
+        let preview_routine = tools
+            .iter()
+            .find(|tool| tool.function.name == "preview_routine")
+            .expect("preview_routine tool should be available");
+        let preview_properties = preview_routine
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("preview_routine schema should expose properties object");
+        assert!(preview_properties.contains_key("routine_id"));
+        assert!(preview_properties.contains_key("fire_count"));
+
+        let update_routine = tools
+            .iter()
+            .find(|tool| tool.function.name == "update_routine")
+            .expect("update_routine tool should be available");
+        let update_properties = update_routine
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("update_routine schema should expose properties object");
+        assert!(update_properties.contains_key("routine_id"));
+        assert!(update_properties.contains_key("target_payload"));
+
         let list_routines = tools
             .iter()
             .find(|tool| tool.function.name == "list_routines")
@@ -383,7 +409,14 @@
             .expect("list_routines schema should expose properties object");
         assert!(list_properties.is_empty());
 
-        for tool_name in ["get_routine", "pause_routine", "resume_routine", "delete_routine"] {
+        for tool_name in [
+            "get_routine",
+            "run_routine_now",
+            "list_routine_history",
+            "pause_routine",
+            "resume_routine",
+            "delete_routine",
+        ] {
             let tool = tools
                 .iter()
                 .find(|tool| tool.function.name == tool_name)
@@ -399,6 +432,18 @@
                 "{tool_name} should expose routine_id"
             );
         }
+
+        let rerun_routine = tools
+            .iter()
+            .find(|tool| tool.function.name == "rerun_routine")
+            .expect("rerun_routine tool should be available");
+        let rerun_properties = rerun_routine
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("rerun_routine schema should expose properties object");
+        assert!(rerun_properties.contains_key("run_id"));
     }
 
     #[test]

@@ -1201,8 +1201,12 @@ async fn due_task_routine_materializes_enqueued_task_and_advances_next_run_at() 
                 "priority": "high"
             })
             .to_string(),
+            schema_version: 1,
             next_run_at: Some(due_at),
             last_run_at: None,
+            last_result: None,
+            last_error: None,
+            last_success_summary: None,
             created_at: due_at.saturating_sub(5_000),
             updated_at: due_at,
         })
@@ -1246,6 +1250,17 @@ async fn due_task_routine_materializes_enqueued_task_and_advances_next_run_at() 
     assert!(last_run_at >= materialized_after);
     assert!(last_run_at <= materialized_before);
     assert!(next_run_at > last_run_at);
+    assert_eq!(updated.last_result.as_deref(), Some("success"));
+    assert!(updated.last_success_summary.is_some());
+
+    let runs = engine
+        .history
+        .list_routine_runs("routine-daily-brief-materialize", 5)
+        .await
+        .expect("list routine runs");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].trigger_kind, "scheduled");
+    assert_eq!(runs[0].status, "success");
 }
 
 #[tokio::test]
@@ -1269,8 +1284,12 @@ async fn paused_due_routine_does_not_materialize_until_resumed() {
                 "priority": "normal"
             })
             .to_string(),
+            schema_version: 1,
             next_run_at: Some(due_at),
             last_run_at: None,
+            last_result: None,
+            last_error: None,
+            last_success_summary: None,
             created_at: due_at.saturating_sub(5_000),
             updated_at: due_at,
         })
@@ -1336,8 +1355,12 @@ async fn due_task_routine_materializes_task_with_multi_channel_notifications() {
                 "notify_channels": ["slack", "telegram"]
             })
             .to_string(),
+            schema_version: 1,
             next_run_at: Some(due_at),
             last_run_at: None,
+            last_result: None,
+            last_error: None,
+            last_success_summary: None,
             created_at: due_at.saturating_sub(5_000),
             updated_at: due_at,
         })
@@ -1393,8 +1416,12 @@ async fn materialized_routine_task_completion_routes_slack_and_telegram_notifica
                 "notify_channels": ["slack", "telegram"]
             })
             .to_string(),
+            schema_version: 1,
             next_run_at: Some(due_at),
             last_run_at: None,
+            last_result: None,
+            last_error: None,
+            last_success_summary: None,
             created_at: due_at.saturating_sub(5_000),
             updated_at: due_at,
         })
@@ -1479,4 +1506,74 @@ async fn materialized_routine_task_completion_routes_slack_and_telegram_notifica
     }
 
     notify_task.await.expect("notification task should finish");
+}
+
+#[tokio::test]
+async fn invalid_due_routine_records_failed_run_history() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let due_at = now_millis().saturating_sub(1_000);
+
+    engine
+        .history
+        .upsert_routine_definition(&crate::history::RoutineDefinitionRow {
+            id: "routine-invalid-materialize".to_string(),
+            title: "Invalid routine".to_string(),
+            description: "Missing task description".to_string(),
+            enabled: true,
+            paused_at: None,
+            schedule_expression: "* * * * *".to_string(),
+            target_kind: "task".to_string(),
+            target_payload_json: serde_json::json!({
+                "title": "Broken task",
+                "notify_channels": ["slack"]
+            })
+            .to_string(),
+            schema_version: 1,
+            next_run_at: Some(due_at),
+            last_run_at: None,
+            last_result: None,
+            last_error: None,
+            last_success_summary: None,
+            created_at: due_at.saturating_sub(5_000),
+            updated_at: due_at,
+        })
+        .await
+        .expect("store invalid routine definition");
+
+    let created = engine
+        .materialize_due_routines()
+        .await
+        .expect("materialize due routines should not crash on invalid routine");
+    assert_eq!(
+        created.len(),
+        1,
+        "invalid routine still materializes fallback task"
+    );
+
+    let updated = engine
+        .history
+        .get_routine_definition("routine-invalid-materialize")
+        .await
+        .expect("load invalid routine")
+        .expect("invalid routine should still exist");
+    assert_eq!(updated.last_result.as_deref(), Some("success"));
+    assert!(updated.last_error.is_none());
+
+    let task = engine
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| task.source == "routine:routine-invalid-materialize")
+        .expect("fallback routine task should be queued");
+    assert_eq!(task.title, "Broken task");
+    assert_eq!(task.description, "Missing task description");
+
+    let runs = engine
+        .history
+        .list_routine_runs("routine-invalid-materialize", 5)
+        .await
+        .expect("list invalid routine runs");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, "success");
+    assert_eq!(runs[0].trigger_kind, "scheduled");
 }

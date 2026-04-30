@@ -83,10 +83,15 @@ fn add_available_tools_part_d(
         },
         "required": ["thread_id"]
     })));
-    tools.push(tool_def("read_offloaded_payload", "Read an offloaded tool-result payload by payload ID and return the exact raw text content.", serde_json::json!({
+    tools.push(tool_def("read_offloaded_payload", "Read an offloaded tool-result payload by payload ID. Thread-shaped JSON payloads default to a compact messages-only view; set full=true to return the exact raw stored content.", serde_json::json!({
         "type": "object",
         "properties": {
-            "payload_id": { "type": "string", "description": "Payload ID from an offloaded tool-result thread message" }
+            "payload_id": { "type": "string", "description": "Payload ID from an offloaded tool-result thread message" },
+            "message_start": { "type": "integer", "minimum": 0, "description": "Optional absolute start message index for compact thread payloads, inclusive" },
+            "message_end": { "type": "integer", "minimum": 0, "description": "Optional absolute end message index for compact thread payloads, exclusive" },
+            "start": { "type": "integer", "minimum": 0, "description": "Alias for message_start" },
+            "end": { "type": "integer", "minimum": 0, "description": "Alias for message_end" },
+            "full": { "type": "boolean", "description": "Return the exact raw stored payload, including full metadata, instead of the default compact view. Defaults to false." }
         },
         "required": ["payload_id"]
     })));
@@ -163,12 +168,12 @@ fn add_available_tools_part_d(
             "title": { "type": "string", "description": "Routine title" },
             "description": { "type": "string", "description": "What the routine is for" },
             "enabled": { "type": "boolean", "description": "Whether the routine starts enabled (default: true)" },
-            "paused_at": { "type": "integer", "description": "Optional paused timestamp in Unix ms" },
+            "paused_at": { "type": ["integer", "null"], "description": "Optional paused timestamp in Unix ms" },
             "schedule_expression": { "type": "string", "description": "Cron-like schedule expression for the routine" },
             "target_kind": { "type": "string", "enum": ["task", "goal", "tool"], "description": "What the routine should materialize into when executed" },
             "target_payload": { "type": "object", "description": "JSON payload describing the target work to materialize later" },
-            "next_run_at": { "type": "integer", "description": "Optional next scheduled run in Unix ms" },
-            "last_run_at": { "type": "integer", "description": "Optional last completed run in Unix ms" }
+            "next_run_at": { "type": ["integer", "null"], "description": "Optional next scheduled run in Unix ms" },
+            "last_run_at": { "type": ["integer", "null"], "description": "Optional last completed run in Unix ms" }
         },
         "required": ["title", "description", "schedule_expression", "target_kind", "target_payload"]
     })));
@@ -176,12 +181,58 @@ fn add_available_tools_part_d(
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def("get_routine", "Fetch one durable routine definition by id.", serde_json::json!({
+    tools.push(tool_def("get_routine", "Fetch one durable routine definition by id, including recent run history and summary state.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id" }
         },
         "required": ["routine_id"]
+    })));
+    tools.push(tool_def("preview_routine", "Preview a stored routine without mutation. Shows next fire times, materialized payload, delivery fan-out, and approval posture.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "routine_id": { "type": "string", "description": "Routine definition id to preview" },
+            "fire_count": { "type": "integer", "description": "How many upcoming fire times to project (default: 3)" }
+        },
+        "required": ["routine_id"]
+    })));
+    tools.push(tool_def("update_routine", "Update a durable routine definition in place with validation and recomputed schedule state.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "routine_id": { "type": "string", "description": "Routine definition id" },
+            "title": { "type": "string", "description": "Updated routine title" },
+            "description": { "type": "string", "description": "Updated routine description" },
+            "enabled": { "type": "boolean", "description": "Whether the routine remains enabled" },
+            "paused_at": { "type": ["integer", "null"], "description": "Optional paused timestamp in Unix ms, or null to clear" },
+            "schedule_expression": { "type": "string", "description": "Updated cron-like schedule expression" },
+            "target_kind": { "type": "string", "enum": ["task", "goal", "tool"], "description": "Updated materialization target kind" },
+            "target_payload": { "type": "object", "description": "Updated target payload" },
+            "next_run_at": { "type": ["integer", "null"], "description": "Optional explicit next scheduled run in Unix ms, or null to clear" },
+            "last_run_at": { "type": ["integer", "null"], "description": "Optional explicit last completed run in Unix ms, or null to clear" }
+        },
+        "required": ["routine_id"]
+    })));
+    tools.push(tool_def("run_routine_now", "Execute one stored routine immediately and record an explicit manual run history entry.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "routine_id": { "type": "string", "description": "Routine definition id" }
+        },
+        "required": ["routine_id"]
+    })));
+    tools.push(tool_def("list_routine_history", "List recent persisted run attempts for one routine, including success, failure, run-now, and rerun entries.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "routine_id": { "type": "string", "description": "Routine definition id" },
+            "limit": { "type": "integer", "description": "Maximum number of routine runs to return" }
+        },
+        "required": ["routine_id"]
+    })));
+    tools.push(tool_def("rerun_routine", "Rerun a prior routine attempt from its last materialized payload and record a linked rerun history entry.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "run_id": { "type": "string", "description": "Routine run id to rerun from" }
+        },
+        "required": ["run_id"]
     })));
     tools.push(tool_def("pause_routine", "Pause one durable routine definition by id so due checks stop materializing it until resumed.", serde_json::json!({
         "type": "object",

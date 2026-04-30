@@ -895,6 +895,65 @@ async fn execute_get_routine(args: &serde_json::Value, agent: &AgentEngine) -> R
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
+async fn execute_preview_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let routine_id = args
+        .get("routine_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'routine_id' argument"))?;
+    let fire_count = args
+        .get("fire_count")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(3);
+    let payload = agent.preview_routine_json(routine_id, fire_count).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_update_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let payload = agent.update_routine_from_args(args).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_run_routine_now(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let routine_id = args
+        .get("routine_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'routine_id' argument"))?;
+    let payload = agent.run_routine_now_json(routine_id).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_list_routine_history(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let routine_id = args
+        .get("routine_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'routine_id' argument"))?;
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(10);
+    let payload = agent.list_routine_history_json(routine_id, limit).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_rerun_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let run_id = args
+        .get("run_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'run_id' argument"))?;
+    let payload = agent.rerun_routine_run_json(run_id).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
 async fn execute_pause_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
     let routine_id = args
         .get("routine_id")

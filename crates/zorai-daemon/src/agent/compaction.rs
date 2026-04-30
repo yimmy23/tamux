@@ -20,6 +20,8 @@ const CODING_COMPACTION_GRAPH_NEIGHBOR_LIMIT: usize = 8;
 const CODING_COMPACTION_OFFLOAD_REFERENCE_LIMIT: usize = 4;
 const COMPACTION_MESSAGE_TRUNCATION_NOTICE: &str =
     "\n\n[Older compaction input truncated to fit the model budget.]";
+const COMPACTION_PAYLOAD_TRUNCATION_NOTICE: &str =
+    "\n\n[Compaction checkpoint truncated to fit continuity budget.]";
 const COMPACTION_MODEL_SYSTEM_PROMPT: &str = "You compress older conversation context into a deterministic execution checkpoint for future continuity. Follow the mandatory thread compaction protocol exactly. Preserve goals, constraints, decisions, tool outcomes, unresolved issues, failed paths, and the immediate next step. Return exactly one markdown block matching the required schema. Do not add commentary outside the schema.";
 const COMPACTION_CHECKPOINT_SCHEMA: &str = r#"# 🤖 Agent Context: State Checkpoint
 
@@ -1232,10 +1234,35 @@ async fn load_referenced_offloaded_payload_metadata(
     Ok(rows)
 }
 
-fn coding_compaction_payload_max_chars(target_tokens: usize) -> usize {
+fn compaction_payload_max_chars(target_tokens: usize) -> usize {
     (target_tokens / 4)
         .saturating_mul(APPROX_CHARS_PER_TOKEN)
         .clamp(4096, 8192)
+}
+
+fn fit_compaction_payload_to_budget(payload: String, target_tokens: usize) -> (String, bool) {
+    let max_chars = compaction_payload_max_chars(target_tokens);
+    if payload.chars().count() <= max_chars {
+        return (payload, false);
+    }
+
+    let notice_chars = COMPACTION_PAYLOAD_TRUNCATION_NOTICE.chars().count();
+    let retained_chars = max_chars.saturating_sub(notice_chars).max(1024);
+    let retained = payload
+        .chars()
+        .take(retained_chars)
+        .collect::<String>()
+        .trim_end()
+        .to_string();
+
+    (
+        format!("{retained}{COMPACTION_PAYLOAD_TRUNCATION_NOTICE}"),
+        true,
+    )
+}
+
+fn coding_compaction_payload_max_chars(target_tokens: usize) -> usize {
+    compaction_payload_max_chars(target_tokens)
 }
 
 fn merge_compaction_fallback_notice(
@@ -1256,9 +1283,6 @@ pub(super) fn build_compaction_summary(messages: &[AgentMessage], target_tokens:
         return String::new();
     }
 
-    let max_chars = (target_tokens / 4)
-        .saturating_mul(APPROX_CHARS_PER_TOKEN)
-        .clamp(4096, 8192);
     let primary_objective = checkpoint_primary_objective(messages);
     let completed_phase = checkpoint_completed_phase(messages);
     let current_phase = checkpoint_current_phase(messages);
@@ -1272,7 +1296,7 @@ pub(super) fn build_compaction_summary(messages: &[AgentMessage], target_tokens:
     let recent_actions = checkpoint_recent_actions(messages);
     let immediate_next_step = checkpoint_immediate_next_step(messages);
 
-    let mut summary = format!(
+    let summary = format!(
         "# 🤖 Agent Context: State Checkpoint\n\n## 🎯 Primary Objective\n> {}\n\n## 🗺️ Execution Map\n* **✅ Completed Phase:** {}\n* **⏳ Current Phase:** {}\n* **⏭️ Pending Phases:** {}\n\n## 📁 Working Environment State\n* **Active Directory:** `{}`\n* **Files Modified (Uncommitted/Pending):**\n{}* **Read-Only Context Files:**\n{}## 🧠 Acquired Knowledge & Constraints\n{}## 🚫 Dead Ends & Resolved Errors\n{}## 🛠️ Recent Action Summary (Last 3-5 Turns)\n{}\n## 🎯 Immediate Next Step\n{}\n",
         primary_objective,
         completed_phase,
@@ -1287,11 +1311,7 @@ pub(super) fn build_compaction_summary(messages: &[AgentMessage], target_tokens:
         immediate_next_step,
     );
 
-    if summary.len() > max_chars {
-        summary.truncate(max_chars);
-    }
-
-    summary
+    fit_compaction_payload_to_budget(summary, target_tokens).0
 }
 
 #[cfg(test)]
@@ -2251,6 +2271,18 @@ impl AgentEngine {
                 }
             }
         };
+
+        let (payload, payload_was_capped) =
+            fit_compaction_payload_to_budget(payload, target_tokens);
+        if payload_was_capped {
+            fallback_notice = merge_compaction_fallback_notice(
+                fallback_notice,
+                Some(
+                    "Compaction checkpoint exceeded the continuity budget and was truncated."
+                        .to_string(),
+                ),
+            );
+        }
 
         let visible_content = build_compaction_visible_content(
             pre_compaction_total_tokens,

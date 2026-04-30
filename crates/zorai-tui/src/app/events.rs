@@ -195,12 +195,14 @@ impl TuiModel {
             }
             ClientEvent::ThreadDetail(Some(thread)) => {
                 if !self.deleted_thread_ids.contains(&thread.id) {
+                    self.missing_runtime_thread_ids.remove(&thread.id);
                     self.handle_thread_detail_event(thread);
                 }
             }
             ClientEvent::ThreadDetail(None) => {
                 if let Some(thread_id) = self.thread_loading_id.clone() {
                     if self.chat.active_thread_id() == Some(thread_id.as_str()) {
+                        self.missing_runtime_thread_ids.insert(thread_id.clone());
                         self.finish_thread_loading(&thread_id);
                         self.send_daemon_command(DaemonCommand::Refresh);
                         self.status_line =
@@ -301,7 +303,8 @@ impl TuiModel {
                 let should_refresh_active_runtime = active_runtime_thread_id
                     .as_deref()
                     .is_some_and(|thread_id| {
-                        self.chat.active_thread_id() == Some(thread_id)
+                        !self.missing_runtime_thread_ids.contains(thread_id)
+                            && self.chat.active_thread_id() == Some(thread_id)
                             && self
                                 .chat
                                 .active_thread()

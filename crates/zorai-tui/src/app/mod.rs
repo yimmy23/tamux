@@ -630,6 +630,7 @@ pub struct TuiModel {
 
     // Thread currently awaiting full detail from the daemon.
     thread_loading_id: Option<String>,
+    missing_runtime_thread_ids: std::collections::HashSet<String>,
     pending_reconnect_restore: Option<PendingReconnectRestore>,
     pending_goal_hydration_refreshes: std::collections::HashSet<String>,
 

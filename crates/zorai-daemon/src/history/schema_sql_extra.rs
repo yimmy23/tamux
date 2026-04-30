@@ -902,13 +902,33 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 schedule_expression TEXT NOT NULL,
                 target_kind         TEXT NOT NULL,
                 target_payload_json TEXT NOT NULL,
+                schema_version      INTEGER NOT NULL DEFAULT 1,
                 next_run_at         INTEGER,
                 last_run_at         INTEGER,
+                last_result         TEXT,
+                last_error          TEXT,
+                last_success_summary TEXT,
                 created_at          INTEGER NOT NULL,
                 updated_at          INTEGER NOT NULL,
                 deleted_at          INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_routine_definitions_enabled_next_run ON routine_definitions(enabled, next_run_at, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS routine_runs (
+                id                   TEXT PRIMARY KEY,
+                routine_id           TEXT NOT NULL,
+                trigger_kind         TEXT NOT NULL,
+                status               TEXT NOT NULL,
+                started_at           INTEGER NOT NULL,
+                finished_at          INTEGER,
+                created_task_id      TEXT,
+                created_goal_run_id  TEXT,
+                payload_json         TEXT NOT NULL,
+                result_summary       TEXT,
+                error                TEXT,
+                rerun_of_run_id      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_routine_runs_routine_started ON routine_runs(routine_id, started_at DESC);
 
             CREATE TABLE IF NOT EXISTS operator_profile_checkins (
                 id            TEXT PRIMARY KEY,

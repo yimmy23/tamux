@@ -4378,6 +4378,97 @@ fn workspace_task_update_retries_empty_active_runtime_thread() {
 }
 
 #[test]
+fn workspace_task_update_does_not_retry_runtime_thread_after_missing_detail() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 77;
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "workspace-thread:task-1".to_string(),
+            title: "Workspace Task".to_string(),
+            messages: Vec::new(),
+            ..Default::default()
+        },
+    ));
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "workspace-thread:task-1".to_string(),
+    ));
+    model.thread_loading_id = Some("workspace-thread:task-1".to_string());
+
+    model.handle_client_event(ClientEvent::ThreadDetail(None));
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.handle_client_event(ClientEvent::WorkspaceTaskUpdated(
+        zorai_protocol::WorkspaceTask {
+            id: "task-1".to_string(),
+            workspace_id: "main".to_string(),
+            title: "Workspace Task".to_string(),
+            task_type: zorai_protocol::WorkspaceTaskType::Thread,
+            description: "Description".to_string(),
+            definition_of_done: None,
+            priority: zorai_protocol::WorkspacePriority::Low,
+            status: zorai_protocol::WorkspaceTaskStatus::InProgress,
+            sort_order: 1,
+            reporter: zorai_protocol::WorkspaceActor::User,
+            assignee: Some(zorai_protocol::WorkspaceActor::Agent(
+                zorai_protocol::AGENT_ID_SWAROG.to_string(),
+            )),
+            reviewer: Some(zorai_protocol::WorkspaceActor::User),
+            thread_id: Some("workspace-thread:task-1".to_string()),
+            goal_run_id: None,
+            runtime_history: Vec::new(),
+            created_at: 1,
+            updated_at: 2,
+            started_at: Some(2),
+            completed_at: None,
+            deleted_at: None,
+            last_notice_id: None,
+        },
+    ));
+
+    assert_eq!(next_thread_request(&mut daemon_rx), None);
+    assert!(
+        model.thread_loading_id.is_none(),
+        "missing workspace runtime thread should not be put back into loading"
+    );
+}
+
+#[test]
+fn created_runtime_thread_after_missing_detail_retries_active_workspace_thread() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 77;
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "workspace-thread:task-1".to_string(),
+            title: "Workspace Task".to_string(),
+            messages: Vec::new(),
+            ..Default::default()
+        },
+    ));
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "workspace-thread:task-1".to_string(),
+    ));
+    model.thread_loading_id = Some("workspace-thread:task-1".to_string());
+
+    model.handle_client_event(ClientEvent::ThreadDetail(None));
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "workspace-thread:task-1".to_string(),
+        title: "Workspace Task".to_string(),
+        agent_name: Some("Svarog".to_string()),
+    });
+
+    assert_eq!(
+        next_thread_request(&mut daemon_rx),
+        Some(("workspace-thread:task-1".to_string(), Some(77), Some(0)))
+    );
+    assert_eq!(
+        model.thread_loading_id.as_deref(),
+        Some("workspace-thread:task-1")
+    );
+}
+
+#[test]
 fn on_tick_requests_next_older_thread_page_when_scrolled_to_top_of_loaded_window() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.config.tui_chat_history_page_size = 123;

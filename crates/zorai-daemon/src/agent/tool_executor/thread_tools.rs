@@ -81,6 +81,148 @@ fn parse_non_negative_usize_arg(args: &serde_json::Value, field: &str) -> Result
         .transpose()
 }
 
+fn parse_optional_bool_arg(args: &serde_json::Value, field: &str) -> Result<Option<bool>> {
+    if args.get(field).is_some_and(|value| !value.is_boolean()) {
+        anyhow::bail!("'{field}' must be a boolean");
+    }
+
+    Ok(args.get(field).and_then(|value| value.as_bool()))
+}
+
+fn parse_message_window_bound(
+    args: &serde_json::Value,
+    primary_field: &str,
+    alias_field: &str,
+) -> Result<Option<usize>> {
+    Ok(parse_non_negative_usize_arg(args, primary_field)?
+        .or(parse_non_negative_usize_arg(args, alias_field)?))
+}
+
+fn compact_tool_call_name(tool_call: &serde_json::Value) -> Option<String> {
+    tool_call
+        .get("function")
+        .and_then(|function| function.get("name"))
+        .or_else(|| tool_call.get("name"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn compact_message_tool_status(message: &serde_json::Value) -> Option<String> {
+    let status = message
+        .get("tool_status")
+        .or_else(|| message.get("status"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)?;
+    let normalized = status.to_ascii_lowercase();
+    match normalized.as_str() {
+        "done" | "success" | "succeeded" => Some("done".to_string()),
+        "error" | "failure" | "failed" => Some("error".to_string()),
+        _ => None,
+    }
+}
+
+fn compact_offloaded_thread_message(message: &serde_json::Value) -> Option<serde_json::Value> {
+    let role = message
+        .get("role")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let is_tool_message = role == Some("tool")
+        || message.get("tool_name").is_some()
+        || message.get("tool_call_id").is_some();
+    let tool_status = if is_tool_message {
+        Some(compact_message_tool_status(message)?)
+    } else {
+        None
+    };
+
+    let mut compact = serde_json::Map::new();
+    if let Some(role) = role {
+        compact.insert("role".to_string(), serde_json::Value::String(role.to_string()));
+    }
+    if let Some(content) = message.get("content").and_then(|value| value.as_str()) {
+        compact.insert(
+            "content".to_string(),
+            serde_json::Value::String(content.to_string()),
+        );
+    }
+    if let Some(tool_calls) = message.get("tool_calls").and_then(|value| value.as_array()) {
+        let names = tool_calls
+            .iter()
+            .filter_map(compact_tool_call_name)
+            .map(serde_json::Value::String)
+            .collect::<Vec<_>>();
+        if !names.is_empty() {
+            compact.insert("tool_calls".to_string(), serde_json::Value::Array(names));
+        }
+    }
+    if let Some(status) = tool_status {
+        if let Some(tool_name) = message
+            .get("tool_name")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            compact.insert(
+                "tool_name".to_string(),
+                serde_json::Value::String(tool_name.to_string()),
+            );
+        }
+        compact.insert("tool_status".to_string(), serde_json::Value::String(status));
+    }
+
+    if compact.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(compact))
+    }
+}
+
+fn compact_offloaded_thread_payload(
+    raw_payload: &str,
+    message_start: Option<usize>,
+    message_end: Option<usize>,
+) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(raw_payload).ok()?;
+    let messages = value
+        .get("messages")
+        .and_then(|value| value.as_array())
+        .or_else(|| {
+            value
+                .get("thread")
+                .and_then(|thread| thread.get("messages"))
+                .and_then(|value| value.as_array())
+        })?;
+    let loaded_message_start = value
+        .get("loaded_message_start")
+        .or_else(|| {
+            value
+                .get("thread")
+                .and_then(|thread| thread.get("loaded_message_start"))
+        })
+        .and_then(|value| value.as_u64())
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or(0);
+
+    let compact_messages = messages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, message)| {
+            let absolute_index = loaded_message_start.saturating_add(index);
+            if message_start.is_some_and(|start| absolute_index < start)
+                || message_end.is_some_and(|end| absolute_index >= end)
+            {
+                return None;
+            }
+            compact_offloaded_thread_message(message)
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::to_string_pretty(&serde_json::json!({ "messages": compact_messages })).ok()
+}
+
 async fn execute_list_threads(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
     let filter = ThreadListFilter {
         created_after: parse_non_negative_u64_arg(args, "created_after")?,
@@ -167,6 +309,15 @@ async fn execute_read_offloaded_payload(
         None => anyhow::bail!("missing 'payload_id' argument"),
     };
     validate_offloaded_payload_id(payload_id)?;
+    let full = parse_optional_bool_arg(args, "full")?.unwrap_or(false);
+    let message_start = parse_message_window_bound(args, "message_start", "start")?;
+    let message_end = parse_message_window_bound(args, "message_end", "end")?;
+    if matches!(
+        (message_start, message_end),
+        (Some(message_start), Some(message_end)) if message_end < message_start
+    ) {
+        anyhow::bail!("'message_end' must be greater than or equal to 'message_start'");
+    }
 
     let metadata = agent
         .history
@@ -199,7 +350,7 @@ async fn execute_read_offloaded_payload(
     )
     .await?;
 
-    tokio::fs::read_to_string(&canonical_path)
+    let raw_payload = tokio::fs::read_to_string(&canonical_path)
         .await
         .with_context(|| {
             format!(
@@ -207,5 +358,12 @@ async fn execute_read_offloaded_payload(
                 payload_id,
                 canonical_path.display()
             )
-        })
+        })?;
+
+    if full {
+        return Ok(raw_payload);
+    }
+
+    Ok(compact_offloaded_thread_payload(&raw_payload, message_start, message_end)
+        .unwrap_or(raw_payload))
 }
