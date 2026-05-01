@@ -1,6 +1,7 @@
 use super::*;
 
 const CLAIM_STALE_AFTER_SECS: i64 = 300;
+const EMBEDDING_JOB_CHUNK_MAX_CHARS: usize = 20_000;
 
 #[derive(Debug, Clone)]
 pub(crate) struct EmbeddingJobInput {
@@ -58,19 +59,88 @@ fn content_hash(body: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn enqueue_embedding_job_on_connection(
-    connection: &Connection,
-    job: &EmbeddingJobInput,
-    now: i64,
-) -> rusqlite::Result<()> {
-    let body = job.body.trim();
-    if body.is_empty() {
-        return Ok(());
+fn chunk_embedding_body(body: &str) -> Vec<String> {
+    let mut remaining = body.trim();
+    let mut chunks = Vec::new();
+    while !remaining.is_empty() {
+        let mut limit = remaining.len();
+        let mut chars = 0usize;
+        for (idx, _) in remaining.char_indices() {
+            if chars == EMBEDDING_JOB_CHUNK_MAX_CHARS {
+                limit = idx;
+                break;
+            }
+            chars += 1;
+        }
+        if limit == remaining.len() {
+            chunks.push(remaining.to_string());
+            break;
+        }
+
+        let prefix = &remaining[..limit];
+        let split_at = prefix
+            .char_indices()
+            .rev()
+            .find(|(idx, ch)| *idx > 0 && ch.is_whitespace())
+            .map(|(idx, _)| idx)
+            .unwrap_or(limit);
+        let chunk = remaining[..split_at].trim_end();
+        if !chunk.is_empty() {
+            chunks.push(chunk.to_string());
+        }
+        remaining = remaining[split_at..].trim_start();
     }
-    let title = job.title.trim();
-    let content_hash = content_hash(body);
-    connection.execute(
-        "INSERT INTO embedding_jobs (
+    chunks
+}
+
+fn chunk_id_for(base_chunk_id: &str, index: usize) -> String {
+    if base_chunk_id == "0" {
+        index.to_string()
+    } else {
+        format!("{base_chunk_id}:{index}")
+    }
+}
+
+fn delete_stale_embedding_chunks(
+    connection: &Connection,
+    source_kind: &str,
+    source_id: &str,
+    active_chunk_ids: &[String],
+) -> rusqlite::Result<()> {
+    let mut stmt = connection
+        .prepare("SELECT chunk_id FROM embedding_jobs WHERE source_kind = ?1 AND source_id = ?2")?;
+    let existing = stmt
+        .query_map(params![source_kind, source_id], |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    for chunk_id in existing {
+        if active_chunk_ids.iter().any(|active| active == &chunk_id) {
+            continue;
+        }
+        connection.execute(
+            "DELETE FROM embedding_jobs
+             WHERE source_kind = ?1 AND source_id = ?2 AND chunk_id = ?3",
+            params![source_kind, source_id, chunk_id],
+        )?;
+        connection.execute(
+            "DELETE FROM embedding_job_completions
+             WHERE source_kind = ?1 AND source_id = ?2 AND chunk_id = ?3",
+            params![source_kind, source_id, chunk_id],
+        )?;
+    }
+    Ok(())
+}
+
+fn select_claimable_embedding_jobs(
+    connection: &Connection,
+    embedding_model: &str,
+    dimensions: i64,
+    stale_before: i64,
+    limit: i64,
+) -> rusqlite::Result<Vec<EmbeddingJob>> {
+    let mut stmt = connection.prepare(
+        "SELECT
             source_kind,
             source_id,
             chunk_id,
@@ -81,47 +151,120 @@ fn enqueue_embedding_job_on_connection(
             thread_id,
             agent_id,
             source_timestamp,
-            queued_at,
-            updated_at,
-            claimed_at,
-            attempts,
-            last_error
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, NULL, 0, NULL)
-        ON CONFLICT(source_kind, source_id, chunk_id) DO UPDATE SET
-            content_hash = excluded.content_hash,
-            title = excluded.title,
-            body = excluded.body,
-            workspace_id = excluded.workspace_id,
-            thread_id = excluded.thread_id,
-            agent_id = excluded.agent_id,
-            source_timestamp = excluded.source_timestamp,
-            updated_at = excluded.updated_at,
-            claimed_at = CASE
-                WHEN embedding_jobs.content_hash = excluded.content_hash THEN embedding_jobs.claimed_at
-                ELSE NULL
-            END,
-            attempts = CASE
-                WHEN embedding_jobs.content_hash = excluded.content_hash THEN embedding_jobs.attempts
-                ELSE 0
-            END,
-            last_error = CASE
-                WHEN embedding_jobs.content_hash = excluded.content_hash THEN embedding_jobs.last_error
-                ELSE NULL
-            END",
-        params![
-            job.source_kind,
-            job.source_id,
-            job.chunk_id,
-            content_hash,
-            title,
-            body,
-            job.workspace_id,
-            job.thread_id,
-            job.agent_id,
-            job.source_timestamp,
-            now,
-        ],
+            attempts
+        FROM embedding_jobs job
+        WHERE (job.claimed_at IS NULL OR job.claimed_at <= ?3)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM embedding_job_completions completion
+            WHERE completion.source_kind = job.source_kind
+              AND completion.source_id = job.source_id
+              AND completion.chunk_id = job.chunk_id
+              AND completion.content_hash = job.content_hash
+              AND completion.embedding_model = ?1
+              AND completion.dimensions = ?2
+          )
+        ORDER BY job.updated_at ASC, job.chunk_id ASC
+        LIMIT ?4",
     )?;
+    let rows = stmt.query_map(
+        params![embedding_model, dimensions, stale_before, limit],
+        |row| {
+            Ok(EmbeddingJob {
+                source_kind: row.get(0)?,
+                source_id: row.get(1)?,
+                chunk_id: row.get(2)?,
+                content_hash: row.get(3)?,
+                title: row.get(4)?,
+                body: row.get(5)?,
+                workspace_id: row.get(6)?,
+                thread_id: row.get(7)?,
+                agent_id: row.get(8)?,
+                source_timestamp: row.get(9)?,
+                attempts: row.get(10)?,
+            })
+        },
+    )?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+}
+
+fn enqueue_embedding_job_on_connection(
+    connection: &Connection,
+    job: &EmbeddingJobInput,
+    now: i64,
+) -> rusqlite::Result<()> {
+    let chunks = chunk_embedding_body(&job.body);
+    if chunks.is_empty() {
+        return Ok(());
+    }
+    let title = job.title.trim();
+    let active_chunk_ids = chunks
+        .iter()
+        .enumerate()
+        .map(|(index, _)| chunk_id_for(&job.chunk_id, index))
+        .collect::<Vec<_>>();
+    delete_stale_embedding_chunks(
+        connection,
+        &job.source_kind,
+        &job.source_id,
+        &active_chunk_ids,
+    )?;
+    for (body, chunk_id) in chunks.iter().zip(active_chunk_ids) {
+        let content_hash = content_hash(body);
+        connection.execute(
+            "INSERT INTO embedding_jobs (
+                source_kind,
+                source_id,
+                chunk_id,
+                content_hash,
+                title,
+                body,
+                workspace_id,
+                thread_id,
+                agent_id,
+                source_timestamp,
+                queued_at,
+                updated_at,
+                claimed_at,
+                attempts,
+                last_error
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, NULL, 0, NULL)
+            ON CONFLICT(source_kind, source_id, chunk_id) DO UPDATE SET
+                content_hash = excluded.content_hash,
+                title = excluded.title,
+                body = excluded.body,
+                workspace_id = excluded.workspace_id,
+                thread_id = excluded.thread_id,
+                agent_id = excluded.agent_id,
+                source_timestamp = excluded.source_timestamp,
+                updated_at = excluded.updated_at,
+                claimed_at = CASE
+                    WHEN embedding_jobs.content_hash = excluded.content_hash THEN embedding_jobs.claimed_at
+                    ELSE NULL
+                END,
+                attempts = CASE
+                    WHEN embedding_jobs.content_hash = excluded.content_hash THEN embedding_jobs.attempts
+                    ELSE 0
+                END,
+                last_error = CASE
+                    WHEN embedding_jobs.content_hash = excluded.content_hash THEN embedding_jobs.last_error
+                    ELSE NULL
+                END",
+            params![
+                job.source_kind,
+                job.source_id,
+                chunk_id,
+                content_hash,
+                title,
+                body,
+                job.workspace_id,
+                job.thread_id,
+                job.agent_id,
+                job.source_timestamp,
+                now,
+            ],
+        )?;
+    }
     Ok(())
 }
 
@@ -247,55 +390,44 @@ impl HistoryStore {
                 let transaction = conn.transaction()?;
                 let now = now_ts() as i64;
                 let stale_before = now.saturating_sub(CLAIM_STALE_AFTER_SECS);
-                let jobs = {
-                    let mut stmt = transaction.prepare(
-                        "SELECT
-                            source_kind,
-                            source_id,
-                            chunk_id,
-                            content_hash,
-                            title,
-                            body,
-                            workspace_id,
-                            thread_id,
-                            agent_id,
-                            source_timestamp,
-                            attempts
-                        FROM embedding_jobs job
-                        WHERE (job.claimed_at IS NULL OR job.claimed_at <= ?3)
-                          AND NOT EXISTS (
-                            SELECT 1
-                            FROM embedding_job_completions completion
-                            WHERE completion.source_kind = job.source_kind
-                              AND completion.source_id = job.source_id
-                              AND completion.chunk_id = job.chunk_id
-                              AND completion.content_hash = job.content_hash
-                              AND completion.embedding_model = ?1
-                              AND completion.dimensions = ?2
-                          )
-                        ORDER BY job.updated_at ASC
-                        LIMIT ?4",
+                let mut jobs = select_claimable_embedding_jobs(
+                    &transaction,
+                    &embedding_model,
+                    dimensions,
+                    stale_before,
+                    limit,
+                )?;
+                let oversized_jobs = jobs
+                    .iter()
+                    .filter(|job| chunk_embedding_body(&job.body).len() > 1)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !oversized_jobs.is_empty() {
+                    for job in oversized_jobs {
+                        enqueue_embedding_job_on_connection(
+                            &transaction,
+                            &EmbeddingJobInput {
+                                source_kind: job.source_kind,
+                                source_id: job.source_id,
+                                chunk_id: job.chunk_id,
+                                title: job.title,
+                                body: job.body,
+                                workspace_id: job.workspace_id,
+                                thread_id: job.thread_id,
+                                agent_id: job.agent_id,
+                                source_timestamp: job.source_timestamp,
+                            },
+                            now,
+                        )?;
+                    }
+                    jobs = select_claimable_embedding_jobs(
+                        &transaction,
+                        &embedding_model,
+                        dimensions,
+                        stale_before,
+                        limit,
                     )?;
-                    let rows = stmt.query_map(
-                        params![embedding_model, dimensions, stale_before, limit],
-                        |row| {
-                            Ok(EmbeddingJob {
-                                source_kind: row.get(0)?,
-                                source_id: row.get(1)?,
-                                chunk_id: row.get(2)?,
-                                content_hash: row.get(3)?,
-                                title: row.get(4)?,
-                                body: row.get(5)?,
-                                workspace_id: row.get(6)?,
-                                thread_id: row.get(7)?,
-                                agent_id: row.get(8)?,
-                                source_timestamp: row.get(9)?,
-                                attempts: row.get(10)?,
-                            })
-                        },
-                    )?;
-                    rows.collect::<std::result::Result<Vec<_>, _>>()?
-                };
+                }
 
                 for job in &jobs {
                     transaction.execute(

@@ -1186,11 +1186,13 @@ fn thread_deleted_event_reclamps_open_thread_picker_cursor() {
     model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
         chat::AgentThread {
             id: "thread-1".into(),
+            agent_name: Some("Svarog".into()),
             title: "Thread One".into(),
             ..Default::default()
         },
         chat::AgentThread {
             id: "thread-2".into(),
+            agent_name: Some("Svarog".into()),
             title: "Thread Two".into(),
             ..Default::default()
         },

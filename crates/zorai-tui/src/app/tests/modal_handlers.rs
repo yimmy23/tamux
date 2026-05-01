@@ -4638,6 +4638,7 @@ fn thread_picker_delete_requires_confirmation_before_sending_delete_thread() {
     model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
         chat::AgentThread {
             id: "thread-1".into(),
+            agent_name: Some("Svarog".into()),
             title: "Thread One".into(),
             ..Default::default()
         },
@@ -4680,6 +4681,7 @@ fn thread_picker_ctrl_s_busy_thread_requires_confirmation_before_stop() {
     model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
         chat::AgentThread {
             id: "thread-1".into(),
+            agent_name: Some("Svarog".into()),
             title: "Thread One".into(),
             ..Default::default()
         },
@@ -4727,6 +4729,7 @@ fn thread_picker_ctrl_s_on_stopped_thread_requires_confirmation_before_resume() 
     model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
         chat::AgentThread {
             id: "thread-1".into(),
+            agent_name: Some("Svarog".into()),
             title: "Thread One".into(),
             messages: vec![chat::AgentMessage {
                 role: chat::MessageRole::Assistant,

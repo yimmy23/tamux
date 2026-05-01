@@ -253,6 +253,9 @@ impl TuiModel {
             self.input.set_mode(input::InputMode::Insert);
             return false;
         }
+        let goal_composer_prompt_matches_input =
+            matches!(self.main_pane_view, MainPaneView::GoalComposer)
+                && self.goal_mission_control.prompt_text() == self.input.buffer();
         self.input.reduce(input::InputAction::Submit);
         if let Some(prompt) = self.input.take_submitted() {
             if self.should_show_operator_profile_onboarding() {
@@ -272,6 +275,9 @@ impl TuiModel {
                 return false;
             }
             if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
+                if goal_composer_prompt_matches_input {
+                    self.goal_mission_control.set_prompt_text(prompt);
+                }
                 self.start_goal_run_from_mission_control();
                 return false;
             }

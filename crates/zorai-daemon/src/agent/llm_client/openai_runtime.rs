@@ -162,15 +162,17 @@ fn build_openai_chat_completions_body(
         chat_completions_replays_tool_reasoning_content(provider);
     let include_non_tool_reasoning_content =
         chat_completions_replays_non_tool_reasoning_content(provider);
+    let include_non_tool_reasoning_content_after_tool_call =
+        chat_completions_replays_non_tool_reasoning_content_after_tool_call(provider);
     let synthesize_missing_tool_reasoning_content =
-        provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER
-        && normalize_reasoning_effort(&config.reasoning_effort).is_some();
+        chat_completions_repairs_missing_tool_reasoning_content(provider, config);
     let all_messages = build_chat_completion_messages_with_options(
         system_prompt,
         messages,
         include_tool_reasoning_content,
         synthesize_missing_tool_reasoning_content,
         include_non_tool_reasoning_content,
+        include_non_tool_reasoning_content_after_tool_call,
     )?;
 
     let mut body = serde_json::json!({
@@ -229,6 +231,19 @@ fn chat_completions_replays_tool_reasoning_content(provider: &str) -> bool {
 
 fn chat_completions_replays_non_tool_reasoning_content(provider: &str) -> bool {
     provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER
+}
+
+fn chat_completions_replays_non_tool_reasoning_content_after_tool_call(provider: &str) -> bool {
+    provider == zorai_shared::providers::PROVIDER_ID_DEEPSEEK
+}
+
+fn chat_completions_repairs_missing_tool_reasoning_content(
+    provider: &str,
+    config: &ProviderConfig,
+) -> bool {
+    provider == zorai_shared::providers::PROVIDER_ID_DEEPSEEK
+        || (provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER
+            && normalize_reasoning_effort(&config.reasoning_effort).is_some())
 }
 
 fn messages_to_responses_input(
