@@ -135,6 +135,29 @@ pub fn plugin_schema_v1() -> serde_json::Value {
                     "scopes": { "type": "array", "items": { "type": "string" } },
                     "pkce": { "type": "boolean", "default": false }
                 }
+            },
+            "connector": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                    "kind": { "type": "string", "minLength": 1 },
+                    "category": { "type": "string" },
+                    "setup_hint": { "type": "string" },
+                    "docs_path": { "type": "string" },
+                    "readiness_endpoint": { "type": "string" },
+                    "workflow_primitives": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "read_actions": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "write_actions": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    }
+                }
             }
         },
         "additionalProperties": true

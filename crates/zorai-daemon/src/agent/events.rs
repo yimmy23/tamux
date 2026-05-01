@@ -20,6 +20,8 @@ impl AgentEngine {
                     "WELES health changed to {state}. Review the reason, diagnose the failing background path, and take the safest recovery action."
                         .to_string(),
                 ),
+                tool_name: None,
+                tool_payload_json: None,
                 title_template: "WELES health degraded".to_string(),
                 body_template:
                     "WELES health changed to {state}. Review reason and consider intervention."
@@ -27,6 +29,7 @@ impl AgentEngine {
                 created_at: now,
                 updated_at: now,
                 last_fired_at: None,
+                max_retries: 3,
             },
             EventTriggerRow {
                 id: "trigger-health-subagent-stuck".to_string(),
@@ -43,6 +46,8 @@ impl AgentEngine {
                     "Subagent {task_id} entered {state} because {reason}. Assess recovery options, prefer safe automated continuation, and escalate only if recovery is not credible."
                         .to_string(),
                 ),
+                tool_name: None,
+                tool_payload_json: None,
                 title_template: "Subagent stuck".to_string(),
                 body_template:
                     "Subagent {task_id} entered {state}. Review reason and decide whether to intervene."
@@ -50,6 +55,7 @@ impl AgentEngine {
                 created_at: now,
                 updated_at: now,
                 last_fired_at: None,
+                max_retries: 3,
             },
             EventTriggerRow {
                 id: "trigger-filesystem-file-changed".to_string(),
@@ -66,11 +72,14 @@ impl AgentEngine {
                     "The file at {path} changed. Review whether the operator likely needs follow-up."
                         .to_string(),
                 ),
+                tool_name: None,
+                tool_payload_json: None,
                 title_template: "File changed: {path}".to_string(),
                 body_template: "Observed file change for {path}".to_string(),
                 created_at: now,
                 updated_at: now,
                 last_fired_at: None,
+                max_retries: 3,
             },
             EventTriggerRow {
                 id: "trigger-system-disk-pressure".to_string(),
@@ -87,11 +96,14 @@ impl AgentEngine {
                     "Disk pressure detected on {mount} at {usage_pct}. Investigate and suggest cleanup actions."
                         .to_string(),
                 ),
+                tool_name: None,
+                tool_payload_json: None,
                 title_template: "Disk pressure on {mount}".to_string(),
                 body_template: "Disk usage on {mount} is {usage_pct}".to_string(),
                 created_at: now,
                 updated_at: now,
                 last_fired_at: None,
+                max_retries: 3,
             },
         ];
 
@@ -126,6 +138,8 @@ impl AgentEngine {
                     "risk_label": row.risk_label,
                     "notification_kind": row.notification_kind,
                     "prompt_template": row.prompt_template,
+                    "tool_name": row.tool_name,
+                    "tool_payload": row.tool_payload_json.as_deref().and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok()),
                     "title_template": row.title_template,
                     "body_template": row.body_template,
                     "created_at": row.created_at,
@@ -209,6 +223,22 @@ impl AgentEngine {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
+        let tool_name = args
+            .get("tool_name")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let tool_payload_json = match args.get("tool_payload") {
+            None => None,
+            Some(serde_json::Value::Object(map)) => {
+                Some(serde_json::Value::Object(map.clone()).to_string())
+            }
+            Some(_) => anyhow::bail!("'tool_payload' must be an object when provided"),
+        };
+        if tool_payload_json.is_some() && tool_name.is_none() {
+            anyhow::bail!("'tool_payload' requires 'tool_name'");
+        }
         let trigger_id = args
             .get("id")
             .and_then(|value| value.as_str())
@@ -230,11 +260,14 @@ impl AgentEngine {
             risk_label: risk_label.to_string(),
             notification_kind: notification_kind.to_string(),
             prompt_template,
+            tool_name,
+            tool_payload_json,
             title_template: title_template.to_string(),
             body_template: body_template.to_string(),
             created_at: now,
             updated_at: now,
             last_fired_at: None,
+            max_retries: 3,
         };
 
         self.history.upsert_event_trigger(&row).await?;
@@ -252,6 +285,8 @@ impl AgentEngine {
                 "risk_label": row.risk_label,
                 "notification_kind": row.notification_kind,
                 "prompt_template": row.prompt_template,
+                "tool_name": row.tool_name,
+                "tool_payload": row.tool_payload_json.as_deref().and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok()),
                 "title_template": row.title_template,
                 "body_template": row.body_template,
                 "created_at": row.created_at,
@@ -336,9 +371,102 @@ impl AgentEngine {
             if let Some(last_fired_at) = row.last_fired_at {
                 let cooldown_ms = row.cooldown_secs.saturating_mul(1000);
                 if now < last_fired_at.saturating_add(cooldown_ms) {
+                    // Record cooldown suppression
+                    if let Err(error) = self
+                        .history
+                        .insert_trigger_fire_history(&crate::history::TriggerFireHistoryRow {
+                            id: format!("trigger_fire_{}", uuid::Uuid::new_v4()),
+                            trigger_id: row.id.clone(),
+                            event_family: row.event_family.clone(),
+                            event_kind: row.event_kind.clone(),
+                            status: "suppressed".to_string(),
+                            fired_at_ms: now,
+                            completed_at_ms: None,
+                            retry_count: 0,
+                            error_message: Some("trigger suppressed by cooldown".to_string()),
+                            created_task_id: None,
+                            notice_id: None,
+                            payload_json: serde_json::to_string(&context).unwrap_or_default(),
+                        })
+                        .await
+                    {
+                        tracing::warn!(
+                            trigger_id = %row.id,
+                            error = %error,
+                            "failed to record suppressed trigger fire history"
+                        );
+                    }
                     continue;
                 }
             }
+
+            // Determine retry count from recent failed attempts for this trigger + event context
+            let recent_attempts = self
+                .history
+                .list_trigger_fire_history(Some(&row.id), Some("failed"), 10)
+                .await
+                .unwrap_or_default();
+            let retry_count = recent_attempts.len() as u64;
+            let is_dead = retry_count >= row.max_retries as u64;
+
+            if is_dead {
+                // Record dead_letter and skip execution
+                if let Err(error) = self
+                    .history
+                    .insert_trigger_fire_history(&crate::history::TriggerFireHistoryRow {
+                        id: format!("trigger_fire_{}", uuid::Uuid::new_v4()),
+                        trigger_id: row.id.clone(),
+                        event_family: row.event_family.clone(),
+                        event_kind: row.event_kind.clone(),
+                        status: "dead_letter".to_string(),
+                        fired_at_ms: now,
+                        completed_at_ms: Some(now),
+                        retry_count,
+                        error_message: Some(format!("max retries ({}) exhausted", row.max_retries)),
+                        created_task_id: None,
+                        notice_id: None,
+                        payload_json: serde_json::to_string(&context).unwrap_or_default(),
+                    })
+                    .await
+                {
+                    tracing::warn!(
+                        trigger_id = %row.id,
+                        error = %error,
+                        "failed to record dead_letter trigger fire history"
+                    );
+                }
+                continue;
+            }
+
+            let fire_id = format!("trigger_fire_{}", uuid::Uuid::new_v4());
+            let fire_history_recorded = match self
+                .history
+                .insert_trigger_fire_history(&crate::history::TriggerFireHistoryRow {
+                    id: fire_id.clone(),
+                    trigger_id: row.id.clone(),
+                    event_family: row.event_family.clone(),
+                    event_kind: row.event_kind.clone(),
+                    status: "fired".to_string(),
+                    fired_at_ms: now,
+                    completed_at_ms: None,
+                    retry_count,
+                    error_message: None,
+                    created_task_id: None,
+                    notice_id: None,
+                    payload_json: serde_json::to_string(&context).unwrap_or_default(),
+                })
+                .await
+            {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!(
+                        trigger_id = %row.id,
+                        error = %error,
+                        "failed to record trigger fire history"
+                    );
+                    false
+                }
+            };
 
             let title = render_event_trigger_template(&row.title_template, state, &context);
             let body = render_event_trigger_template(&row.body_template, state, &context);
@@ -348,14 +476,78 @@ impl AgentEngine {
                 title,
                 Some(body),
             );
-            self.log_fired_event_trigger(&row, state, thread_id, &context, now)
-                .await?;
-            self.maybe_queue_event_trigger_task(&row, state, thread_id, &context)
-                .await?;
-            self.history
-                .record_event_trigger_fired(&row.id, now)
-                .await?;
-            fired = fired.saturating_add(1);
+
+            let execution_result: Result<Option<AgentTask>> = async {
+                self.log_fired_event_trigger(&row, state, thread_id, &context, now)
+                    .await?;
+                self.maybe_execute_event_trigger_tool(&row, state, thread_id, &context)
+                    .await?;
+                let created_task = if row.tool_name.is_none() {
+                    self.maybe_queue_event_trigger_task(&row, state, thread_id, &context)
+                        .await?
+                } else {
+                    None
+                };
+                self.history
+                    .record_event_trigger_fired(&row.id, now)
+                    .await?;
+                Ok(created_task)
+            }
+            .await;
+
+            match execution_result {
+                Ok(created_task) => {
+                    if fire_history_recorded {
+                        if let Err(error) = self
+                            .history
+                            .update_trigger_fire_status(
+                                &fire_id,
+                                "succeeded",
+                                None,
+                                created_task.as_ref().map(|task| task.id.as_str()),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                trigger_id = %row.id,
+                                fire_id = %fire_id,
+                                error = %error,
+                                "failed to update trigger fire history to succeeded"
+                            );
+                        }
+                    }
+                    fired = fired.saturating_add(1);
+                }
+                Err(error) => {
+                    let error_message = error.to_string();
+                    if fire_history_recorded {
+                        if let Err(update_error) = self
+                            .history
+                            .update_trigger_fire_status(
+                                &fire_id,
+                                "failed",
+                                Some(&error_message),
+                                None,
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                trigger_id = %row.id,
+                                fire_id = %fire_id,
+                                error = %update_error,
+                                "failed to update trigger fire history to failed"
+                            );
+                        }
+                    }
+                    self.emit_workflow_notice(
+                        thread_id.unwrap_or("system"),
+                        "event_trigger_failed",
+                        format!("Trigger `{}` failed", row.id),
+                        Some(error_message.clone()),
+                    );
+                    return Err(error);
+                }
+            }
         }
 
         Ok(fired)
@@ -520,6 +712,74 @@ impl AgentEngine {
         self.persist_tasks().await;
         Some(updated)
     }
+
+    async fn maybe_execute_event_trigger_tool(
+        &self,
+        row: &EventTriggerRow,
+        state: Option<&str>,
+        thread_id: Option<&str>,
+        context: &serde_json::Value,
+    ) -> Result<()> {
+        let Some(tool_name) = row
+            .tool_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(());
+        };
+
+        let effective_thread_id = thread_id.or(row.thread_id.as_deref()).unwrap_or("system");
+        let mut tool_args = serde_json::json!({
+            "payload": context.clone(),
+        });
+        if let Some(state) = state {
+            tool_args["state"] = serde_json::Value::String(state.to_string());
+        }
+        if let Some(thread_id) = thread_id.or(row.thread_id.as_deref()) {
+            tool_args["thread_id"] = serde_json::Value::String(thread_id.to_string());
+        }
+        if let Some(tool_payload_json) = row.tool_payload_json.as_deref() {
+            let payload =
+                serde_json::from_str::<serde_json::Value>(tool_payload_json).map_err(|error| {
+                    anyhow::anyhow!("invalid tool payload for trigger {}: {}", row.id, error)
+                })?;
+            if !payload.is_object() {
+                anyhow::bail!(
+                    "event trigger {} tool payload must be a JSON object",
+                    row.id
+                );
+            }
+            merge_event_trigger_json_value(
+                &mut tool_args,
+                render_event_trigger_value_templates(&payload, state, context),
+            );
+        }
+
+        match tool_name {
+            "run_workflow_pack" => {
+                let execution = self
+                    .run_workflow_pack_json(&tool_args, Some(effective_thread_id), None)
+                    .await?;
+                if let Some(pending_approval) = execution.pending_approval.as_ref() {
+                    self.remember_pending_approval_command(pending_approval)
+                        .await;
+                    self.record_operator_approval_requested(pending_approval)
+                        .await?;
+                    let _ = self
+                        .maybe_send_gateway_thread_approval_request(
+                            effective_thread_id,
+                            pending_approval,
+                        )
+                        .await;
+                }
+                Ok(())
+            }
+            other => anyhow::bail!(
+                "event trigger direct tool `{other}` is not supported; use run_workflow_pack"
+            ),
+        }
+    }
 }
 
 fn render_event_trigger_template(
@@ -538,6 +798,53 @@ fn render_event_trigger_template(
         }
     }
     rendered
+}
+
+fn render_event_trigger_value_templates(
+    value: &serde_json::Value,
+    state: Option<&str>,
+    context: &serde_json::Value,
+) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(text) => {
+            serde_json::Value::String(render_event_trigger_template(text, state, context))
+        }
+        serde_json::Value::Array(items) => serde_json::Value::Array(
+            items
+                .iter()
+                .map(|item| render_event_trigger_value_templates(item, state, context))
+                .collect(),
+        ),
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.iter()
+                .map(|(key, value)| {
+                    (
+                        key.clone(),
+                        render_event_trigger_value_templates(value, state, context),
+                    )
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+fn merge_event_trigger_json_value(base: &mut serde_json::Value, patch: serde_json::Value) {
+    match (base, patch) {
+        (serde_json::Value::Object(base_map), serde_json::Value::Object(patch_map)) => {
+            for (key, patch_value) in patch_map {
+                match base_map.get_mut(&key) {
+                    Some(base_value) => merge_event_trigger_json_value(base_value, patch_value),
+                    None => {
+                        base_map.insert(key, patch_value);
+                    }
+                }
+            }
+        }
+        (base_slot, patch_value) => {
+            *base_slot = patch_value;
+        }
+    }
 }
 
 fn normalize_event_trigger_target_agent(agent_id: Option<&str>) -> Option<String> {

@@ -1316,6 +1316,10 @@ impl ChatState {
                     if model.is_some() {
                         thread.runtime_model = model.clone();
                     }
+                    let turn_context_tokens = input_tokens.saturating_add(output_tokens);
+                    if turn_context_tokens > 0 {
+                        thread.latest_turn_context_tokens = Some(turn_context_tokens);
+                    }
                     if let Some(reasoning_effort) =
                         extract_reasoning_effort(provider_final_result_json.as_deref())
                     {
@@ -1416,6 +1420,8 @@ impl ChatState {
                                     existing.active_context_window_end;
                                 incoming.active_context_window_tokens =
                                     existing.active_context_window_tokens;
+                                incoming.latest_turn_context_tokens =
+                                    existing.latest_turn_context_tokens;
                                 incoming.older_page_pending = existing.older_page_pending;
                                 incoming.older_page_request_cooldown_until_tick =
                                     existing.older_page_request_cooldown_until_tick;
@@ -1495,6 +1501,10 @@ impl ChatState {
                         existing.active_context_window_end = incoming.active_context_window_end;
                         existing.active_context_window_tokens =
                             incoming.active_context_window_tokens;
+                        if incoming.latest_turn_context_tokens.is_some() {
+                            existing.latest_turn_context_tokens =
+                                incoming.latest_turn_context_tokens;
+                        }
                     }
                     existing.older_page_pending = false;
                     existing.older_page_request_cooldown_until_tick = existing
@@ -1653,6 +1663,7 @@ impl ChatState {
                     thread.active_context_window_start = None;
                     thread.active_context_window_end = None;
                     thread.active_context_window_tokens = None;
+                    thread.latest_turn_context_tokens = None;
                     thread.older_page_pending = false;
                     thread.older_page_request_cooldown_until_tick = None;
                     thread.history_window_expanded = false;

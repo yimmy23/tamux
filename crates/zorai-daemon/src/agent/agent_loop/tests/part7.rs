@@ -568,6 +568,93 @@ async fn metacognitive_warning_repeated_tool_calls_remain_advisory() {
 }
 
 #[tokio::test]
+async fn repeated_get_operation_status_polling_is_not_suppressed_as_stuck_loop() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let record = crate::server::operation_registry()
+        .accept_operation("scripted_poll", Some("tool-test:scripted-poll".to_string()));
+    crate::server::operation_registry().mark_started(&record.operation_id);
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(
+        (0..4)
+            .map(|_| {
+                (
+                    "get_operation_status".to_string(),
+                    serde_json::json!({
+                        "operation_id": record.operation_id,
+                    })
+                    .to_string(),
+                )
+            })
+            .collect(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 5;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-operation-status-repeat-polling";
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "Poll the background operation until it changes state.",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let threads = engine.threads.read().await;
+    let thread = threads.get(thread_id).expect("thread should exist");
+    let operation_status_results = thread
+        .messages
+        .iter()
+        .filter(|message| {
+            message.role == MessageRole::Tool
+                && message.tool_name.as_deref() == Some("get_operation_status")
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        operation_status_results.len(),
+        4,
+        "identical operation status polling calls should all execute"
+    );
+    assert!(
+        operation_status_results.iter().all(|message| {
+            message.tool_status.as_deref() == Some("done")
+                && message.content.contains(&record.operation_id)
+                && message.content.contains("\"kind\":\"scripted_poll\"")
+        }),
+        "operation status polling should return real status payloads: {:?}",
+        operation_status_results
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(!thread.messages.iter().any(|message| {
+        message.role == MessageRole::Tool
+            && message.tool_name.as_deref() == Some("get_operation_status")
+            && message
+                .content
+                .contains("Repeated identical tool call suppressed")
+    }));
+}
+
+#[tokio::test]
 async fn neutral_investigative_sequence_does_not_false_positive_confirmation_bias() {
     let root = tempdir().unwrap();
     let readable_path = root.path().join("neutral.txt");

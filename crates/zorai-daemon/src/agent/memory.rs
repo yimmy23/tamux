@@ -26,8 +26,19 @@ const SHARED_SOUL_FOOTER: &str = "\
 - Security: governance, approvals, critique, and audit trails\n\
 - Daemon is the source of truth. Memory is curated, not dumped.\n";
 
+fn display_agent_name_for_scope(scope_id: &str) -> String {
+    let trimmed = scope_id.trim();
+    if trimmed.is_empty() {
+        return "Agent".to_string();
+    }
+    if !is_main_agent_scope(trimmed) && canonical_agent_id(trimmed) == MAIN_AGENT_ID {
+        return trimmed.to_string();
+    }
+    canonical_agent_name(trimmed).to_string()
+}
+
 fn default_soul_for_scope(scope_id: &str) -> String {
-    let agent_name = canonical_agent_name(scope_id);
+    let agent_name = display_agent_name_for_scope(scope_id);
     let identity = match scope_id.trim().to_ascii_lowercase().as_str() {
         "svarog" | "swarog" | "main" | "main-agent" | "assistant" => format!(
             "# Identity\n\

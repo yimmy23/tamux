@@ -8,7 +8,7 @@ use crate::providers;
 use crate::state::concierge::ConciergeState;
 use crate::state::config::ConfigState;
 use crate::state::modal::{ModalState, WhatsAppLinkPhase};
-use crate::state::settings::{PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
 use crate::state::subagents::SubAgentsState;
 use crate::theme::ThemeTokens;
 use crate::widgets::message::wrap_text;

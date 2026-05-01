@@ -34,6 +34,7 @@ import {
     normalizeTuiChatHistoryPageSize,
 } from "../../lib/chatHistoryPageSize";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
+import { OpenRouterProviderRoutingControls } from "./OpenRouterProviderRoutingControls";
 
 type SemanticIndexStatus = {
     queued_jobs?: number;
@@ -44,6 +45,7 @@ type SemanticIndexStatus = {
     failed_deletions?: number;
     error?: string;
 };
+
 
 export function AgentTab({
     settings, updateSetting, resetSettings,
@@ -694,6 +696,13 @@ export function AgentTab({
                                 </button>
                             </div>
                         </div>
+                    ) : null}
+                    {settings.active_provider === "openrouter" ? (
+                        <OpenRouterProviderRoutingControls
+                            config={providerConfig}
+                            baseUrl={providerConfig.base_url || providerDef?.defaultBaseUrl || "https://openrouter.ai/api/v1"}
+                            onChange={(nextConfig) => updateSetting("openrouter", nextConfig)}
+                        />
                     ) : null}
                     {providerApiType === "openai" ? (
                         <SettingRow label="Auth">

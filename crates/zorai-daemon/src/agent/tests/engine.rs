@@ -53,6 +53,9 @@ fn provider_config(
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
     }
 }
 
@@ -230,6 +233,9 @@ async fn hydrate_restores_user_defined_subagent_thread_identity() {
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 1,
     });
     let (engine, temp_dir) = make_test_engine(config.clone()).await;
@@ -1576,4 +1582,433 @@ async fn invalid_due_routine_records_failed_run_history() {
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].status, "success");
     assert_eq!(runs[0].trigger_kind, "scheduled");
+}
+
+#[tokio::test]
+async fn daily_brief_workflow_pack_uses_preview_sections_without_connector_access() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+
+    let result = engine
+        .run_workflow_pack_json(
+            &serde_json::json!({
+                "pack_name": "daily-brief",
+                "mode": "focused",
+                "include_inbox": true,
+                "inbox_preview": "- message one\n- message two",
+                "include_calendar": true,
+                "calendar_preview": "- standup at 09:00",
+            }),
+            Some("thread-daily-brief"),
+            None,
+        )
+        .await
+        .expect("daily brief workflow pack should execute");
+
+    assert!(result.pending_approval.is_none());
+    assert_eq!(result.payload["status"], serde_json::json!("ok"));
+    assert_eq!(
+        result.payload["pack_name"],
+        serde_json::json!("daily-brief")
+    );
+    assert_eq!(result.payload["mode"], serde_json::json!("focused"));
+    assert_eq!(
+        result.payload["sections"]["inbox"]["state"],
+        serde_json::json!("available")
+    );
+    assert_eq!(
+        result.payload["sections"]["inbox"]["metadata"]["source"],
+        serde_json::json!("preview")
+    );
+    assert_eq!(
+        result.payload["sections"]["calendar"]["state"],
+        serde_json::json!("available")
+    );
+    assert_eq!(
+        result.payload["sections"]["calendar"]["metadata"]["source"],
+        serde_json::json!("preview")
+    );
+}
+
+#[tokio::test]
+async fn daily_brief_workflow_pack_requires_approval_for_external_delivery() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+
+    let result = engine
+        .run_workflow_pack_json(
+            &serde_json::json!({
+                "pack_name": "daily-brief",
+                "deliver_now": true,
+                "delivery_channel": "slack",
+            }),
+            Some("thread-daily-approval"),
+            None,
+        )
+        .await
+        .expect("daily brief approval gate should return a structured result");
+
+    let pending = result
+        .pending_approval
+        .expect("external delivery should require approval");
+    assert_eq!(
+        result.payload["status"],
+        serde_json::json!("approval_required")
+    );
+    assert_eq!(
+        result.payload["pack_name"],
+        serde_json::json!("daily-brief")
+    );
+    assert_eq!(
+        result.payload["delivery_channel"],
+        serde_json::json!("slack")
+    );
+    assert!(pending.command.contains("run_workflow_pack daily-brief"));
+    assert!(pending.command.contains("deliver brief via slack"));
+}
+
+#[tokio::test]
+async fn pr_issue_triage_workflow_pack_uses_preview_inputs_and_exposes_writeback_suggestions() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+
+    let result = engine
+        .run_workflow_pack_json(
+            &serde_json::json!({
+                "pack_name": "pr-issue-triage",
+                "repo_preview": "PR #17 waiting on review",
+                "tracker_preview": "ISSUE-9 blocked by missing scope",
+                "include_writeback_suggestions": true,
+            }),
+            Some("thread-pr-triage"),
+            None,
+        )
+        .await
+        .expect("pr/issue triage workflow pack should execute");
+
+    assert!(result.pending_approval.is_none());
+    assert_eq!(result.payload["status"], serde_json::json!("ok"));
+    assert_eq!(
+        result.payload["pack_name"],
+        serde_json::json!("pr-issue-triage")
+    );
+    assert_eq!(
+        result.payload["repo_section"]["metadata"]["source"],
+        serde_json::json!("provided-preview")
+    );
+    assert_eq!(
+        result.payload["tracker_section"]["metadata"]["source"],
+        serde_json::json!("provided-preview")
+    );
+    assert!(result.payload["writeback_suggestions"]
+        .as_array()
+        .is_some_and(|items| !items.is_empty()));
+}
+
+#[tokio::test]
+async fn inbox_calendar_triage_workflow_pack_uses_preview_inputs_and_returns_draft_only_suggestions(
+) {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+
+    let result = engine
+        .run_workflow_pack_json(
+            &serde_json::json!({
+                "pack_name": "inbox-calendar-triage",
+                "inbox_preview": "- reply to Alice",
+                "calendar_preview": "- demo at 14:00",
+                "include_reply_drafts": true,
+            }),
+            Some("thread-inbox-calendar"),
+            None,
+        )
+        .await
+        .expect("inbox/calendar triage workflow pack should execute");
+
+    assert!(result.pending_approval.is_none());
+    assert_eq!(result.payload["status"], serde_json::json!("ok"));
+    assert_eq!(
+        result.payload["pack_name"],
+        serde_json::json!("inbox-calendar-triage")
+    );
+    assert_eq!(
+        result.payload["sections"]["inbox"]["metadata"]["source"],
+        serde_json::json!("preview")
+    );
+    assert_eq!(
+        result.payload["sections"]["calendar"]["metadata"]["source"],
+        serde_json::json!("preview")
+    );
+    assert!(result.payload["draft_suggestions"]
+        .as_array()
+        .is_some_and(|items| !items.is_empty()));
+}
+
+#[tokio::test]
+async fn watch_monitor_workflow_pack_reports_meaningful_change_from_payload() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+
+    let result = engine
+        .run_workflow_pack_json(
+            &serde_json::json!({
+                "pack_name": "watch-monitor",
+                "watch_source": "event",
+                "source_ref": "filesystem:file_changed",
+                "previous_snapshot": "status=clean",
+                "payload": {
+                    "path": "src/lib.rs",
+                    "status": "changed"
+                }
+            }),
+            Some("thread-watch-pack"),
+            None,
+        )
+        .await
+        .expect("watch-monitor workflow pack should execute");
+
+    assert!(result.pending_approval.is_none());
+    assert_eq!(result.payload["status"], serde_json::json!("ok"));
+    assert_eq!(
+        result.payload["pack_name"],
+        serde_json::json!("watch-monitor")
+    );
+    assert_eq!(result.payload["watch_source"], serde_json::json!("event"));
+    assert_eq!(result.payload["baseline"], serde_json::json!(false));
+    assert_eq!(result.payload["meaningful_change"], serde_json::json!(true));
+    assert_eq!(result.payload["suppressed"], serde_json::json!(false));
+}
+
+#[tokio::test]
+async fn standup_workflow_pack_reclassifies_expired_browser_profiles_before_reporting_health() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let now_ms = now_millis();
+    let sixty_days_ago = now_ms.saturating_sub(60 * 24 * 60 * 60 * 1000);
+
+    engine
+        .history
+        .upsert_browser_profile(&crate::agent::types::BrowserProfile {
+            profile_id: "expired-work".to_string(),
+            label: "Expired Work Profile".to_string(),
+            profile_dir: "/tmp/zorai/browser/expired-work".to_string(),
+            browser_kind: Some("chrome".to_string()),
+            workspace_id: None,
+            health_state: crate::agent::types::BrowserProfileHealth::Healthy,
+            created_at: sixty_days_ago,
+            updated_at: sixty_days_ago,
+            last_used_at: Some(sixty_days_ago),
+            last_auth_success_at: Some(sixty_days_ago),
+            last_auth_failure_at: None,
+            last_auth_failure_reason: None,
+        })
+        .await
+        .expect("profile should persist");
+
+    let result = engine
+        .run_workflow_pack_json(
+            &serde_json::json!({
+                "pack_name": "standup",
+                "workspace_id": "main",
+            }),
+            Some("thread-standup-browser-expiry"),
+            None,
+        )
+        .await
+        .expect("standup workflow pack should execute");
+
+    assert!(result.pending_approval.is_none());
+    let browser_health = result.payload["sections"]["browser_health"]
+        .as_array()
+        .expect("browser health should be an array");
+    assert!(browser_health.iter().any(|line| {
+        line.as_str()
+            .is_some_and(|line| line.contains("Expired Work Profile") && line.contains("[expired]"))
+    }));
+}
+
+#[tokio::test]
+async fn approval_checkpoint_long_task_pack_creates_task_paused_at_first_checkpoint() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+
+    let result = engine
+        .run_workflow_pack_json(
+            &serde_json::json!({
+                "pack_name": "approval-checkpoint-long-task",
+                "task_kind": "task",
+                "title": "Governed long task",
+                "priority": "high",
+                "summary_cadence": "before each checkpoint",
+                "checkpoint_titles": ["checkpoint-alpha", "checkpoint-beta"],
+                "rollback_notes": ["undo the external mutation"],
+            }),
+            Some("thread-governed-pack"),
+            None,
+        )
+        .await
+        .expect("approval-checkpoint pack should execute");
+
+    assert!(
+        result.pending_approval.is_none(),
+        "task-backed approval-checkpoint pack should record approval internally"
+    );
+    assert_eq!(result.payload["status"], serde_json::json!("ok"));
+    assert_eq!(
+        result.payload["pack_name"],
+        serde_json::json!("approval-checkpoint-long-task")
+    );
+    assert_eq!(
+        engine.pending_operator_approvals.read().await.len(),
+        1,
+        "the first checkpoint should register a pending approval"
+    );
+
+    let tasks = engine.list_tasks().await;
+    let task = tasks
+        .into_iter()
+        .find(|task| task.title == "Governed long task")
+        .expect("workflow-pack task should be created");
+    assert_eq!(task.source, "workflow_pack");
+    assert_eq!(task.status, TaskStatus::AwaitingApproval);
+    assert_eq!(task.priority, TaskPriority::High);
+    assert_eq!(task.thread_id.as_deref(), Some("thread-governed-pack"));
+    assert!(task.awaiting_approval_id.is_some());
+    assert!(task
+        .blocked_reason
+        .as_deref()
+        .unwrap_or_default()
+        .contains("run_workflow_pack approval-checkpoint-long-task"));
+}
+
+#[tokio::test]
+async fn run_routine_now_executes_workflow_pack_tool_and_records_tool_result() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let now = now_millis();
+
+    engine
+        .history
+        .upsert_routine_definition(&crate::history::RoutineDefinitionRow {
+            id: "routine-workflow-pack-tool".to_string(),
+            title: "Workflow pack tool routine".to_string(),
+            description: "Execute daily brief via workflow pack".to_string(),
+            enabled: true,
+            paused_at: None,
+            schedule_expression: "* * * * *".to_string(),
+            target_kind: "tool".to_string(),
+            target_payload_json: serde_json::json!({
+                "tool_name": "run_workflow_pack",
+                "thread_id": "thread-routine-pack",
+                "args": {
+                    "pack_name": "daily-brief",
+                    "include_inbox": true,
+                    "inbox_preview": "- routine inbox preview",
+                    "include_calendar": true,
+                    "calendar_preview": "- routine calendar preview"
+                }
+            })
+            .to_string(),
+            schema_version: 1,
+            next_run_at: Some(now),
+            last_run_at: None,
+            last_result: None,
+            last_error: None,
+            last_success_summary: None,
+            created_at: now.saturating_sub(1_000),
+            updated_at: now,
+        })
+        .await
+        .expect("store workflow-pack tool routine");
+
+    let result = engine
+        .run_routine_now_json("routine-workflow-pack-tool")
+        .await
+        .expect("workflow-pack tool routine should execute");
+
+    assert_eq!(result["status"], serde_json::json!("success"));
+    assert_eq!(result["tool_result"]["status"], serde_json::json!("ok"));
+    assert_eq!(
+        result["tool_result"]["pack_name"],
+        serde_json::json!("daily-brief")
+    );
+    assert_eq!(
+        result["tool_result"]["sections"]["inbox"]["metadata"]["source"],
+        serde_json::json!("preview")
+    );
+    assert!(result["created_task"].is_null());
+    assert!(result["created_goal_run"].is_null());
+    assert_eq!(
+        result["run"]["result_summary"],
+        serde_json::json!("Executed tool run_workflow_pack for daily-brief")
+    );
+
+    let runs = engine
+        .history
+        .list_routine_runs("routine-workflow-pack-tool", 5)
+        .await
+        .expect("list workflow-pack tool routine runs");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].trigger_kind, "run_now");
+    assert_eq!(runs[0].status, "success");
+}
+
+#[tokio::test]
+async fn run_routine_now_records_workflow_pack_approval_requests() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let now = now_millis();
+
+    engine
+        .history
+        .upsert_routine_definition(&crate::history::RoutineDefinitionRow {
+            id: "routine-workflow-pack-approval".to_string(),
+            title: "Workflow pack approval routine".to_string(),
+            description: "Execute approval-gated daily brief delivery".to_string(),
+            enabled: true,
+            paused_at: None,
+            schedule_expression: "* * * * *".to_string(),
+            target_kind: "tool".to_string(),
+            target_payload_json: serde_json::json!({
+                "tool_name": "run_workflow_pack",
+                "thread_id": "thread-routine-approval",
+                "args": {
+                    "pack_name": "daily-brief",
+                    "deliver_now": true,
+                    "delivery_channel": "slack"
+                }
+            })
+            .to_string(),
+            schema_version: 1,
+            next_run_at: Some(now),
+            last_run_at: None,
+            last_result: None,
+            last_error: None,
+            last_success_summary: None,
+            created_at: now.saturating_sub(1_000),
+            updated_at: now,
+        })
+        .await
+        .expect("store workflow-pack approval routine");
+
+    let result = engine
+        .run_routine_now_json("routine-workflow-pack-approval")
+        .await
+        .expect("approval-gated workflow-pack routine should execute");
+
+    assert_eq!(result["status"], serde_json::json!("success"));
+    assert_eq!(
+        result["tool_result"]["status"],
+        serde_json::json!("approval_required")
+    );
+    assert_eq!(
+        result["tool_result"]["pack_name"],
+        serde_json::json!("daily-brief")
+    );
+    assert!(result["tool_result"]["approval_id"].is_string());
+    assert_eq!(
+        engine.pending_operator_approvals.read().await.len(),
+        1,
+        "routine-backed tool execution should record pending approvals surfaced by the pack"
+    );
+
+    let runs = engine
+        .history
+        .list_routine_runs("routine-workflow-pack-approval", 5)
+        .await
+        .expect("list workflow-pack approval routine runs");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].trigger_kind, "run_now");
+    assert_eq!(runs[0].status, "success");
 }

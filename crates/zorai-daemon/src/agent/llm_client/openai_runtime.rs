@@ -73,61 +73,8 @@ async fn run_openai_chat_completions(
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
     let url = build_chat_completion_url(&config.base_url);
-
-    let include_openrouter_reasoning_content =
-        provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER;
-    let synthesize_missing_tool_reasoning_content = include_openrouter_reasoning_content
-        && normalize_reasoning_effort(&config.reasoning_effort).is_some();
-    let all_messages = build_chat_completion_messages_with_options(
-        system_prompt,
-        messages,
-        include_openrouter_reasoning_content,
-        synthesize_missing_tool_reasoning_content,
-    )?;
-
-    let mut body = serde_json::json!({
-        "model": config.model,
-        "messages": all_messages,
-        "stream": true,
-        "stream_options": { "include_usage": true },
-    });
-
-    if !tools.is_empty() {
-        body["tools"] = serde_json::to_value(tools)?;
-        body["tool_choice"] = serde_json::json!("auto");
-    }
-
-    if let Some(ref schema) = config.response_schema {
-        // Try strict json_schema for providers that support it (OpenAI gpt-4o+)
-        if matches!(provider, zorai_shared::providers::PROVIDER_ID_OPENAI)
-            && (config.model.contains("gpt-4o")
-                || config.model.contains("gpt-4.1")
-                || config.model.contains("gpt-5")
-                || config.model.starts_with("o"))
-        {
-            body["response_format"] = serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "structured_output",
-                    "strict": true,
-                    "schema": schema,
-                }
-            });
-        } else {
-            // Fallback: json_object mode (widely supported, no schema enforcement)
-            body["response_format"] = serde_json::json!({ "type": "json_object" });
-        }
-    }
-
-    if dashscope_openai_uses_enable_thinking(provider, &config.model) {
-        body["enable_thinking"] =
-            serde_json::Value::Bool(normalize_reasoning_effort(&config.reasoning_effort).is_some());
-    } else if openai_reasoning_supported(provider, &config.model) {
-        if let Some(effort) = normalize_reasoning_effort(&config.reasoning_effort) {
-            body["reasoning_effort"] = serde_json::Value::String(effort.clone());
-            body["reasoning"] = serde_json::json!({ "effort": effort });
-        }
-    }
+    let body =
+        build_openai_chat_completions_body(provider, config, system_prompt, messages, tools)?;
 
     let req = apply_dashscope_coding_plan_sdk_headers(
         build_openai_auth_request(
@@ -160,11 +107,128 @@ async fn run_openai_chat_completions(
     parse_openai_sse(response, tx).await
 }
 
+fn normalized_openrouter_provider_slugs(values: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for value in values {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || out.iter().any(|existing| existing == trimmed) {
+            continue;
+        }
+        out.push(trimmed.to_string());
+    }
+    out
+}
+
+fn apply_openrouter_provider_routing(
+    provider: &str,
+    config: &ProviderConfig,
+    body: &mut serde_json::Value,
+) {
+    if provider != zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+        return;
+    }
+
+    let order = normalized_openrouter_provider_slugs(&config.openrouter_provider_order);
+    let ignore = normalized_openrouter_provider_slugs(&config.openrouter_provider_ignore);
+    if order.is_empty() && ignore.is_empty() && config.openrouter_allow_fallbacks.is_none() {
+        return;
+    }
+
+    let mut provider_preferences = serde_json::Map::new();
+    if !order.is_empty() {
+        provider_preferences.insert("order".to_string(), serde_json::json!(order));
+    }
+    if !ignore.is_empty() {
+        provider_preferences.insert("ignore".to_string(), serde_json::json!(ignore));
+    }
+    if let Some(allow_fallbacks) = config.openrouter_allow_fallbacks {
+        provider_preferences.insert(
+            "allow_fallbacks".to_string(),
+            serde_json::Value::Bool(allow_fallbacks),
+        );
+    }
+
+    body["provider"] = serde_json::Value::Object(provider_preferences);
+}
+
+fn build_openai_chat_completions_body(
+    provider: &str,
+    config: &ProviderConfig,
+    system_prompt: &str,
+    messages: &[ApiMessage],
+    tools: &[ToolDefinition],
+) -> Result<serde_json::Value> {
+    let include_openrouter_reasoning_content =
+        provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER;
+    let synthesize_missing_tool_reasoning_content = include_openrouter_reasoning_content
+        && normalize_reasoning_effort(&config.reasoning_effort).is_some();
+    let all_messages = build_chat_completion_messages_with_options(
+        system_prompt,
+        messages,
+        include_openrouter_reasoning_content,
+        synthesize_missing_tool_reasoning_content,
+    )?;
+
+    let mut body = serde_json::json!({
+        "model": config.model,
+        "messages": all_messages,
+        "stream": true,
+        "stream_options": { "include_usage": true },
+    });
+
+    if !tools.is_empty() {
+        body["tools"] = serde_json::to_value(tools)?;
+        body["tool_choice"] = serde_json::json!("auto");
+    }
+
+    if let Some(ref schema) = config.response_schema {
+        if matches!(provider, zorai_shared::providers::PROVIDER_ID_OPENAI)
+            && (config.model.contains("gpt-4o")
+                || config.model.contains("gpt-4.1")
+                || config.model.contains("gpt-5")
+                || config.model.starts_with("o"))
+        {
+            body["response_format"] = serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_output",
+                    "strict": true,
+                    "schema": schema,
+                }
+            });
+        } else {
+            body["response_format"] = serde_json::json!({ "type": "json_object" });
+        }
+    }
+
+    if dashscope_openai_uses_enable_thinking(provider, &config.model) {
+        body["enable_thinking"] =
+            serde_json::Value::Bool(normalize_reasoning_effort(&config.reasoning_effort).is_some());
+    } else if openai_reasoning_supported(provider, &config.model) {
+        if let Some(effort) = normalize_reasoning_effort(&config.reasoning_effort) {
+            body["reasoning_effort"] = serde_json::Value::String(effort.clone());
+            body["reasoning"] = serde_json::json!({ "effort": effort });
+        }
+    }
+
+    apply_openrouter_provider_routing(provider, config, &mut body);
+    Ok(body)
+}
+
 fn messages_to_responses_input(
     provider: &str,
     messages: &[ApiMessage],
     previous_response_id: Option<&str>,
 ) -> Vec<serde_json::Value> {
+    let local_function_call_ids: std::collections::HashSet<&str> = messages
+        .iter()
+        .filter(|message| message.role == "assistant")
+        .filter_map(|message| message.tool_calls.as_ref())
+        .flat_map(|tool_calls| tool_calls.iter())
+        .map(|tool_call| tool_call.id.as_str())
+        .filter(|call_id| !call_id.trim().is_empty())
+        .collect();
+
     let emitted_tool_output_call_ids: std::collections::HashSet<&str> = messages
         .iter()
         .filter(|message| message.role == "tool")
@@ -174,6 +238,9 @@ fn messages_to_responses_input(
         })
         .filter_map(|message| message.tool_call_id.as_deref())
         .filter(|call_id| !call_id.trim().is_empty())
+        .filter(|call_id| {
+            previous_response_id.is_some() || local_function_call_ids.contains(call_id)
+        })
         .collect();
 
     messages
@@ -227,6 +294,7 @@ fn messages_to_responses_input(
                 message
                     .tool_call_id
                     .as_ref()
+                    .filter(|call_id| emitted_tool_output_call_ids.contains(call_id.as_str()))
                     .map(|call_id| {
                         vec![serde_json::json!({
                             "type": "function_call_output",

@@ -53,6 +53,9 @@ async fn anthropic_batch_results_parse_tool_references_content_blocks() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
         "msgbatch_tool_refs",
     )
@@ -132,6 +135,9 @@ async fn anthropic_batch_results_parse_code_execution_content_blocks() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
         "msgbatch_exec",
     )
@@ -207,6 +213,9 @@ async fn anthropic_batch_results_parse_error_content_blocks() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
         "msgbatch_error_block",
     )

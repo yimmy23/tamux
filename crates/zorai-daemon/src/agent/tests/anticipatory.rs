@@ -2137,6 +2137,136 @@ async fn webhook_ingest_foundation_fires_seeded_default_disk_pressure_trigger() 
     drop(tasks);
 }
 
+#[tokio::test]
+async fn webhook_ingest_executes_direct_workflow_pack_trigger_without_background_agent_task() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .add_event_trigger_from_args(&serde_json::json!({
+            "id": "trigger-workflow-pack-direct",
+            "event_family": "filesystem",
+            "event_kind": "file_changed",
+            "target_state": "detected",
+            "notification_kind": "file_changed",
+            "title_template": "File changed: {path}",
+            "body_template": "Observed file change for {path}",
+            "tool_name": "run_workflow_pack",
+            "tool_payload": {
+                "pack_name": "approval-checkpoint-long-task",
+                "task_kind": "task",
+                "title": "Triggered governed follow-up",
+                "priority": "high",
+                "checkpoint_titles": ["review change"],
+                "rollback_notes": ["revert triggered follow-up if noisy"]
+            }
+        }))
+        .await
+        .expect("trigger creation should succeed");
+
+    let payload = engine
+        .ingest_webhook_event_json(&serde_json::json!({
+            "event_family": "filesystem",
+            "event_kind": "file_changed",
+            "state": "detected",
+            "thread_id": "thread-trigger-pack-1",
+            "payload": {
+                "path": "src/lib.rs"
+            }
+        }))
+        .await
+        .expect("webhook ingest should execute the workflow-pack trigger");
+    assert_eq!(payload["status"], "accepted");
+    assert_eq!(payload["fired"], 1);
+
+    let tasks = engine.tasks.lock().await;
+    assert_eq!(
+        tasks.len(),
+        1,
+        "direct workflow-pack trigger should only create the workflow-pack-owned task"
+    );
+    let task = tasks.front().expect("expected workflow-pack-created task");
+    assert_eq!(task.source, "workflow_pack");
+    assert_eq!(task.status, TaskStatus::AwaitingApproval);
+    assert_eq!(task.title, "Triggered governed follow-up");
+    assert_eq!(task.thread_id.as_deref(), Some("thread-trigger-pack-1"));
+    assert_eq!(task.priority, TaskPriority::High);
+    assert!(task.awaiting_approval_id.is_some());
+    drop(tasks);
+
+    assert_eq!(engine.pending_operator_approvals.read().await.len(), 1);
+    let pending_commands = engine.pending_approval_commands.read().await;
+    assert_eq!(pending_commands.len(), 1);
+    let command = pending_commands
+        .values()
+        .next()
+        .cloned()
+        .expect("pending approval command should be recorded");
+    assert!(command.contains("run_workflow_pack approval-checkpoint-long-task"));
+}
+
+#[tokio::test]
+async fn webhook_ingest_executes_watch_monitor_trigger_and_surfaces_direct_tool_approval() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .add_event_trigger_from_args(&serde_json::json!({
+            "id": "trigger-watch-monitor-direct",
+            "event_family": "filesystem",
+            "event_kind": "file_changed",
+            "target_state": "detected",
+            "notification_kind": "file_changed",
+            "title_template": "File changed: {path}",
+            "body_template": "Observed file change for {path}",
+            "tool_name": "run_workflow_pack",
+            "tool_payload": {
+                "pack_name": "watch-monitor",
+                "watch_source": "event",
+                "source_ref": "filesystem:file_changed",
+                "previous_snapshot": "status=clean",
+                "remediate": true
+            }
+        }))
+        .await
+        .expect("watch-monitor trigger creation should succeed");
+
+    let payload = engine
+        .ingest_webhook_event_json(&serde_json::json!({
+            "event_family": "filesystem",
+            "event_kind": "file_changed",
+            "state": "detected",
+            "thread_id": "thread-watch-trigger-1",
+            "payload": {
+                "path": "src/lib.rs",
+                "status": "changed"
+            }
+        }))
+        .await
+        .expect("webhook ingest should execute direct watch-monitor trigger");
+    assert_eq!(payload["status"], "accepted");
+    assert_eq!(payload["fired"], 1);
+
+    let tasks = engine.tasks.lock().await;
+    assert!(
+        tasks.is_empty(),
+        "direct watch-monitor trigger should not enqueue a background agent task"
+    );
+    drop(tasks);
+
+    assert_eq!(engine.pending_operator_approvals.read().await.len(), 1);
+    let pending_commands = engine.pending_approval_commands.read().await;
+    assert_eq!(pending_commands.len(), 1);
+    let command = pending_commands
+        .values()
+        .next()
+        .cloned()
+        .expect("watch-monitor approval command should be recorded");
+    assert!(command.contains("run_workflow_pack watch-monitor"));
+}
+
 async fn post_webhook_event(
     addr: &str,
     body: &str,
@@ -3456,4 +3586,137 @@ async fn cognitive_resonance_sampling_persists_samples_and_adjustment_logs() {
         !adjustments.is_empty(),
         "substantial resonance shifts should log behavior adjustments"
     );
+}
+
+#[tokio::test]
+async fn low_risk_event_trigger_records_succeeded_fire_history_with_created_task_id() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .add_event_trigger_from_args(&serde_json::json!({
+            "id": "trigger-fs-history-success",
+            "event_family": "filesystem",
+            "event_kind": "file_changed",
+            "notification_kind": "file_changed",
+            "title_template": "File changed: {path}",
+            "body_template": "Observed file change for {path}",
+            "prompt_template": "The file at {path} changed. Review whether the operator likely needs follow-up.",
+            "agent_id": "weles",
+            "cooldown_secs": 10,
+            "risk_label": "low"
+        }))
+        .await
+        .expect("trigger creation should succeed");
+
+    let fired = engine
+        .maybe_fire_event_trigger(
+            "filesystem",
+            "file_changed",
+            Some("detected"),
+            Some("thread-fs-history-success"),
+            serde_json::json!({
+                "path": "src/lib.rs"
+            }),
+        )
+        .await
+        .expect("trigger should fire");
+    assert_eq!(fired, 1);
+
+    let task_id = {
+        let tasks = engine.tasks.lock().await;
+        tasks.front().expect("expected event task").id.clone()
+    };
+
+    let history_rows = engine
+        .history
+        .list_trigger_fire_history(Some("trigger-fs-history-success"), Some("succeeded"), 4)
+        .await
+        .expect("trigger fire history query should succeed");
+    assert_eq!(history_rows.len(), 1);
+    let row = &history_rows[0];
+    assert_eq!(row.status, "succeeded");
+    assert_eq!(row.created_task_id.as_deref(), Some(task_id.as_str()));
+    assert!(row.completed_at_ms.is_some());
+    assert!(row.error_message.is_none());
+}
+
+#[tokio::test]
+async fn unsupported_direct_tool_trigger_records_failed_fire_history_and_emits_failure_notice() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let mut events = engine.event_tx.subscribe();
+
+    engine
+        .add_event_trigger_from_args(&serde_json::json!({
+            "id": "trigger-unsupported-tool-history-failure",
+            "event_family": "health",
+            "event_kind": "subagent_health",
+            "target_state": "stuck",
+            "notification_kind": "subagent_health_stuck",
+            "title_template": "Subagent {task_id} stuck",
+            "body_template": "Task {task_id} entered {state} because {reason}",
+            "tool_name": "read_file",
+            "tool_payload": { "path": "/tmp/never-used" },
+            "cooldown_secs": 10,
+            "risk_label": "medium"
+        }))
+        .await
+        .expect("trigger creation should succeed");
+
+    let error = engine
+        .maybe_fire_event_trigger(
+            "health",
+            "subagent_health",
+            Some("stuck"),
+            Some("thread-trigger-history-failure"),
+            serde_json::json!({
+                "task_id": "task-77",
+                "reason": "timeout"
+            }),
+        )
+        .await
+        .expect_err("unsupported direct tool trigger should fail");
+    assert!(error.to_string().contains("not supported"));
+
+    let failure_notice = timeout(Duration::from_millis(250), async {
+        loop {
+            match events.recv().await {
+                Ok(AgentEvent::WorkflowNotice {
+                    kind,
+                    message,
+                    details,
+                    ..
+                }) if kind == "event_trigger_failed" => break (message, details),
+                Ok(_) => continue,
+                Err(error) => panic!("expected failure workflow notice, got event error: {error}"),
+            }
+        }
+    })
+    .await
+    .expect("failure workflow notice should be emitted");
+    assert!(failure_notice
+        .0
+        .contains("trigger-unsupported-tool-history-failure"));
+    assert!(failure_notice
+        .1
+        .as_deref()
+        .is_some_and(|details| details.contains("not supported")));
+
+    let history_rows = engine
+        .history
+        .list_trigger_fire_history(Some("trigger-unsupported-tool-history-failure"), None, 4)
+        .await
+        .expect("trigger fire history query should succeed");
+    assert_eq!(history_rows.len(), 1);
+    let row = &history_rows[0];
+    assert_eq!(row.status, "failed");
+    assert!(row.completed_at_ms.is_some());
+    assert!(row.created_task_id.is_none());
+    assert!(row
+        .error_message
+        .as_deref()
+        .is_some_and(|message| message.contains("not supported")));
 }

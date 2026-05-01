@@ -48,6 +48,35 @@ pub fn available_models(config: &ConfigState) -> Vec<crate::state::config::Fetch
     available_models_for(config, config.model(), Some(&config.custom_model_name))
 }
 
+pub fn filtered_models_for_selection(
+    models: &[crate::state::config::FetchedModel],
+    query: &str,
+) -> Vec<crate::state::config::FetchedModel> {
+    let query = query.trim().to_ascii_lowercase();
+    if query.is_empty() {
+        return models.to_vec();
+    }
+    let terms = query.split_whitespace().collect::<Vec<_>>();
+    models
+        .iter()
+        .filter(|model| model_matches_query(model, &terms))
+        .cloned()
+        .collect()
+}
+
+pub fn filtered_model_picker_item_count(
+    models: &[crate::state::config::FetchedModel],
+    query: &str,
+) -> usize {
+    filtered_models_for_selection(models, query).len() + 1
+}
+
+fn model_matches_query(model: &crate::state::config::FetchedModel, terms: &[&str]) -> bool {
+    let searchable =
+        format!("{} {}", model.id, model.name.as_deref().unwrap_or("")).to_ascii_lowercase();
+    terms.iter().all(|term| searchable.contains(term))
+}
+
 pub fn render_for(
     frame: &mut Frame,
     area: Rect,
@@ -69,6 +98,8 @@ pub fn render_with_models(
     current_model: &str,
     theme: &ThemeTokens,
 ) {
+    let filtered_models = filtered_models_for_selection(models, modal.command_query());
+    let models = filtered_models.as_slice();
     let block = Block::default()
         .title(" MODEL ")
         .borders(Borders::ALL)
@@ -327,6 +358,56 @@ mod tests {
         .join("\n");
 
         assert_eq!(footer_line(&screen), " ↑↓ nav  Enter sel/custom  Esc close");
+    }
+
+    #[test]
+    fn model_picker_filters_visible_rows_by_query_and_keeps_custom_row() {
+        let mut modal = ModalState::new();
+        modal.reduce(crate::state::modal::ModalAction::Push(
+            crate::state::modal::ModalKind::ModelPicker,
+        ));
+        modal.reduce(crate::state::modal::ModalAction::SetQuery("claude".into()));
+        modal.set_picker_item_count(2);
+
+        let models = vec![
+            FetchedModel {
+                id: "gpt-4o".into(),
+                name: Some("GPT-4o".into()),
+                context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
+            },
+            FetchedModel {
+                id: "claude-sonnet-4-6".into(),
+                name: Some("Claude Sonnet 4.6".into()),
+                context_window: Some(200_000),
+                pricing: None,
+                metadata: None,
+            },
+        ];
+
+        let theme = ThemeTokens::default();
+        let backend = TestBackend::new(72, 8);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+        terminal
+            .draw(|frame| {
+                render_with_models(frame, Rect::new(0, 0, 72, 8), &modal, &models, "", &theme);
+            })
+            .expect("render should succeed");
+
+        let buffer = terminal.backend().buffer();
+        let screen = (0..8)
+            .map(|y| {
+                (0..72)
+                    .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(screen.contains("Claude Sonnet 4.6"));
+        assert!(screen.contains("Custom model..."));
+        assert!(!screen.contains("GPT-4o"));
     }
 }
 

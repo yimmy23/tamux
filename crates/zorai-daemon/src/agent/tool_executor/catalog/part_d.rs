@@ -255,6 +255,22 @@ fn add_available_tools_part_d(
         },
         "required": ["routine_id"]
     })));
+    tools.push(tool_def("run_workflow_pack", "Execute one canonical workflow pack with prerequisite-aware, approval-aware runtime behavior. Supports Wave 1 and Wave 2 packs: Daily Brief, PR/Issue Triage, Inbox + Calendar Triage, Watch/Monitor, Standup (status report with task/routine/connector/trigger/browser summary), and Approval-Checkpoint Long Task.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "pack_name": { "type": "string", "description": "Canonical pack name, such as daily-brief, pr-issue-triage, inbox-calendar-triage, watch-monitor, standup, or approval-checkpoint-long-task" },
+            "mode": { "type": "string", "description": "Optional pack mode such as standard, quiet, or executive" },
+            "workspace_id": { "type": "string", "description": "Optional workspace id for workspace-backed packs; defaults to main" },
+            "delivery_channel": { "type": "string", "description": "Optional delivery channel such as in-app, slack, discord, telegram, or whatsapp" },
+            "deliver_now": { "type": "boolean", "description": "When true, request immediate external delivery instead of in-app output only" },
+            "repo_connector": { "type": "string", "description": "Optional repo connector override such as github or gitlab" },
+            "tracker_connector": { "type": "string", "description": "Optional tracker connector override such as linear, jira, or none" },
+            "task_kind": { "type": "string", "enum": ["task", "goal"], "description": "For approval-checkpoint-long-task, whether to materialize a task or goal" },
+            "watch_source": { "type": "string", "description": "For watch-monitor, the source type such as event, repo, webpage, or connector resource" },
+            "payload": { "type": "object", "description": "Optional event or source payload forwarded into pack execution" }
+        },
+        "required": ["pack_name"]
+    })));
     tools.push(tool_def("list_triggers", "List configured event triggers with status, cooldown, last-fired metadata, and whether each trigger comes from packaged defaults or a custom entry. On a fresh engine, packaged defaults are seeded automatically before listing.", serde_json::json!({
         "type": "object",
         "properties": {}
@@ -284,10 +300,55 @@ fn add_available_tools_part_d(
             "risk_label": { "type": "string", "enum": ["low", "medium", "high"], "description": "Risk label used for routing/approval posture" },
             "notification_kind": { "type": "string", "description": "WorkflowNotice kind emitted when the trigger fires" },
             "prompt_template": { "type": "string", "description": "Optional background task prompt template. When set, the daemon queues real work instead of only emitting a notice." },
+            "tool_name": { "type": "string", "description": "Optional daemon tool to execute directly when the trigger fires, for example run_workflow_pack" },
+            "tool_payload": { "type": "object", "description": "Optional static JSON payload merged into direct trigger tool execution" },
             "title_template": { "type": "string", "description": "Rendered notice title template" },
             "body_template": { "type": "string", "description": "Rendered notice body/details template" }
         },
         "required": ["event_family", "event_kind", "notification_kind", "title_template", "body_template"]
+    })));
+    tools.push(tool_def("get_cost_summary", "Get a cost and activity replay summary across a time window. Shows token usage, cost breakdown by provider/model, recent task/routine/trigger activity, and replay guidance for drilling into specific threads and tasks.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "window": { "type": "string", "description": "Time window for cost aggregation: today, last7days (default), last30days, or all" }
+        }
+    })));
+    tools.push(tool_def("list_browser_profiles", "List stored named browser profiles with health state, last-used metadata, and browser compatibility hints. Supports optional health-state and workspace filters.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "health_state": { "type": "string", "enum": ["healthy", "stale", "expired", "corrupted", "repair_needed", "repair_in_progress", "retired"], "description": "Optional health-state filter" },
+            "workspace_id": { "type": "string", "description": "Optional workspace scope filter" }
+        }
+    })));
+    tools.push(tool_def("create_browser_profile", "Create or update a named browser profile for reuse across browsing and automation tasks. Returns the persisted profile metadata.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "profile_id": { "type": "string", "description": "Stable profile identifier, e.g. 'main-work'" },
+            "label": { "type": "string", "description": "Human-readable label such as 'Work Chrome'" },
+            "profile_dir": { "type": "string", "description": "Filesystem path to the browser profile directory" },
+            "browser_kind": { "type": "string", "description": "Optional browser kind such as chrome or chromium" },
+            "workspace_id": { "type": "string", "description": "Optional workspace scope for this profile" }
+        },
+        "required": ["profile_id", "label", "profile_dir"]
+    })));
+    tools.push(tool_def("update_browser_profile_health", "Set the health state of a named browser profile to signal freshness, expiry, corruption, or repair progress.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "profile_id": { "type": "string", "description": "Stable profile identifier" },
+            "health_state": { "type": "string", "enum": ["healthy", "stale", "expired", "corrupted", "repair_needed", "repair_in_progress", "retired"], "description": "New health state" },
+            "last_auth_success_at": { "type": "integer", "description": "Optional Unix-ms timestamp of last successful authenticated use" },
+            "last_auth_failure_at": { "type": "integer", "description": "Optional Unix-ms timestamp of last auth failure" },
+            "last_auth_failure_reason": { "type": "string", "description": "Optional human-readable failure reason" }
+        },
+        "required": ["profile_id", "health_state"]
+    })));
+    tools.push(tool_def("list_trigger_fire_history", "List recent trigger fire events with status, retry count, and error details. Supports filtering by trigger ID and/or status (fired, succeeded, failed, suppressed, dead_letter).", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "trigger_id": { "type": "string", "description": "Optional trigger ID filter" },
+            "status": { "type": "string", "enum": ["fired", "succeeded", "failed", "suppressed", "dead_letter"], "description": "Optional fire status filter" },
+            "limit": { "type": "integer", "description": "Maximum results to return (default: 20)" }
+        }
     })));
     tools.push(tool_def("show_dreams", "Show recent dream-state cycles, counterfactual evaluations, and persisted [dream] strategy hints.", serde_json::json!({
         "type": "object",

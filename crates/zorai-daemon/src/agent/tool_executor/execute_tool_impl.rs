@@ -1725,6 +1725,15 @@ async fn dispatch_tool_execution(
         "pause_routine" => execute_pause_routine(args, agent).await,
         "resume_routine" => execute_resume_routine(args, agent).await,
         "delete_routine" => execute_delete_routine(args, agent).await,
+        "run_workflow_pack" => {
+            match execute_run_workflow_pack(args, agent, thread_id, task_id).await {
+                Ok((content, approval)) => {
+                    pending_approval = approval;
+                    Ok(content)
+                }
+                Err(error) => Err(error),
+            }
+        }
         "whatsapp_link_start" => execute_whatsapp_link_start(args, agent).await,
         "whatsapp_link_stop" => execute_whatsapp_link_stop(args, agent).await,
         "whatsapp_link_reset" => execute_whatsapp_link_reset(args, agent).await,
@@ -1732,6 +1741,11 @@ async fn dispatch_tool_execution(
         "list_triggers" => execute_list_triggers(args, agent).await,
         "ingest_webhook_event" => execute_ingest_webhook_event(args, agent).await,
         "add_trigger" => execute_add_trigger(args, agent).await,
+        "list_trigger_fire_history" => execute_list_trigger_fire_history(args, agent).await,
+        "get_cost_summary" => execute_get_cost_summary(args, agent).await,
+        "list_browser_profiles" => execute_list_browser_profiles(args, agent).await,
+        "create_browser_profile" => execute_create_browser_profile(args, agent).await,
+        "update_browser_profile_health" => execute_update_browser_profile_health(args, agent).await,
         "show_dreams" => execute_show_dreams(args, agent).await,
         "show_harness_state" => {
             execute_show_harness_state(args, agent, thread_id, task_id).await
@@ -1991,7 +2005,7 @@ async fn dispatch_tool_execution(
                 .unwrap_or("auto")
                 .to_string();
             drop(config);
-            execute_fetch_url(args, http_client, &browse_provider).await
+            execute_fetch_url(args, agent, http_client, &browse_provider).await
         }
         "setup_web_browsing" => execute_setup_web_browsing(args, agent).await,
         "plugin_api_call" => {

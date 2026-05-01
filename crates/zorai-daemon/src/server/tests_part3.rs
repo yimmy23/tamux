@@ -376,8 +376,26 @@ async fn whatsapp_link_start_status_stop_send_status_responses() {
     conn.shutdown().await;
 }
 
-#[tokio::test]
-async fn whatsapp_link_reset_clears_link_state() {
+#[test]
+fn whatsapp_link_reset_clears_link_state() {
+    std::thread::Builder::new()
+        .name("whatsapp-reset-test".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build tokio runtime");
+            rt.block_on(async {
+                whatsapp_link_reset_clears_link_state_impl().await;
+            });
+        })
+        .expect("spawn test thread")
+        .join()
+        .expect("test thread panicked");
+}
+
+async fn whatsapp_link_reset_clears_link_state_impl() {
     let mut conn = spawn_test_connection().await;
 
     conn.agent
@@ -484,8 +502,26 @@ async fn whatsapp_link_subscribe_then_unsubscribe_stops_forwarding() {
     conn.shutdown().await;
 }
 
-#[tokio::test]
-async fn whatsapp_link_subscription_replay_status_then_incremental_events() {
+#[test]
+fn whatsapp_link_subscription_replay_status_then_incremental_events() {
+    std::thread::Builder::new()
+        .name("whatsapp-replay-test".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build tokio runtime");
+            rt.block_on(async {
+                whatsapp_link_subscription_replay_status_then_incremental_events_impl().await;
+            });
+        })
+        .expect("spawn test thread")
+        .join()
+        .expect("test thread panicked");
+}
+
+async fn whatsapp_link_subscription_replay_status_then_incremental_events_impl() {
     let mut conn = spawn_test_connection().await;
 
     conn.framed

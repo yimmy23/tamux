@@ -202,6 +202,9 @@ impl AgentEngine {
                     max_tokens: None,
                     anthropic_tool_choice: None,
                     output_effort: None,
+                    openrouter_provider_order: Vec::new(),
+                    openrouter_provider_ignore: Vec::new(),
+                    openrouter_allow_fallbacks: None,
                 });
             goal_agent_assignment(
                 GOAL_REVIEWER_ROLE_ID.to_string(),
@@ -240,6 +243,9 @@ impl AgentEngine {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         });
         let assignments = vec![goal_agent_assignment(
             crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),

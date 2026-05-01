@@ -33,6 +33,9 @@ async fn init_schema_adds_event_trigger_registry_table() -> Result<()> {
                 table_has_column(conn, "event_triggers", "notification_kind")?;
             let has_prompt_template =
                 table_has_column(conn, "event_triggers", "prompt_template")?;
+            let has_tool_name = table_has_column(conn, "event_triggers", "tool_name")?;
+            let has_tool_payload_json =
+                table_has_column(conn, "event_triggers", "tool_payload_json")?;
             let trigger_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_event_triggers_family_kind_enabled'",
@@ -49,6 +52,8 @@ async fn init_schema_adds_event_trigger_registry_table() -> Result<()> {
                 has_risk_label,
                 has_notification_kind,
                 has_prompt_template,
+                has_tool_name,
+                has_tool_payload_json,
                 trigger_index,
             ))
         })
@@ -63,8 +68,10 @@ async fn init_schema_adds_event_trigger_registry_table() -> Result<()> {
     assert!(status.5);
     assert!(status.6);
     assert!(status.7);
+    assert!(status.8);
+    assert!(status.9);
     assert_eq!(
-        status.8.as_deref(),
+        status.10.as_deref(),
         Some("idx_event_triggers_family_kind_enabled")
     );
 
@@ -88,11 +95,20 @@ async fn event_trigger_registry_round_trips_weles_health_trigger() -> Result<()>
         risk_label: "medium".to_string(),
         notification_kind: "weles_health_degraded".to_string(),
         prompt_template: Some("Investigate {state}: {reason}".to_string()),
+        tool_name: Some("run_workflow_pack".to_string()),
+        tool_payload_json: Some(
+            serde_json::json!({
+                "pack_name": "watch-monitor",
+                "watch_source": "event"
+            })
+            .to_string(),
+        ),
         title_template: "WELES review degraded".to_string(),
         body_template: "WELES health changed to {state}: {reason}".to_string(),
         created_at: 100,
         updated_at: 120,
         last_fired_at: Some(150),
+        max_retries: 3,
     };
 
     store.upsert_event_trigger(&row).await?;
@@ -111,6 +127,18 @@ async fn event_trigger_registry_round_trips_weles_health_trigger() -> Result<()>
     assert_eq!(
         rows[0].prompt_template.as_deref(),
         Some("Investigate {state}: {reason}")
+    );
+    assert_eq!(rows[0].tool_name.as_deref(), Some("run_workflow_pack"));
+    assert_eq!(
+        rows[0].tool_payload_json.as_deref(),
+        Some(
+            serde_json::json!({
+                "pack_name": "watch-monitor",
+                "watch_source": "event"
+            })
+            .to_string()
+            .as_str()
+        )
     );
     assert_eq!(rows[0].last_fired_at, Some(150));
 

@@ -231,6 +231,39 @@ fn render_skill_discovery(result: &zorai_protocol::SkillDiscoveryResultPublic) -
             display_or_none(&candidate.trust_tier),
             display_or_none(&candidate.risk_level)
         ));
+        if candidate.canonical_pack {
+            lines.push("   canonical pack: yes".to_string());
+        }
+        if !candidate.prerequisite_hints.is_empty() {
+            lines.push(format!(
+                "   prerequisites: {}",
+                candidate.prerequisite_hints.join(", ")
+            ));
+        }
+        if !candidate.prerequisite_connectors.is_empty() {
+            lines.push(format!(
+                "   prerequisite connectors: {}",
+                candidate.prerequisite_connectors.join(", ")
+            ));
+        }
+        if !candidate.delivery_modes.is_empty() {
+            lines.push(format!(
+                "   delivery modes: {}",
+                candidate.delivery_modes.join(", ")
+            ));
+        }
+        if !candidate.source_links.is_empty() {
+            lines.push(format!(
+                "   source links: {}",
+                candidate.source_links.join(", ")
+            ));
+        }
+        if let Some(approval_behavior) = candidate.approval_behavior.as_deref() {
+            lines.push(format!("   approval: {approval_behavior}"));
+        }
+        if candidate.mobile_safe {
+            lines.push("   mobile safe: yes".to_string());
+        }
     }
 
     if let Some(next_cursor) = result.next_cursor.as_deref() {
@@ -336,6 +369,13 @@ mod tests {
                 use_count: 16,
                 success_count: 14,
                 failure_count: 2,
+                canonical_pack: false,
+                delivery_modes: Vec::new(),
+                prerequisite_hints: Vec::new(),
+                prerequisite_connectors: Vec::new(),
+                source_links: Vec::new(),
+                mobile_safe: false,
+                approval_behavior: None,
             }],
         });
 
@@ -350,6 +390,59 @@ mod tests {
         assert!(rendered.contains("matched intents: debug panic root cause"));
         assert!(rendered.contains("trust/risk: trusted_builtin / low"));
         assert!(rendered.contains("Next cursor: cursor:skill-2"));
+    }
+
+    #[test]
+    fn render_skill_discovery_renders_canonical_pack_metadata() {
+        let rendered = render_skill_discovery(&zorai_protocol::SkillDiscoveryResultPublic {
+            query: "daily brief".to_string(),
+            normalized_intent: "daily brief".to_string(),
+            required: true,
+            confidence_tier: "strong".to_string(),
+            recommended_action: "read_skill daily-brief".to_string(),
+            requires_approval: false,
+            mesh_state: "fresh".to_string(),
+            rationale: vec!["matched daily brief".to_string()],
+            capability_family: vec!["workflow".to_string()],
+            explicit_rationale_required: false,
+            workspace_tags: vec!["productivity".to_string()],
+            next_cursor: None,
+            candidates: vec![zorai_protocol::SkillDiscoveryCandidatePublic {
+                variant_id: "fs:workflow-packs/daily-brief/SKILL.md".to_string(),
+                skill_name: "daily-brief".to_string(),
+                variant_name: "canonical".to_string(),
+                relative_path: "workflow-packs/daily-brief/SKILL.md".to_string(),
+                status: "active".to_string(),
+                score: 0.96,
+                confidence_tier: "strong".to_string(),
+                reasons: vec!["matched daily brief".to_string()],
+                matched_intents: vec!["daily brief".to_string()],
+                matched_trigger_phrases: vec![],
+                context_tags: vec!["workflow".to_string()],
+                risk_level: "low".to_string(),
+                trust_tier: "trusted_builtin".to_string(),
+                source_kind: "builtin".to_string(),
+                recommended_action: "read_skill daily-brief".to_string(),
+                use_count: 0,
+                success_count: 0,
+                failure_count: 0,
+                canonical_pack: true,
+                delivery_modes: vec!["manual".to_string(), "routine".to_string()],
+                prerequisite_hints: vec!["gmail optional".to_string()],
+                prerequisite_connectors: Vec::new(),
+                source_links: vec!["docs/operating/routines.md".to_string()],
+                mobile_safe: true,
+                approval_behavior: Some("read-only by default".to_string()),
+            }],
+        });
+
+        assert!(rendered.contains("canonical pack: yes"));
+        assert!(rendered.contains("prerequisites: gmail optional"));
+        assert!(rendered.contains("delivery modes: manual, routine"));
+        assert!(rendered.contains("source links: docs/operating/routines.md"));
+        assert!(rendered.contains("approval: read-only by default"));
+        assert!(rendered.contains("mobile safe: yes"));
+        assert!(!rendered.contains("prerequisite connectors:"));
     }
 
     #[test]

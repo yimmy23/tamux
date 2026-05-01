@@ -32,6 +32,9 @@ export const DEFAULT_CONCIERGE_CONFIG: ConciergeConfig = {
   enabled: true,
   detail_level: "proactive_triage",
   reasoning_effort: undefined,
+  openrouter_provider_order: undefined,
+  openrouter_provider_ignore: undefined,
+  openrouter_allow_fallbacks: null,
   auto_cleanup_on_navigate: true,
 };
 
@@ -44,6 +47,9 @@ function isValidConciergeConfig(value: unknown): value is AgentState["conciergeC
     typeof record.enabled === "boolean"
     || typeof record.detail_level === "string"
     || typeof record.reasoning_effort === "string"
+    || Array.isArray(record.openrouter_provider_order)
+    || Array.isArray(record.openrouter_provider_ignore)
+    || typeof record.openrouter_allow_fallbacks === "boolean"
     || typeof record.auto_cleanup_on_navigate === "boolean"
   );
 }

@@ -71,6 +71,12 @@ fn fetch_url_request(args: &serde_json::Value) -> Result<FetchUrlRequest> {
             .and_then(|v| v.as_u64())
             .unwrap_or(10_000) as usize,
         timeout_seconds: daemon_tool_timeout_seconds("fetch_url", args),
+        profile_id: args
+            .get("profile_id")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
     })
 }
 

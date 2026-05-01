@@ -168,6 +168,10 @@ impl TuiModel {
                     self.modal.reduce(modal::ModalAction::SetQuery(query));
                     return;
                 }
+                modal::ModalKind::WorkspaceCreate => {
+                    self.paste_into_workspace_create_workspace_modal(&text);
+                    return;
+                }
                 modal::ModalKind::WorkspaceCreateTask => {
                     self.paste_into_workspace_create_modal(&text);
                     return;
@@ -176,7 +180,12 @@ impl TuiModel {
                     self.paste_into_workspace_edit_modal(&text);
                     return;
                 }
-                modal::ModalKind::ThreadPicker | modal::ModalKind::GoalPicker => {
+                modal::ModalKind::ThreadPicker
+                | modal::ModalKind::GoalPicker
+                | modal::ModalKind::WorkspacePicker
+                | modal::ModalKind::ProviderPicker
+                | modal::ModalKind::ModelPicker
+                | modal::ModalKind::OpenRouterProviderPicker => {
                     self.input.reduce(input::InputAction::Clear);
                     for ch in text.chars() {
                         match ch {
@@ -191,6 +200,14 @@ impl TuiModel {
                         self.sync_thread_picker_item_count();
                     } else if modal_kind == modal::ModalKind::GoalPicker {
                         self.sync_goal_picker_item_count();
+                    } else if modal_kind == modal::ModalKind::WorkspacePicker {
+                        self.sync_workspace_picker_item_count();
+                    } else if modal_kind == modal::ModalKind::ProviderPicker {
+                        self.sync_provider_picker_item_count();
+                    } else if modal_kind == modal::ModalKind::ModelPicker {
+                        self.sync_model_picker_item_count();
+                    } else if modal_kind == modal::ModalKind::OpenRouterProviderPicker {
+                        self.sync_openrouter_provider_picker_item_count();
                     }
                     return;
                 }

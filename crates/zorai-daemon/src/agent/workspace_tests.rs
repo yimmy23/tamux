@@ -144,6 +144,9 @@ async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 1,
     });
     config.sub_agents.push(SubAgentDefinition {
@@ -165,6 +168,9 @@ async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 2,
     });
     let manager = SessionManager::new_test(root.path()).await;
@@ -592,6 +598,9 @@ async fn moving_to_review_with_subagent_reviewer_queues_reviewer_persona_task() 
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 1,
     });
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
@@ -729,6 +738,71 @@ async fn failed_workspace_review_archives_runtime_and_starts_new_follow_up() -> 
 }
 
 #[tokio::test]
+async fn failed_workspace_review_returns_before_follow_up_thread_finishes() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let request_started = Arc::new(tokio::sync::Notify::new());
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.base_url = spawn_hanging_chat_server(request_started.clone()).await;
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut request = workspace_request(WorkspaceTaskType::Thread);
+    request.assignee = Some(WorkspaceActor::Agent(AGENT_ID_SWAROG.to_string()));
+    request.reviewer = Some(WorkspaceActor::User);
+    let mut task = engine
+        .create_workspace_task(request, WorkspaceActor::User)
+        .await?;
+    task.status = WorkspaceTaskStatus::InReview;
+    task.thread_id = Some("workspace-thread:previous".to_string());
+    engine.history.upsert_workspace_task(&task).await?;
+
+    let restarted = tokio::time::timeout(
+        std::time::Duration::from_millis(150),
+        engine.submit_workspace_review(WorkspaceReviewSubmission {
+            task_id: task.id.clone(),
+            verdict: WorkspaceReviewVerdict::Fail,
+            message: Some("Return this to implementation with acceptance tests".to_string()),
+        }),
+    )
+    .await
+    .expect("failed review should return before the follow-up run completes")?
+    .expect("failed review should keep the task");
+
+    assert_eq!(restarted.status, WorkspaceTaskStatus::InProgress);
+    assert_ne!(
+        restarted.thread_id.as_deref(),
+        Some("workspace-thread:previous")
+    );
+    assert!(restarted.runtime_history.iter().any(|entry| {
+        entry.thread_id.as_deref() == Some("workspace-thread:previous")
+            && entry.review_feedback.as_deref()
+                == Some("Return this to implementation with acceptance tests")
+    }));
+    let follow_up_thread_id = restarted
+        .thread_id
+        .as_deref()
+        .expect("failed review should reserve a follow-up thread");
+    let follow_up_thread = engine
+        .threads
+        .read()
+        .await
+        .get(follow_up_thread_id)
+        .cloned()
+        .expect("failed review should seed the follow-up thread");
+    assert!(follow_up_thread.messages.iter().any(|message| message
+        .content
+        .contains("Review verdict: fail")
+        && message
+            .content
+            .contains("Return this to implementation with acceptance tests")
+        && message
+            .content
+            .contains("Create the workspace board surface")));
+    Ok(())
+}
+
+#[tokio::test]
 async fn failed_goal_workspace_review_archives_goal_and_pins_new_goal_run() -> Result<()> {
     let root = tempfile::tempdir()?;
     let engine = test_engine(root.path()).await?;
@@ -775,6 +849,28 @@ async fn failed_goal_workspace_review_archives_goal_and_pins_new_goal_run() -> R
         .await?
         .is_some());
     Ok(())
+}
+
+async fn spawn_hanging_chat_server(request_started: Arc<tokio::sync::Notify>) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind hanging chat server");
+    let addr = listener.local_addr().expect("hanging chat server addr");
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let request_started = request_started.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 4096];
+                let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buffer).await;
+                request_started.notify_waiters();
+                std::future::pending::<()>().await;
+            });
+        }
+    });
+    format!("http://{addr}/v1")
 }
 
 #[tokio::test]

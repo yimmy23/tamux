@@ -1333,7 +1333,7 @@ impl TuiModel {
                         && mouse.row < inner.y.saturating_add(inner.height.saturating_sub(1))
                     {
                         let idx = mouse.row.saturating_sub(inner.y) as usize;
-                        if idx < providers::PROVIDERS.len() {
+                        if idx < self.filtered_provider_picker_defs().len() {
                             self.modal_navigate_to(idx);
                             self.handle_modal_enter(kind);
                         }
@@ -1348,7 +1348,7 @@ impl TuiModel {
                         && mouse.row < inner.y.saturating_add(inner.height.saturating_sub(1))
                     {
                         let idx = mouse.row.saturating_sub(inner.y) as usize;
-                        if idx <= self.available_model_picker_models().len() {
+                        if idx <= self.filtered_model_picker_models().len() {
                             self.modal_navigate_to(idx);
                             self.handle_modal_enter(kind);
                         }

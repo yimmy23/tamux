@@ -247,11 +247,30 @@ pub struct EventTriggerRow {
     pub risk_label: String,
     pub notification_kind: String,
     pub prompt_template: Option<String>,
+    pub tool_name: Option<String>,
+    pub tool_payload_json: Option<String>,
     pub title_template: String,
     pub body_template: String,
     pub created_at: u64,
     pub updated_at: u64,
     pub last_fired_at: Option<u64>,
+    pub max_retries: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct TriggerFireHistoryRow {
+    pub id: String,
+    pub trigger_id: String,
+    pub event_family: String,
+    pub event_kind: String,
+    pub status: String,
+    pub fired_at_ms: u64,
+    pub completed_at_ms: Option<u64>,
+    pub retry_count: u64,
+    pub error_message: Option<String>,
+    pub created_task_id: Option<String>,
+    pub notice_id: Option<String>,
+    pub payload_json: String,
 }
 
 #[derive(Debug, Clone)]
@@ -518,9 +537,15 @@ pub struct BrowserProfileRow {
     pub profile_id: String,
     pub label: String,
     pub profile_dir: String,
+    pub browser_kind: Option<String>,
+    pub workspace_id: Option<String>,
+    pub health_state: String,
     pub created_at: u64,
     pub updated_at: u64,
     pub last_used_at: Option<u64>,
+    pub last_auth_success_at: Option<u64>,
+    pub last_auth_failure_at: Option<u64>,
+    pub last_auth_failure_reason: Option<String>,
 }
 
 /// A single learned or answered profile field for the operator.

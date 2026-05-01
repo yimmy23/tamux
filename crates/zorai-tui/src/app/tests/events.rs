@@ -2998,6 +2998,9 @@ fn header_profile_uses_thread_owner_not_latest_participant_author() {
         delete_allowed: false,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
 
@@ -3443,7 +3446,7 @@ fn header_uses_goal_thread_usage_when_goal_run_thread_exists() {
     let usage = model.current_header_usage_summary();
     assert_eq!(usage.total_thread_tokens, 100);
     assert_eq!(usage.total_cost_usd, Some(1.0));
-    assert!(usage.current_tokens < 100);
+    assert_eq!(usage.current_tokens, 0);
     assert_ne!(usage.total_thread_tokens, 2_000);
     assert_ne!(usage.total_cost_usd, Some(9.99));
 }
@@ -3586,7 +3589,10 @@ fn header_usage_summary_uses_runtime_model_context_window_for_rarog() {
         (total_cost - 0.25).abs() < 1e-9,
         "expected summed total cost to be 0.25, got {total_cost}"
     );
-    assert!(usage.current_tokens > 0);
+    assert_eq!(
+        usage.current_tokens, 30,
+        "header should use daemon-reported token usage from the latest completed turn"
+    );
     assert!(usage.utilization_pct <= 100);
 }
 
@@ -3703,6 +3709,9 @@ fn header_profile_tracks_weles_subagent_updates_after_runtime_metadata_exists() 
         delete_allowed: false,
         protected_reason: Some("Built-in reviewer".to_string()),
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
     model.handle_client_event(ClientEvent::ThreadCreated {
@@ -3735,6 +3744,9 @@ fn header_profile_tracks_weles_subagent_updates_after_runtime_metadata_exists() 
         delete_allowed: false,
         protected_reason: Some("Built-in reviewer".to_string()),
         reasoning_effort: Some("high".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
 
@@ -3760,6 +3772,9 @@ fn header_profile_switches_on_handoff_append_and_clears_stale_runtime() {
         delete_allowed: false,
         protected_reason: Some("Built-in reviewer".to_string()),
         reasoning_effort: Some("high".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
     model.handle_client_event(ClientEvent::ThreadCreated {
@@ -3906,7 +3921,7 @@ fn header_usage_summary_caps_target_by_custom_compaction_window() {
 }
 
 #[test]
-fn header_usage_summary_resets_active_window_after_compaction_artifact() {
+fn header_usage_summary_does_not_estimate_after_compaction_artifact() {
     let mut model = make_model();
 
     model.handle_client_event(ClientEvent::ThreadCreated {
@@ -3959,11 +3974,13 @@ fn header_usage_summary_resets_active_window_after_compaction_artifact() {
     });
 
     let after = model.current_header_usage_summary();
-    assert!(
-        after.current_tokens < before.current_tokens,
-        "active context usage should drop after compaction: before={} after={}",
-        before.current_tokens,
-        after.current_tokens
+    assert_eq!(
+        before.current_tokens, 0,
+        "header should not estimate active context usage before daemon context state arrives"
+    );
+    assert_eq!(
+        after.current_tokens, 0,
+        "header should not estimate active context usage after compaction without daemon context state"
     );
     let total_cost = after
         .total_cost_usd
@@ -4017,13 +4034,13 @@ fn header_usage_summary_ignores_loaded_messages_before_known_compaction_boundary
 
     let usage = model.current_header_usage_summary();
     assert_eq!(
-        usage.current_tokens, 224,
-        "header should only count messages at or after the known compaction boundary"
+        usage.current_tokens, 0,
+        "header should not estimate active context usage from loaded messages without daemon context state"
     );
 }
 
 #[test]
-fn header_usage_summary_resets_on_legacy_visible_compaction_artifact() {
+fn header_usage_summary_does_not_estimate_on_legacy_visible_compaction_artifact() {
     let mut model = make_model();
 
     model.handle_thread_detail_event(crate::wire::AgentThread {
@@ -4062,8 +4079,8 @@ fn header_usage_summary_resets_on_legacy_visible_compaction_artifact() {
 
     let usage = model.current_header_usage_summary();
     assert_eq!(
-        usage.current_tokens, 62,
-        "legacy compaction artifacts should reset fallback header context even without daemon fields"
+        usage.current_tokens, 0,
+        "legacy compaction artifacts should not drive a fallback header context estimate without daemon fields"
     );
 }
 
@@ -4096,6 +4113,112 @@ fn header_usage_summary_prefers_daemon_active_context_window_tokens() {
     assert_eq!(
         usage.current_tokens, 54,
         "header should use daemon-calculated active context tokens instead of estimating the loaded page"
+    );
+}
+
+#[test]
+fn header_usage_summary_does_not_estimate_context_tokens_from_loaded_history() {
+    let mut model = make_model();
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-history-context".to_string(),
+        title: "History Context".to_string(),
+        total_message_count: 6,
+        loaded_message_start: 4,
+        loaded_message_end: 6,
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::Assistant,
+            content: "latest".to_string(),
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-history-context".to_string(),
+    ));
+
+    let before = model.current_header_usage_summary();
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-history-context".to_string(),
+        title: "History Context".to_string(),
+        total_message_count: 6,
+        loaded_message_start: 0,
+        loaded_message_end: 4,
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::User,
+            content: "older ".repeat(8_000),
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+
+    let after = model.current_header_usage_summary();
+    assert_eq!(before.current_tokens, 0);
+    assert_eq!(
+        after.current_tokens, before.current_tokens,
+        "loading older history should not fake active context usage when daemon context state is absent"
+    );
+}
+
+#[test]
+fn header_usage_summary_uses_latest_daemon_turn_tokens_without_loaded_history_estimate() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-turn-usage".to_string(),
+        title: "Turn Usage".to_string(),
+        agent_name: Some("Swarog".to_string()),
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-turn-usage".to_string(),
+    ));
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-turn-usage".to_string(),
+        content: "latest response".to_string(),
+    });
+    model.handle_client_event(ClientEvent::Done {
+        thread_id: "thread-turn-usage".to_string(),
+        input_tokens: 12_000,
+        output_tokens: 3_000,
+        cost: Some(0.25),
+        provider: Some("openai".to_string()),
+        model: Some("gpt-5.4".to_string()),
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+        provider_final_result_json: None,
+    });
+
+    let before = model.current_header_usage_summary();
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-turn-usage".to_string(),
+        title: "Turn Usage".to_string(),
+        total_message_count: 4,
+        loaded_message_start: 0,
+        loaded_message_end: 2,
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::User,
+            content: "older ".repeat(8_000),
+            input_tokens: 80_000,
+            output_tokens: 20_000,
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+
+    let after = model.current_header_usage_summary();
+    assert_eq!(
+        before.current_tokens, 15_000,
+        "header should use daemon-reported token usage from the latest completed turn"
+    );
+    assert_eq!(
+        after.current_tokens, before.current_tokens,
+        "loading older history should not replace current usage with older loaded message tokens"
     );
 }
 
@@ -4288,6 +4411,71 @@ fn thread_detail_clears_loading_state() {
     })));
 
     assert!(model.thread_loading_id.is_none());
+}
+
+#[test]
+fn workspace_task_update_does_not_reopen_loading_after_empty_thread_detail_arrives() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 77;
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "workspace-thread:task-1".to_string(),
+            title: "Workspace Task".to_string(),
+            messages: Vec::new(),
+            ..Default::default()
+        },
+    ));
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "workspace-thread:task-1".to_string(),
+    ));
+    model.thread_loading_id = Some("workspace-thread:task-1".to_string());
+
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "workspace-thread:task-1".to_string(),
+        title: "Workspace Task".to_string(),
+        messages: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+        total_message_count: 0,
+        loaded_message_start: 0,
+        loaded_message_end: 0,
+        ..Default::default()
+    })));
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.handle_client_event(ClientEvent::WorkspaceTaskUpdated(
+        zorai_protocol::WorkspaceTask {
+            id: "task-1".to_string(),
+            workspace_id: "main".to_string(),
+            title: "Workspace Task".to_string(),
+            task_type: zorai_protocol::WorkspaceTaskType::Thread,
+            description: "Description".to_string(),
+            definition_of_done: None,
+            priority: zorai_protocol::WorkspacePriority::Low,
+            status: zorai_protocol::WorkspaceTaskStatus::InProgress,
+            sort_order: 1,
+            reporter: zorai_protocol::WorkspaceActor::User,
+            assignee: Some(zorai_protocol::WorkspaceActor::Agent(
+                zorai_protocol::AGENT_ID_SWAROG.to_string(),
+            )),
+            reviewer: Some(zorai_protocol::WorkspaceActor::User),
+            thread_id: Some("workspace-thread:task-1".to_string()),
+            goal_run_id: None,
+            runtime_history: Vec::new(),
+            created_at: 1,
+            updated_at: 2,
+            started_at: Some(2),
+            completed_at: None,
+            deleted_at: None,
+            last_notice_id: None,
+        },
+    ));
+
+    assert_eq!(next_thread_request(&mut daemon_rx), None);
+    assert!(
+        model.thread_loading_id.is_none(),
+        "workspace sync after an empty detail should not put the open thread back into loading"
+    );
 }
 
 #[test]
@@ -5649,7 +5837,7 @@ fn active_thread_reload_required_invalidates_stale_header_context_tokens() {
 
     assert_eq!(
         model.current_header_usage_summary().current_tokens,
-        54,
+        0,
         "reload should clear stale daemon context tokens while the authoritative detail is pending"
     );
     assert!(matches!(
@@ -5718,7 +5906,7 @@ fn goal_header_thread_reload_required_refreshes_header_thread_even_when_not_sele
     });
 
     assert_eq!(model.chat.active_thread_id(), Some("selected-thread"));
-    assert_eq!(model.current_header_usage_summary().current_tokens, 54);
+    assert_eq!(model.current_header_usage_summary().current_tokens, 0);
     assert!(matches!(
         next_thread_request(&mut daemon_rx),
         Some((thread_id, _, _)) if thread_id == "goal-thread"
@@ -7132,6 +7320,9 @@ fn new_subagent_conversation_keeps_header_after_thread_created_without_agent_nam
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
 
@@ -7189,6 +7380,9 @@ fn new_subagent_conversation_done_clears_footer_activity_after_thread_creation()
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
 
@@ -7247,6 +7441,9 @@ fn new_subagent_conversation_keeps_thinking_after_thread_created_until_first_res
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
 
@@ -7290,6 +7487,9 @@ fn new_subagent_conversation_keeps_thinking_across_reload_before_first_response(
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
 
@@ -7330,6 +7530,9 @@ fn new_subagent_conversation_keeps_reasoning_stream_across_reload_before_first_r
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
 
@@ -7942,6 +8145,9 @@ fn subagent_error_requests_refresh_to_clear_rejected_optimistic_state() {
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: None,
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: Some(serde_json::json!({
             "id": "weles_builtin",
             "name": "Legacy WELES"

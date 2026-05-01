@@ -17,6 +17,7 @@ pub struct AgentThread {
     pub active_context_window_start: Option<usize>,
     pub active_context_window_end: Option<usize>,
     pub active_context_window_tokens: Option<u64>,
+    pub latest_turn_context_tokens: Option<u64>,
     pub pinned_messages: Vec<PinnedThreadMessage>,
     pub older_page_pending: bool,
     pub older_page_request_cooldown_until_tick: Option<u64>,

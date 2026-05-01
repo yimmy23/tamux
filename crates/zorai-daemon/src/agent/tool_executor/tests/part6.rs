@@ -3411,6 +3411,9 @@ async fn list_agents_returns_effective_runtime_targets() {
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 0,
     });
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
@@ -3617,6 +3620,9 @@ async fn switch_model_updates_targeted_agent_settings_from_svarog_scope() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
@@ -3638,6 +3644,9 @@ async fn switch_model_updates_targeted_agent_settings_from_svarog_scope() {
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 0,
     });
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
@@ -3924,6 +3933,9 @@ async fn spawn_subagent_derives_budget_from_effective_subagent_provider_window()
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
@@ -3945,6 +3957,9 @@ async fn spawn_subagent_derives_budget_from_effective_subagent_provider_window()
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 0,
     });
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
@@ -4007,6 +4022,9 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
@@ -4028,6 +4046,9 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("high".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 0,
     });
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
@@ -7325,5 +7346,227 @@ async fn execute_tool_records_timeout_adaptation_in_weles_review_for_search_file
             .iter()
             .any(|reason| reason == "adapted_runtime:timeout:search_files:90"),
         "expected search_files timeout adaptation reason, got {reasons:?}"
+    );
+}
+
+
+#[tokio::test]
+async fn update_browser_profile_health_emits_repair_notice_for_repair_needed() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+
+    engine
+        .history
+        .upsert_browser_profile(&crate::agent::types::BrowserProfile {
+            profile_id: "browser-profile-main".to_string(),
+            label: "Main Browser".to_string(),
+            profile_dir: "/tmp/browser-profile-main".to_string(),
+            browser_kind: Some("chrome".to_string()),
+            workspace_id: None,
+            health_state: crate::agent::types::BrowserProfileHealth::Healthy,
+            created_at: 1_777_230_000,
+            updated_at: 1_777_230_100,
+            last_used_at: None,
+            last_auth_success_at: None,
+            last_auth_failure_at: None,
+            last_auth_failure_reason: None,
+        })
+        .await
+        .expect("profile should persist");
+
+    let result = execute_tool(
+        &ToolCall::with_default_weles_review(
+            "tool-update-browser-profile-health-repair-needed".to_string(),
+            ToolFunction {
+                name: "update_browser_profile_health".to_string(),
+                arguments: serde_json::json!({
+                    "profile_id": "browser-profile-main",
+                    "health_state": "repair_needed",
+                    "last_auth_failure_at": 1_777_230_200u64,
+                    "last_auth_failure_reason": "cookies expired"
+                })
+                .to_string(),
+            },
+        ),
+        &engine,
+        "thread-browser-profile-repair-needed",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "update_browser_profile_health should succeed: {}",
+        result.content
+    );
+
+    let notice = timeout(Duration::from_millis(250), event_rx.recv())
+        .await
+        .expect("expected browser profile repair workflow notice")
+        .expect("workflow notice should be received");
+    match notice {
+        AgentEvent::WorkflowNotice {
+            kind,
+            message,
+            details: Some(details),
+            ..
+        } => {
+            assert_eq!(kind, "browser-profile-repair");
+            assert!(message.contains("browser-profile-main"));
+            assert!(message.contains("needs repair"));
+            assert!(message.contains("cookies expired"));
+            let details: serde_json::Value =
+                serde_json::from_str(&details).expect("notice details should be json");
+            assert_eq!(
+                details.get("profile_id").and_then(|value| value.as_str()),
+                Some("browser-profile-main")
+            );
+            assert_eq!(
+                details.get("health_state").and_then(|value| value.as_str()),
+                Some("repair_needed")
+            );
+            assert_eq!(
+                details
+                    .get("last_auth_failure_reason")
+                    .and_then(|value| value.as_str()),
+                Some("cookies expired")
+            );
+        }
+        other => panic!("expected workflow notice, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn list_browser_profiles_tool_returns_reclassified_expired_profiles() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let now_ms = crate::agent::now_millis();
+    let sixty_days_ago = now_ms.saturating_sub(60 * 24 * 60 * 60 * 1000);
+
+    engine
+        .history
+        .upsert_browser_profile(&crate::agent::types::BrowserProfile {
+            profile_id: "expired-work".to_string(),
+            label: "Expired Work Profile".to_string(),
+            profile_dir: "/tmp/zorai/browser/expired-work".to_string(),
+            browser_kind: Some("chrome".to_string()),
+            workspace_id: None,
+            health_state: crate::agent::types::BrowserProfileHealth::Healthy,
+            created_at: sixty_days_ago,
+            updated_at: sixty_days_ago,
+            last_used_at: Some(sixty_days_ago),
+            last_auth_success_at: Some(sixty_days_ago),
+            last_auth_failure_at: None,
+            last_auth_failure_reason: None,
+        })
+        .await
+        .expect("profile should persist");
+
+    let result = execute_tool(
+        &ToolCall::with_default_weles_review(
+            "tool-list-browser-profiles-expired".to_string(),
+            ToolFunction {
+                name: "list_browser_profiles".to_string(),
+                arguments: serde_json::json!({}).to_string(),
+            },
+        ),
+        &engine,
+        "thread-list-browser-profiles-expired",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "list_browser_profiles should succeed: {}",
+        result.content
+    );
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("list_browser_profiles should return JSON");
+    let profiles = payload.as_array().expect("profiles should serialize as an array");
+    let expired = profiles
+        .iter()
+        .find(|profile| profile["profile_id"] == serde_json::json!("expired-work"))
+        .expect("expired profile should be listed");
+    assert_eq!(expired["health_state"], serde_json::json!("expired"));
+}
+
+#[tokio::test]
+async fn update_browser_profile_health_does_not_emit_repair_notice_for_healthy() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, mut event_rx) = broadcast::channel(8);
+
+    engine
+        .history
+        .upsert_browser_profile(&crate::agent::types::BrowserProfile {
+            profile_id: "browser-profile-main".to_string(),
+            label: "Main Browser".to_string(),
+            profile_dir: "/tmp/browser-profile-main".to_string(),
+            browser_kind: Some("chrome".to_string()),
+            workspace_id: None,
+            health_state: crate::agent::types::BrowserProfileHealth::RepairInProgress,
+            created_at: 1_777_230_000,
+            updated_at: 1_777_230_100,
+            last_used_at: None,
+            last_auth_success_at: None,
+            last_auth_failure_at: Some(1_777_230_200),
+            last_auth_failure_reason: Some("cookies expired".to_string()),
+        })
+        .await
+        .expect("profile should persist");
+
+    let result = execute_tool(
+        &ToolCall::with_default_weles_review(
+            "tool-update-browser-profile-health-healthy".to_string(),
+            ToolFunction {
+                name: "update_browser_profile_health".to_string(),
+                arguments: serde_json::json!({
+                    "profile_id": "browser-profile-main",
+                    "health_state": "healthy",
+                    "last_auth_success_at": 1_777_230_300u64
+                })
+                .to_string(),
+            },
+        ),
+        &engine,
+        "thread-browser-profile-healthy",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "update_browser_profile_health should succeed: {}",
+        result.content
+    );
+
+    assert!(
+        timeout(Duration::from_millis(150), event_rx.recv()).await.is_err(),
+        "healthy browser profile updates should not emit repair notices"
     );
 }

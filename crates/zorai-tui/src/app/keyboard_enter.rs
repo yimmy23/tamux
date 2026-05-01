@@ -84,7 +84,7 @@ impl TuiModel {
             return true;
         }
         if cmd == "new-workspace" {
-            self.create_workspace_task_from_args(args);
+            self.create_workspace_from_args(args);
             return true;
         }
         if cmd == "workspace-run" {

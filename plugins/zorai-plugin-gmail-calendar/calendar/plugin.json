@@ -1,8 +1,8 @@
 {
   "name": "calendar",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "schema_version": 1,
-  "description": "Google Calendar integration — view, create, update, and delete events",
+  "description": "Google Calendar integration \u2014 view, create, update, and delete events",
   "author": "zorai",
   "license": "MIT",
   "zorai_version": ">=2.0.0",
@@ -10,7 +10,9 @@
     "type": "oauth2",
     "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
-    "scopes": ["https://www.googleapis.com/auth/calendar"],
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar"
+    ],
     "pkce": true
   },
   "settings": {
@@ -42,19 +44,25 @@
       "list_events": {
         "method": "GET",
         "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events?singleEvents=true&orderBy=startTime&timeMin={{params.time_min}}&timeMax={{params.time_max}}&maxResults={{default params.max_results \"20\"}}",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "## Calendar Events\n\n{{#each items}}Event: {{summary}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\nStatus: {{default status \"confirmed\"}}\nID: {{id}}\n\n{{/each}}"
       },
       "list_calendar_events": {
         "method": "GET",
         "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events?singleEvents=true&orderBy=startTime&timeMin={{params.time_min}}&timeMax={{params.time_max}}&maxResults={{default params.max_results \"20\"}}",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "## Calendar Events\n\n{{#each items}}Event: {{summary}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\nStatus: {{default status \"confirmed\"}}\nID: {{id}}\n\n{{/each}}"
       },
       "get_event": {
         "method": "GET",
         "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "## {{summary}}\n\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\nDescription: {{default description \"(none)\"}}\nStatus: {{default status \"confirmed\"}}\nCreator: {{creator.email}}\nOrganizer: {{organizer.email}}\nAttendees:\n{{#each attendees}}- {{email}} ({{default responseStatus \"unknown\"}})\n{{/each}}"
       },
       "create_event": {
@@ -66,8 +74,12 @@
         },
         "body": {
           "summary": "{{params.summary}}",
-          "start": { "dateTime": "{{params.start_time}}" },
-          "end": { "dateTime": "{{params.end_time}}" },
+          "start": {
+            "dateTime": "{{params.start_time}}"
+          },
+          "end": {
+            "dateTime": "{{params.end_time}}"
+          },
           "location": "{{params.location}}",
           "description": "{{params.description}}"
         },
@@ -82,8 +94,12 @@
         },
         "body": {
           "summary": "{{params.summary}}",
-          "start": { "dateTime": "{{params.start_time}}" },
-          "end": { "dateTime": "{{params.end_time}}" },
+          "start": {
+            "dateTime": "{{params.start_time}}"
+          },
+          "end": {
+            "dateTime": "{{params.end_time}}"
+          },
           "location": "{{params.location}}",
           "description": "{{params.description}}"
         },
@@ -92,14 +108,108 @@
       "delete_event": {
         "method": "DELETE",
         "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "Event deleted."
       },
       "list_calendars": {
         "method": "GET",
         "path": "/calendar/v3/users/me/calendarList",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "## Your Calendars\n\n{{#each items}}- **{{summary}}** (ID: {{id}}, Access: {{accessRole}})\n{{/each}}"
+      },
+      "list_schedule_items": {
+        "method": "GET",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events?singleEvents=true&orderBy=startTime&timeMin={{params.time_min}}&timeMax={{params.time_max}}&maxResults={{default params.max_results \"20\"}}",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
+        "response_template": "## Schedule Items\n\n{{#each items}}Event: {{summary}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\nStatus: {{default status \"confirmed\"}}\nID: {{id}}\n\n{{/each}}"
+      },
+      "fetch_schedule_context": {
+        "method": "GET",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
+        "response_template": "## {{summary}}\n\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\nDescription: {{default description \"(none)\"}}\nStatus: {{default status \"confirmed\"}}\nCreator: {{creator.email}}\nOrganizer: {{organizer.email}}\nAttendees:\n{{#each attendees}}- {{email}} ({{default responseStatus \"unknown\"}})\n{{/each}}"
+      },
+      "schedule_follow_up": {
+        "method": "POST",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "summary": "{{params.summary}}",
+          "start": {
+            "dateTime": "{{params.start_time}}"
+          },
+          "end": {
+            "dateTime": "{{params.end_time}}"
+          },
+          "location": "{{params.location}}",
+          "description": "{{params.description}}"
+        },
+        "response_template": "Event created: **{{summary}}**\nID: {{id}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLink: {{htmlLink}}"
+      },
+      "update_schedule_item": {
+        "method": "PUT",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "summary": "{{params.summary}}",
+          "start": {
+            "dateTime": "{{params.start_time}}"
+          },
+          "end": {
+            "dateTime": "{{params.end_time}}"
+          },
+          "location": "{{params.location}}",
+          "description": "{{params.description}}"
+        },
+        "response_template": "Event updated: **{{summary}}**\nID: {{id}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}"
+      },
+      "update_attendance": {
+        "method": "PATCH",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "attendeesOmitted": true,
+          "attendees": [
+            {
+              "email": "{{params.email}}",
+              "responseStatus": "{{default params.response_status \"accepted\"}}"
+            }
+          ]
+        },
+        "response_template": "Attendance updated for {{id}}."
+      },
+      "meeting_prep": {
+        "method": "GET",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
+        "response_template": "## Meeting Prep: {{summary}}\n\n- Starts: {{default start.dateTime start.date}}\n- Ends: {{default end.dateTime end.date}}\n- Location: {{default location \"No location\"}}\n- Organizer: {{organizer.email}}\n- Attendees:\n{{#each attendees}}  - {{email}} ({{default responseStatus \"unknown\"}})\n{{/each}}\n\nAgenda / notes:\n{{default description \"(none)\"}}"
+      },
+      "check_health": {
+        "method": "GET",
+        "path": "/calendar/v3/users/me/calendarList?maxResults=1",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
+        "response_template": "Calendar API reachable. {{#if items.[0]}}Primary visible calendar: {{items.[0].summary}}{{else}}No calendars returned.{{/if}}"
       }
     },
     "rate_limit": {
@@ -126,7 +236,49 @@
     "calendars": {
       "description": "List all your calendars",
       "action": "list_calendars"
+    },
+    "update": {
+      "description": "Update a calendar event",
+      "action": "update_schedule_item"
+    },
+    "rsvp": {
+      "description": "Update your response status for a calendar event",
+      "action": "update_attendance"
+    },
+    "prep": {
+      "description": "Show meeting-prep context for a calendar event",
+      "action": "meeting_prep"
     }
   },
-  "skills": ["skills/calendar-today.md"]
+  "skills": [
+    "skills/calendar-today.md"
+  ],
+  "connector": {
+    "kind": "calendar",
+    "category": "calendar",
+    "setup_hint": "Configure Google OAuth client credentials, connect the plugin, and grant Calendar access.",
+    "docs_path": "plugins/zorai-plugin-gmail-calendar/README.md",
+    "workflow_primitives": [
+      "list_schedule_items",
+      "fetch_schedule_context",
+      "schedule_follow_up",
+      "update_schedule_item",
+      "update_attendance",
+      "meeting_prep"
+    ],
+    "read_actions": [
+      "list_events",
+      "list_calendar_events",
+      "get_event",
+      "list_calendars",
+      "meeting_prep"
+    ],
+    "write_actions": [
+      "create_event",
+      "update_event",
+      "delete_event",
+      "update_attendance"
+    ],
+    "readiness_endpoint": "check_health"
+  }
 }

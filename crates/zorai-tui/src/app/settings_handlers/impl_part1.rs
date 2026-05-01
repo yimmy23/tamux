@@ -1,8 +1,7 @@
 use zorai_shared::providers::{
     AudioToolKind, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
-    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
-    PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+    PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
 };
 
 impl TuiModel {
@@ -170,8 +169,16 @@ impl TuiModel {
         match provider_id {
             PROVIDER_ID_OPENAI | PROVIDER_ID_AZURE_OPENAI | PROVIDER_ID_CUSTOM => {
                 vec![
-                    model("text-embedding-3-small", "Text Embedding 3 Small", Some(8192)),
-                    model("text-embedding-3-large", "Text Embedding 3 Large", Some(8192)),
+                    model(
+                        "text-embedding-3-small",
+                        "Text Embedding 3 Small",
+                        Some(8192),
+                    ),
+                    model(
+                        "text-embedding-3-large",
+                        "Text Embedding 3 Large",
+                        Some(8192),
+                    ),
                 ]
             }
             _ => Vec::new(),
@@ -292,8 +299,7 @@ impl TuiModel {
         self.config
             .reduce(config::ConfigAction::ModelsFetched(models));
         if self.should_fetch_remote_models(&provider_id, &auth_source) {
-            let output_modalities =
-                Self::image_remote_model_fetch_output_modalities(&provider_id);
+            let output_modalities = Self::image_remote_model_fetch_output_modalities(&provider_id);
             self.send_daemon_command(DaemonCommand::FetchModels {
                 provider_id,
                 base_url,
@@ -343,7 +349,8 @@ impl TuiModel {
         auth_source: String,
     ) {
         let models = providers::known_models_for_provider_auth(&provider_id, &auth_source);
-        self.config.reduce(config::ConfigAction::ModelsFetched(models));
+        self.config
+            .reduce(config::ConfigAction::ModelsFetched(models));
         if self.should_fetch_remote_models(&provider_id, &auth_source) {
             self.send_daemon_command(DaemonCommand::FetchModels {
                 provider_id,
@@ -392,10 +399,7 @@ impl TuiModel {
             .any(|token| token.trim() == "audio")
     }
 
-    fn json_string_has_directional_audio(
-        value: Option<&serde_json::Value>,
-        side: &str,
-    ) -> bool {
+    fn json_string_has_directional_audio(value: Option<&serde_json::Value>, side: &str) -> bool {
         value
             .and_then(|value| value.as_str())
             .map(|value| Self::modality_side_has_audio(value, side))
@@ -406,10 +410,10 @@ impl TuiModel {
         model: &crate::state::config::FetchedModel,
         endpoint: &str,
     ) -> Option<bool> {
-        let provider_prefix_sensitive =
-            model.id.starts_with("xai/") || model.id.starts_with("openai/")
-                || model.id.starts_with(&format!("{PROVIDER_ID_XAI}/"))
-                || model.id.starts_with(&format!("{PROVIDER_ID_OPENROUTER}/"));
+        let provider_prefix_sensitive = model.id.starts_with("xai/")
+            || model.id.starts_with("openai/")
+            || model.id.starts_with(&format!("{PROVIDER_ID_XAI}/"))
+            || model.id.starts_with(&format!("{PROVIDER_ID_OPENROUTER}/"));
         let name = model
             .name
             .as_deref()
@@ -485,16 +489,41 @@ impl TuiModel {
     }
 
     pub(super) fn current_settings_field_name(&self) -> &str {
+        if self.settings.active_tab() == crate::state::SettingsTab::Concierge {
+            return match self.settings.field_cursor() {
+                0 => "concierge_enabled",
+                1 => "concierge_detail_level",
+                2 => "concierge_provider",
+                3 => "concierge_model",
+                4 => "concierge_reasoning_effort",
+                5 if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) => {
+                    "concierge_openrouter_provider_order"
+                }
+                6 if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) => {
+                    "concierge_openrouter_provider_ignore"
+                }
+                7 if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) => {
+                    "concierge_openrouter_allow_fallbacks"
+                }
+                _ => "",
+            };
+        }
         self.settings.current_field_name_with_config(&self.config)
     }
 
     pub(super) fn settings_field_count(&self) -> usize {
+        if self.settings.active_tab() == crate::state::SettingsTab::Concierge {
+            return if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) {
+                8
+            } else {
+                5
+            };
+        }
         self.settings.field_count_with_config(&self.config)
     }
 
     pub(super) fn clamp_settings_cursor(&mut self) {
-        self.settings
-            .clamp_field_cursor(self.settings.field_count_with_config(&self.config));
+        self.settings.clamp_field_cursor(self.settings_field_count());
     }
 
     pub(super) fn open_honcho_editor(&mut self) {
@@ -571,30 +600,7 @@ impl TuiModel {
         self.settings_picker_target = Some(target);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-        let item_count = match target {
-            SettingsPickerTarget::AudioSttProvider => {
-                widgets::provider_picker::available_audio_provider_defs(
-                    &self.auth,
-                    AudioToolKind::SpeechToText,
-                )
-                .len()
-            }
-            SettingsPickerTarget::AudioTtsProvider => {
-                widgets::provider_picker::available_audio_provider_defs(
-                    &self.auth,
-                    AudioToolKind::TextToSpeech,
-                )
-                .len()
-            }
-            SettingsPickerTarget::ImageGenerationProvider => {
-                widgets::provider_picker::available_provider_defs(&self.auth).len()
-            }
-            SettingsPickerTarget::EmbeddingProvider => {
-                widgets::provider_picker::available_embedding_provider_defs(&self.auth).len()
-            }
-            _ => widgets::provider_picker::available_provider_defs(&self.auth).len(),
-        };
-        self.modal.set_picker_item_count(item_count);
+        self.sync_provider_picker_item_count();
     }
 
     pub(super) fn open_compaction_weles_model_picker(&mut self) {
@@ -702,20 +708,23 @@ impl TuiModel {
                             )
                             .image_generation
                         }
-                        "embedding" => model.id.to_ascii_lowercase().contains("embedding")
-                            || model.id.to_ascii_lowercase().contains("embed")
-                            || model
-                                .metadata
-                                .as_ref()
-                                .map(|metadata| {
-                                    metadata.to_string().to_ascii_lowercase().contains("embedding")
-                                })
-                                .unwrap_or(false),
+                        "embedding" => {
+                            model.id.to_ascii_lowercase().contains("embedding")
+                                || model.id.to_ascii_lowercase().contains("embed")
+                                || model
+                                    .metadata
+                                    .as_ref()
+                                    .map(|metadata| {
+                                        metadata
+                                            .to_string()
+                                            .to_ascii_lowercase()
+                                            .contains("embedding")
+                                    })
+                                    .unwrap_or(false)
+                        }
                         _ => Self::fetched_model_supports_audio_endpoint(model, endpoint),
                     };
-                    if include
-                        && !models.iter().any(|existing| existing.id == model.id)
-                    {
+                    if include && !models.iter().any(|existing| existing.id == model.id) {
                         models.push(model.clone());
                     }
                 }
@@ -733,8 +742,89 @@ impl TuiModel {
         }
     }
 
+    pub(super) fn filtered_model_picker_models(&self) -> Vec<crate::state::config::FetchedModel> {
+        widgets::model_picker::filtered_models_for_selection(
+            &self.available_model_picker_models(),
+            self.modal.command_query(),
+        )
+    }
+
+    pub(super) fn available_provider_picker_defs(&self) -> Vec<&'static providers::ProviderDef> {
+        match self.settings_picker_target {
+            Some(SettingsPickerTarget::AudioSttProvider) => {
+                widgets::provider_picker::available_audio_provider_defs(
+                    &self.auth,
+                    AudioToolKind::SpeechToText,
+                )
+            }
+            Some(SettingsPickerTarget::AudioTtsProvider) => {
+                widgets::provider_picker::available_audio_provider_defs(
+                    &self.auth,
+                    AudioToolKind::TextToSpeech,
+                )
+            }
+            Some(SettingsPickerTarget::EmbeddingProvider) => {
+                widgets::provider_picker::available_embedding_provider_defs(&self.auth)
+            }
+            _ => widgets::provider_picker::available_provider_defs(&self.auth),
+        }
+    }
+
+    pub(super) fn filtered_provider_picker_defs(&self) -> Vec<&'static providers::ProviderDef> {
+        widgets::provider_picker::filtered_provider_defs(
+            self.available_provider_picker_defs(),
+            self.modal.command_query(),
+        )
+    }
+
     pub(super) fn sync_model_picker_item_count(&mut self) {
-        let count = self.available_model_picker_models().len() + 1;
+        let models = if self
+            .goal_mission_control
+            .pending_runtime_edit
+            .as_ref()
+            .is_some_and(|edit| {
+                edit.field == goal_mission_control::RuntimeAssignmentEditField::Model
+            }) {
+            self.available_runtime_assignment_models()
+        } else {
+            self.available_model_picker_models()
+        };
+        let count = widgets::model_picker::filtered_model_picker_item_count(
+            &models,
+            self.modal.command_query(),
+        );
+        self.modal.set_picker_item_count(count);
+    }
+
+    pub(super) fn sync_provider_picker_item_count(&mut self) {
+        let count = self.filtered_provider_picker_defs().len();
+        self.modal.set_picker_item_count(count);
+    }
+
+    pub(super) fn filtered_openrouter_endpoint_providers(&self) -> Vec<&str> {
+        let query = self.modal.command_query().trim().to_ascii_lowercase();
+        if query.is_empty() {
+            return self
+                .config
+                .openrouter_endpoint_providers
+                .iter()
+                .map(String::as_str)
+                .collect();
+        }
+        let terms = query.split_whitespace().collect::<Vec<_>>();
+        self.config
+            .openrouter_endpoint_providers
+            .iter()
+            .map(String::as_str)
+            .filter(|slug| {
+                let slug = slug.to_ascii_lowercase();
+                terms.iter().all(|term| slug.contains(term))
+            })
+            .collect()
+    }
+
+    pub(super) fn sync_openrouter_provider_picker_item_count(&mut self) {
+        let count = self.filtered_openrouter_endpoint_providers().len();
         self.modal.set_picker_item_count(count);
     }
 
@@ -1285,6 +1375,20 @@ impl TuiModel {
         editor.delete_allowed = entry.delete_allowed;
         editor.protected_reason = entry.protected_reason.clone();
         editor.reasoning_effort = entry.reasoning_effort.clone();
+        editor.openrouter_provider_order =
+            crate::state::subagents::openrouter_provider_list_from_json(
+                &raw,
+                "openrouter_provider_order",
+            );
+        editor.openrouter_provider_ignore =
+            crate::state::subagents::openrouter_provider_list_from_json(
+                &raw,
+                "openrouter_provider_ignore",
+            );
+        editor.openrouter_allow_fallbacks = raw
+            .get("openrouter_allow_fallbacks")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true);
         editor.raw_json = Some(raw);
         editor.previous_role_preset = editor
             .role_preset_index()

@@ -4,6 +4,7 @@ import { useAgentStore } from "../../lib/agentStore";
 import type { AgentProviderId } from "../../lib/agentStore";
 import { selectableProviderAuthStates } from "./agentTabHelpers";
 import { Section, SettingRow, ModelSelector, inputStyle, smallBtnStyle } from "./shared";
+import { OpenRouterProviderRoutingControls } from "./OpenRouterProviderRoutingControls";
 
 const DETAIL_LEVELS = [
     { value: "minimal", label: "Quick Hello", desc: "Session title and date with action buttons. No AI call — instant." },
@@ -19,6 +20,7 @@ export function ConciergeSection() {
     const providerAuthStates = useAgentStore((s) => s.providerAuthStates);
     const refreshProviderAuthStates = useAgentStore((s) => s.refreshProviderAuthStates);
     const selectableProviders = selectableProviderAuthStates(providerAuthStates);
+    const openRouterProviderState = providerAuthStates.find((state) => state.provider_id === "openrouter");
 
     useEffect(() => {
         refresh();
@@ -54,7 +56,14 @@ export function ConciergeSection() {
             <SettingRow label="Provider">
                 <select
                     value={config.provider || ""}
-                    onChange={(e) => update({ ...config, provider: e.target.value || undefined, model: undefined })}
+                    onChange={(e) => update({
+                        ...config,
+                        provider: e.target.value || undefined,
+                        model: undefined,
+                        openrouter_provider_order: undefined,
+                        openrouter_provider_ignore: undefined,
+                        openrouter_allow_fallbacks: null,
+                    })}
                     style={{ ...inputStyle, width: 180 }}
                 >
                     <option value="">Use {PRIMARY_AGENT_NAME} defaults</option>
@@ -75,6 +84,23 @@ export function ConciergeSection() {
                     />
                 </SettingRow>
             )}
+            {config.provider === "openrouter" ? (
+                <OpenRouterProviderRoutingControls
+                    config={{
+                        model: config.model || "",
+                        openrouter_provider_order: config.openrouter_provider_order,
+                        openrouter_provider_ignore: config.openrouter_provider_ignore,
+                        openrouter_allow_fallbacks: config.openrouter_allow_fallbacks,
+                    }}
+                    baseUrl={openRouterProviderState?.base_url || "https://openrouter.ai/api/v1"}
+                    onChange={(next) => update({
+                        ...config,
+                        openrouter_provider_order: next.openrouter_provider_order,
+                        openrouter_provider_ignore: next.openrouter_provider_ignore,
+                        openrouter_allow_fallbacks: next.openrouter_allow_fallbacks,
+                    })}
+                />
+            ) : null}
             <SettingRow label="Reasoning Effort">
                 <select
                     value={config.reasoning_effort || ""}

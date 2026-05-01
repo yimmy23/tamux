@@ -195,6 +195,9 @@ fn resolve_concierge_provider_uses_shared_resolution_path() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
 
@@ -250,6 +253,9 @@ fn concierge_fast_profile_preserves_selected_reasoning_without_touching_model() 
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
     };
 
     let fast = fast_concierge_provider_config(&base);

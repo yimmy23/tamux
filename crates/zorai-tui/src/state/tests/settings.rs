@@ -500,6 +500,15 @@ fn plugin_settings_state_selected_plugin() {
         description: Some("A test plugin".to_string()),
         install_source: "npm".to_string(),
         auth_status: "not_configured".to_string(),
+        connector_kind: Some("github".to_string()),
+        readiness_state: "needs_setup".to_string(),
+        readiness_message: Some("Missing required settings: token.".to_string()),
+        recovery_hint: Some("Open plugin settings and add a token.".to_string()),
+        setup_hint: Some("Add a token.".to_string()),
+        docs_path: Some("plugins/zorai-plugin-github/README.md".to_string()),
+        workflow_primitives: vec!["list_work_items".to_string()],
+        read_actions: vec!["list_issues".to_string()],
+        write_actions: vec!["comment_on_work_item".to_string()],
     });
     assert_eq!(ps.selected_plugin().unwrap().name, "test-plugin");
     assert_eq!(ps.detail_field_count(), 1);

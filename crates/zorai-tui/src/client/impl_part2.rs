@@ -453,6 +453,20 @@ impl DaemonClient {
                                 .get("reasoning_effort")
                                 .and_then(|s| s.as_str())
                                 .map(String::from),
+                            openrouter_provider_order:
+                                crate::state::subagents::openrouter_provider_list_from_json(
+                                    v,
+                                    "openrouter_provider_order",
+                                ),
+                            openrouter_provider_ignore:
+                                crate::state::subagents::openrouter_provider_list_from_json(
+                                    v,
+                                    "openrouter_provider_ignore",
+                                ),
+                            openrouter_allow_fallbacks: v
+                                .get("openrouter_allow_fallbacks")
+                                .and_then(|b| b.as_bool())
+                                .unwrap_or(true),
                             raw_json: Some(v.clone()),
                         })
                     })
@@ -506,6 +520,20 @@ impl DaemonClient {
                         .get("reasoning_effort")
                         .and_then(|s| s.as_str())
                         .map(String::from),
+                    openrouter_provider_order:
+                        crate::state::subagents::openrouter_provider_list_from_json(
+                            &v,
+                            "openrouter_provider_order",
+                        ),
+                    openrouter_provider_ignore:
+                        crate::state::subagents::openrouter_provider_list_from_json(
+                            &v,
+                            "openrouter_provider_ignore",
+                        ),
+                    openrouter_allow_fallbacks: v
+                        .get("openrouter_allow_fallbacks")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(true),
                     raw_json: Some(v),
                 };
                 let _ = event_tx.send(ClientEvent::SubAgentUpdated(entry)).await;

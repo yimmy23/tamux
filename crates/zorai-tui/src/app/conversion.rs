@@ -19,6 +19,15 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
     } else {
         0
     };
+    let messages: Vec<_> = t.messages.into_iter().map(convert_message).collect();
+    let latest_turn_context_tokens = if derived_loaded_message_end >= derived_total_message_count {
+        messages.iter().rev().find_map(|message| {
+            let tokens = message.input_tokens.saturating_add(message.output_tokens);
+            (tokens > 0).then_some(tokens)
+        })
+    } else {
+        None
+    };
     chat::AgentThread {
         id: t.id,
         agent_name: t.agent_name,
@@ -29,7 +38,7 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         title: t.title,
         created_at: t.created_at,
         updated_at: t.updated_at,
-        messages: t.messages.into_iter().map(convert_message).collect(),
+        messages,
         total_message_count: derived_total_message_count,
         loaded_message_start: derived_loaded_message_start,
         loaded_message_end: derived_loaded_message_end,
@@ -37,6 +46,7 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         active_context_window_start: t.active_context_window_start,
         active_context_window_end: t.active_context_window_end,
         active_context_window_tokens: t.active_context_window_tokens,
+        latest_turn_context_tokens,
         pinned_messages: t
             .pinned_messages
             .into_iter()

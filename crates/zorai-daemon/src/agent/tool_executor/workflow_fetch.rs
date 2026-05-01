@@ -21,6 +21,64 @@ fn emit_workflow_notice_for_tool(
                 None,
             )
         }
+        "update_browser_profile_health" => {
+            let profile_id = args
+                .get("profile_id")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("unknown-profile");
+            let health_state = args
+                .get("health_state")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("unknown");
+            let failure_reason = args
+                .get("last_auth_failure_reason")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+
+            let message = match health_state {
+                "repair_needed" => Some(format!(
+                    "Browser profile `{profile_id}` needs repair{}",
+                    failure_reason
+                        .map(|reason| format!(": {reason}"))
+                        .unwrap_or_default()
+                )),
+                "repair_in_progress" => Some(format!(
+                    "Browser profile `{profile_id}` repair is in progress{}",
+                    failure_reason
+                        .map(|reason| format!(": {reason}"))
+                        .unwrap_or_default()
+                )),
+                "corrupted" => Some(format!(
+                    "Browser profile `{profile_id}` is corrupted{}",
+                    failure_reason
+                        .map(|reason| format!(": {reason}"))
+                        .unwrap_or_default()
+                )),
+                _ => None,
+            };
+
+            let Some(message) = message else {
+                return;
+            };
+
+            (
+                "browser-profile-repair",
+                message,
+                Some(
+                    serde_json::json!({
+                        "profile_id": profile_id,
+                        "health_state": health_state,
+                        "last_auth_failure_reason": failure_reason,
+                    })
+                    .to_string(),
+                ),
+            )
+        }
         "update_memory" => (
             "memory-updated",
             "Agent updated persistent memory.".to_string(),
@@ -44,6 +102,11 @@ fn emit_workflow_notice_for_tool(
         "discover_skills" | "list_skills" | "read_skill" => (
             "skill-consulted",
             format!("Agent consulted local skills via {tool_name}."),
+            Some(args.to_string()),
+        ),
+        "run_workflow_pack" => (
+            "workflow-pack-run",
+            "Agent executed a canonical workflow pack.".to_string(),
             Some(args.to_string()),
         ),
         "onecontext_search" | "session_search" | "agent_query_memory" => (
@@ -226,23 +289,55 @@ async fn resolve_skill_context_tags(
 
 async fn execute_fetch_url(
     args: &serde_json::Value,
+    agent: &AgentEngine,
     http_client: &reqwest::Client,
     browse_provider: &str,
 ) -> Result<String> {
-    let browser = resolve_browser(browse_provider);
+    let request = fetch_url_request(args)?;
+    let profile = match request.profile_id.as_deref() {
+        Some(profile_id) => Some(resolve_fetch_browser_profile(agent, profile_id).await?),
+        None => None,
+    };
+    let browser_preference = profile
+        .as_ref()
+        .and_then(|row| row.browser_kind.as_deref())
+        .unwrap_or(browse_provider);
+    let browser = if profile.is_some() {
+        resolve_browser_for_profile(browser_preference)
+    } else {
+        resolve_browser(browser_preference)
+    };
+    let profile_dir = profile.as_ref().map(|row| row.profile_dir.clone());
 
-    execute_fetch_url_with_runner(
-        args,
+    if let Some(profile) = profile.as_ref() {
+        if browser.is_none() {
+            anyhow::bail!(
+                "browser profile '{}' requires a compatible headless browser, but none is available for '{}'",
+                profile.profile_id,
+                browser_preference,
+            );
+        }
+    }
+
+    let content = execute_fetch_url_request_with_runner(
+        request,
         browser.is_some(),
-        |url, timeout_seconds| async move {
+        move |url, timeout_seconds| async move {
             let browser = browser
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("no headless browser available"))?;
-            fetch_with_headless_browser(browser, &url, timeout_seconds).await
+            fetch_with_headless_browser(browser, &url, timeout_seconds, profile_dir.as_deref())
+                .await
         },
         |url, timeout_seconds| async move { fetch_raw_http(http_client, &url, timeout_seconds).await },
     )
-    .await
+    .await?;
+
+    if let Some(profile) = profile.as_ref() {
+        record_browser_profile_fetch_success(agent, profile).await?;
+    }
+
+    Ok(content)
 }
 
 async fn execute_fetch_url_with_runner<BrowserRunner, BrowserFut, HttpRunner, HttpFut>(
@@ -258,6 +353,22 @@ where
     HttpFut: Future<Output = Result<String>>,
 {
     let request = fetch_url_request(args)?;
+    execute_fetch_url_request_with_runner(request, browser_available, browser_runner, http_runner)
+        .await
+}
+
+async fn execute_fetch_url_request_with_runner<BrowserRunner, BrowserFut, HttpRunner, HttpFut>(
+    request: FetchUrlRequest,
+    browser_available: bool,
+    browser_runner: BrowserRunner,
+    http_runner: HttpRunner,
+) -> Result<String>
+where
+    BrowserRunner: FnOnce(String, u64) -> BrowserFut,
+    BrowserFut: Future<Output = Result<String>>,
+    HttpRunner: FnOnce(String, u64) -> HttpFut,
+    HttpFut: Future<Output = Result<String>>,
+{
     let timeout_seconds = request.timeout_seconds;
     let started = tokio::time::Instant::now();
     let max_length = request.max_length;
@@ -342,9 +453,11 @@ async fn fetch_raw_http(
 
 /// Detected headless browser binary and its args for dump-dom mode.
 struct HeadlessBrowser {
+    kind: &'static str,
     bin: String,
     /// Extra args to produce DOM text on stdout for a given URL.
     args_prefix: Vec<String>,
+    profile_dir_arg_prefix: Option<&'static str>,
 }
 
 /// Resolve which headless browser to use.
@@ -358,14 +471,25 @@ fn resolve_browser(preference: &str) -> Option<HeadlessBrowser> {
     }
 }
 
+fn resolve_browser_for_profile(preference: &str) -> Option<HeadlessBrowser> {
+    match preference {
+        "none" | "off" | "" => None,
+        "lightpanda" => detect_lightpanda(),
+        "chrome" | "chromium" => detect_chrome(),
+        "auto" | _ => detect_chrome().or_else(detect_lightpanda),
+    }
+}
+
 fn detect_lightpanda() -> Option<HeadlessBrowser> {
     which::which("lightpanda").ok().map(|path| HeadlessBrowser {
+        kind: "lightpanda",
         bin: path.to_string_lossy().to_string(),
         args_prefix: vec![
             "fetch".to_string(),
             "--output".to_string(),
             "dom-text".to_string(),
         ],
+        profile_dir_arg_prefix: None,
     })
 }
 
@@ -379,6 +503,7 @@ fn detect_chrome() -> Option<HeadlessBrowser> {
     for name in candidates {
         if let Ok(path) = which::which(name) {
             return Some(HeadlessBrowser {
+                kind: "chrome",
                 bin: path.to_string_lossy().to_string(),
                 args_prefix: vec![
                     "--headless=new".to_string(),
@@ -386,6 +511,7 @@ fn detect_chrome() -> Option<HeadlessBrowser> {
                     "--disable-gpu".to_string(),
                     "--dump-dom".to_string(),
                 ],
+                profile_dir_arg_prefix: Some("--user-data-dir="),
             });
         }
     }
@@ -396,9 +522,9 @@ async fn fetch_with_headless_browser(
     browser: &HeadlessBrowser,
     url: &str,
     timeout_seconds: u64,
+    profile_dir: Option<&str>,
 ) -> Result<String> {
-    let mut args = browser.args_prefix.clone();
-    args.push(url.to_string());
+    let args = build_headless_browser_args(browser, url, profile_dir)?;
 
     let child = tokio::process::Command::new(&browser.bin)
         .args(&args)
@@ -426,6 +552,89 @@ async fn fetch_with_headless_browser(
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn build_headless_browser_args(
+    browser: &HeadlessBrowser,
+    url: &str,
+    profile_dir: Option<&str>,
+) -> Result<Vec<String>> {
+    let mut args = browser.args_prefix.clone();
+
+    if let Some(profile_dir) = profile_dir {
+        let profile_dir = profile_dir.trim();
+        if profile_dir.is_empty() {
+            anyhow::bail!("browser profile directory must not be empty");
+        }
+        let profile_dir_arg_prefix = browser.profile_dir_arg_prefix.ok_or_else(|| {
+            anyhow::anyhow!(
+                "headless browser '{}' does not support browser profile directories",
+                browser.kind,
+            )
+        })?;
+        args.push(format!("{profile_dir_arg_prefix}{profile_dir}"));
+    }
+
+    args.push(url.to_string());
+    Ok(args)
+}
+
+async fn resolve_fetch_browser_profile(
+    agent: &AgentEngine,
+    profile_id: &str,
+) -> Result<crate::history::BrowserProfileRow> {
+    agent
+        .history
+        .detect_and_classify_expired_profiles(crate::agent::now_millis())
+        .await?;
+
+    let profile = agent
+        .history
+        .get_browser_profile(profile_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("browser profile not found: {profile_id}"))?;
+
+    match profile.health_state.as_str() {
+        "expired" | "corrupted" | "repair_needed" | "repair_in_progress" | "retired" => {
+            anyhow::bail!(
+                "browser profile '{}' is not usable for fetch_url while in '{}' state",
+                profile.profile_id,
+                profile.health_state,
+            );
+        }
+        _ => {}
+    }
+
+    Ok(profile)
+}
+
+async fn record_browser_profile_fetch_success(
+    agent: &AgentEngine,
+    profile: &crate::history::BrowserProfileRow,
+) -> Result<()> {
+    let health_state = crate::agent::types::BrowserProfileHealth::from_str(&profile.health_state)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "invalid persisted browser profile health state: {}",
+                profile.health_state
+            )
+        })?;
+    let now = crate::agent::now_millis();
+    let updated = crate::agent::types::BrowserProfile {
+        profile_id: profile.profile_id.clone(),
+        label: profile.label.clone(),
+        profile_dir: profile.profile_dir.clone(),
+        browser_kind: profile.browser_kind.clone(),
+        workspace_id: profile.workspace_id.clone(),
+        health_state,
+        created_at: profile.created_at,
+        updated_at: now,
+        last_used_at: Some(now),
+        last_auth_success_at: profile.last_auth_success_at,
+        last_auth_failure_at: profile.last_auth_failure_at,
+        last_auth_failure_reason: profile.last_auth_failure_reason.clone(),
+    };
+    agent.history.upsert_browser_profile(&updated).await
 }
 
 // ---------------------------------------------------------------------------

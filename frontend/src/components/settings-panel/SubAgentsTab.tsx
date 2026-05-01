@@ -5,6 +5,7 @@ import { getSubAgentCapabilities } from "../../lib/agentStore/providerActions";
 import { selectableProviderAuthStates } from "./agentTabHelpers";
 import { Section, SettingRow, ModelSelector, inputStyle, smallBtnStyle, addBtnStyle } from "./shared";
 import { SUB_AGENT_ROLE_PRESETS, findSubAgentRolePreset } from "./subAgentRolePresets";
+import { OpenRouterProviderRoutingControls } from "./OpenRouterProviderRoutingControls";
 
 type SubAgentForm = {
     name: string;
@@ -19,6 +20,9 @@ type SubAgentForm = {
     context_budget_tokens: string;
     max_duration_secs: string;
     reasoning_effort: string;
+    openrouter_provider_order: string[];
+    openrouter_provider_ignore: string[];
+    openrouter_allow_fallbacks: boolean | null;
 };
 
 const emptyForm: SubAgentForm = {
@@ -34,6 +38,9 @@ const emptyForm: SubAgentForm = {
     context_budget_tokens: "",
     max_duration_secs: "",
     reasoning_effort: "",
+    openrouter_provider_order: [],
+    openrouter_provider_ignore: [],
+    openrouter_allow_fallbacks: null,
 };
 
 export function SubAgentsTab() {
@@ -49,6 +56,7 @@ export function SubAgentsTab() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [form, setForm] = useState<SubAgentForm>(emptyForm);
     const selectableProviders = selectableProviderAuthStates(providerAuthStates);
+    const openRouterProviderState = providerAuthStates.find((state) => state.provider_id === "openrouter");
 
     useEffect(() => {
         refreshSubAgents();
@@ -68,6 +76,13 @@ export function SubAgentsTab() {
             context_budget_tokens: form.context_budget_tokens ? Number(form.context_budget_tokens) : undefined,
             max_duration_secs: form.max_duration_secs ? Number(form.max_duration_secs) : undefined,
             reasoning_effort: form.reasoning_effort || undefined,
+            ...(form.provider === "openrouter"
+                ? {
+                    openrouter_provider_order: form.openrouter_provider_order,
+                    openrouter_provider_ignore: form.openrouter_provider_ignore,
+                    openrouter_allow_fallbacks: form.openrouter_allow_fallbacks,
+                }
+                : {}),
         };
 
         if (editingId) {
@@ -100,6 +115,9 @@ export function SubAgentsTab() {
             context_budget_tokens: sa.context_budget_tokens ? String(sa.context_budget_tokens) : "",
             max_duration_secs: sa.max_duration_secs ? String(sa.max_duration_secs) : "",
             reasoning_effort: sa.reasoning_effort || "",
+            openrouter_provider_order: sa.openrouter_provider_order ?? [],
+            openrouter_provider_ignore: sa.openrouter_provider_ignore ?? [],
+            openrouter_allow_fallbacks: sa.openrouter_allow_fallbacks ?? null,
         });
         setEditingId(sa.id);
         setShowForm(true);
@@ -251,7 +269,14 @@ export function SubAgentsTab() {
                         <SettingRow label="Provider">
                             <select
                                 value={form.provider}
-                                onChange={(e) => setForm({ ...form, provider: e.target.value, model: "" })}
+                                onChange={(e) => setForm({
+                                    ...form,
+                                    provider: e.target.value,
+                                    model: "",
+                                    openrouter_provider_order: [],
+                                    openrouter_provider_ignore: [],
+                                    openrouter_allow_fallbacks: null,
+                                })}
                                 style={{ ...inputStyle, width: 220 }}
                             >
                                 <option value="">Select provider...</option>
@@ -274,6 +299,23 @@ export function SubAgentsTab() {
                                 <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>Select a provider first</span>
                             )}
                         </SettingRow>
+                        {form.provider === "openrouter" ? (
+                            <OpenRouterProviderRoutingControls
+                                config={{
+                                    model: form.model,
+                                    openrouter_provider_order: form.openrouter_provider_order,
+                                    openrouter_provider_ignore: form.openrouter_provider_ignore,
+                                    openrouter_allow_fallbacks: form.openrouter_allow_fallbacks,
+                                }}
+                                baseUrl={openRouterProviderState?.base_url || "https://openrouter.ai/api/v1"}
+                                onChange={(next) => setForm({
+                                    ...form,
+                                    openrouter_provider_order: next.openrouter_provider_order ?? [],
+                                    openrouter_provider_ignore: next.openrouter_provider_ignore ?? [],
+                                    openrouter_allow_fallbacks: next.openrouter_allow_fallbacks ?? null,
+                                })}
+                            />
+                        ) : null}
                         <SettingRow label="Role">
                             <select
                                 value={form.role}

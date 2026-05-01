@@ -85,6 +85,7 @@ struct FetchUrlRequest {
     url: String,
     max_length: usize,
     timeout_seconds: u64,
+    profile_id: Option<String>,
 }
 
 fn default_timeout_seconds_for_tool(tool_name: &str) -> u64 {

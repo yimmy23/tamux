@@ -6,7 +6,7 @@ mod helpers;
 
 use helpers::{
     flatten_config_value, normalize_compliance_mode, normalize_provider_auth_source,
-    normalize_provider_transport,
+    normalize_provider_transport, openrouter_provider_list_value,
 };
 
 impl TuiModel {
@@ -207,6 +207,14 @@ impl TuiModel {
                 &self.config.api_transport,
             );
             self.config.custom_context_window_tokens = custom_context_window_tokens;
+            self.config.openrouter_provider_order =
+                openrouter_provider_list_value(provider_config, "openrouter_provider_order");
+            self.config.openrouter_provider_ignore =
+                openrouter_provider_list_value(provider_config, "openrouter_provider_ignore");
+            self.config.openrouter_allow_fallbacks = provider_config
+                .get("openrouter_allow_fallbacks")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true);
             self.config.context_window_tokens = json
                 .get("context_window_tokens")
                 .and_then(|v| v.as_u64())

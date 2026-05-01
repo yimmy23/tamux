@@ -11,7 +11,7 @@ pub enum PluginApiError {
     SsrfBlocked { url: String },
 
     #[error(
-        "Rate limited: plugin '{plugin}' exceeded rate limit. Retry after {retry_after_secs}s"
+        "Rate limited: plugin '{plugin}' exceeded rate limit. Retry after {retry_after_secs}s and reduce connector polling or retry frequency."
     )]
     RateLimited {
         plugin: String,
@@ -24,7 +24,7 @@ pub enum PluginApiError {
     #[error("HTTP {status}: {body}")]
     HttpError { status: u16, body: String },
 
-    #[error("Request timed out (30s limit)")]
+    #[error("Request timed out (30s limit). Recovery: verify the service is reachable and retry.")]
     Timeout,
 
     #[error("Endpoint '{endpoint}' not found in plugin '{plugin}'")]

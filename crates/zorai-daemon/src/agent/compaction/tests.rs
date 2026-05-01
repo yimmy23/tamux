@@ -31,6 +31,9 @@ fn sample_provider_config() -> ProviderConfig {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
     }
 }
 
@@ -591,6 +594,9 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
     };
 
     let thread = sample_thread(vec![
@@ -771,6 +777,9 @@ fn github_copilot_responses_request_does_not_use_previous_response_id_for_plain_
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
     };
 
     let thread = sample_thread(vec![
@@ -847,6 +856,9 @@ fn chatgpt_subscription_responses_request_uses_local_thread_id_instead_of_previo
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
     };
 
     let thread = sample_thread(vec![
@@ -924,6 +936,9 @@ fn openai_responses_request_keeps_previous_response_id_when_compaction_artifact_
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
     };
 
     let thread = sample_thread(vec![
@@ -1031,6 +1046,9 @@ fn reused_user_turn_is_injected_when_responses_continuation_only_has_weles_notic
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
     };
 
     let mut recovery_notice = AgentMessage::user(

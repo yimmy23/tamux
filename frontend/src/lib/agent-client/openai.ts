@@ -14,6 +14,7 @@ import {
   TransportCompatibilityError,
   usesDashScopeEnableThinking,
 } from "./shared";
+import { normalizeOpenRouterProviderSlugs } from "../openrouterProviderRouting";
 import { parseResponsesSSE, parseSSEStream } from "./sse";
 
 export async function* sendNativeAssistant(
@@ -275,6 +276,7 @@ export async function* sendOpenAICompatible(
   if (req.streaming) {
     body.stream_options = { include_usage: true };
   }
+  applyOpenRouterProviderRouting(req.provider, req.config, body);
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (req.config.api_key) {
@@ -334,6 +336,26 @@ export async function* sendOpenAICompatible(
         outputTokens: json.usage?.completion_tokens ?? 0,
       };
     }
+  }
+}
+
+function applyOpenRouterProviderRouting(
+  provider: string,
+  config: ChatRequest["config"],
+  body: Record<string, unknown>,
+): void {
+  if (provider !== "openrouter") return;
+
+  const order = normalizeOpenRouterProviderSlugs(config.openrouter_provider_order);
+  const ignore = normalizeOpenRouterProviderSlugs(config.openrouter_provider_ignore);
+  const routing: Record<string, unknown> = {};
+  if (order.length > 0) routing.order = order;
+  if (ignore.length > 0) routing.ignore = ignore;
+  if (typeof config.openrouter_allow_fallbacks === "boolean") {
+    routing.allow_fallbacks = config.openrouter_allow_fallbacks;
+  }
+  if (Object.keys(routing).length > 0) {
+    body.provider = routing;
   }
 }
 

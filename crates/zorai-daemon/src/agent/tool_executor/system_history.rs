@@ -333,7 +333,7 @@ async fn execute_update_memory(
         let tasks = agent.tasks.lock().await;
         crate::agent::agent_scope_id_for_task(tasks.iter().find(|task| task.id == current_task_id))
     } else {
-        MAIN_AGENT_ID.to_string()
+        current_agent_scope_id()
     };
     if target == MemoryTarget::User && !crate::agent::is_main_agent_scope(&acting_scope_id) {
         let sender = if let Some(current_task_id) = task_id {

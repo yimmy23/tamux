@@ -92,6 +92,7 @@ impl TuiModel {
                 modal::ModalKind::ThreadPicker => "modal:thread_picker".to_string(),
                 modal::ModalKind::GoalPicker => "modal:goal_picker".to_string(),
                 modal::ModalKind::WorkspacePicker => "modal:workspace_picker".to_string(),
+                modal::ModalKind::WorkspaceCreate => "modal:workspace_create".to_string(),
                 modal::ModalKind::WorkspaceCreateTask => {
                     "modal:workspace_create_task".to_string()
                 }
@@ -112,6 +113,9 @@ impl TuiModel {
                 modal::ModalKind::QueuedPrompts => "modal:queued_prompts".to_string(),
                 modal::ModalKind::ProviderPicker => "modal:provider_picker".to_string(),
                 modal::ModalKind::ModelPicker => "modal:model_picker".to_string(),
+                modal::ModalKind::OpenRouterProviderPicker => {
+                    "modal:openrouter_provider_picker".to_string()
+                }
                 modal::ModalKind::RolePicker => "modal:role_picker".to_string(),
                 modal::ModalKind::OpenAIAuth => "modal:openai_auth".to_string(),
                 modal::ModalKind::ErrorViewer => "modal:error_viewer".to_string(),

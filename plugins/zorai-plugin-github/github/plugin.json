@@ -1,6 +1,6 @@
 {
   "name": "github",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "schema_version": 1,
   "description": "GitHub integration \u2014 fetch repository details through the plugin API proxy",
   "author": "zorai",
@@ -47,6 +47,164 @@
           "X-GitHub-Api-Version": "2022-11-28"
         },
         "response_template": "## Pull Requests\n\n{{#each this}}- #{{number}} {{title}} ({{state}}) \u2014 {{html_url}}\n{{/each}}"
+      },
+      "get_issue": {
+        "method": "GET",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/issues/{{params.number}}",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        "response_template": "## Issue #{{number}} {{title}}\n\n- State: {{state}}\n- Author: {{user.login}}\n- Assignees: {{#each assignees}}{{login}}{{#unless @last}}, {{/unless}}{{/each}}\n- Labels: {{#each labels}}{{name}}{{#unless @last}}, {{/unless}}{{/each}}\n- URL: {{html_url}}\n\n{{body}}"
+      },
+      "get_pull_request": {
+        "method": "GET",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/pulls/{{params.number}}",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        "response_template": "## Pull Request #{{number}} {{title}}\n\n- State: {{state}}\n- Draft: {{draft}}\n- Head: {{head.ref}} @ {{head.sha}}\n- Base: {{base.ref}}\n- URL: {{html_url}}\n\n{{body}}"
+      },
+      "list_work_items": {
+        "method": "GET",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/issues?state={{default params.state \"open\"}}&per_page={{default params.per_page \"20\"}}",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        "response_template": "## Work Items\n\n{{#each this}}- #{{number}} {{title}} ({{state}}) \u2014 {{html_url}}\n{{/each}}"
+      },
+      "fetch_work_item_context": {
+        "method": "GET",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/issues/{{params.number}}",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        "response_template": "## Work Item #{{number}} {{title}}\n\n- State: {{state}}\n- Assignees: {{#each assignees}}{{login}}{{#unless @last}}, {{/unless}}{{/each}}\n- Labels: {{#each labels}}{{name}}{{#unless @last}}, {{/unless}}{{/each}}\n- URL: {{html_url}}\n\n{{body}}"
+      },
+      "comment_on_work_item": {
+        "method": "POST",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/issues/{{params.number}}/comments",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "body": "{{params.body}}"
+        },
+        "response_template": "Comment created: {{html_url}}"
+      },
+      "label_work_item": {
+        "method": "POST",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/issues/{{params.number}}/labels",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "labels": [
+            "{{params.label}}"
+          ]
+        },
+        "response_template": "Labels updated: {{#each this}}{{name}}{{#unless @last}}, {{/unless}}{{/each}}"
+      },
+      "assign_work_item": {
+        "method": "POST",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/issues/{{params.number}}/assignees",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "assignees": [
+            "{{params.assignee}}"
+          ]
+        },
+        "response_template": "Assignees updated for issue #{{number}}."
+      },
+      "update_work_item_status": {
+        "method": "PATCH",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/issues/{{params.number}}",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "state": "{{default params.state \"closed\"}}"
+        },
+        "response_template": "Issue #{{number}} is now {{state}}."
+      },
+      "list_review_items": {
+        "method": "GET",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/pulls?state={{default params.state \"open\"}}&per_page={{default params.per_page \"20\"}}",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        "response_template": "## Review Items\n\n{{#each this}}- #{{number}} {{title}} ({{state}}) \u2014 {{html_url}}\n{{/each}}"
+      },
+      "fetch_review_context": {
+        "method": "GET",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/pulls/{{params.number}}",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        "response_template": "## Review Item #{{number}} {{title}}\n\n- State: {{state}}\n- Draft: {{draft}}\n- Head SHA: {{head.sha}}\n- URL: {{html_url}}\n\n{{body}}"
+      },
+      "comment_on_review_item": {
+        "method": "POST",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/issues/{{params.number}}/comments",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "body": "{{params.body}}"
+        },
+        "response_template": "Review comment created: {{html_url}}"
+      },
+      "merge_review_item": {
+        "method": "PUT",
+        "path": "/repos/{{params.owner}}/{{params.repo}}/pulls/{{params.number}}/merge",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "merge_method": "{{default params.merge_method \"merge\"}}"
+        },
+        "response_template": "Pull request merged: {{sha}}"
+      },
+      "check_health": {
+        "method": "GET",
+        "path": "/rate_limit",
+        "headers": {
+          "Authorization": "Bearer {{settings.token}}",
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        "response_template": "GitHub API reachable. Core remaining: {{resources.core.remaining}} / {{resources.core.limit}}."
       }
     },
     "rate_limit": {
@@ -65,9 +223,71 @@
     "pulls": {
       "description": "List GitHub pull requests for a repository",
       "action": "list_pull_requests"
+    },
+    "issue": {
+      "description": "Fetch GitHub issue details",
+      "action": "fetch_work_item_context"
+    },
+    "comment": {
+      "description": "Comment on a GitHub issue or PR",
+      "action": "comment_on_work_item"
+    },
+    "assign": {
+      "description": "Assign a GitHub issue",
+      "action": "assign_work_item"
+    },
+    "label": {
+      "description": "Add a label to a GitHub issue",
+      "action": "label_work_item"
+    },
+    "status": {
+      "description": "Update GitHub issue status",
+      "action": "update_work_item_status"
+    },
+    "pull": {
+      "description": "Fetch GitHub pull request details",
+      "action": "fetch_review_context"
+    },
+    "merge": {
+      "description": "Merge a GitHub pull request",
+      "action": "merge_review_item"
     }
   },
   "skills": [
     "skills/github.md"
-  ]
+  ],
+  "connector": {
+    "kind": "github",
+    "category": "repo",
+    "setup_hint": "Add a GitHub personal access token with repository read/write permissions in plugin settings.",
+    "docs_path": "plugins/zorai-plugin-github/README.md",
+    "workflow_primitives": [
+      "list_work_items",
+      "fetch_work_item_context",
+      "comment_on_work_item",
+      "assign_work_item",
+      "label_work_item",
+      "update_work_item_status",
+      "list_review_items",
+      "fetch_review_context",
+      "comment_on_review_item",
+      "merge_review_item"
+    ],
+    "read_actions": [
+      "get_repo",
+      "list_issues",
+      "get_issue",
+      "list_pull_requests",
+      "get_pull_request"
+    ],
+    "write_actions": [
+      "comment_on_work_item",
+      "assign_work_item",
+      "label_work_item",
+      "update_work_item_status",
+      "comment_on_review_item",
+      "merge_review_item"
+    ],
+    "readiness_endpoint": "check_health"
+  }
 }

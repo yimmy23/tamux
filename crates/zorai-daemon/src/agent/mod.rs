@@ -111,6 +111,7 @@ mod weles_health;
 mod whatsapp_link;
 mod whatsapp_native;
 mod work_context;
+mod workflow_packs;
 mod workspace;
 mod workspace_control;
 #[cfg(test)]

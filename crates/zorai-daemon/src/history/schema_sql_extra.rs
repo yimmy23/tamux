@@ -416,12 +416,18 @@ pub(super) fn extended_schema_sql() -> &'static str {
             CREATE INDEX IF NOT EXISTS idx_external_runtime_shadow_runs_session ON external_runtime_shadow_runs(session_id, created_at_ms DESC);
 
             CREATE TABLE IF NOT EXISTS browser_profiles (
-                profile_id   TEXT PRIMARY KEY,
-                label        TEXT NOT NULL,
-                profile_dir  TEXT NOT NULL,
-                created_at   INTEGER NOT NULL,
-                updated_at   INTEGER NOT NULL,
-                last_used_at INTEGER
+                profile_id              TEXT PRIMARY KEY,
+                label                   TEXT NOT NULL,
+                profile_dir             TEXT NOT NULL,
+                browser_kind            TEXT,
+                workspace_id            TEXT,
+                health_state            TEXT NOT NULL DEFAULT 'healthy',
+                created_at              INTEGER NOT NULL,
+                updated_at              INTEGER NOT NULL,
+                last_used_at            INTEGER,
+                last_auth_success_at    INTEGER,
+                last_auth_failure_at    INTEGER,
+                last_auth_failure_reason TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_browser_profiles_updated ON browser_profiles(updated_at DESC);
 
@@ -885,6 +891,8 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 risk_label         TEXT NOT NULL DEFAULT 'low',
                 notification_kind  TEXT NOT NULL,
                 prompt_template    TEXT,
+                tool_name          TEXT,
+                tool_payload_json  TEXT,
                 title_template     TEXT NOT NULL,
                 body_template      TEXT NOT NULL,
                 created_at         INTEGER NOT NULL,
@@ -892,6 +900,23 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 last_fired_at      INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_event_triggers_family_kind_enabled ON event_triggers(event_family, event_kind, enabled, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS trigger_fire_history (
+                id               TEXT PRIMARY KEY,
+                trigger_id       TEXT NOT NULL,
+                event_family     TEXT NOT NULL,
+                event_kind       TEXT NOT NULL,
+                status           TEXT NOT NULL DEFAULT 'fired',
+                fired_at_ms      INTEGER NOT NULL,
+                completed_at_ms  INTEGER,
+                retry_count      INTEGER NOT NULL DEFAULT 0,
+                error_message    TEXT,
+                created_task_id  TEXT,
+                notice_id        TEXT,
+                payload_json     TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_trigger_fire_history_trigger_fired ON trigger_fire_history(trigger_id, fired_at_ms DESC);
+            CREATE INDEX IF NOT EXISTS idx_trigger_fire_history_status ON trigger_fire_history(status, fired_at_ms DESC);
 
             CREATE TABLE IF NOT EXISTS routine_definitions (
                 id                  TEXT PRIMARY KEY,

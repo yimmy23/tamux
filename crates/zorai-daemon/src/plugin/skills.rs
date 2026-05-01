@@ -81,6 +81,7 @@ mod tests {
             commands: None,
             skills,
             auth: None,
+            connector: None,
             python: None,
             extra: HashMap::new(),
         }

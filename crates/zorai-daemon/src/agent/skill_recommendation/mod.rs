@@ -677,6 +677,16 @@ pub(super) fn page_public_discovery_result_with_action(
                     use_count: recommendation.record.use_count,
                     success_count: recommendation.record.success_count,
                     failure_count: recommendation.record.failure_count,
+                    canonical_pack: recommendation.metadata.canonical_pack,
+                    delivery_modes: recommendation.metadata.delivery_modes.clone(),
+                    prerequisite_hints: recommendation.metadata.prerequisite_hints.clone(),
+                    prerequisite_connectors: recommendation
+                        .metadata
+                        .prerequisite_connectors
+                        .clone(),
+                    source_links: recommendation.metadata.source_links.clone(),
+                    mobile_safe: recommendation.metadata.mobile_safe,
+                    approval_behavior: recommendation.metadata.approval_behavior.clone(),
                 },
             )
             .collect(),

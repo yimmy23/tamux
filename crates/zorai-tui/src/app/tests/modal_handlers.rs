@@ -278,6 +278,9 @@ fn sample_subagent(id: &str, name: &str, builtin: bool) -> crate::state::SubAgen
         delete_allowed: !builtin,
         protected_reason: builtin.then(|| "builtin".to_string()),
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     }
 }
@@ -5715,6 +5718,9 @@ fn new_weles_conversation_uses_weles_profile_before_first_prompt() {
         delete_allowed: false,
         protected_reason: Some("Built-in reviewer".to_string()),
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: Some(serde_json::json!({
             "id": "weles_builtin",
             "name": "WELES",
@@ -5753,6 +5759,9 @@ fn new_weles_conversation_keeps_weles_profile_after_first_prompt_locally() {
         delete_allowed: false,
         protected_reason: Some("Built-in reviewer".to_string()),
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
 

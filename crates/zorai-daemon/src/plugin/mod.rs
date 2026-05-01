@@ -189,7 +189,17 @@ impl PluginManager {
                 .get_auth_status(&rec.name)
                 .await
                 .unwrap_or_else(|_| "not_configured".to_string());
-            result.push(to_plugin_info_from_record(rec, loaded, auth_status));
+            let settings = self
+                .persistence
+                .get_settings(&rec.name)
+                .await
+                .unwrap_or_default();
+            result.push(to_plugin_info_from_record(
+                rec,
+                loaded,
+                auth_status,
+                &settings,
+            ));
         }
         result
     }
@@ -216,7 +226,12 @@ impl PluginManager {
             .get_auth_status(name)
             .await
             .unwrap_or_else(|_| "not_configured".to_string());
-        let info = to_plugin_info_from_record(&record, loaded, auth_status);
+        let settings = self
+            .persistence
+            .get_settings(name)
+            .await
+            .unwrap_or_default();
+        let info = to_plugin_info_from_record(&record, loaded, auth_status, &settings);
 
         // Extract settings schema from manifest JSON for dynamic form rendering
         let settings_schema = extract_settings_schema(&record.manifest_json);
@@ -327,6 +342,7 @@ impl PluginManager {
                 dir_name: dir_name.to_string(),
             }),
             auth_status,
+            &[],
         );
 
         // Install bundled skills
@@ -410,27 +426,51 @@ impl PluginManager {
             .await
     }
 
-    /// Test connectivity by making a HEAD request to the plugin's first API endpoint.
+    /// Test connectivity using a connector readiness endpoint when available,
+    /// otherwise fall back to a lightweight HEAD probe.
     /// Per PSET-05/D-10. Returns (success, message).
     pub async fn test_connection(&self, name: &str) -> (bool, String) {
         let plugins = self.plugins.read().await;
         let Some(plugin) = plugins.get(name) else {
             return (false, format!("Plugin '{}' not found", name));
         };
-        let Some(api) = &plugin.manifest.api else {
+        let readiness_endpoint = plugin
+            .manifest
+            .connector
+            .as_ref()
+            .and_then(|connector| connector.readiness_endpoint.clone())
+            .or_else(|| {
+                plugin.manifest.api.as_ref().and_then(|api| {
+                    api.endpoints
+                        .contains_key("check_health")
+                        .then(|| "check_health".to_string())
+                })
+            });
+        let fallback_probe = plugin.manifest.api.clone();
+        drop(plugins);
+
+        if let Some(endpoint_name) = readiness_endpoint {
+            return match self
+                .api_call(name, &endpoint_name, serde_json::json!({}))
+                .await
+            {
+                Ok(message) => (true, message),
+                Err(error) => (false, error.to_string()),
+            };
+        }
+
+        let Some(api) = fallback_probe else {
             return (false, "Plugin has no API section".to_string());
         };
         let base_url = match &api.base_url {
             Some(url) => url.clone(),
             None => return (false, "Plugin has no base_url".to_string()),
         };
-        // Use first endpoint or just probe base_url
         let test_url = if let Some((_name, endpoint)) = api.endpoints.iter().next() {
             format!("{}{}", base_url.trim_end_matches('/'), endpoint.path)
         } else {
             base_url
         };
-        // Make a lightweight HTTP probe with 5s timeout
         match reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()
@@ -439,7 +479,6 @@ impl PluginManager {
                 Ok(resp) => {
                     let status = resp.status();
                     if status.is_success() || status == 401 || status == 403 {
-                        // 401/403 means server is reachable but auth needed -- that's OK for connectivity test
                         (true, "Connection successful".to_string())
                     } else {
                         (false, format!("Server returned {}", status))
@@ -496,6 +535,7 @@ impl PluginManager {
         // Clone what we need before dropping the read lock
         let api_clone = api.clone();
         let endpoint_clone = endpoint.clone();
+        let manifest_clone = plugin.manifest.clone();
         let rpm = api
             .rate_limit
             .as_ref()
@@ -576,7 +616,14 @@ impl PluginManager {
                     retry_after_secs,
                 });
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                return Err(manager_extras::enrich_plugin_api_error(
+                    plugin_name,
+                    endpoint_name,
+                    &manifest_clone,
+                    e,
+                ))
+            }
         };
 
         // (j) Render response

@@ -66,7 +66,7 @@ fn render_provider_tab<'a>(
     } else {
         config.assistant_id.clone()
     };
-use zorai_shared::providers::PROVIDER_ID_CUSTOM;
+    use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENROUTER};
 
     let effort_val = if config.reasoning_effort().is_empty() {
         "off".to_string()
@@ -74,6 +74,21 @@ use zorai_shared::providers::PROVIDER_ID_CUSTOM;
         config.reasoning_effort().to_string()
     };
     let context_window_val = format!("{} tok", config.context_window_tokens);
+    let openrouter_provider_order_val = if config.openrouter_provider_order.trim().is_empty() {
+        "(none)".to_string()
+    } else {
+        config.openrouter_provider_order.clone()
+    };
+    let openrouter_provider_ignore_val = if config.openrouter_provider_ignore.trim().is_empty() {
+        "(none)".to_string()
+    } else {
+        config.openrouter_provider_ignore.clone()
+    };
+    let openrouter_fallbacks_val = if config.openrouter_allow_fallbacks {
+        "allowed".to_string()
+    } else {
+        "strict".to_string()
+    };
     let context_hint = if providers::model_uses_context_window_override(
         &config.provider,
         &config.auth_source,
@@ -102,7 +117,7 @@ use zorai_shared::providers::PROVIDER_ID_CUSTOM;
     };
 
     // Field definitions: (index, label, value, field_name, hint)
-    let fields: [(usize, &str, String, &str, &str); 8] = [
+    let mut fields: Vec<(usize, &str, String, &str, &str)> = vec![
         (0, "Provider", provider_val, "provider", " [Enter: pick]"),
         (1, "Base URL", base_url_val, "base_url", " [Enter: edit]"),
         (2, "Auth", auth_source_val, "auth_source", " [Enter: cycle]"),
@@ -146,6 +161,31 @@ use zorai_shared::providers::PROVIDER_ID_CUSTOM;
             context_hint,
         ),
     ];
+    if config.provider == PROVIDER_ID_OPENROUTER {
+        fields.extend([
+            (
+                8,
+                "OR Prefer",
+                openrouter_provider_order_val,
+                "openrouter_provider_order",
+                " [Enter: pick]",
+            ),
+            (
+                9,
+                "OR Exclude",
+                openrouter_provider_ignore_val,
+                "openrouter_provider_ignore",
+                " [Enter: pick]",
+            ),
+            (
+                10,
+                "OR Fallbacks",
+                openrouter_fallbacks_val,
+                "openrouter_allow_fallbacks",
+                " [Enter: toggle]",
+            ),
+        ]);
+    }
 
     for (idx, label, value, field_name, hint) in &fields {
         let is_selected = settings.field_cursor() == *idx;

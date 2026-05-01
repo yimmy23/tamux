@@ -1526,9 +1526,7 @@ impl TuiModel {
         self.settings_picker_target = Some(SettingsPickerTarget::BuiltinPersonaProvider);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-        self.modal.set_picker_item_count(
-            widgets::provider_picker::available_provider_defs(&self.auth).len(),
-        );
+        self.sync_provider_picker_item_count();
         self.status_line = format!("Configure {} provider", target_agent_name);
     }
 
@@ -1911,9 +1909,7 @@ impl TuiModel {
                 self.settings_picker_target = Some(SettingsPickerTarget::Provider);
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-                let item_count =
-                    widgets::provider_picker::available_provider_defs(&self.auth).len();
-                self.modal.set_picker_item_count(item_count);
+                self.sync_provider_picker_item_count();
             }
             goal_mission_control::RuntimeAssignmentEditField::Model => {
                 if !self.open_mission_control_assignment_model_picker() {
@@ -3211,29 +3207,33 @@ impl TuiModel {
         self.open_workspace_picker();
     }
 
-    pub(super) fn create_workspace_task_from_args(&mut self, args: &str) {
-        let draft = match crate::app::workspace_create::parse_workspace_create_args(args) {
-            Ok(draft) => draft,
-            Err(err) => {
-                self.status_line = err.to_string();
+    pub(super) fn create_workspace_from_args(&mut self, args: &str) {
+        let args = args.trim();
+        if args.is_empty() {
+            self.open_workspace_create_workspace_modal();
+            return;
+        }
+
+        let mut parts = args.split_whitespace();
+        let workspace_id = parts.next().unwrap_or("").trim();
+        let operator = match parts.next() {
+            None => zorai_protocol::WorkspaceOperator::User,
+            Some(raw) if raw.eq_ignore_ascii_case("user") => {
+                zorai_protocol::WorkspaceOperator::User
+            }
+            Some(raw) if raw.eq_ignore_ascii_case("svarog") || raw.eq_ignore_ascii_case("auto") => {
+                zorai_protocol::WorkspaceOperator::Svarog
+            }
+            Some(raw) => {
+                self.status_line = format!("Unknown workspace operator: {raw}");
                 return;
             }
         };
-        let workspace_id = self.workspace.workspace_id().to_string();
-        self.send_daemon_command(DaemonCommand::CreateWorkspaceTask(
-            zorai_protocol::WorkspaceTaskCreate {
-                workspace_id: workspace_id.clone(),
-                title: draft.title,
-                task_type: draft.task_type,
-                description: draft.description,
-                definition_of_done: draft.definition_of_done,
-                priority: draft.priority,
-                assignee: draft.assignee,
-                reviewer: draft.reviewer,
-            },
-        ));
-        self.main_pane_view = MainPaneView::Workspace;
-        self.status_line = "Creating workspace task...".to_string();
+        if parts.next().is_some() {
+            self.status_line = "Usage: /new-workspace [<workspace-id> [user|svarog]]".to_string();
+            return;
+        }
+        self.open_workspace_create_workspace_modal_with_values(workspace_id.to_string(), operator);
     }
 
     fn resolve_workspace_task_id(&mut self, raw: &str) -> Option<String> {
@@ -4008,9 +4008,7 @@ impl TuiModel {
             "provider" => {
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-                self.modal.set_picker_item_count(
-                    widgets::provider_picker::available_provider_defs(&self.auth).len(),
-                );
+                self.sync_provider_picker_item_count();
             }
             "model" => {
                 let target = self
@@ -4109,10 +4107,7 @@ impl TuiModel {
                 self.open_workspace_picker();
             }
             "new-workspace" => {
-                self.input
-                    .set_text("/new-workspace goal <title> -- <description> --priority low --assignee svarog --reviewer user --dod <definition>");
-                self.focus = FocusArea::Input;
-                self.status_line = "Usage: /new-workspace <thread|goal> <title> -- <description> [--priority high] [--assignee svarog] [--reviewer user|none] [--dod text]".to_string();
+                self.open_workspace_create_workspace_modal();
             }
             "workspace-run" => {
                 self.input.set_text("/workspace-run <task_id>");

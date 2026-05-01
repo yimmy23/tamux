@@ -25,6 +25,93 @@ enum ConversationAgentKind {
     Weles,
 }
 
+fn comma_list_contains(list: &str, needle: &str) -> bool {
+    list.split(',')
+        .map(str::trim)
+        .any(|item| !item.is_empty() && item == needle)
+}
+
+fn openrouter_provider_picker_lines(model: &TuiModel, theme: &ThemeTokens) -> Vec<Line<'static>> {
+    let preferred_target = matches!(
+        model.settings_picker_target,
+        Some(
+            SettingsPickerTarget::OpenRouterPreferredProviders
+                | SettingsPickerTarget::SubAgentOpenRouterPreferredProviders
+                | SettingsPickerTarget::ConciergeOpenRouterPreferredProviders
+        )
+    );
+    let mut lines = vec![
+        Line::from(Span::styled(
+            if preferred_target {
+                "  Toggle preferred OpenRouter endpoint providers"
+            } else {
+                "  Toggle excluded OpenRouter endpoint providers"
+            },
+            theme.fg_dim,
+        )),
+        Line::raw(""),
+    ];
+    let provider_slugs = model.filtered_openrouter_endpoint_providers();
+    if provider_slugs.is_empty() {
+        let message = if model.config.openrouter_endpoint_providers.is_empty() {
+            "  No endpoint providers loaded for this model".to_string()
+        } else {
+            format!(
+                "  No endpoint providers match '{}'",
+                model.modal.command_query().trim()
+            )
+        };
+        lines.push(Line::from(Span::styled(message, theme.fg_dim)));
+        return lines;
+    }
+
+    for (idx, slug) in provider_slugs.iter().enumerate() {
+        let selected = model.modal.picker_cursor() == idx;
+        let checked = match model.settings_picker_target {
+            Some(SettingsPickerTarget::SubAgentOpenRouterPreferredProviders) => {
+                model.subagents.editor.as_ref().is_some_and(|editor| {
+                    comma_list_contains(&editor.openrouter_provider_order, slug)
+                })
+            }
+            Some(SettingsPickerTarget::SubAgentOpenRouterExcludedProviders) => {
+                model.subagents.editor.as_ref().is_some_and(|editor| {
+                    comma_list_contains(&editor.openrouter_provider_ignore, slug)
+                })
+            }
+            Some(SettingsPickerTarget::ConciergeOpenRouterPreferredProviders) => {
+                comma_list_contains(&model.concierge.openrouter_provider_order, slug)
+            }
+            Some(SettingsPickerTarget::ConciergeOpenRouterExcludedProviders) => {
+                comma_list_contains(&model.concierge.openrouter_provider_ignore, slug)
+            }
+            _ if preferred_target => {
+                comma_list_contains(&model.config.openrouter_provider_order, slug)
+            }
+            _ => comma_list_contains(&model.config.openrouter_provider_ignore, slug),
+        };
+        let marker = if selected { ">" } else { " " };
+        let check = if checked { "[x]" } else { "[ ]" };
+        let style = if selected {
+            theme.accent_primary
+        } else if checked {
+            theme.fg_active
+        } else {
+            theme.fg_dim
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {marker} "), style),
+            Span::styled(format!("{check} "), style),
+            Span::styled((*slug).to_string(), style),
+        ]));
+    }
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(
+        "  Enter toggles. Esc closes.",
+        theme.fg_dim,
+    )));
+    lines
+}
+
 fn render_runtime_effort_picker(
     frame: &mut Frame,
     area: Rect,
@@ -98,54 +185,18 @@ fn render_runtime_effort_picker(
 }
 
 impl TuiModel {
-    fn estimate_header_message_tokens(message: &chat::AgentMessage) -> u64 {
-        let content = if message.message_kind == "compaction_artifact" {
-            message
-                .compaction_payload
-                .as_deref()
-                .filter(|payload| !payload.trim().is_empty())
-                .unwrap_or(message.content.as_str())
-        } else {
-            message.content.as_str()
-        };
-
-        let mut chars = content.chars().count();
-        chars += message
-            .tool_name
-            .as_deref()
-            .map(str::chars)
-            .map(Iterator::count)
-            .unwrap_or(0);
-        chars += message
-            .tool_arguments
-            .as_deref()
-            .map(str::chars)
-            .map(Iterator::count)
-            .unwrap_or(0);
-
-        chars.div_ceil(4) as u64 + 12
-    }
-
-    fn active_compaction_window_start(thread: &chat::AgentThread) -> usize {
-        thread
-            .active_context_window_start
-            .or(thread.active_compaction_window_start)
-            .map(|absolute_start| absolute_start.saturating_sub(thread.loaded_message_start))
-            .unwrap_or_else(|| {
-                thread
-                    .messages
-                    .iter()
-                    .rposition(Self::is_header_compaction_boundary)
-                    .unwrap_or(0)
-            })
-            .min(thread.messages.len())
-    }
-
-    fn is_header_compaction_boundary(message: &chat::AgentMessage) -> bool {
-        let content = message.content.trim_start();
-        message.message_kind == "compaction_artifact"
-            || content.starts_with("[Compacted earlier context]")
-            || content.starts_with("Pre-compaction context:")
+    fn latest_daemon_turn_context_tokens(thread: &chat::AgentThread) -> u64 {
+        thread.latest_turn_context_tokens.unwrap_or_else(|| {
+            thread
+                .messages
+                .iter()
+                .rev()
+                .find_map(|message| {
+                    let tokens = message.input_tokens.saturating_add(message.output_tokens);
+                    (tokens > 0).then_some(tokens)
+                })
+                .unwrap_or(0)
+        })
     }
 
     fn effective_primary_context_window_tokens(&self) -> u32 {
@@ -929,14 +980,10 @@ impl TuiModel {
             };
         };
 
-        let start = Self::active_compaction_window_start(thread);
         let total_thread_tokens = thread.total_input_tokens + thread.total_output_tokens;
-        let current_tokens = thread.active_context_window_tokens.unwrap_or_else(|| {
-            thread.messages[start..]
-                .iter()
-                .map(Self::estimate_header_message_tokens)
-                .sum::<u64>()
-        });
+        let current_tokens = thread
+            .active_context_window_tokens
+            .unwrap_or_else(|| Self::latest_daemon_turn_context_tokens(thread));
         let total_cost_usd = thread
             .messages
             .iter()
@@ -1775,6 +1822,7 @@ impl TuiModel {
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::WorkspacePicker => render_helpers::centered_rect(54, 42, area),
+                modal::ModalKind::WorkspaceCreate => render_helpers::centered_rect(54, 28, area),
                 modal::ModalKind::WorkspaceCreateTask => {
                     render_helpers::centered_rect(64, 46, area)
                 }
@@ -1797,6 +1845,9 @@ impl TuiModel {
                 modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),
                 modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
                 modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),
+                modal::ModalKind::OpenRouterProviderPicker => {
+                    render_helpers::centered_rect(48, 48, area)
+                }
                 modal::ModalKind::RolePicker => render_helpers::centered_rect(42, 38, area),
                 modal::ModalKind::OpenAIAuth => render_helpers::centered_rect(70, 35, area),
                 modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),
@@ -1841,6 +1892,27 @@ impl TuiModel {
                         overlay_area,
                         &self.workspace,
                         &self.modal,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::WorkspaceCreate => {
+                    let body = self
+                        .pending_workspace_create_workspace_form
+                        .as_ref()
+                        .map(|form| {
+                            crate::app::workspace_create_workspace_modal::workspace_create_modal_lines(
+                                form,
+                                &self.theme,
+                            )
+                        })
+                        .unwrap_or_else(|| vec![ratatui::text::Line::raw("No workspace draft")]);
+                    render_helpers::render_status_modal_lines(
+                        frame,
+                        overlay_area,
+                        "NEW WORKSPACE",
+                        body,
+                        0,
+                        false,
                         &self.theme,
                     );
                 }
@@ -2077,6 +2149,17 @@ impl TuiModel {
                         &self.theme,
                     );
                 }
+                modal::ModalKind::OpenRouterProviderPicker => {
+                    render_helpers::render_status_modal_lines(
+                        frame,
+                        overlay_area,
+                        "OPENROUTER PROVIDERS",
+                        openrouter_provider_picker_lines(self, &self.theme),
+                        0,
+                        false,
+                        &self.theme,
+                    );
+                }
                 modal::ModalKind::RolePicker => {
                     let current_role = self.mission_control_role_picker_value();
                     widgets::role_picker::render(
@@ -2217,6 +2300,7 @@ impl TuiModel {
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::WorkspacePicker => render_helpers::centered_rect(54, 42, area),
+            modal::ModalKind::WorkspaceCreate => render_helpers::centered_rect(54, 28, area),
             modal::ModalKind::WorkspaceCreateTask => render_helpers::centered_rect(64, 46, area),
             modal::ModalKind::WorkspaceReviewTask => render_helpers::centered_rect(58, 34, area),
             modal::ModalKind::WorkspaceEditTask => render_helpers::centered_rect(64, 42, area),
@@ -2227,6 +2311,9 @@ impl TuiModel {
             modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),
             modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
             modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),
+            modal::ModalKind::OpenRouterProviderPicker => {
+                render_helpers::centered_rect(48, 48, area)
+            }
             modal::ModalKind::RolePicker => render_helpers::centered_rect(42, 38, area),
             modal::ModalKind::OpenAIAuth => render_helpers::centered_rect(70, 35, area),
             modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),

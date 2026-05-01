@@ -361,6 +361,9 @@ async fn get_or_create_thread_with_target_preserves_user_defined_subagent_identi
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 1,
     });
     let engine = AgentEngine::new_test(manager, config, root.path()).await;

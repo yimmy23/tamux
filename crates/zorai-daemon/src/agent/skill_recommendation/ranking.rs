@@ -157,11 +157,15 @@ fn score_candidate(
     let recency_score = score_recency(&candidate.record);
     let lifecycle_bonus = lifecycle_bonus(&candidate.record);
     let process_bonus = process_skill_match_bonus(&candidate.metadata, query_tokens);
+    let prerequisite_connector_matches =
+        matched_prerequisite_connectors(&candidate.metadata, workspace_tags);
     let built_in_bonus = if candidate.metadata.built_in {
         0.02
     } else {
         0.0
     };
+    let canonical_pack_bonus =
+        canonical_pack_bonus(&candidate.metadata, &prerequisite_connector_matches);
     let graph_signal = graph_signals
         .get(&candidate.record.variant_id)
         .copied()
@@ -180,7 +184,8 @@ fn score_candidate(
         + (novelty_score * cfg.novelty_distance_weight)
         + lifecycle_bonus
         + process_bonus
-        + built_in_bonus;
+        + built_in_bonus
+        + canonical_pack_bonus;
     let score = apply_partial_evidence_floor(
         raw_score,
         matched_terms.len(),
@@ -243,6 +248,38 @@ fn score_recency(record: &SkillVariantRecord) -> f64 {
         2_592_001..=7_776_000 => 0.35,
         _ => 0.15,
     }
+}
+
+fn matched_prerequisite_connectors(
+    metadata: &crate::agent::skill_recommendation::types::SkillDocumentMetadata,
+    workspace_tags: &[String],
+) -> Vec<String> {
+    metadata
+        .prerequisite_connectors
+        .iter()
+        .filter(|connector| {
+            workspace_tags
+                .iter()
+                .any(|tag| tag.eq_ignore_ascii_case(connector))
+        })
+        .cloned()
+        .collect()
+}
+
+fn canonical_pack_bonus(
+    metadata: &crate::agent::skill_recommendation::types::SkillDocumentMetadata,
+    matched_prerequisite_connectors: &[String],
+) -> f64 {
+    if !metadata.canonical_pack {
+        return 0.0;
+    }
+    if metadata.prerequisite_connectors.is_empty() {
+        return 0.05;
+    }
+    if !matched_prerequisite_connectors.is_empty() {
+        return 0.05;
+    }
+    -0.03
 }
 
 fn lifecycle_bonus(record: &SkillVariantRecord) -> f64 {

@@ -207,6 +207,20 @@ impl TuiModel {
                     .get("reasoning_effort")
                     .and_then(|value| value.as_str())
                     .map(str::to_string),
+                openrouter_provider_order:
+                    crate::state::subagents::openrouter_provider_list_from_json(
+                        &raw,
+                        "openrouter_provider_order",
+                    ),
+                openrouter_provider_ignore:
+                    crate::state::subagents::openrouter_provider_list_from_json(
+                        &raw,
+                        "openrouter_provider_ignore",
+                    ),
+                openrouter_allow_fallbacks: raw
+                    .get("openrouter_allow_fallbacks")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(true),
                 auto_cleanup_on_navigate: raw
                     .get("auto_cleanup_on_navigate")
                     .and_then(|value| value.as_bool())
@@ -338,6 +352,15 @@ impl TuiModel {
                 description: p.description.clone(),
                 install_source: p.install_source.clone(),
                 auth_status: p.auth_status.clone(),
+                connector_kind: p.connector_kind.clone(),
+                readiness_state: p.readiness_state.clone(),
+                readiness_message: p.readiness_message.clone(),
+                recovery_hint: p.recovery_hint.clone(),
+                setup_hint: p.setup_hint.clone(),
+                docs_path: p.docs_path.clone(),
+                workflow_primitives: p.workflow_primitives.clone(),
+                read_actions: p.read_actions.clone(),
+                write_actions: p.write_actions.clone(),
             })
             .collect();
         self.plugin_settings.loading = false;

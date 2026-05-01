@@ -25,6 +25,13 @@ pub(crate) struct SkillDocumentMetadata {
     pub triggers: Vec<String>,
     pub search_text: String,
     pub built_in: bool,
+    pub canonical_pack: bool,
+    pub delivery_modes: Vec<String>,
+    pub prerequisite_hints: Vec<String>,
+    pub prerequisite_connectors: Vec<String>,
+    pub source_links: Vec<String>,
+    pub mobile_safe: bool,
+    pub approval_behavior: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

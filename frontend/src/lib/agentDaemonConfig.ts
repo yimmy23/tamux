@@ -140,6 +140,13 @@ export function buildDaemonAgentConfig(
           auth_source: referencedAuthSource,
           context_window_tokens: getEffectiveContextWindow(referencedProviderId, referencedConfig),
           reasoning_effort: agentSettings.reasoning_effort || "high",
+          ...(referencedProviderId === "openrouter"
+            ? {
+              openrouter_provider_order: referencedConfig.openrouter_provider_order ?? [],
+              openrouter_provider_ignore: referencedConfig.openrouter_provider_ignore ?? [],
+              openrouter_allow_fallbacks: referencedConfig.openrouter_allow_fallbacks ?? null,
+            }
+            : {}),
         },
       ]];
     }),

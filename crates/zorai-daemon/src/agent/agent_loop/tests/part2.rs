@@ -846,6 +846,9 @@ async fn direct_weles_handoff_turn_uses_weles_provider_override_for_new_request_
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.builtin_sub_agents.weles.provider = Some(PROVIDER_ID_CUSTOM.to_string());
@@ -977,6 +980,9 @@ async fn new_targeted_weles_thread_uses_weles_runtime_provider_and_model() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
@@ -1012,6 +1018,71 @@ async fn new_targeted_weles_thread_uses_weles_runtime_provider_and_model() {
     let threads = engine.threads.read().await;
     let thread = threads.get(&thread_id).expect("thread should exist");
     assert_eq!(thread.agent_name.as_deref(), Some(WELES_AGENT_NAME));
+}
+
+#[tokio::test]
+async fn new_targeted_custom_subagent_thread_persists_assistant_author_identity() {
+    let recorded_requests = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_recording_request_server(recorded_requests).await;
+    config.model = "svarog-model".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.sub_agents.push(SubAgentDefinition {
+        id: "coder".to_string(),
+        name: "coder".to_string(),
+        provider: PROVIDER_ID_OPENAI.to_string(),
+        model: "coder-model".to_string(),
+        role: Some("coding specialist".to_string()),
+        system_prompt: Some("Answer as coder.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        created_at: 1,
+    });
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let thread_id = engine
+        .send_message_with_session_surface_and_target(
+            None,
+            None,
+            "Who are you?",
+            None,
+            None,
+            Some("coder"),
+        )
+        .await
+        .expect("new targeted custom subagent thread should complete");
+
+    let threads = engine.threads.read().await;
+    let thread = threads.get(&thread_id).expect("thread should exist");
+    assert_eq!(thread.agent_name.as_deref(), Some("coder"));
+    let assistant = thread
+        .messages
+        .iter()
+        .find(|message| message.role == MessageRole::Assistant)
+        .expect("assistant reply should be persisted");
+    assert_eq!(assistant.author_agent_id.as_deref(), Some("coder"));
+    assert_eq!(assistant.author_agent_name.as_deref(), Some("coder"));
 }
 
 #[tokio::test]
@@ -1103,6 +1174,9 @@ async fn new_targeted_rarog_thread_uses_concierge_runtime_provider_and_model() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.concierge.provider = Some(PROVIDER_ID_CUSTOM.to_string());
@@ -1229,6 +1303,9 @@ async fn new_targeted_rarog_thread_prefers_concierge_model_override_over_stored_
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.concierge.provider = Some(PROVIDER_ID_CUSTOM.to_string());
@@ -1564,6 +1641,9 @@ async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summar
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.providers.insert(
@@ -1590,6 +1670,9 @@ async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summar
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
@@ -1748,6 +1831,9 @@ async fn direct_rarog_handoff_turn_uses_real_concierge_runtime_config() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.concierge.provider = Some(PROVIDER_ID_CUSTOM.to_string());
@@ -1876,6 +1962,9 @@ async fn transport_incompatibility_does_not_mutate_persisted_config_and_emits_no
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
 
@@ -2012,6 +2101,9 @@ async fn auto_retry_wait_escalates_to_fresh_runner_after_repeated_waits() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
 
@@ -2213,6 +2305,9 @@ async fn retry_stream_now_replaces_waiting_stream_with_fresh_send_generation() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
 

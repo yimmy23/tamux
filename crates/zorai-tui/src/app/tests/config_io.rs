@@ -56,6 +56,43 @@ fn normalize_compliance_mode_falls_back_to_standard() {
 }
 
 #[test]
+fn openrouter_provider_routing_round_trips_through_tui_config() {
+    let mut model = make_model();
+    model.apply_config_json(&serde_json::json!({
+        "provider": PROVIDER_ID_OPENROUTER,
+        "providers": {
+            PROVIDER_ID_OPENROUTER: {
+                "base_url": "https://openrouter.ai/api/v1",
+                "model": "deepseek/deepseek-r1",
+                "api_transport": "chat_completions",
+                "auth_source": "api_key",
+                "openrouter_provider_order": ["novita/fp8", "azure"],
+                "openrouter_provider_ignore": ["deepinfra"],
+                "openrouter_allow_fallbacks": false
+            }
+        }
+    }));
+
+    assert_eq!(model.config.openrouter_provider_order, "novita/fp8, azure");
+    assert_eq!(model.config.openrouter_provider_ignore, "deepinfra");
+    assert!(!model.config.openrouter_allow_fallbacks);
+
+    let json = model.build_config_patch_value();
+    assert_eq!(
+        json["providers"][PROVIDER_ID_OPENROUTER]["openrouter_provider_order"],
+        serde_json::json!(["novita/fp8", "azure"])
+    );
+    assert_eq!(
+        json["providers"][PROVIDER_ID_OPENROUTER]["openrouter_provider_ignore"],
+        serde_json::json!(["deepinfra"])
+    );
+    assert_eq!(
+        json["providers"][PROVIDER_ID_OPENROUTER]["openrouter_allow_fallbacks"],
+        false
+    );
+}
+
+#[test]
 fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     let mut model = make_model();
     model.config.provider = PROVIDER_ID_OPENAI.to_string();

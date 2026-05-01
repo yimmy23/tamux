@@ -169,6 +169,10 @@ impl TuiModel {
             return false;
         }
 
+        if kind == modal::ModalKind::WorkspaceCreate {
+            return self.handle_workspace_create_workspace_modal_key(code, modifiers);
+        }
+
         if kind == modal::ModalKind::WorkspaceCreateTask {
             return self.handle_workspace_create_modal_key(code, modifiers);
         }
@@ -1449,6 +1453,9 @@ impl TuiModel {
                 | modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
                 | modal::ModalKind::WorkspacePicker
+                | modal::ModalKind::ProviderPicker
+                | modal::ModalKind::ModelPicker
+                | modal::ModalKind::OpenRouterProviderPicker
         );
 
         match code {
@@ -1575,6 +1582,12 @@ impl TuiModel {
                     self.sync_goal_picker_item_count();
                 } else if kind == modal::ModalKind::WorkspacePicker {
                     self.sync_workspace_picker_item_count();
+                } else if kind == modal::ModalKind::ProviderPicker {
+                    self.sync_provider_picker_item_count();
+                } else if kind == modal::ModalKind::ModelPicker {
+                    self.sync_model_picker_item_count();
+                } else if kind == modal::ModalKind::OpenRouterProviderPicker {
+                    self.sync_openrouter_provider_picker_item_count();
                 }
             }
             KeyCode::Char(c)
@@ -1596,6 +1609,12 @@ impl TuiModel {
                         self.sync_goal_picker_item_count();
                     } else if kind == modal::ModalKind::WorkspacePicker {
                         self.sync_workspace_picker_item_count();
+                    } else if kind == modal::ModalKind::ProviderPicker {
+                        self.sync_provider_picker_item_count();
+                    } else if kind == modal::ModalKind::ModelPicker {
+                        self.sync_model_picker_item_count();
+                    } else if kind == modal::ModalKind::OpenRouterProviderPicker {
+                        self.sync_openrouter_provider_picker_item_count();
                     }
                 }
             }

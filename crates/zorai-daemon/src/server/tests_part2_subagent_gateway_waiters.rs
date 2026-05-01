@@ -319,6 +319,9 @@ async fn agent_set_sub_agent_config_accepts_minimal_weles_payload_via_server_can
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("high".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 0,
     };
 

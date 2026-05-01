@@ -23,6 +23,9 @@ export interface ConciergeConfig {
   provider?: string;
   model?: string;
   reasoning_effort?: string;
+  openrouter_provider_order?: string[];
+  openrouter_provider_ignore?: string[];
+  openrouter_allow_fallbacks?: boolean | null;
   auto_cleanup_on_navigate: boolean;
 }
 

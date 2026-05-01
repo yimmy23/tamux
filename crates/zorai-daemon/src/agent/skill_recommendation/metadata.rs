@@ -33,7 +33,24 @@ pub(crate) fn extract_skill_metadata(relative_path: &str, content: &str) -> Skil
         triggers,
         search_text,
         built_in: is_builtin_skill_path(relative_path),
+        canonical_pack: extract_canonical_pack(frontmatter.as_ref(), relative_path),
+        delivery_modes: extract_frontmatter_list(frontmatter.as_ref(), "delivery_modes"),
+        prerequisite_hints: extract_frontmatter_list(frontmatter.as_ref(), "prerequisite_hints"),
+        prerequisite_connectors: extract_frontmatter_list(
+            frontmatter.as_ref(),
+            "prerequisite_connectors",
+        ),
+        source_links: extract_frontmatter_list(frontmatter.as_ref(), "source_links"),
+        mobile_safe: extract_frontmatter_bool(frontmatter.as_ref(), "mobile_safe").unwrap_or(false),
+        approval_behavior: extract_frontmatter_string(frontmatter.as_ref(), "approval_behavior"),
     }
+}
+
+fn extract_canonical_pack(frontmatter: Option<&Value>, relative_path: &str) -> bool {
+    extract_frontmatter_bool(frontmatter, "canonical_pack").unwrap_or_else(|| {
+        let normalized = relative_path.replace('\\', "/");
+        normalized.starts_with("workflow-packs/") || normalized.contains("/workflow-packs/")
+    })
 }
 
 fn is_builtin_skill_path(relative_path: &str) -> bool {
@@ -155,6 +172,21 @@ fn extract_frontmatter_string(frontmatter: Option<&Value>, key: &str) -> Option<
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn extract_frontmatter_bool(frontmatter: Option<&Value>, key: &str) -> Option<bool> {
+    frontmatter
+        .and_then(|value| value.as_mapping())
+        .and_then(|mapping| mapping.get(&Value::String(key.to_string())))
+        .and_then(|value| match value {
+            Value::Bool(flag) => Some(*flag),
+            Value::String(text) => match text.trim().to_ascii_lowercase().as_str() {
+                "true" | "yes" | "1" => Some(true),
+                "false" | "no" | "0" => Some(false),
+                _ => None,
+            },
+            _ => None,
+        })
 }
 
 fn extract_frontmatter_list(frontmatter: Option<&Value>, key: &str) -> Vec<String> {

@@ -1,9 +1,9 @@
 # zorai-plugin-gmail-calendar
 
-Gmail and Google Calendar integration for zorai. Read, send, and manage emails. View, create, update, and delete calendar events -- all through natural conversation with your agent.
+Gmail and Google Calendar connectors for zorai. They now expose readiness-first daily-loop surfaces instead of only raw read/write calls.
 
-- **Gmail**: Inbox, search, send, trash, label management, thread view
-- **Calendar**: List events, event details, create, update, delete, list calendars
+- **Gmail**: inbox/search/thread context, draft/reply/send, archive/trash/star/read state changes
+- **Calendar**: schedule listing, event context, create/update/delete, RSVP/attendance, meeting prep
 
 ## Prerequisites
 
@@ -37,29 +37,22 @@ Follow these steps to create the OAuth credentials your plugin needs.
 
 1. Go to **APIs & Services > OAuth consent screen**
 2. Select **External** user type and click **Create**
-3. Fill in the required fields:
-   - **App name**: your choice (e.g., "zorai")
-   - **User support email**: your email
-   - **Developer contact email**: your email
-4. Click **Save and Continue**
-5. On the **Scopes** page, click **Add or Remove Scopes** and add:
+3. Fill in the required fields
+4. On the **Scopes** page add:
    - `https://www.googleapis.com/auth/gmail.modify`
    - `https://www.googleapis.com/auth/gmail.send`
+   - `https://www.googleapis.com/auth/gmail.compose`
    - `https://www.googleapis.com/auth/calendar`
-6. Click **Update**, then **Save and Continue**
-7. On the **Test users** page, click **Add Users** and add your Google email address
-8. Click **Save and Continue**, then **Back to Dashboard**
+5. Add your Google account as a test user while the app is in testing mode
 
-**Important:** The `gmail.modify` and `gmail.send` scopes are **restricted** Google scopes. While your OAuth consent screen is in **Testing** mode, only the test users you add (up to 100) can authorize the app. This is fine for personal and development use. Production distribution requires completing Google's OAuth verification review process.
+**Important:** Gmail scopes remain restricted Google scopes. Testing mode is fine for personal/dev use; broader distribution requires Google OAuth verification.
 
 ### 5. Create OAuth Credentials
 
 1. Go to **APIs & Services > Credentials**
 2. Click **Create Credentials > OAuth client ID**
-3. Select **Desktop app** as the application type
-4. Enter a name (e.g., "zorai desktop")
-5. Click **Create**
-6. Note the **Client ID** and **Client Secret** -- you will need these in zorai
+3. Select **Desktop app**
+4. Record the **Client ID** and **Client Secret** for zorai plugin settings
 
 ## Installation
 
@@ -67,99 +60,111 @@ Follow these steps to create the OAuth credentials your plugin needs.
 zorai plugin add zorai-plugin-gmail-calendar
 ```
 
-This installs both the Gmail and Calendar plugins. They appear as separate entries in your plugin list.
+This installs both the Gmail and Calendar plugins as separate connector entries.
 
-## Configuration
+## Readiness and setup model
 
-### In the Desktop App (Electron)
+Each connector now exposes:
+- readiness probe (`check_health`)
+- readiness state in TUI settings
+- setup hint
+- recovery hint
+- docs path
+- normalized workflow primitives
+- read/write action inventory
 
-1. Open **Settings > Plugins**
-2. You will see **Gmail** and **Calendar** listed
-3. For each plugin:
-   - Enter the **Client ID** and **Client Secret** from the OAuth credentials you created
-   - Click **Connect** to authorize with your Google account
-   - A browser window opens for Google's OAuth consent flow
-   - After authorizing, the plugin status shows **Connected**
+### Gmail readiness expectations
+- Settings: `client_id`, `client_secret`
+- OAuth scopes: modify, send, compose
+- Readiness probe confirms Gmail profile access
 
-### In the TUI
+### Calendar readiness expectations
+- Settings: `client_id`, `client_secret`, optional `default_calendar`
+- OAuth scope: calendar
+- Readiness probe confirms calendar list access
 
-1. Open Settings (press `S`) and navigate to the **Plugins** tab
-2. Select **Gmail** or **Calendar**
-3. Enter Client ID and Client Secret
-4. Follow the authorization flow
+## Supported Gmail actions
 
-## Usage
+### Read
+- `/gmail.inbox`
+- `/gmail.search`
+- `/gmail.thread`
+- thread/context primitives: `list_threads`, `fetch_thread_context`
 
-### Commands
+### Write
+- `/gmail.send`
+- `/gmail.draft`
+- `/gmail.reply`
+- archive / trash / mark read/unread / star
+
+### Gmail normalized primitives
+- `list_threads`
+- `fetch_thread_context`
+- `draft_message`
+- `reply_in_thread`
+- `send_message`
+
+## Supported Calendar actions
+
+### Read
+- `/calendar.today`
+- `/calendar.week`
+- `/calendar.prep`
+- schedule/context primitives: `list_schedule_items`, `fetch_schedule_context`, `meeting_prep`
+
+### Write
+- `/calendar.create`
+- `/calendar.update`
+- `/calendar.delete`
+- `/calendar.rsvp`
+
+### Calendar normalized primitives
+- `list_schedule_items`
+- `fetch_schedule_context`
+- `schedule_follow_up`
+- `update_schedule_item`
+- `update_attendance`
+- `meeting_prep`
+
+## Day-start triage example
+
+1. Check Gmail and Calendar readiness in Settings → Plugins.
+2. Use `/gmail.inbox` or `/gmail.search` to gather mail requiring action.
+3. Use `/gmail.thread` or the normalized thread context primitive for full context.
+4. Draft or reply using `/gmail.draft` and `/gmail.reply`.
+5. Review today’s schedule with `/calendar.today`.
+6. Use `/calendar.prep` for a meeting-prep summary.
+7. Reschedule or RSVP with `/calendar.update` or `/calendar.rsvp`.
+
+## Failure visibility
+
+The readiness + enriched error layer now makes visible:
+- missing setup / missing client credentials
+- reconnect-needed or expired auth
+- insufficient scopes
+- rate limits
+- unreachable Google service / timeout
+
+Typical recoveries:
+- missing setup → enter client credentials and connect
+- insufficient scopes → reconnect and grant the listed scopes
+- rate limit → retry later
+- unreachable service → verify Google API availability and local network access
+
+## Commands
 
 | Command | Description |
 |---------|-------------|
 | `/gmail.inbox` | Show recent inbox messages |
 | `/gmail.search` | Search emails by query |
+| `/gmail.send` | Send an email |
+| `/gmail.draft` | Create a Gmail draft |
+| `/gmail.reply` | Reply in a Gmail thread |
+| `/gmail.thread` | View a full email thread |
 | `/calendar.today` | Show today's calendar events |
-
-### Natural Language
-
-You can also ask naturally:
-
-- "What's in my inbox?"
-- "Show me unread emails"
-- "Search for emails from alice@example.com about the project"
-- "What's on my calendar today?"
-- "Do I have any meetings this afternoon?"
-
-The agent uses the plugin skills to translate your request into the appropriate API calls.
-
-### Gmail Search Syntax
-
-The search query supports the same syntax as the Gmail search box:
-
-| Query | Description |
-|-------|-------------|
-| `from:user@example.com` | Messages from a sender |
-| `subject:meeting` | Messages with keyword in subject |
-| `is:unread` | Unread messages |
-| `after:2026/03/01` | Messages after a date |
-| `has:attachment` | Messages with attachments |
-| `label:important` | Messages with a label |
-
-You can combine queries: `from:alice subject:meeting after:2026/03/01`
-
-## Scopes
-
-This plugin requests OAuth scopes that match the shipped capabilities:
-
-| Scope | Access |
-|-------|--------|
-| `https://www.googleapis.com/auth/gmail.modify` | Read and modify Gmail messages and labels |
-| `https://www.googleapis.com/auth/gmail.send` | Send Gmail messages |
-| `https://www.googleapis.com/auth/calendar` | Read and modify calendar events |
-
-This means the shipped manifests can:
-- read inbox/search Gmail
-- send email
-- archive, trash, star, and mark mail read/unread
-- read calendar events
-- create, update, and delete calendar events
-
-The Gmail scopes remain Google restricted scopes, so:
-- In **Testing** mode, up to 100 test users can authorize the app
-- For broader distribution, you must complete Google's [OAuth verification review](https://support.google.com/cloud/answer/9110914)
-- The review process requires a privacy policy and may take several weeks
-
-For personal or team use, Testing mode is sufficient.
-
-## Creating Your Own Plugin
-
-This plugin serves as a reference implementation for the zorai plugin system. To create your own plugin:
-
-1. Create a directory with a `plugin.json` manifest declaring your API endpoints, auth, settings, and commands
-   - API-backed commands use `commands.<name>.action`
-   - Python-backed commands use `commands.<name>.python.command`
-   - Shared Python defaults such as `run_path`, `source`, `env`, and `dependencies` can live under a top-level `python` object
-2. Add YAML skill files in a `skills/` subdirectory to teach the agent how to use your API
-3. Add a `package.json` with a `files` array listing your plugin directories
-4. Publish to npm: `npm publish`
-5. Install in zorai: `zorai plugin add your-plugin-name`
-
-See the [zorai plugin documentation](https://github.com/anthropic/zorai/wiki/plugins) for the full manifest schema and API reference.
+| `/calendar.week` | Show this week's calendar events |
+| `/calendar.create` | Create a calendar event |
+| `/calendar.update` | Update a calendar event |
+| `/calendar.delete` | Delete a calendar event |
+| `/calendar.rsvp` | Update attendance / response status |
+| `/calendar.prep` | Show meeting-prep context |

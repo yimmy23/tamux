@@ -5,6 +5,9 @@ pub enum SubAgentEditorField {
     Name,
     Provider,
     Model,
+    OpenRouterProviderOrder,
+    OpenRouterProviderIgnore,
+    OpenRouterAllowFallbacks,
     ReasoningEffort,
     Role,
     SystemPrompt,
@@ -13,7 +16,20 @@ pub enum SubAgentEditorField {
 }
 
 impl SubAgentEditorField {
-    pub const ALL: [SubAgentEditorField; 8] = [
+    pub const ALL: [SubAgentEditorField; 11] = [
+        SubAgentEditorField::Name,
+        SubAgentEditorField::Provider,
+        SubAgentEditorField::Model,
+        SubAgentEditorField::OpenRouterProviderOrder,
+        SubAgentEditorField::OpenRouterProviderIgnore,
+        SubAgentEditorField::OpenRouterAllowFallbacks,
+        SubAgentEditorField::ReasoningEffort,
+        SubAgentEditorField::Role,
+        SubAgentEditorField::SystemPrompt,
+        SubAgentEditorField::Save,
+        SubAgentEditorField::Cancel,
+    ];
+    const NON_OPENROUTER: [SubAgentEditorField; 8] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
@@ -23,6 +39,14 @@ impl SubAgentEditorField {
         SubAgentEditorField::Save,
         SubAgentEditorField::Cancel,
     ];
+
+    fn visible_for_provider(provider: &str) -> &'static [SubAgentEditorField] {
+        if provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+            &Self::ALL
+        } else {
+            &Self::NON_OPENROUTER
+        }
+    }
 
     pub fn prev(self) -> Self {
         let index = Self::ALL
@@ -43,6 +67,48 @@ impl SubAgentEditorField {
             .unwrap_or(0);
         Self::ALL[(index + 1) % Self::ALL.len()]
     }
+
+    pub fn prev_for_provider(self, provider: &str) -> Self {
+        let visible = Self::visible_for_provider(provider);
+        let index = visible.iter().position(|field| *field == self).unwrap_or(0);
+        visible[if index == 0 {
+            visible.len().saturating_sub(1)
+        } else {
+            index - 1
+        }]
+    }
+
+    pub fn next_for_provider(self, provider: &str) -> Self {
+        let visible = Self::visible_for_provider(provider);
+        let index = visible.iter().position(|field| *field == self).unwrap_or(0);
+        visible[(index + 1) % visible.len()]
+    }
+}
+
+pub fn openrouter_provider_list_from_json(raw: &serde_json::Value, key: &str) -> String {
+    raw.get(key)
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default()
+}
+
+pub fn openrouter_provider_list_to_json(value: &str) -> serde_json::Value {
+    serde_json::Value::Array(
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| serde_json::Value::String(value.to_string()))
+            .collect(),
+    )
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -286,6 +352,9 @@ pub struct SubAgentEditorState {
     pub delete_allowed: bool,
     pub protected_reason: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub openrouter_provider_order: String,
+    pub openrouter_provider_ignore: String,
+    pub openrouter_allow_fallbacks: bool,
     pub raw_json: Option<serde_json::Value>,
     pub field: SubAgentEditorField,
     pub previous_role_preset: Option<String>,
@@ -308,6 +377,9 @@ impl SubAgentEditorState {
             delete_allowed: true,
             protected_reason: None,
             reasoning_effort: None,
+            openrouter_provider_order: String::new(),
+            openrouter_provider_ignore: String::new(),
+            openrouter_allow_fallbacks: true,
             raw_json: None,
             field: SubAgentEditorField::Name,
             previous_role_preset: None,
@@ -408,6 +480,9 @@ pub struct SubAgentEntry {
     pub delete_allowed: bool,
     pub protected_reason: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub openrouter_provider_order: String,
+    pub openrouter_provider_ignore: String,
+    pub openrouter_allow_fallbacks: bool,
     pub raw_json: Option<serde_json::Value>,
 }
 
