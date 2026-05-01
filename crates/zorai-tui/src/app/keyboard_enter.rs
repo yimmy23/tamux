@@ -125,7 +125,10 @@ impl TuiModel {
         }
         if cmd == "new" {
             let target_agent_id = if args.trim().is_empty() {
-                Some(zorai_protocol::AGENT_ID_SWAROG.to_string())
+                Some(
+                    self.active_thread_owner_agent_id()
+                        .unwrap_or_else(|| zorai_protocol::AGENT_ID_SWAROG.to_string()),
+                )
             } else {
                 self.resolve_target_agent_id(args.trim())
             };
@@ -250,6 +253,9 @@ impl TuiModel {
             self.input.set_mode(input::InputMode::Insert);
             return false;
         }
+        let goal_composer_prompt_matches_input =
+            matches!(self.main_pane_view, MainPaneView::GoalComposer)
+                && self.goal_mission_control.prompt_text() == self.input.buffer();
         self.input.reduce(input::InputAction::Submit);
         if let Some(prompt) = self.input.take_submitted() {
             if self.should_show_operator_profile_onboarding() {
@@ -269,6 +275,9 @@ impl TuiModel {
                 return false;
             }
             if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
+                if goal_composer_prompt_matches_input {
+                    self.goal_mission_control.set_prompt_text(prompt);
+                }
                 self.start_goal_run_from_mission_control();
                 return false;
             }

@@ -14,8 +14,12 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         t.loaded_message_end.max(t.messages.len())
     };
     let derived_loaded_message_start = if derived_loaded_message_end >= t.messages.len() {
-        t.loaded_message_start
-            .min(derived_loaded_message_end.saturating_sub(t.messages.len()))
+        let inferred_start = derived_loaded_message_end.saturating_sub(t.messages.len());
+        if t.loaded_message_start == 0 && inferred_start > 0 {
+            inferred_start
+        } else {
+            t.loaded_message_start.min(inferred_start)
+        }
     } else {
         0
     };

@@ -971,7 +971,11 @@ impl TuiModel {
                     return false;
                 }
                 KeyCode::Enter => {
-                    self.activate_settings_field();
+                    if self.settings_field_click_uses_toggle() {
+                        self.toggle_settings_field();
+                    } else {
+                        self.activate_settings_field();
+                    }
                     return false;
                 }
                 KeyCode::Char(' ') => {
@@ -1470,6 +1474,14 @@ impl TuiModel {
                 ) {
                     self.restore_builtin_persona_setup_config_snapshot();
                     self.pending_builtin_persona_setup = None;
+                    self.settings_picker_target = None;
+                } else if matches!(
+                    self.settings_picker_target,
+                    Some(SettingsPickerTarget::TargetAgentProvider)
+                        | Some(SettingsPickerTarget::TargetAgentModel)
+                        | Some(SettingsPickerTarget::TargetAgentReasoningEffort)
+                ) {
+                    self.pending_target_agent_config = None;
                     self.settings_picker_target = None;
                 }
                 self.close_top_modal();

@@ -16,6 +16,20 @@ struct EmbeddingResponse {
 
 #[cfg(feature = "lancedb-vector")]
 #[derive(Debug, serde::Deserialize)]
+struct EmbeddingErrorEnvelope {
+    error: EmbeddingProviderError,
+}
+
+#[cfg(feature = "lancedb-vector")]
+#[derive(Debug, serde::Deserialize)]
+struct EmbeddingProviderError {
+    message: Option<String>,
+    #[serde(default)]
+    code: Option<serde_json::Value>,
+}
+
+#[cfg(feature = "lancedb-vector")]
+#[derive(Debug, serde::Deserialize)]
 struct EmbeddingDatum {
     #[serde(default)]
     index: Option<usize>,
@@ -34,6 +48,27 @@ fn openai_like_endpoint(base_url: &str, endpoint: &str) -> String {
 
 fn embedding_batch_size(configured: u32) -> usize {
     (configured as usize).clamp(1, MAX_EMBEDDING_BATCH_SIZE)
+}
+
+#[cfg(feature = "lancedb-vector")]
+fn parse_embedding_response(response_text: &str) -> Result<EmbeddingResponse> {
+    let value = serde_json::from_str::<serde_json::Value>(response_text)
+        .context("invalid embedding provider response")?;
+    if value.get("error").is_some() {
+        let envelope: EmbeddingErrorEnvelope =
+            serde_json::from_value(value).context("invalid embedding provider error response")?;
+        let mut message = envelope
+            .error
+            .message
+            .unwrap_or_else(|| "unknown provider error".to_string());
+        if let Some(code) = envelope.error.code {
+            if !code.is_null() && !message.contains(&code.to_string()) {
+                message = format!("{message} (code: {code})");
+            }
+        }
+        anyhow::bail!("embedding provider returned error: {message}");
+    }
+    serde_json::from_value(value).context("invalid embedding provider response")
 }
 
 #[cfg(feature = "lancedb-vector")]
@@ -132,8 +167,7 @@ async fn request_embeddings(
         anyhow::bail!("embedding provider returned HTTP {status}: {preview}");
     }
 
-    let mut parsed: EmbeddingResponse =
-        serde_json::from_str(&response_text).context("invalid embedding provider response")?;
+    let mut parsed = parse_embedding_response(&response_text)?;
     if parsed.data.len() != inputs.len() {
         anyhow::bail!(
             "embedding provider returned {} embeddings for {} inputs",
@@ -425,6 +459,19 @@ mod tests {
         assert_eq!(embedding_batch_size(0), 1);
         assert_eq!(embedding_batch_size(64), 64);
         assert_eq!(embedding_batch_size(10_000), MAX_EMBEDDING_BATCH_SIZE);
+    }
+
+    #[cfg(feature = "lancedb-vector")]
+    #[test]
+    fn embedding_provider_error_envelope_is_reported() {
+        let err = parse_embedding_response(
+            r#"{"error":{"message":"HTTP 400: input too large","code":400}}"#,
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("embedding provider returned error: HTTP 400: input too large"));
     }
 
     #[cfg(feature = "lancedb-vector")]

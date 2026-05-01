@@ -84,6 +84,8 @@ impl TuiModel {
             cancelled_thread_id: None,
             pending_new_thread_target_agent: None,
             pending_builtin_persona_setup: None,
+            pending_target_agent_config: None,
+            pending_svarog_reasoning_effort: None,
             thread_loading_id: None,
             missing_runtime_thread_ids: std::collections::HashSet::new(),
             empty_hydrated_runtime_thread_ids: std::collections::HashSet::new(),

@@ -158,6 +158,10 @@ pub enum DaemonCommand {
         provider_id: String,
         model: String,
     },
+    SetTargetAgentReasoningEffort {
+        target_agent_id: String,
+        reasoning_effort: String,
+    },
     ControlGoalRun {
         goal_run_id: String,
         action: String,
@@ -214,6 +218,11 @@ pub enum DaemonCommand {
     GetOpenAICodexAuthStatus,
     LoginOpenAICodex,
     LogoutOpenAICodex,
+    LoginProvider {
+        provider_id: String,
+        api_key: String,
+        base_url: String,
+    },
     ValidateProvider {
         provider_id: String,
         base_url: String,

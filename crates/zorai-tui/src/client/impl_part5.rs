@@ -305,6 +305,17 @@ impl DaemonClient {
         })
     }
 
+    pub fn set_target_agent_reasoning_effort(
+        &self,
+        target_agent_id: String,
+        reasoning_effort: String,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentSetTargetAgentReasoningEffort {
+            target_agent_id,
+            reasoning_effort,
+        })
+    }
+
     pub fn get_provider_auth_states(&self) -> Result<()> {
         self.send(ClientMessage::AgentGetProviderAuthStates)
     }
@@ -323,6 +334,19 @@ impl DaemonClient {
 
     pub fn logout_openai_codex(&self) -> Result<()> {
         self.send(ClientMessage::AgentLogoutOpenAICodex)
+    }
+
+    pub fn login_provider(
+        &self,
+        provider_id: String,
+        api_key: String,
+        base_url: String,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentLoginProvider {
+            provider_id,
+            api_key,
+            base_url,
+        })
     }
 
     pub fn validate_provider(

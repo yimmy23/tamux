@@ -496,18 +496,18 @@ pub(crate) fn is_weles_thread(thread: &AgentThread) -> bool {
             }))
 }
 
-fn is_svarog_thread(thread: &AgentThread, subagents: &SubAgentsState) -> bool {
-    let Some(agent_name) = thread.agent_name.as_deref() else {
-        return true;
-    };
-    let Some(agent_id) = normalize_agent_tab_id(agent_name) else {
-        return true;
-    };
+fn is_svarog_agent_name(agent_name: &str) -> bool {
+    matches!(
+        agent_name.trim().to_ascii_lowercase().as_str(),
+        "svarog" | "swarog" | "main"
+    )
+}
 
-    !subagents.entries.iter().any(|entry| {
-        normalize_agent_tab_id(&entry.id).is_some_and(|entry_id| entry_id == agent_id)
-            || entry.name.eq_ignore_ascii_case(agent_name)
-    })
+fn is_svarog_thread(thread: &AgentThread) -> bool {
+    thread
+        .agent_name
+        .as_deref()
+        .is_some_and(is_svarog_agent_name)
 }
 
 #[cfg(test)]
@@ -617,7 +617,7 @@ fn filtered_threads_inner<'a>(
                     && !is_workspace_thread_with_index(thread, workspace_index)
                     && !is_goal_thread_with_index(thread, goal_index)
                     && !is_playground_thread(thread)
-                    && is_svarog_thread(thread, subagents)
+                    && is_svarog_thread(thread)
             }
             ThreadPickerTab::Rarog => is_rarog_thread(thread),
             ThreadPickerTab::Weles => !is_playground_thread(thread) && is_weles_thread(thread),
@@ -1290,6 +1290,7 @@ mod tests {
         let chat = make_chat(vec![
             AgentThread {
                 id: "regular-thread".into(),
+                agent_name: Some("Svarog".into()),
                 title: "Regular work".into(),
                 ..Default::default()
             },
@@ -1482,6 +1483,7 @@ mod tests {
         let chat = make_chat(vec![
             AgentThread {
                 id: "regular-thread".into(),
+                agent_name: Some("Svarog".into()),
                 title: "Regular work".into(),
                 ..Default::default()
             },
@@ -1557,10 +1559,35 @@ mod tests {
     }
 
     #[test]
+    fn filtered_threads_swarog_tab_excludes_unattributed_threads() {
+        let chat = make_chat(vec![
+            AgentThread {
+                id: "thread-svarog".into(),
+                agent_name: Some("Svarog".into()),
+                title: "Root planning".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "thread-subagent-unattributed".into(),
+                agent_name: None,
+                title: "Execute queued subagent task".into(),
+                ..Default::default()
+            },
+        ]);
+        let modal = ModalState::new();
+
+        let threads = filtered_threads(&chat, &modal, &make_subagents(Vec::new()));
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "thread-svarog");
+    }
+
+    #[test]
     fn rarog_tab_filters_threads_and_searches_within_tab() {
         let chat = make_chat(vec![
             AgentThread {
                 id: "regular-thread".into(),
+                agent_name: Some("Svarog".into()),
                 title: "Regular work".into(),
                 ..Default::default()
             },
@@ -1693,12 +1720,12 @@ mod tests {
     fn search_matches_thread_responder_name() {
         let chat = make_chat(vec![AgentThread {
             id: "regular-thread".into(),
-            agent_name: Some("Domowoj".into()),
+            agent_name: Some("Svarog".into()),
             title: "Needs review".into(),
             ..Default::default()
         }]);
         let mut modal = ModalState::new();
-        modal.reduce(ModalAction::SetQuery("domowoj".into()));
+        modal.reduce(ModalAction::SetQuery("svarog".into()));
 
         let threads = filtered_threads(&chat, &modal, &make_subagents(Vec::new()));
 
@@ -1711,6 +1738,7 @@ mod tests {
         let chat = make_chat(vec![
             AgentThread {
                 id: "regular-thread".into(),
+                agent_name: Some("Svarog".into()),
                 title: "Regular work".into(),
                 ..Default::default()
             },
@@ -1840,6 +1868,7 @@ mod tests {
         let chat = make_chat(vec![
             AgentThread {
                 id: "regular-thread".into(),
+                agent_name: Some("Svarog".into()),
                 title: "Regular work".into(),
                 ..Default::default()
             },

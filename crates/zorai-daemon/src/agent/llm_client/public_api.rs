@@ -640,14 +640,16 @@ fn build_chat_completion_messages(
     system_prompt: &str,
     messages: &[ApiMessage],
 ) -> Result<Vec<serde_json::Value>> {
-    build_chat_completion_messages_with_options(system_prompt, messages, false, false)
+    build_chat_completion_messages_with_options(system_prompt, messages, false, false, false, false)
 }
 
 fn build_chat_completion_messages_with_options(
     system_prompt: &str,
     messages: &[ApiMessage],
-    include_reasoning_content: bool,
+    include_tool_reasoning_content: bool,
     synthesize_missing_tool_reasoning_content: bool,
+    include_non_tool_reasoning_content: bool,
+    include_non_tool_reasoning_content_after_tool_call: bool,
 ) -> Result<Vec<serde_json::Value>> {
     let messages = sanitize_api_messages(messages);
 
@@ -657,25 +659,31 @@ fn build_chat_completion_messages_with_options(
         "content": system_prompt,
     }));
 
+    let mut current_turn_has_tool_call = false;
     for message in messages {
+        if message.role == "user" {
+            current_turn_has_tool_call = false;
+        }
         let mut obj = serde_json::Map::new();
         obj.insert(
             "role".to_string(),
             serde_json::Value::String(message.role.clone()),
         );
 
-        if message.role == "assistant"
+        let assistant_has_tool_calls = message.role == "assistant"
             && message
                 .tool_calls
                 .as_ref()
-                .is_some_and(|tool_calls| !tool_calls.is_empty())
-        {
+                .is_some_and(|tool_calls| !tool_calls.is_empty());
+
+        if assistant_has_tool_calls {
+            current_turn_has_tool_call = true;
             obj.insert("content".to_string(), serde_json::Value::Null);
             obj.insert(
                 "tool_calls".to_string(),
                 serde_json::to_value(message.tool_calls.clone().unwrap_or_default())?,
             );
-            if include_reasoning_content {
+            if include_tool_reasoning_content {
                 insert_reasoning_content(
                     &mut obj,
                     message.reasoning.as_deref(),
@@ -684,8 +692,16 @@ fn build_chat_completion_messages_with_options(
             }
         } else {
             obj.insert("content".to_string(), api_content_to_json(&message.content));
-            if include_reasoning_content && message.role == "assistant" {
-                insert_reasoning_content(&mut obj, message.reasoning.as_deref(), false);
+            if message.role == "assistant" {
+                let include_after_tool_call =
+                    include_non_tool_reasoning_content_after_tool_call && current_turn_has_tool_call;
+                if include_non_tool_reasoning_content || include_after_tool_call {
+                    insert_reasoning_content(
+                        &mut obj,
+                        message.reasoning.as_deref(),
+                        include_after_tool_call && synthesize_missing_tool_reasoning_content,
+                    );
+                }
             }
             if let Some(tool_call_id) = &message.tool_call_id {
                 obj.insert(

@@ -1249,6 +1249,174 @@ impl TuiModel {
         }
     }
 
+    pub(super) fn active_thread_owner_agent_id(&self) -> Option<String> {
+        let Some(thread) = self.chat.active_thread() else {
+            return self
+                .pending_new_thread_target_agent
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        };
+        if thread.id == "concierge" {
+            return Some(zorai_protocol::AGENT_ID_RAROG.to_string());
+        }
+
+        if let Some(agent_name) = thread
+            .agent_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if let Some(agent_id) = self.resolve_target_agent_id(agent_name) {
+                return Some(agent_id);
+            }
+            if !agent_name.eq_ignore_ascii_case("svarog")
+                && !agent_name.eq_ignore_ascii_case("swarog")
+            {
+                return Some(agent_name.to_string());
+            }
+        }
+
+        if widgets::thread_picker::is_rarog_thread(thread) {
+            Some(zorai_protocol::AGENT_ID_RAROG.to_string())
+        } else if widgets::thread_picker::is_weles_thread(thread) {
+            Some("weles".to_string())
+        } else {
+            Some(zorai_protocol::AGENT_ID_SWAROG.to_string())
+        }
+    }
+
+    fn active_thread_target_agent_config(&self) -> Option<PendingTargetAgentConfig> {
+        let target_agent_id = self.active_thread_owner_agent_id()?;
+        if target_agent_id.eq_ignore_ascii_case(zorai_protocol::AGENT_ID_SWAROG) {
+            return None;
+        }
+        let mut profile = self.current_conversation_agent_profile();
+        if let Some(runtime) = self.chat.active_thread_runtime_metadata() {
+            if let Some(provider) = runtime.provider {
+                profile.provider = provider;
+            }
+            if let Some(model) = runtime.model {
+                profile.model = model;
+            }
+            if let Some(reasoning_effort) = runtime.reasoning_effort {
+                profile.reasoning_effort = Some(reasoning_effort);
+            }
+        }
+        Some(PendingTargetAgentConfig {
+            target_agent_id,
+            target_agent_name: profile.agent_label,
+            provider_id: profile.provider,
+            model: profile.model,
+            reasoning_effort: profile.reasoning_effort,
+        })
+    }
+
+    fn effort_picker_index(reasoning_effort: Option<&str>) -> usize {
+        match reasoning_effort
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "minimal" => 1,
+            "low" => 2,
+            "medium" => 3,
+            "high" => 4,
+            "xhigh" => 5,
+            _ => 0,
+        }
+    }
+
+    fn normalized_effort_value(reasoning_effort: Option<&str>) -> Option<String> {
+        reasoning_effort
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("none"))
+            .map(ToOwned::to_owned)
+    }
+
+    pub(super) fn effort_picker_current_value(&self) -> Option<String> {
+        match self.settings_picker_target {
+            Some(SettingsPickerTarget::SubAgentReasoningEffort) => {
+                self.subagents.editor.as_ref().and_then(|editor| {
+                    Self::normalized_effort_value(editor.reasoning_effort.as_deref())
+                })
+            }
+            Some(SettingsPickerTarget::TargetAgentReasoningEffort) => self
+                .pending_target_agent_config
+                .as_ref()
+                .and_then(|pending| {
+                    Self::normalized_effort_value(pending.reasoning_effort.as_deref())
+                }),
+            Some(SettingsPickerTarget::ConciergeReasoningEffort) => {
+                Self::normalized_effort_value(self.concierge.reasoning_effort.as_deref())
+            }
+            Some(SettingsPickerTarget::CompactionWelesReasoningEffort) => {
+                Self::normalized_effort_value(Some(&self.config.compaction_weles_reasoning_effort))
+            }
+            Some(SettingsPickerTarget::CompactionCustomReasoningEffort) => {
+                Self::normalized_effort_value(Some(&self.config.compaction_custom_reasoning_effort))
+            }
+            _ => self
+                .chat
+                .active_thread_runtime_metadata()
+                .and_then(|runtime| {
+                    Self::normalized_effort_value(runtime.reasoning_effort.as_deref())
+                })
+                .or_else(|| {
+                    let profile = self.current_conversation_agent_profile();
+                    Self::normalized_effort_value(profile.reasoning_effort.as_deref())
+                }),
+        }
+    }
+
+    fn sync_effort_picker_cursor_to_current(&mut self) {
+        self.modal.set_picker_item_count(6);
+        let current = self.effort_picker_current_value();
+        let cursor = Self::effort_picker_index(current.as_deref());
+        self.modal
+            .reduce(modal::ModalAction::Navigate(cursor as i32));
+    }
+
+    fn open_active_thread_target_provider_picker(&mut self) -> bool {
+        let Some(pending) = self.active_thread_target_agent_config() else {
+            return false;
+        };
+        self.pending_target_agent_config = Some(pending);
+        self.open_provider_picker(SettingsPickerTarget::TargetAgentProvider);
+        true
+    }
+
+    fn open_active_thread_target_model_picker(&mut self) -> bool {
+        let Some(pending) = self.active_thread_target_agent_config() else {
+            return false;
+        };
+        let provider_id = pending.provider_id.clone();
+        let (base_url, api_key, auth_source) = self.provider_auth_snapshot(&provider_id);
+        self.pending_target_agent_config = Some(pending);
+        self.open_provider_backed_model_picker(
+            SettingsPickerTarget::TargetAgentModel,
+            provider_id,
+            base_url,
+            api_key,
+            auth_source,
+        );
+        true
+    }
+
+    fn open_active_thread_target_effort_picker(&mut self) -> bool {
+        let Some(pending) = self.active_thread_target_agent_config() else {
+            return false;
+        };
+        self.pending_target_agent_config = Some(pending);
+        self.settings_picker_target = Some(SettingsPickerTarget::TargetAgentReasoningEffort);
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
+        self.sync_effort_picker_cursor_to_current();
+        true
+    }
+
     fn voice_lookup_string(raw: Option<&serde_json::Value>, path: &[&str]) -> Option<String> {
         raw.and_then(|value| {
             path.iter()
@@ -4006,11 +4174,17 @@ impl TuiModel {
         tracing::info!("execute_command: {:?}", command);
         match command {
             "provider" => {
+                if self.open_active_thread_target_provider_picker() {
+                    return;
+                }
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
                 self.sync_provider_picker_item_count();
             }
             "model" => {
+                if self.open_active_thread_target_model_picker() {
+                    return;
+                }
                 let target = self
                     .settings_picker_target
                     .unwrap_or(SettingsPickerTarget::Model);
@@ -4031,9 +4205,12 @@ impl TuiModel {
                 self.open_settings_tab(SettingsTab::Tools);
             }
             "effort" => {
+                if self.open_active_thread_target_effort_picker() {
+                    return;
+                }
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
-                self.modal.set_picker_item_count(6);
+                self.sync_effort_picker_cursor_to_current();
             }
             "thread" => {
                 self.modal
@@ -4046,7 +4223,10 @@ impl TuiModel {
                 self.sync_goal_picker_item_count();
             }
             "new" => {
-                self.start_new_thread_view_for_agent(Some(zorai_protocol::AGENT_ID_SWAROG));
+                let target_agent_id = self
+                    .active_thread_owner_agent_id()
+                    .unwrap_or_else(|| zorai_protocol::AGENT_ID_SWAROG.to_string());
+                self.start_new_thread_view_for_agent(Some(target_agent_id.as_str()));
             }
             "tasks" => {
                 self.modal

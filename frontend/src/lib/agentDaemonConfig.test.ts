@@ -69,24 +69,24 @@ describe("daemon agent config audio wiring", () => {
         api_key: "sk-active",
       },
       image_generation_provider: "xai",
-      image_generation_model: "grok-4-image",
+      image_generation_model: "grok-imagine-image",
       xai: {
         ...DEFAULT_AGENT_SETTINGS.xai,
         api_key: "sk-image",
-        model: "grok-4-image",
+        model: "grok-imagine-image",
       },
     } as any);
 
     expect(daemonConfig.image).toEqual({
       generation: {
         provider: "xai",
-        model: "grok-4-image",
+        model: "grok-imagine-image",
       },
     });
 
     expect(daemonConfig.providers?.xai).toMatchObject({
       base_url: DEFAULT_AGENT_SETTINGS.xai.base_url,
-      model: "grok-4-image",
+      model: "grok-imagine-image",
     });
   });
 });

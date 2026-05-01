@@ -17,12 +17,12 @@ mod rendering;
 mod settings_handlers;
 mod workspace_actor_picker;
 mod workspace_create;
-mod workspace_create_workspace_modal;
-#[cfg(test)]
-mod workspace_create_workspace_modal_tests;
 mod workspace_create_modal;
 #[cfg(test)]
 mod workspace_create_modal_tests;
+mod workspace_create_workspace_modal;
+#[cfg(test)]
+mod workspace_create_workspace_modal_tests;
 mod workspace_detail_modal;
 #[cfg(test)]
 mod workspace_detail_modal_tests;
@@ -140,6 +140,9 @@ enum SettingsPickerTarget {
     SubAgentModel,
     SubAgentRole,
     SubAgentReasoningEffort,
+    TargetAgentProvider,
+    TargetAgentModel,
+    TargetAgentReasoningEffort,
     ConciergeProvider,
     ConciergeModel,
     ConciergeReasoningEffort,
@@ -325,6 +328,15 @@ struct PendingBuiltinPersonaSetup {
     target_agent_name: String,
     continuation: PendingBuiltinPersonaSetupContinuation,
     config_snapshot: BuiltinPersonaSetupConfigSnapshot,
+}
+
+#[derive(Clone, Debug)]
+struct PendingTargetAgentConfig {
+    target_agent_id: String,
+    target_agent_name: String,
+    provider_id: String,
+    model: String,
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -636,6 +648,8 @@ pub struct TuiModel {
 
     // Builtin persona setup flow launched from @agent / !agent commands.
     pending_builtin_persona_setup: Option<PendingBuiltinPersonaSetup>,
+    pending_target_agent_config: Option<PendingTargetAgentConfig>,
+    pending_svarog_reasoning_effort: Option<String>,
 
     // Thread currently awaiting full detail from the daemon.
     thread_loading_id: Option<String>,

@@ -78,14 +78,19 @@ describe("frontend xAI provider catalog", () => {
 
     expect(xai).toBeDefined();
     expect(xai?.defaultBaseUrl).toBe("https://api.x.ai/v1");
-    expect(xai?.defaultModel).toBe("grok-4");
+    expect(xai?.defaultModel).toBe("grok-4.3");
+    expect(xai?.models.map((model) => model.id)).toEqual([
+      "grok-4.3",
+      "grok-4",
+      "grok-code-fast-1",
+    ]);
     expect(xai?.supportsModelFetch).toBe(true);
     expect(xai?.defaultTransport).toBe("responses");
   });
 
   it("recognizes xAI as a valid provider id", () => {
     expect(normalizeAgentProviderId("xai")).toBe("xai");
-    expect(getDefaultModelForProvider("xai" as any)).toBe("grok-4");
+    expect(getDefaultModelForProvider("xai" as any)).toBe("grok-4.3");
   });
 });
 
@@ -105,15 +110,15 @@ describe("frontend xAI audio/provider settings coverage", () => {
   });
 
   it("normalizes stale audio models when switching providers to xAI", () => {
-    expect(normalizeAudioModelForProviderChange("xai", "stt", "whisper-1")).toBe("grok-4");
-    expect(normalizeAudioModelForProviderChange("xai", "tts", "gpt-4o-mini-tts")).toBe("grok-4");
-    expect(normalizeAudioModelForProviderChange("xai", "stt", "grok-4")).toBe("grok-4");
+    expect(normalizeAudioModelForProviderChange("xai", "stt", "whisper-1")).toBe("grok-4.3");
+    expect(normalizeAudioModelForProviderChange("xai", "tts", "gpt-4o-mini-tts")).toBe("grok-4.3");
+    expect(normalizeAudioModelForProviderChange("xai", "stt", "grok-4.3")).toBe("grok-4.3");
   });
 
   it("covers xAI settings normalization and daemon serialization in a collected test file", () => {
     expect(DEFAULT_AGENT_SETTINGS.xai).toMatchObject({
       base_url: "https://api.x.ai/v1",
-      model: "grok-4",
+      model: "grok-4.3",
       api_transport: "responses",
     });
 

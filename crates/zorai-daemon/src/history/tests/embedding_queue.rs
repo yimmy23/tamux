@@ -115,6 +115,96 @@ async fn adding_message_enqueues_embedding_job() -> Result<()> {
 }
 
 #[tokio::test]
+async fn adding_large_message_splits_embedding_jobs_into_bounded_chunks() -> Result<()> {
+    let (store, _root) = make_test_store().await?;
+    store.create_thread(&sample_thread()).await?;
+    let content = "semantic content ".repeat(2_000);
+
+    store
+        .add_message(&sample_message("msg-large", &content))
+        .await?;
+
+    let jobs = store
+        .claim_embedding_jobs("text-embedding-3-small", 1536, 10)
+        .await?;
+    assert!(jobs.len() > 1);
+    assert_eq!(jobs[0].chunk_id, "0");
+    assert_eq!(jobs[1].chunk_id, "1");
+    assert!(jobs.iter().all(|job| job.body.chars().count() <= 20_000));
+    assert!(jobs.iter().all(|job| job.source_id == "msg-large"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn shrinking_large_message_removes_stale_embedding_chunks() -> Result<()> {
+    let (store, _root) = make_test_store().await?;
+    store.create_thread(&sample_thread()).await?;
+    let content = "semantic content ".repeat(2_000);
+    store
+        .add_message(&sample_message("msg-shrink", &content))
+        .await?;
+
+    store
+        .update_message(
+            "msg-shrink",
+            &AgentMessagePatch {
+                content: Some("short content".to_string()),
+                ..AgentMessagePatch::default()
+            },
+        )
+        .await?;
+
+    let jobs = store
+        .claim_embedding_jobs("text-embedding-3-small", 1536, 10)
+        .await?;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].chunk_id, "0");
+    assert_eq!(jobs[0].body, "short content");
+    Ok(())
+}
+
+#[tokio::test]
+async fn claiming_legacy_large_embedding_job_splits_it_before_claiming() -> Result<()> {
+    let (store, _root) = make_test_store().await?;
+    let content = "legacy semantic content ".repeat(2_000);
+    store
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "INSERT INTO embedding_jobs (
+                    source_kind,
+                    source_id,
+                    chunk_id,
+                    content_hash,
+                    title,
+                    body,
+                    workspace_id,
+                    thread_id,
+                    agent_id,
+                    source_timestamp,
+                    queued_at,
+                    updated_at,
+                    claimed_at,
+                    attempts,
+                    last_error
+                ) VALUES ('agent_message', 'legacy-large', '0', 'legacy-hash', 'user', ?1, NULL, 'thread-1', NULL, 100, 100, 100, NULL, 0, NULL)",
+                params![content],
+            )?;
+            Ok(())
+        })
+        .await?;
+
+    let jobs = store
+        .claim_embedding_jobs("text-embedding-3-small", 1536, 10)
+        .await?;
+    assert!(jobs.len() > 1);
+    assert!(jobs.iter().all(|job| job.body.chars().count() <= 20_000));
+    assert!(jobs.iter().all(|job| job.source_id == "legacy-large"));
+    assert!(jobs.iter().all(|job| job.attempts == 0));
+    Ok(())
+}
+
+#[tokio::test]
 async fn adding_blank_message_does_not_enqueue_embedding_job() -> Result<()> {
     let (store, _root) = make_test_store().await?;
     store.create_thread(&sample_thread()).await?;

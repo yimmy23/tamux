@@ -228,3 +228,32 @@ fn semantic_embedding_fields_parse_from_canonical_semantic_section() {
     assert_eq!(state.semantic_embedding_model(), "text-embedding-3-small");
     assert_eq!(state.semantic_embedding_dimensions(), 1536);
 }
+
+#[test]
+fn semantic_embedding_dimensions_prefer_fetched_model_settings() {
+    let mut state = ConfigState::new();
+    state.reduce(ConfigAction::ConfigRawReceived(json!({
+        "semantic": {
+            "embedding": {
+                "provider": "deepseek",
+                "model": "vendor/new-embed-model",
+                "dimensions": 1536
+            }
+        }
+    })));
+    state.reduce(ConfigAction::ModelsFetched(vec![
+        crate::state::config::FetchedModel {
+            id: "vendor/new-embed-model".to_string(),
+            name: Some("New Embed Model".to_string()),
+            context_window: Some(8192),
+            pricing: None,
+            metadata: Some(json!({
+                "settings": {
+                    "dimensions": 2048
+                }
+            })),
+        },
+    ]));
+
+    assert_eq!(state.semantic_embedding_dimensions(), 2048);
+}

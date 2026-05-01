@@ -56,16 +56,28 @@ function isKnownModality(value: string): value is Modality {
   return MODALITY_ORDER.includes(value as Modality);
 }
 
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function fetchedMetadataRecord(
+  fetchedModel?: Pick<FetchedRemoteModel, "metadata"> | null,
+): Record<string, unknown> | null {
+  const metadata = objectRecord(fetchedModel?.metadata);
+  if (!metadata) return null;
+  const nested = objectRecord(metadata.metadata);
+  return nested ? { ...metadata, ...nested } : metadata;
+}
+
 function extractFetchedModalities(
   fetchedModel?: Pick<FetchedRemoteModel, "pricing" | "metadata"> | null,
 ): Modality[] {
   if (!fetchedModel) return [];
 
-  const metadata = fetchedModel.metadata as Record<string, unknown> | null | undefined;
-  const architecture =
-    metadata?.architecture && typeof metadata.architecture === "object" && !Array.isArray(metadata.architecture)
-      ? (metadata.architecture as Record<string, unknown>)
-      : null;
+  const metadata = fetchedMetadataRecord(fetchedModel);
+  const architecture = objectRecord(metadata?.architecture);
   const modalities: Modality[] = [];
 
   parseModalitiesFromArray(

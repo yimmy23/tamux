@@ -5,6 +5,16 @@ function readFeature(path: string): string {
   return readFileSync(new URL(path, import.meta.url), "utf8");
 }
 
+function readFunctionSource(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+
+  expect(startIndex).toBeGreaterThanOrEqual(0);
+  expect(endIndex).toBeGreaterThan(startIndex);
+
+  return source.slice(startIndex, endIndex);
+}
+
 describe("Zorai feature surfaces", () => {
   it("keeps Goals native to the Zorai shell instead of embedding legacy task UI", () => {
     const source = readFeature("./goals/GoalsView.tsx");
@@ -106,6 +116,7 @@ describe("Zorai feature surfaces", () => {
 
     expect(source).not.toContain("components/SettingsPanel");
     expect(source).toContain("refreshAgentSettingsFromDaemon");
+    expect(source).toContain("refreshConciergeConfig");
     expect(source).toContain("buildDaemonAgentConfig");
     expect(source).toContain("diffDaemonConfigEntries");
     expect(panelSource).toContain("zorai-settings-grid");
@@ -149,6 +160,36 @@ describe("Zorai feature surfaces", () => {
     expect(shellCss).toMatch(/\.zorai-main\s*{[^}]*min-height:\s*0/s);
     expect(shellCss).toMatch(/\.zorai-main\s*{[^}]*overflow:\s*hidden/s);
     expect(surfaceCss).toMatch(/\.zorai-settings-surface\s*{[^}]*overflow:\s*auto/s);
+  });
+
+  it("keeps feature provider/model controls aligned with TUI pickers", () => {
+    const panelSource = readFeature("./settings/SettingsPanels.tsx");
+    const featuresSource = readFunctionSource(panelSource, "function FeaturesPanel()", "function AdvancedPanel()");
+
+    expect(featuresSource).toContain("semantic_embedding_enabled");
+    expect(featuresSource).toContain("semantic_embedding_provider");
+    expect(featuresSource).toContain("semantic_embedding_model");
+    expect(featuresSource).toContain("filterAudioProviderOptions");
+    expect(featuresSource).toContain("filterEmbeddingProviderOptions");
+    expect(featuresSource).toContain("filterFetchedModelsForAudio");
+    expect(featuresSource).toContain("filterFetchedModelsForEmbeddings");
+    expect((featuresSource.match(/<ModelSelector/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(featuresSource).not.toContain('label="STT Provider" description="Speech-to-text provider."><input');
+    expect(featuresSource).not.toContain('label="TTS Provider" description="Text-to-speech provider."><input');
+  });
+
+  it("keeps advanced compaction provider/model controls aligned with TUI pickers", () => {
+    const panelSource = readFeature("./settings/SettingsPanels.tsx");
+    const advancedSource = readFunctionSource(panelSource, "function AdvancedPanel()", "function PluginsPanel()");
+
+    expect(advancedSource).toContain('<option value="heuristic">Heuristic</option>');
+    expect(advancedSource).toContain('<option value="weles">WELES</option>');
+    expect(advancedSource).toContain('<option value="custom_model">LLM provider</option>');
+    expect(advancedSource).toContain("welesProviderConfig");
+    expect(advancedSource).toContain("customCompactionProviderConfig");
+    expect((advancedSource.match(/<ModelSelector/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(advancedSource).not.toContain('label="WELES Provider" description="Provider used by WELES compaction."><input');
+    expect(advancedSource).not.toContain('label="Custom Provider" description="Provider used by custom-model compaction."><input');
   });
 
   it("keeps Tools navigation in the rail and actions in the main surface", () => {

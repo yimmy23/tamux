@@ -86,6 +86,7 @@ impl TuiModel {
                 context_window_tokens: cfg.context_window_tokens,
             },
         ));
+        self.reapply_pending_svarog_reasoning_effort();
         self.invalidate_active_header_runtime_profile_if_profile_changed(&before_profile);
     }
 
@@ -93,6 +94,7 @@ impl TuiModel {
         let before_profile = self.current_conversation_agent_profile();
         let was_loaded = self.agent_config_loaded;
         self.apply_config_json(&raw);
+        self.reconcile_pending_svarog_reasoning_effort_after_raw_config();
         self.chat
             .set_history_page_size(self.config.tui_chat_history_page_size as usize);
         self.invalidate_active_header_runtime_profile_if_profile_changed(&before_profile);

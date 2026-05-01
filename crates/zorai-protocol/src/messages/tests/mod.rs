@@ -532,6 +532,26 @@ fn client_message_roundtrips_agent_fetch_models_with_output_filter() {
 }
 
 #[test]
+fn client_message_roundtrips_agent_set_target_agent_reasoning_effort() {
+    let msg = ClientMessage::AgentSetTargetAgentReasoningEffort {
+        target_agent_id: "weles".to_string(),
+        reasoning_effort: "high".to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentSetTargetAgentReasoningEffort {
+            target_agent_id,
+            reasoning_effort,
+        } => {
+            assert_eq!(target_agent_id, "weles");
+            assert_eq!(reasoning_effort, "high");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn client_message_roundtrips_agent_execute_memory_tool() {
     let msg = ClientMessage::AgentExecuteMemoryTool {
         tool_name: "search_memory".to_string(),

@@ -210,7 +210,7 @@ impl AgentEngine {
                     .sub_agents
                     .iter_mut()
                     .find(|candidate| {
-                        candidate.id.eq_ignore_ascii_case(target.as_str())
+                        candidate.id.eq_ignore_ascii_case(&target)
                             || candidate.name.eq_ignore_ascii_case(target_agent.trim())
                     })
                     .ok_or_else(|| {
@@ -239,6 +239,100 @@ impl AgentEngine {
             .await;
         self.reconcile_config_runtime_after_commit().await?;
         Ok(self.get_config().await)
+    }
+
+    pub async fn prepare_agent_reasoning_effort_json(
+        &self,
+        target_agent: &str,
+        reasoning_effort: &str,
+    ) -> Result<AgentConfig> {
+        let target = Self::normalize_agent_model_target(target_agent);
+        let reasoning_effort = reasoning_effort.trim().to_string();
+        let current = self.get_config().await;
+        match target.as_str() {
+            crate::agent::agent_identity::MAIN_AGENT_ID => {
+                let mut updated = current;
+                updated.reasoning_effort = reasoning_effort.clone();
+                let provider_id = updated.provider.clone();
+                if let Some(provider) = updated.providers.get_mut(&provider_id) {
+                    provider.reasoning_effort = reasoning_effort;
+                }
+                Ok(updated)
+            }
+            crate::agent::agent_identity::CONCIERGE_AGENT_ID => {
+                let mut updated = current;
+                updated.concierge.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+            crate::agent::agent_identity::WELES_AGENT_ID => {
+                let mut updated = current;
+                updated.builtin_sub_agents.weles.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+            crate::agent::agent_identity::SWAROZYC_AGENT_ID => {
+                let mut updated = current;
+                updated.builtin_sub_agents.swarozyc.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+            crate::agent::agent_identity::RADOGOST_AGENT_ID => {
+                let mut updated = current;
+                updated.builtin_sub_agents.radogost.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+            crate::agent::agent_identity::DOMOWOJ_AGENT_ID => {
+                let mut updated = current;
+                updated.builtin_sub_agents.domowoj.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+            crate::agent::agent_identity::SWIETOWIT_AGENT_ID => {
+                let mut updated = current;
+                updated.builtin_sub_agents.swietowit.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+            crate::agent::agent_identity::PERUN_AGENT_ID => {
+                let mut updated = current;
+                updated.builtin_sub_agents.perun.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+            crate::agent::agent_identity::MOKOSH_AGENT_ID => {
+                let mut updated = current;
+                updated.builtin_sub_agents.mokosh.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+            crate::agent::agent_identity::DAZHBOG_AGENT_ID => {
+                let mut updated = current;
+                updated.builtin_sub_agents.dazhbog.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+            _ => {
+                let mut updated = current;
+                let sub_agent = updated
+                    .sub_agents
+                    .iter_mut()
+                    .find(|candidate| {
+                        candidate.id.eq_ignore_ascii_case(&target)
+                            || candidate.name.eq_ignore_ascii_case(target_agent.trim())
+                    })
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "unknown agent '{}'. Use `list_agents` to inspect valid targets.",
+                            target_agent.trim()
+                        )
+                    })?;
+                sub_agent.reasoning_effort =
+                    (!reasoning_effort.is_empty()).then_some(reasoning_effort);
+                Ok(updated)
+            }
+        }
     }
 
     pub async fn merge_config_patch_json(&self, patch_json: &str) -> Result<AgentConfig> {

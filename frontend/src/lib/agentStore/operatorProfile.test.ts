@@ -1,8 +1,10 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import {
   DEFAULT_OPERATOR_PROFILE_STATE,
+  hasRequiredOperatorProfileFields,
   isOperatorProfileSessionCompleted,
   normalizeOperatorProfileInputKind,
+  parseOperatorProfileSummary,
 } from "./operatorProfile";
 import { useAgentStore } from "./store";
 
@@ -37,6 +39,60 @@ test("operator profile completion guard does not match question payloads", () =>
     session_id: "ops-1",
     updated_fields: ["enabled"],
   })).toBe(true);
+});
+
+test("operator profile summary treats daemon consent snapshot as completed onboarding", () => {
+  const summary = parseOperatorProfileSummary({
+    model: {},
+    consents: {
+      enabled: true,
+      allow_message_statistics: true,
+      allow_approval_learning: true,
+      allow_attention_tracking: true,
+      allow_implicit_feedback: true,
+    },
+  });
+
+  expect(summary?.consents.map((entry) => entry.consent_key).sort()).toEqual([
+    "allow_approval_learning",
+    "allow_attention_tracking",
+    "allow_implicit_feedback",
+    "allow_message_statistics",
+    "enabled",
+  ]);
+  expect(hasRequiredOperatorProfileFields(summary)).toBe(true);
+});
+
+test("maybeStartOperatorProfileOnboarding skips startup when daemon summary has consent snapshot", async () => {
+  const agentGetOperatorProfileSummary = vi.fn(async () => ({
+    model: {},
+    consents: {
+      enabled: true,
+      allow_message_statistics: true,
+      allow_approval_learning: true,
+      allow_attention_tracking: true,
+      allow_implicit_feedback: true,
+    },
+  }));
+  const agentStartOperatorProfileSession = vi.fn(async () => ({
+    session_id: "ops-1",
+    kind: "first_run_onboarding",
+  }));
+
+  Object.assign(globalThis, {
+    window: {
+      zorai: {
+        agentGetOperatorProfileSummary,
+        agentStartOperatorProfileSession,
+      },
+    },
+  });
+
+  await useAgentStore.getState().maybeStartOperatorProfileOnboarding();
+
+  expect(agentGetOperatorProfileSummary).toHaveBeenCalledTimes(1);
+  expect(agentStartOperatorProfileSession).not.toHaveBeenCalled();
+  expect(useAgentStore.getState().operatorProfile.panelOpen).toBe(false);
 });
 
 test("startOperatorProfileSession ignores duplicate calls while a start is pending", async () => {

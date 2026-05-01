@@ -26,6 +26,77 @@ pub struct FetchedModel {
     pub metadata: Option<serde_json::Value>,
 }
 
+fn json_u32(value: &serde_json::Value) -> Option<u32> {
+    match value {
+        serde_json::Value::Number(number) => number.as_u64().and_then(|n| u32::try_from(n).ok()),
+        serde_json::Value::String(text) => text.trim().parse::<u32>().ok(),
+        _ => None,
+    }
+    .filter(|value| *value > 0)
+}
+
+fn setting_name_matches(value: &serde_json::Value) -> bool {
+    value
+        .as_str()
+        .map(|text| {
+            matches!(
+                text.trim().to_ascii_lowercase().as_str(),
+                "dimensions"
+                    | "dimension"
+                    | "embedding_dimensions"
+                    | "embedding_dimension"
+                    | "output_dimensions"
+                    | "vector_dimensions"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn dimensions_from_settings_array(settings: &[serde_json::Value]) -> Option<u32> {
+    settings.iter().find_map(|setting| {
+        let object = setting.as_object()?;
+        let name_matches = ["id", "key", "name", "param", "parameter"]
+            .iter()
+            .any(|key| object.get(*key).is_some_and(setting_name_matches));
+        if !name_matches {
+            return None;
+        }
+
+        ["value", "default", "default_value", "current"]
+            .iter()
+            .find_map(|key| object.get(*key).and_then(json_u32))
+    })
+}
+
+pub(crate) fn embedding_dimensions_from_fetched_model(model: &FetchedModel) -> Option<u32> {
+    let metadata = model.metadata.as_ref()?;
+    [
+        "/settings/dimensions",
+        "/settings/dimension",
+        "/settings/embedding_dimensions",
+        "/settings/embedding_dimension",
+        "/settings/output_dimensions",
+        "/settings/vector_dimensions",
+        "/dimensions",
+        "/dimension",
+        "/embedding_dimensions",
+        "/embedding_dimension",
+        "/output_dimensions",
+        "/vector_dimensions",
+        "/architecture/dimensions",
+        "/architecture/embedding_dimensions",
+        "/top_provider/dimensions",
+    ]
+    .iter()
+    .find_map(|path| metadata.pointer(path).and_then(json_u32))
+    .or_else(|| {
+        metadata
+            .get("settings")
+            .and_then(|settings| settings.as_array())
+            .and_then(|settings| dimensions_from_settings_array(settings))
+    })
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AgentConfigSnapshot {
     pub provider: String,
@@ -572,6 +643,16 @@ impl ConfigState {
     }
 
     pub fn semantic_embedding_dimensions(&self) -> u32 {
+        let model_id = self.semantic_embedding_model();
+        if let Some(dimensions) = self
+            .fetched_models
+            .iter()
+            .find(|model| model.id == model_id)
+            .and_then(embedding_dimensions_from_fetched_model)
+        {
+            return dimensions;
+        }
+
         self.get_semantic_embedding_nested_field("dimensions")
             .and_then(|value| value.as_u64())
             .and_then(|value| u32::try_from(value).ok())

@@ -1,4 +1,5 @@
 import {
+  embeddingDimensionsFromFetchedModel,
   filterFetchedModelsForAudio,
   filterFetchedModelsForEmbeddings,
   filterFetchedModelsForImageGeneration,
@@ -166,6 +167,40 @@ test("filterFetchedModelsForAudio keeps coarse audio pricing from leaking stt-on
   ]);
 });
 
+test("filterFetchedModelsForAudio reads daemon-nested model metadata", () => {
+  const models = [
+    normalizeFetchedRemoteModel({
+      id: "openai/gpt-audio",
+      name: "OpenAI: GPT Audio",
+      metadata: {
+        architecture: {
+          modality: "text+audio->text+audio",
+          input_modalities: ["text", "audio"],
+          output_modalities: ["text", "audio"],
+        },
+      },
+    }),
+    normalizeFetchedRemoteModel({
+      id: "openai/gpt-4o",
+      name: "OpenAI: GPT-4o",
+      metadata: {
+        architecture: {
+          modality: "text->text",
+          input_modalities: ["text"],
+          output_modalities: ["text"],
+        },
+      },
+    }),
+  ];
+
+  expect(filterFetchedModelsForAudio(models, "stt").map((model) => model.id)).toEqual([
+    "openai/gpt-audio",
+  ]);
+  expect(filterFetchedModelsForAudio(models, "tts").map((model) => model.id)).toEqual([
+    "openai/gpt-audio",
+  ]);
+});
+
 test("filterFetchedModelsForImageGeneration keeps image-capable models only", () => {
   const models = [
     normalizeFetchedRemoteModel({
@@ -214,4 +249,27 @@ test("filterFetchedModelsForEmbeddings keeps embedding/vector models only", () =
     "openai/text-embedding-3-small",
     "local/bge-m3",
   ]);
+});
+
+test("embeddingDimensionsFromFetchedModel reads model settings dimensions", () => {
+  const model = normalizeFetchedRemoteModel({
+    id: "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+    settings: {
+      dimensions: 2048,
+    },
+  });
+
+  expect(embeddingDimensionsFromFetchedModel(model)).toBe(2048);
+});
+
+test("embeddingDimensionsFromFetchedModel reads array-style settings defaults", () => {
+  const model = normalizeFetchedRemoteModel({
+    id: "local/bge",
+    settings: [
+      { key: "temperature", default: 0 },
+      { key: "embedding_dimensions", default: "1024" },
+    ],
+  });
+
+  expect(embeddingDimensionsFromFetchedModel(model)).toBe(1024);
 });

@@ -92,6 +92,13 @@ export function normalizeOperatorProfileInputKind(inputKind: string | null | und
 }
 
 const OPERATOR_PROFILE_REQUIRED_FIELDS = ["name", "role", "primary_language"] as const;
+const OPERATOR_PROFILE_REQUIRED_CONSENTS = [
+  "enabled",
+  "allow_message_statistics",
+  "allow_approval_learning",
+  "allow_attention_tracking",
+  "allow_implicit_feedback",
+] as const;
 
 export function isOperatorProfileError(value: unknown): value is { error: string } {
   return Boolean(
@@ -172,8 +179,9 @@ export function parseOperatorProfileSummary(value: unknown): OperatorProfileSumm
       updated_at: typeof entry.updated_at === "number" ? entry.updated_at : 0,
     };
   }
-  const consents = Array.isArray(record.consents)
-    ? record.consents
+  const rawConsents = record.consents;
+  const consents = Array.isArray(rawConsents)
+    ? rawConsents
       .filter((entry) => entry && typeof entry === "object")
       .map((entry) => {
         const consent = entry as Record<string, unknown>;
@@ -184,7 +192,15 @@ export function parseOperatorProfileSummary(value: unknown): OperatorProfileSumm
         } satisfies OperatorProfileConsent;
       })
       .filter((entry) => entry.consent_key.length > 0)
-    : [];
+    : (rawConsents && typeof rawConsents === "object" && !Array.isArray(rawConsents))
+      ? Object.entries(rawConsents)
+        .filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean")
+        .map(([consent_key, granted]) => ({
+          consent_key,
+          granted,
+          updated_at: 0,
+        }))
+      : [];
   const checkins = Array.isArray(record.checkins)
     ? record.checkins
       .filter((entry) => entry && typeof entry === "object")
@@ -214,7 +230,12 @@ export function hasRequiredOperatorProfileFields(summary: OperatorProfileSummary
   if (!summary) {
     return false;
   }
-  return OPERATOR_PROFILE_REQUIRED_FIELDS.every((fieldKey) =>
+  const hasRequiredFields = OPERATOR_PROFILE_REQUIRED_FIELDS.every((fieldKey) =>
     Object.prototype.hasOwnProperty.call(summary.fields, fieldKey),
   );
+  if (hasRequiredFields) {
+    return true;
+  }
+  const consentKeys = new Set(summary.consents.map((entry) => entry.consent_key));
+  return OPERATOR_PROFILE_REQUIRED_CONSENTS.every((consentKey) => consentKeys.has(consentKey));
 }

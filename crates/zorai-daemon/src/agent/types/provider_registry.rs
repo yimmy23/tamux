@@ -80,7 +80,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         id: PROVIDER_ID_XAI,
         name: "xAI",
         default_base_url: "https://api.x.ai/v1",
-        default_model: "grok-4",
+        default_model: "grok-4.3",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: XAI_MODELS,

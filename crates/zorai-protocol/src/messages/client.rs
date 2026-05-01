@@ -235,4 +235,5 @@ pub enum ClientMessage {
     UpdateDatabaseRows { table_name: String, updates_json: String },
     QueueSemanticBackfill { #[serde(default)] limit: Option<usize> },
     GetSemanticIndexStatus { embedding_model: String, dimensions: u32 },
+    AgentSetTargetAgentReasoningEffort { target_agent_id: String, reasoning_effort: String },
 }

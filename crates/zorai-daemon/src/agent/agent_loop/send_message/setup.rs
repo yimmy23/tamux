@@ -431,23 +431,32 @@ impl<'a> SendMessageRunner<'a> {
                 }
             }
         }
+        let agent_scope_id = current_agent_scope_id();
+        let sub_agents = engine.list_sub_agents().await;
         let task_provider_override = {
             let tasks = engine.tasks.lock().await;
             task_id.and_then(|tid| {
                 tasks.iter().find(|t| t.id == tid).and_then(|t| {
-                    t.override_provider.as_ref().map(|p| {
-                        (
-                            p.clone(),
+                    if let Some(provider) = t.override_provider.as_ref() {
+                        return Some((
+                            provider.clone(),
                             t.override_model.clone(),
                             t.override_system_prompt.clone(),
                             t.sub_agent_def_id.clone(),
-                        )
-                    })
+                        ));
+                    }
+
+                    let sub_agent_def_id = t.sub_agent_def_id.as_ref()?;
+                    let def = sub_agents.iter().find(|def| def.id == *sub_agent_def_id)?;
+                    Some((
+                        def.provider.clone(),
+                        Some(def.model.clone()),
+                        t.override_system_prompt.clone(),
+                        Some(def.id.clone()),
+                    ))
                 })
             })
         };
-        let agent_scope_id = current_agent_scope_id();
-        let sub_agents = engine.list_sub_agents().await;
         let thread_execution_profile = engine
             .thread_execution_profiles
             .read()
@@ -1126,6 +1135,7 @@ mod tests {
     use crate::agent::agent_identity::{
         MAIN_AGENT_ID, MAIN_AGENT_NAME, WELES_AGENT_ID, WELES_AGENT_NAME,
     };
+    use crate::agent::types::{ApiTransport, AuthSource, ProviderConfig};
     use crate::session_manager::SessionManager;
     use tempfile::tempdir;
 
@@ -1220,6 +1230,103 @@ mod tests {
             tool_names.contains(&"handoff_thread_agent"),
             "active participant responder should still see handoff_thread_agent"
         );
+    }
+
+    #[tokio::test]
+    async fn subagent_task_without_explicit_provider_uses_registered_definition_runtime() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "svarog-provider".to_string();
+        config.base_url = "http://127.0.0.1:2/v1".to_string();
+        config.model = "svarog-model".to_string();
+        config.api_key = "test-key".to_string();
+        config.api_transport = ApiTransport::ChatCompletions;
+        config.providers.insert(
+            "weles-provider".to_string(),
+            ProviderConfig {
+                base_url: "http://127.0.0.1:1/v1".to_string(),
+                model: "weles-model".to_string(),
+                api_key: "test-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::ChatCompletions,
+                reasoning_effort: "medium".to_string(),
+                context_window_tokens: 222_000,
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+                openrouter_provider_order: Vec::new(),
+                openrouter_provider_ignore: Vec::new(),
+                openrouter_allow_fallbacks: None,
+            },
+        );
+        config.builtin_sub_agents.weles.provider = Some("weles-provider".to_string());
+        config.builtin_sub_agents.weles.model = Some("weles-model".to_string());
+        config.builtin_sub_agents.weles.reasoning_effort = Some("medium".to_string());
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let task = engine
+            .enqueue_task(
+                "Repository state".to_string(),
+                "Inspect repository state".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "event_trigger",
+                None,
+                None,
+                Some("dm:svarog:weles".to_string()),
+                Some("event_trigger".to_string()),
+            )
+            .await;
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let task = tasks
+                .iter_mut()
+                .find(|entry| entry.id == task.id)
+                .expect("enqueued task should be present");
+            task.sub_agent_def_id =
+                Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string());
+            task.override_system_prompt =
+                Some(crate::agent::agent_identity::build_weles_persona_prompt(
+                    crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
+                ));
+        }
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            Some("dm:svarog:weles"),
+            "inspect repository state",
+            &[],
+            "inspect repository state",
+            Some(&task.id),
+            None,
+            None,
+            None,
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        assert_eq!(runner.config.provider, "weles-provider");
+        assert_eq!(runner.provider_config.model, "weles-model");
+        assert_eq!(runner.provider_config.reasoning_effort, "medium");
+        assert_eq!(runner.provider_config.context_window_tokens, 222_000);
     }
 
     #[test]

@@ -449,6 +449,31 @@ fn append_message_to_thread(thread: &mut AgentThread, message: AgentMessage, pag
     }
 }
 
+fn collapse_adjacent_optimistic_user_tail(thread: &mut AgentThread) {
+    if thread.messages.len() < 2 {
+        return;
+    }
+
+    let current_index = thread.messages.len() - 1;
+    let previous_index = current_index - 1;
+    let previous = &thread.messages[previous_index];
+    let current = &thread.messages[current_index];
+    if !is_duplicate_optimistic_user_tail(previous, current) {
+        return;
+    }
+
+    let merged = match (previous.id.is_some(), current.id.is_some()) {
+        (false, true) => merge_message_pair(Some(previous), Some(current)),
+        (true, false) => merge_message_pair(Some(current), Some(previous)),
+        _ => merge_message_pair(Some(previous), Some(current)),
+    };
+    thread.messages[previous_index] = merged;
+    thread.messages.pop();
+    thread.total_message_count = thread.total_message_count.saturating_sub(1);
+    thread.loaded_message_end = thread.loaded_message_end.saturating_sub(1);
+    normalize_thread_window(thread);
+}
+
 fn is_thread_handoff_system_message(message: &AgentMessage) -> bool {
     message.role == MessageRole::System && message.content.starts_with(THREAD_HANDOFF_SYSTEM_MARKER)
 }
@@ -1551,6 +1576,7 @@ impl ChatState {
                     if !incoming.title.is_empty() {
                         existing.title = incoming.title;
                     }
+                    collapse_adjacent_optimistic_user_tail(existing);
                     normalize_thread_window(existing);
                     if responder_before != active_thread_responder_identity(existing) {
                         existing.runtime_provider = None;

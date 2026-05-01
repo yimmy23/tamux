@@ -1,6 +1,6 @@
 use zorai_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CHUTES, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
+    PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
     PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
 };
 
@@ -566,6 +566,24 @@ fn image_generation_catalog_includes_gpt_image_2_for_openai_and_openrouter() {
 }
 
 #[test]
+fn embedding_catalog_includes_openrouter_embedding_models() {
+    let openrouter_models = TuiModel::embedding_catalog_models(PROVIDER_ID_OPENROUTER);
+
+    assert!(
+        openrouter_models
+            .iter()
+            .any(|model| model.id == "openai/text-embedding-3-small"),
+        "expected OpenRouter embedding catalog to include text-embedding-3-small"
+    );
+    assert!(
+        openrouter_models
+            .iter()
+            .any(|model| model.id == "openai/text-embedding-3-large"),
+        "expected OpenRouter embedding catalog to include text-embedding-3-large"
+    );
+}
+
+#[test]
 fn minimax_audio_catalog_is_tts_only_and_uses_speech_28_defaults() {
     let minimax_tts = TuiModel::audio_catalog_models("tts", PROVIDER_ID_MINIMAX);
     assert!(
@@ -757,15 +775,15 @@ fn xai_audio_catalog_uses_provider_native_defaults_for_both_endpoints() {
         .map(|model| model.id)
         .collect::<Vec<_>>();
 
-    assert_eq!(stt_model_ids, vec!["grok-4"]);
-    assert_eq!(tts_model_ids, vec!["grok-4"]);
+    assert_eq!(stt_model_ids, vec!["grok-4.3"]);
+    assert_eq!(tts_model_ids, vec!["grok-4.3"]);
     assert_eq!(
         TuiModel::default_audio_model_for("stt", PROVIDER_ID_XAI),
-        "grok-4"
+        "grok-4.3"
     );
     assert_eq!(
         TuiModel::default_audio_model_for("tts", PROVIDER_ID_XAI),
-        "grok-4"
+        "grok-4.3"
     );
 }
 
@@ -835,6 +853,33 @@ fn activating_compaction_custom_auth_source_for_openai_forces_responses_transpor
         "chatgpt_subscription"
     );
     assert_eq!(model.config.compaction_custom_api_transport, "responses");
+}
+
+#[test]
+fn settings_enter_toggles_embedding_enabled() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({}));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    focus_settings_field(&mut model, SettingsTab::Features, "feat_embedding_enabled");
+    assert!(!model.config.semantic_embedding_enabled());
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert!(model.config.semantic_embedding_enabled());
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected embedding toggle command"),
+        DaemonCommand::SetConfigItem {
+            key_path,
+            value_json,
+        } if key_path == "/semantic/embedding/enabled" && value_json == "true"
+    ));
 }
 
 #[test]
@@ -996,6 +1041,37 @@ fn openai_chatgpt_logout_requests_daemon_flow() {
         DaemonCommand::LogoutOpenAICodex
     ));
     assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
+fn api_key_login_marks_provider_authenticated_immediately() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: PROVIDER_ID_DEEPSEEK.to_string(),
+        provider_name: "DeepSeek".to_string(),
+        authenticated: false,
+        auth_source: "api_key".to_string(),
+        model: "deepseek-v4-pro".to_string(),
+    }];
+    model.auth.action_cursor = 0;
+    model.auth.selected = 0;
+
+    model.run_auth_tab_action();
+    model.auth.login_buffer = "deepseek-key".to_string();
+    model.auth.login_cursor = model.auth.login_buffer.chars().count();
+    model.confirm_auth_login();
+
+    assert!(model.auth.entries[0].authenticated);
+    assert!(matches!(
+        daemon_rx
+            .try_recv()
+            .expect("expected provider login command"),
+        DaemonCommand::LoginProvider {
+            provider_id,
+            api_key,
+            ..
+        } if provider_id == PROVIDER_ID_DEEPSEEK && api_key == "deepseek-key"
+    ));
 }
 
 #[test]

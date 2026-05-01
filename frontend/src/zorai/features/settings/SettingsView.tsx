@@ -45,10 +45,12 @@ export function SettingsView({ activeTab, onSelectTab }: SettingsProps) {
   const agentSettings = useAgentStore((state) => state.agentSettings);
   const agentSettingsHydrated = useAgentStore((state) => state.agentSettingsHydrated);
   const refreshAgentSettingsFromDaemon = useAgentStore((state) => state.refreshAgentSettingsFromDaemon);
+  const refreshConciergeConfig = useAgentStore((state) => state.refreshConciergeConfig);
   const markAgentSettingsSynced = useAgentStore((state) => state.markAgentSettingsSynced);
   const lastDaemonConfigJsonRef = useRef<string | null>(null);
 
   useEffect(() => {
+    void refreshConciergeConfig();
     void refreshAgentSettingsFromDaemon().then((ok) => {
       if (!ok) return;
       const latestAgentSettings = useAgentStore.getState().agentSettings;
@@ -56,7 +58,7 @@ export function SettingsView({ activeTab, onSelectTab }: SettingsProps) {
         buildDaemonAgentConfig(latestAgentSettings, settings),
       );
     });
-  }, [refreshAgentSettingsFromDaemon, settings]);
+  }, [refreshAgentSettingsFromDaemon, refreshConciergeConfig, settings]);
 
   useEffect(() => {
     if (!agentSettingsHydrated) return;

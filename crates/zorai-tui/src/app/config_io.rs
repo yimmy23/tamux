@@ -10,6 +10,71 @@ use helpers::{
 };
 
 impl TuiModel {
+    pub(in crate::app) fn apply_svarog_reasoning_effort_override(&mut self, effort: &str) {
+        let reasoning_effort = effort.to_string();
+        self.config.reduce(config::ConfigAction::SetReasoningEffort(
+            reasoning_effort.clone(),
+        ));
+
+        if let Some(raw) = self.config.agent_config_raw.as_mut() {
+            raw["reasoning_effort"] = serde_json::Value::String(reasoning_effort.clone());
+            let provider_id = self.config.provider.clone();
+            if let Some(provider) = raw
+                .get_mut("providers")
+                .and_then(|providers| providers.get_mut(&provider_id))
+            {
+                provider["reasoning_effort"] = serde_json::Value::String(reasoning_effort.clone());
+            }
+            if let Some(provider) = raw.get_mut(&provider_id) {
+                provider["reasoning_effort"] = serde_json::Value::String(reasoning_effort.clone());
+            }
+        }
+
+        let thread_effort = (!effort.is_empty()).then_some(reasoning_effort);
+        if let Some(thread) = self.chat.active_thread_mut() {
+            thread.profile_reasoning_effort = thread_effort.clone();
+            thread.runtime_reasoning_effort = thread_effort;
+        }
+    }
+
+    pub(in crate::app) fn set_pending_svarog_reasoning_effort(&mut self, effort: String) {
+        self.pending_svarog_reasoning_effort = Some(effort.clone());
+        self.apply_svarog_reasoning_effort_override(&effort);
+    }
+
+    pub(in crate::app) fn reapply_pending_svarog_reasoning_effort(&mut self) {
+        let Some(effort) = self.pending_svarog_reasoning_effort.clone() else {
+            return;
+        };
+        self.apply_svarog_reasoning_effort_override(&effort);
+    }
+
+    pub(in crate::app) fn reconcile_pending_svarog_reasoning_effort_after_raw_config(&mut self) {
+        let Some(effort) = self.pending_svarog_reasoning_effort.clone() else {
+            return;
+        };
+        if self.raw_config_svarog_effort_matches(&effort) {
+            self.pending_svarog_reasoning_effort = None;
+        } else {
+            self.apply_svarog_reasoning_effort_override(&effort);
+        }
+    }
+
+    fn raw_config_svarog_effort_matches(&self, effort: &str) -> bool {
+        let Some(raw) = self.config.agent_config_raw.as_ref() else {
+            return false;
+        };
+        if raw.get("reasoning_effort").and_then(|value| value.as_str()) != Some(effort) {
+            return false;
+        }
+        let provider_id = self.config.provider.as_str();
+        raw.get("providers")
+            .and_then(|providers| providers.get(provider_id))
+            .and_then(|provider| provider.get("reasoning_effort"))
+            .and_then(|value| value.as_str())
+            .map_or(true, |value| value == effort)
+    }
+
     pub(super) fn sync_config_to_daemon(&mut self) {
         self.chat
             .set_history_page_size(self.config.tui_chat_history_page_size as usize);

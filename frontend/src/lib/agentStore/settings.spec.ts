@@ -209,7 +209,7 @@ assert(
 
 assert(
   DEFAULT_AGENT_SETTINGS.xai.base_url === "https://api.x.ai/v1"
-    && DEFAULT_AGENT_SETTINGS.xai.model === "grok-4"
+    && DEFAULT_AGENT_SETTINGS.xai.model === "grok-4.3"
     && DEFAULT_AGENT_SETTINGS.xai.api_transport === "responses",
   "Default xAI settings should use the xAI API defaults",
 );
@@ -265,15 +265,15 @@ assert(
 );
 
 test("audio provider changes normalize stale STT and TTS models for xAI", () => {
-  expect(normalizeAudioModelForProviderChange("xai", "stt", "whisper-1")).toBe("grok-4");
-  expect(normalizeAudioModelForProviderChange("xai", "tts", "gpt-4o-mini-tts")).toBe("grok-4");
-  expect(normalizeAudioModelForProviderChange("xai", "stt", "grok-4")).toBe("grok-4");
+  expect(normalizeAudioModelForProviderChange("xai", "stt", "whisper-1")).toBe("grok-4.3");
+  expect(normalizeAudioModelForProviderChange("xai", "tts", "gpt-4o-mini-tts")).toBe("grok-4.3");
+  expect(normalizeAudioModelForProviderChange("xai", "stt", "grok-4.3")).toBe("grok-4.3");
 });
 
 test("xAI settings normalize and serialize in collected Vitest coverage", () => {
   expect(DEFAULT_AGENT_SETTINGS.xai).toMatchObject({
     base_url: "https://api.x.ai/v1",
-    model: "grok-4",
+    model: "grok-4.3",
     api_transport: "responses",
   });
 

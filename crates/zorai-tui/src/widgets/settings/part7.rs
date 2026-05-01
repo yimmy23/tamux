@@ -241,6 +241,7 @@ fn render_feature_field_line<'a>(
         20 => "feat_audio_tts_provider",
         21 => "feat_audio_tts_model",
         22 => "feat_audio_tts_voice",
+        28 => "feat_embedding_dimensions",
         _ => "",
     };
     let is_editing = settings.is_editing()

@@ -8,7 +8,7 @@ import {
 test("xAI defaults use hosted settings", () => {
   expect(DEFAULT_AGENT_SETTINGS.xai).toMatchObject({
     base_url: "https://api.x.ai/v1",
-    model: "grok-4",
+    model: "grok-4.3",
     api_transport: "responses",
   });
 });
@@ -67,7 +67,7 @@ test("image generation settings prefer nested daemon config over legacy flat key
       },
     },
     image_generation_provider: "xai",
-    image_generation_model: "grok-4-image",
+    image_generation_model: "grok-imagine-image",
   } as any);
 
   expect(normalized.image_generation_provider).toBe("openai");

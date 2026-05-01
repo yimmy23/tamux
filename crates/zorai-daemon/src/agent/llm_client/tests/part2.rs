@@ -194,6 +194,8 @@ use zorai_shared::providers::{
             &messages,
             true,
             false,
+            true,
+            false,
         )
         .expect("serialize");
 
@@ -226,10 +228,247 @@ use zorai_shared::providers::{
             &messages,
             true,
             true,
+            true,
+            false,
         )
         .expect("serialize");
 
         assert_eq!(serialized[1]["reasoning_content"], " ");
+    }
+
+    #[test]
+    fn deepseek_chat_request_preserves_tool_reasoning_content() {
+        let mut config = responses_test_config(
+            "https://api.deepseek.com".to_string(),
+            AuthSource::ApiKey,
+        );
+        config.model = "deepseek-v4-pro".to_string();
+        config.reasoning_effort = "high".to_string();
+
+        let body = build_openai_chat_completions_body(
+            zorai_shared::providers::PROVIDER_ID_DEEPSEEK,
+            &config,
+            "system prompt",
+            &[ApiMessage {
+                role: "assistant".to_string(),
+                content: ApiContent::Text(String::new()),
+                reasoning: Some("Need the date before calling weather.".to_string()),
+                tool_call_id: None,
+                name: None,
+                tool_calls: Some(vec![ApiToolCall {
+                    id: "call_1".to_string(),
+                    call_type: "function".to_string(),
+                    function: ApiToolCallFunction {
+                        name: "get_date".to_string(),
+                        arguments: "{}".to_string(),
+                    },
+                }]),
+            }],
+            &[],
+        )
+        .expect("body should build");
+
+        assert_eq!(
+            body["messages"][1]["reasoning_content"],
+            "Need the date before calling weather."
+        );
+    }
+
+    #[test]
+    fn deepseek_chat_request_adds_legacy_tool_reasoning_placeholder() {
+        let mut config = responses_test_config(
+            "https://api.deepseek.com".to_string(),
+            AuthSource::ApiKey,
+        );
+        config.model = "deepseek-v4-pro".to_string();
+        config.reasoning_effort = "high".to_string();
+
+        let body = build_openai_chat_completions_body(
+            zorai_shared::providers::PROVIDER_ID_DEEPSEEK,
+            &config,
+            "system prompt",
+            &[ApiMessage {
+                role: "assistant".to_string(),
+                content: ApiContent::Text(String::new()),
+                reasoning: None,
+                tool_call_id: None,
+                name: None,
+                tool_calls: Some(vec![ApiToolCall {
+                    id: "call_1".to_string(),
+                    call_type: "function".to_string(),
+                    function: ApiToolCallFunction {
+                        name: "get_date".to_string(),
+                        arguments: "{}".to_string(),
+                    },
+                }]),
+            }],
+            &[],
+        )
+        .expect("body should build");
+
+        assert_eq!(body["messages"][1]["reasoning_content"], " ");
+    }
+
+    #[test]
+    fn deepseek_chat_request_repairs_missing_tool_reasoning_when_effort_unset() {
+        let mut config = responses_test_config(
+            "https://api.deepseek.com".to_string(),
+            AuthSource::ApiKey,
+        );
+        config.model = "deepseek-v4-pro".to_string();
+        config.reasoning_effort = String::new();
+
+        let body = build_openai_chat_completions_body(
+            zorai_shared::providers::PROVIDER_ID_DEEPSEEK,
+            &config,
+            "system prompt",
+            &[
+                ApiMessage {
+                    role: "assistant".to_string(),
+                    content: ApiContent::Text(String::new()),
+                    reasoning: None,
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: Some(vec![ApiToolCall {
+                        id: "call_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "get_date".to_string(),
+                            arguments: "{}".to_string(),
+                        },
+                    }]),
+                },
+                ApiMessage {
+                    role: "tool".to_string(),
+                    content: ApiContent::Text("2026-05-02".to_string()),
+                    reasoning: None,
+                    tool_call_id: Some("call_1".to_string()),
+                    name: Some("get_date".to_string()),
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "assistant".to_string(),
+                    content: ApiContent::Text("Done.".to_string()),
+                    reasoning: None,
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("Continue".to_string()),
+                    reasoning: None,
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+            ],
+            &[],
+        )
+        .expect("body should build");
+
+        assert_eq!(body["messages"][1]["reasoning_content"], " ");
+        assert_eq!(body["messages"][3]["reasoning_content"], " ");
+    }
+
+    #[test]
+    fn deepseek_chat_request_preserves_final_answer_reasoning_after_tool_call_turn() {
+        let mut config = responses_test_config(
+            "https://api.deepseek.com".to_string(),
+            AuthSource::ApiKey,
+        );
+        config.model = "deepseek-v4-pro".to_string();
+        config.reasoning_effort = "high".to_string();
+
+        let body = build_openai_chat_completions_body(
+            zorai_shared::providers::PROVIDER_ID_DEEPSEEK,
+            &config,
+            "system prompt",
+            &[
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("What's the weather tomorrow?".to_string()),
+                    reasoning: None,
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "assistant".to_string(),
+                    content: ApiContent::Text(String::new()),
+                    reasoning: Some("Need tomorrow's date before weather.".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: Some(vec![ApiToolCall {
+                        id: "call_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "get_date".to_string(),
+                            arguments: "{}".to_string(),
+                        },
+                    }]),
+                },
+                ApiMessage {
+                    role: "tool".to_string(),
+                    content: ApiContent::Text("2026-05-02".to_string()),
+                    reasoning: None,
+                    tool_call_id: Some("call_1".to_string()),
+                    name: Some("get_date".to_string()),
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "assistant".to_string(),
+                    content: ApiContent::Text("The weather tomorrow is cloudy.".to_string()),
+                    reasoning: Some("The weather result is ready to summarize.".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("What about another city?".to_string()),
+                    reasoning: None,
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+            ],
+            &[],
+        )
+        .expect("body should build");
+
+        assert_eq!(
+            body["messages"][4]["reasoning_content"],
+            "The weather result is ready to summarize."
+        );
+    }
+
+    #[test]
+    fn deepseek_chat_request_omits_standalone_final_answer_reasoning_content() {
+        let mut config = responses_test_config(
+            "https://api.deepseek.com".to_string(),
+            AuthSource::ApiKey,
+        );
+        config.model = "deepseek-v4-pro".to_string();
+        config.reasoning_effort = "high".to_string();
+
+        let body = build_openai_chat_completions_body(
+            zorai_shared::providers::PROVIDER_ID_DEEPSEEK,
+            &config,
+            "system prompt",
+            &[ApiMessage {
+                role: "assistant".to_string(),
+                content: ApiContent::Text("The date is 2026-05-01.".to_string()),
+                reasoning: Some("No tool was needed.".to_string()),
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
+            }],
+            &[],
+        )
+        .expect("body should build");
+
+        assert!(body["messages"][1].get("reasoning_content").is_none());
     }
 
     #[test]

@@ -53,6 +53,20 @@ test("extractModelSelectorModalities defaults to text when no modality metadata 
   expect(extractModelSelectorModalities({ fetchedModel })).toEqual(["text"]);
 });
 
+test("extractModelSelectorModalities reads daemon-nested fetched metadata", () => {
+  const fetchedModel = normalizeFetchedRemoteModel({
+    id: "openai/gpt-audio",
+    metadata: {
+      architecture: {
+        input_modalities: ["text", "audio"],
+        output_modalities: ["text", "audio"],
+      },
+    },
+  });
+
+  expect(extractModelSelectorModalities({ fetchedModel })).toEqual(["text", "audio"]);
+});
+
 test("buildModelSelectorMetadata keeps static modalities and fetched pricing together", () => {
   const predefinedModel: ModelDefinition = {
     id: "gpt-4.1",

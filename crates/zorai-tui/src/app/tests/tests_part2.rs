@@ -614,6 +614,34 @@
     }
 
     #[test]
+    fn goal_composer_enter_expands_multiline_paste_before_launching() {
+        let (_daemon_tx, daemon_rx) = mpsc::channel();
+        let (cmd_tx, mut cmd_rx) = unbounded_channel();
+        let mut model = TuiModel::new(daemon_rx, cmd_tx);
+        model.connected = true;
+        model.execute_command("new-goal");
+
+        model.handle_paste("first line\nsecond line".to_string());
+
+        assert!(model.input.buffer().contains("\x00PASTE:0\x00"));
+        let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+        assert!(!handled);
+        let mut launched_goal = None;
+        while let Ok(command) = cmd_rx.try_recv() {
+            if let DaemonCommand::StartGoalRun { goal, .. } = command {
+                launched_goal = Some(goal);
+                break;
+            }
+        }
+        assert_eq!(
+            launched_goal.as_deref(),
+            Some("first line\nsecond line"),
+            "goal launch should receive the expanded paste content"
+        );
+    }
+
+    #[test]
     fn goal_composer_escape_cancels_preflight_and_restores_previous_goal_view() {
         let mut model = build_model();
         model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {

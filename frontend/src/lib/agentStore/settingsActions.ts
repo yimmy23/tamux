@@ -46,12 +46,40 @@ function isValidConciergeConfig(value: unknown): value is AgentState["conciergeC
   return (
     typeof record.enabled === "boolean"
     || typeof record.detail_level === "string"
+    || typeof record.provider === "string"
+    || typeof record.model === "string"
     || typeof record.reasoning_effort === "string"
     || Array.isArray(record.openrouter_provider_order)
     || Array.isArray(record.openrouter_provider_ignore)
     || typeof record.openrouter_allow_fallbacks === "boolean"
     || typeof record.auto_cleanup_on_navigate === "boolean"
   );
+}
+
+function normalizeConciergeConfig(
+  value: AgentState["conciergeConfig"],
+  fallback: AgentState["conciergeConfig"],
+): AgentState["conciergeConfig"] {
+  return {
+    ...fallback,
+    enabled: typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
+    detail_level: typeof value.detail_level === "string" ? value.detail_level : fallback.detail_level,
+    provider: typeof value.provider === "string" ? value.provider : undefined,
+    model: typeof value.model === "string" ? value.model : undefined,
+    reasoning_effort: typeof value.reasoning_effort === "string" ? value.reasoning_effort : undefined,
+    openrouter_provider_order: Array.isArray(value.openrouter_provider_order)
+      ? value.openrouter_provider_order
+      : undefined,
+    openrouter_provider_ignore: Array.isArray(value.openrouter_provider_ignore)
+      ? value.openrouter_provider_ignore
+      : undefined,
+    openrouter_allow_fallbacks: typeof value.openrouter_allow_fallbacks === "boolean" || value.openrouter_allow_fallbacks === null
+      ? value.openrouter_allow_fallbacks
+      : null,
+    auto_cleanup_on_navigate: typeof value.auto_cleanup_on_navigate === "boolean"
+      ? value.auto_cleanup_on_navigate
+      : fallback.auto_cleanup_on_navigate,
+  };
 }
 
 export function createSettingsActions(
@@ -126,7 +154,9 @@ export function createConciergeActions(
       try {
         const config = await bridge.agentGetConciergeConfig();
         if (isValidConciergeConfig(config)) {
-          set({ conciergeConfig: config });
+          set((state) => ({
+            conciergeConfig: normalizeConciergeConfig(config, state.conciergeConfig),
+          }));
         }
       } catch {
         // Ignore bridge failures and keep current UI state.
@@ -142,12 +172,16 @@ export function createConciergeActions(
         if (bridge.agentGetConciergeConfig) {
           const refreshed = await bridge.agentGetConciergeConfig();
           if (isValidConciergeConfig(refreshed)) {
-            set({ conciergeConfig: refreshed });
+            set((state) => ({
+              conciergeConfig: normalizeConciergeConfig(refreshed, state.conciergeConfig),
+            }));
             return;
           }
         }
         if (isValidConciergeConfig(config)) {
-          set({ conciergeConfig: config });
+          set((state) => ({
+            conciergeConfig: normalizeConciergeConfig(config, state.conciergeConfig),
+          }));
         }
       } catch {
         // Ignore bridge failures and keep current UI state.

@@ -257,6 +257,98 @@ async fn prepare_agent_provider_model_json_updates_builtin_persona_overrides() {
 }
 
 #[tokio::test]
+async fn prepare_agent_reasoning_effort_json_updates_main_and_active_provider() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut config = engine.get_config().await;
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.reasoning_effort = "high".to_string();
+    config.providers.insert(
+        PROVIDER_ID_OPENAI.to_string(),
+        ProviderConfig {
+            base_url: "https://api.openai.com/v1".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: "openai-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 128_000,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
+        },
+    );
+    engine.set_config(config).await;
+
+    let prepared = engine
+        .prepare_agent_reasoning_effort_json(zorai_protocol::AGENT_ID_SWAROG, "medium")
+        .await
+        .expect("main reasoning effort preparation should succeed");
+
+    assert_eq!(prepared.reasoning_effort, "medium");
+    assert_eq!(
+        prepared
+            .providers
+            .get(PROVIDER_ID_OPENAI)
+            .map(|provider| provider.reasoning_effort.as_str()),
+        Some("medium")
+    );
+
+    let current = engine.get_config().await;
+    assert_eq!(current.reasoning_effort, "high");
+    assert_eq!(
+        current
+            .providers
+            .get(PROVIDER_ID_OPENAI)
+            .map(|provider| provider.reasoning_effort.as_str()),
+        Some("high")
+    );
+}
+
+#[tokio::test]
+async fn prepare_agent_reasoning_effort_json_updates_user_subagent_not_main() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut config = engine.get_config().await;
+    config.reasoning_effort = "xhigh".to_string();
+    config.sub_agents.push(test_user_sub_agent("dola", "Dola"));
+    engine.set_config(config).await;
+
+    let prepared = engine
+        .prepare_agent_reasoning_effort_json("dola", "high")
+        .await
+        .expect("user subagent effort preparation should succeed");
+
+    assert_eq!(prepared.reasoning_effort, "xhigh");
+    assert_eq!(
+        prepared
+            .sub_agents
+            .iter()
+            .find(|entry| entry.id == "dola")
+            .and_then(|entry| entry.reasoning_effort.as_deref()),
+        Some("high")
+    );
+}
+
+#[tokio::test]
 async fn prepare_agent_provider_model_json_updates_new_builtin_persona_overrides() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

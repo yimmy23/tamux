@@ -14,7 +14,12 @@ pub(super) enum WorkspaceCreateField {
 }
 
 impl WorkspaceCreateField {
-    const ALL: [Self; 4] = [Self::WorkspaceId, Self::Operator, Self::Submit, Self::Cancel];
+    const ALL: [Self; 4] = [
+        Self::WorkspaceId,
+        Self::Operator,
+        Self::Submit,
+        Self::Cancel,
+    ];
 
     fn next(self) -> Self {
         let index = Self::ALL
