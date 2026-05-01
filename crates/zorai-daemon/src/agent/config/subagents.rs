@@ -97,6 +97,17 @@ pub(super) fn apply_weles_allowed_overrides(
         } else {
             def.reasoning_effort.clone()
         },
+        openrouter_provider_order: if def.openrouter_provider_order.is_empty() {
+            Vec::new()
+        } else {
+            def.openrouter_provider_order.clone()
+        },
+        openrouter_provider_ignore: if def.openrouter_provider_ignore.is_empty() {
+            Vec::new()
+        } else {
+            def.openrouter_provider_ignore.clone()
+        },
+        openrouter_allow_fallbacks: def.openrouter_allow_fallbacks,
         max_concurrent_reviews: None,
     };
     Ok(())

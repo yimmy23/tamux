@@ -8,6 +8,7 @@ import type {
   Modality,
   ProviderDefinition,
 } from "./types.ts";
+import { normalizeOpenRouterProviderSlugs } from "../openrouterProviderRouting";
 
 export type AudioToolEndpoint = "stt" | "tts";
 
@@ -321,7 +322,6 @@ export function normalizeProviderConfig(
   const base_url = !providerUsesConfigurableBaseUrl(providerId)
     ? fallback.base_url
     : (value?.base_url ?? fallback.base_url);
-
   return {
     ...fallback,
     ...(value ?? {}),
@@ -334,6 +334,18 @@ export function normalizeProviderConfig(
     context_window_tokens:
       typeof value?.context_window_tokens === "number" && Number.isFinite(value.context_window_tokens)
         ? Math.max(1000, Math.trunc(value.context_window_tokens))
+        : null,
+    openrouter_provider_order:
+      providerId === "openrouter"
+        ? normalizeOpenRouterProviderSlugs(value?.openrouter_provider_order)
+        : undefined,
+    openrouter_provider_ignore:
+      providerId === "openrouter"
+        ? normalizeOpenRouterProviderSlugs(value?.openrouter_provider_ignore)
+        : undefined,
+    openrouter_allow_fallbacks:
+      providerId === "openrouter" && typeof value?.openrouter_allow_fallbacks === "boolean"
+        ? value.openrouter_allow_fallbacks
         : null,
   };
 }

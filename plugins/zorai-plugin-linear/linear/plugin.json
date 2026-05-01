@@ -1,8 +1,8 @@
 {
   "name": "linear",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "schema_version": 1,
-  "description": "Linear integration — fetch issues and projects through the plugin API proxy",
+  "description": "Linear integration \u2014 fetch issues and projects through the plugin API proxy",
   "author": "zorai",
   "license": "MIT",
   "zorai_version": ">=2.0.0",
@@ -40,7 +40,7 @@
         "body": {
           "query": "query { issues(first: {{default params.first \"20\"}}) { nodes { id identifier title url state { name } team { key } } } }"
         },
-        "response_template": "## Issues\n\n{{#each data.issues.nodes}}- {{identifier}} {{title}} ({{state.name}}) — {{team.key}} — {{url}}\n{{/each}}"
+        "response_template": "## Issues\n\n{{#each data.issues.nodes}}- {{identifier}} {{title}} ({{state.name}}) \u2014 {{team.key}} \u2014 {{url}}\n{{/each}}"
       },
       "list_projects": {
         "method": "POST",
@@ -52,7 +52,91 @@
         "body": {
           "query": "query { projects(first: {{default params.first \"20\"}}) { nodes { id name state url lead { name } } } }"
         },
-        "response_template": "## Projects\n\n{{#each data.projects.nodes}}- {{name}} ({{state}}) — Lead: {{lead.name}} — {{url}}\n{{/each}}"
+        "response_template": "## Projects\n\n{{#each data.projects.nodes}}- {{name}} ({{state}}) \u2014 Lead: {{lead.name}} \u2014 {{url}}\n{{/each}}"
+      },
+      "list_work_items": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "query { issues(first: {{default params.first \"20\"}}) { nodes { id identifier title url state { name } team { key } } } }"
+        },
+        "response_template": "## Work Items\n\n{{#each data.issues.nodes}}- {{identifier}} {{title}} ({{state.name}}) \u2014 {{team.key}} \u2014 {{url}}\n{{/each}}"
+      },
+      "fetch_work_item_context": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "query { issues(first: 1, filter: { identifier: { eq: \"{{params.identifier}}\" } }) { nodes { id identifier title description url priority state { name } project { name } team { key name } assignee { name } } } }"
+        },
+        "response_template": "## Work Item\n\n{{#each data.issues.nodes}}- {{identifier}} {{title}}\n  - State: {{state.name}}\n  - Priority: {{priority}}\n  - Team: {{team.name}} ({{team.key}})\n  - Project: {{project.name}}\n  - Assignee: {{assignee.name}}\n  - URL: {{url}}\n  - Description: {{truncate description 280}}\n{{/each}}"
+      },
+      "create_work_item": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "mutation { issueCreate(input: { teamId: \"{{params.team_id}}\", title: \"{{params.title}}\", description: \"{{default params.description \"\"}}\" }) { success issue { id identifier title url state { name } team { key } } } }"
+        },
+        "response_template": "Issue created: {{data.issueCreate.issue.identifier}} \u2014 {{data.issueCreate.issue.url}}"
+      },
+      "comment_on_work_item": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "mutation { commentCreate(input: { issueId: \"{{params.issue_id}}\", body: \"{{params.body}}\" }) { success comment { id body url } } }"
+        },
+        "response_template": "Comment created: {{data.commentCreate.comment.url}}"
+      },
+      "assign_work_item": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "mutation { issueUpdate(id: \"{{params.issue_id}}\", input: { assigneeId: \"{{params.assignee_id}}\" }) { success issue { id identifier title assignee { name } url } } }"
+        },
+        "response_template": "Issue updated: {{data.issueUpdate.issue.identifier}} assigned to {{data.issueUpdate.issue.assignee.name}}"
+      },
+      "update_work_item_status": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "mutation { issueUpdate(id: \"{{params.issue_id}}\", input: { stateId: \"{{params.state_id}}\" }) { success issue { id identifier title state { name } url } } }"
+        },
+        "response_template": "Issue updated: {{data.issueUpdate.issue.identifier}} is now {{data.issueUpdate.issue.state.name}}"
+      },
+      "check_health": {
+        "method": "POST",
+        "path": "/graphql",
+        "headers": {
+          "Authorization": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "query": "query { viewer { id name email } }"
+        },
+        "response_template": "Linear API reachable as {{data.viewer.name}}."
       }
     },
     "rate_limit": {
@@ -71,9 +155,55 @@
     "projects": {
       "description": "List Linear projects",
       "action": "list_projects"
+    },
+    "work": {
+      "description": "Fetch Linear issue details by identifier",
+      "action": "fetch_work_item_context"
+    },
+    "create": {
+      "description": "Create a Linear issue",
+      "action": "create_work_item"
+    },
+    "comment": {
+      "description": "Comment on a Linear issue",
+      "action": "comment_on_work_item"
+    },
+    "assign": {
+      "description": "Assign a Linear issue",
+      "action": "assign_work_item"
+    },
+    "transition": {
+      "description": "Move a Linear issue to a new state",
+      "action": "update_work_item_status"
     }
   },
   "skills": [
     "skills/linear.md"
-  ]
+  ],
+  "connector": {
+    "kind": "linear",
+    "category": "work_tracking",
+    "setup_hint": "Add a Linear API token with issue read/write access in plugin settings.",
+    "docs_path": "plugins/zorai-plugin-linear/README.md",
+    "workflow_primitives": [
+      "list_work_items",
+      "fetch_work_item_context",
+      "create_work_item",
+      "comment_on_work_item",
+      "assign_work_item",
+      "update_work_item_status"
+    ],
+    "read_actions": [
+      "get_issue",
+      "list_issues",
+      "list_projects"
+    ],
+    "write_actions": [
+      "create_work_item",
+      "comment_on_work_item",
+      "assign_work_item",
+      "update_work_item_status"
+    ],
+    "readiness_endpoint": "check_health"
+  }
 }

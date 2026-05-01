@@ -213,6 +213,9 @@ async fn spawn_subagent_rejects_other_protected_subagents_from_normal_lookup() {
             delete_allowed: false,
             protected_reason: Some("Daemon-owned internal specialist".to_string()),
             reasoning_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
             created_at: 1,
         })
         .await

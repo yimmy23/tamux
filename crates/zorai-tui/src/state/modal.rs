@@ -10,6 +10,7 @@ pub enum ModalKind {
     ThreadPicker,
     GoalPicker,
     WorkspacePicker,
+    WorkspaceCreate,
     WorkspaceCreateTask,
     WorkspaceReviewTask,
     WorkspaceEditTask,
@@ -19,6 +20,7 @@ pub enum ModalKind {
     GoalStepActionPicker,
     ProviderPicker,
     ModelPicker,
+    OpenRouterProviderPicker,
     RolePicker,
     OpenAIAuth,
     ErrorViewer,
@@ -319,6 +321,9 @@ impl ModalState {
                 self.picker_item_count = None;
                 if kind == ModalKind::ThreadPicker {
                     self.thread_picker_tab = ThreadPickerTab::Swarog;
+                } else if kind == ModalKind::RolePicker {
+                    self.picker_item_count =
+                        Some(crate::state::subagents::role_picker_item_count());
                 }
                 self.refilter();
             }
@@ -472,7 +477,7 @@ fn default_command_items() -> Vec<CommandItem> {
         },
         CommandItem {
             command: "new-workspace".into(),
-            description: "Seed workspace task creation".into(),
+            description: "Open workspace creator".into(),
         },
         CommandItem {
             command: "workspace-update".into(),

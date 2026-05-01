@@ -802,3 +802,87 @@
         );
         assert!(result.contains("No OneContext matches for \"timeout policy\""));
     }
+
+
+    #[test]
+    fn fetch_url_tool_schema_exposes_profile_id() {
+        let mut config = AgentConfig::default();
+        config.tools.web_browse = true;
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let fetch_url = tools
+            .iter()
+            .find(|tool| tool.function.name == "fetch_url")
+            .expect("fetch_url tool should be available");
+
+        let profile_schema = fetch_url
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|properties| properties.get("profile_id"))
+            .expect("fetch_url schema should expose profile_id");
+
+        assert_eq!(
+            profile_schema.get("type").and_then(|value| value.as_str()),
+            Some("string")
+        );
+    }
+
+    #[test]
+    fn setup_web_browsing_schema_does_not_expose_dead_profile_id() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let setup_web_browsing = tools
+            .iter()
+            .find(|tool| tool.function.name == "setup_web_browsing")
+            .expect("setup_web_browsing tool should be available");
+
+        let properties = setup_web_browsing
+            .function
+            .parameters
+            .get("properties")
+            .expect("setup_web_browsing schema should expose properties");
+
+        assert!(
+            properties.get("profile_id").is_none(),
+            "setup_web_browsing should not advertise unsupported profile_id"
+        );
+    }
+
+
+    #[test]
+    fn list_trigger_fire_history_tool_schema_matches_runtime_statuses() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let trigger_history = tools
+            .iter()
+            .find(|tool| tool.function.name == "list_trigger_fire_history")
+            .expect("list_trigger_fire_history tool should be available");
+
+        let status_schema = trigger_history
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|properties| properties.get("status"))
+            .expect("list_trigger_fire_history schema should expose status");
+
+        let statuses = status_schema
+            .get("enum")
+            .and_then(|value| value.as_array())
+            .expect("status schema should expose enum values")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(statuses, vec!["fired", "succeeded", "failed", "suppressed", "dead_letter"]);
+        assert!(trigger_history
+            .function
+            .description
+            .contains("dead_letter"));
+        assert!(trigger_history
+            .function
+            .description
+            .contains("suppressed"));
+    }

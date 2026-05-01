@@ -39,6 +39,13 @@ fn should_suppress_busy_wait_poll(
         && consecutive_same_tool_calls >= 1
 }
 
+fn allows_repeated_identical_tool_calls(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "get_operation_status" | "get_background_task_status"
+    )
+}
+
 impl<'a> SendMessageRunner<'a> {
     async fn persist_metacognitive_intervention_result(&mut self, tc: &ToolCall, content: String) {
         let synthetic_result = ToolResult {
@@ -497,10 +504,12 @@ impl<'a> SendMessageRunner<'a> {
         provider_final_result: Option<CompletionProviderFinalResult>,
         effective_transport_for_turn: ApiTransport,
     ) {
+        let (author_agent_id, author_agent_name) = self
+            .engine
+            .assistant_author_identity_for_thread(&self.tid)
+            .await;
         let mut threads = self.engine.threads.write().await;
         if let Some(thread) = threads.get_mut(&self.tid) {
-            let author_agent_id = current_agent_scope_id();
-            let author_agent_name = canonical_agent_name(&author_agent_id).to_string();
             self.assistant_output_visible = true;
             thread.messages.push(AgentMessage {
                 id: generate_message_id(),
@@ -724,7 +733,9 @@ impl<'a> SendMessageRunner<'a> {
             .is_some_and(|value| value == current_tool_signature.as_str());
         let result = if repeated {
             self.consecutive_same_tool_calls = self.consecutive_same_tool_calls.saturating_add(1);
-            if self.consecutive_same_tool_calls >= 3 {
+            if self.consecutive_same_tool_calls >= 3
+                && !allows_repeated_identical_tool_calls(&tc.function.name)
+            {
                 self.engine.emit_workflow_notice(
                     &self.tid,
                     "tool-stall",

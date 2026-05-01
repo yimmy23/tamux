@@ -69,6 +69,34 @@ assert(
   "Settings normalization should preserve LLM stream chunk timeout overrides",
 );
 
+const normalizedOpenRouterRouting = normalizeAgentSettingsFromSource({
+  active_provider: "openrouter",
+  providers: {
+    openrouter: {
+      base_url: "https://openrouter.ai/api/v1",
+      model: "anthropic/claude-sonnet-4.5",
+      openrouter_provider_order: ["anthropic", "openai", ""],
+      openrouter_provider_ignore: ["deepinfra", "anthropic"],
+      openrouter_allow_fallbacks: false,
+    },
+  },
+});
+
+assert(
+  JSON.stringify(normalizedOpenRouterRouting.openrouter.openrouter_provider_order) === JSON.stringify(["anthropic", "openai"]),
+  "Settings normalization should preserve preferred OpenRouter providers",
+);
+
+assert(
+  JSON.stringify(normalizedOpenRouterRouting.openrouter.openrouter_provider_ignore) === JSON.stringify(["deepinfra", "anthropic"]),
+  "Settings normalization should preserve excluded OpenRouter providers",
+);
+
+assert(
+  normalizedOpenRouterRouting.openrouter.openrouter_allow_fallbacks === false,
+  "Settings normalization should preserve strict OpenRouter fallback mode",
+);
+
 const normalizedHistoryPageSizes = normalizeAgentSettingsFromSource({
   react_chat_history_page_size: 0,
   tui_chat_history_page_size: 222,

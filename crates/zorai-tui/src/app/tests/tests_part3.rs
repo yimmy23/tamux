@@ -1414,6 +1414,9 @@ fn workspace_task_open_thread_uses_subagent_assignee_as_responder_hint() {
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
         raw_json: None,
     });
     model

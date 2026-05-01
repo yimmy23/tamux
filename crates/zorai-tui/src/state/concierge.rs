@@ -7,6 +7,9 @@ pub struct ConciergeState {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub openrouter_provider_order: String,
+    pub openrouter_provider_ignore: String,
+    pub openrouter_allow_fallbacks: bool,
     pub auto_cleanup_on_navigate: bool,
     pub loading: bool,
     pub welcome_content: Option<String>,
@@ -30,6 +33,9 @@ impl ConciergeState {
             provider: None,
             model: None,
             reasoning_effort: None,
+            openrouter_provider_order: String::new(),
+            openrouter_provider_ignore: String::new(),
+            openrouter_allow_fallbacks: true,
             auto_cleanup_on_navigate: true,
             loading: false,
             welcome_content: None,
@@ -48,6 +54,9 @@ pub enum ConciergeAction {
         provider: Option<String>,
         model: Option<String>,
         reasoning_effort: Option<String>,
+        openrouter_provider_order: String,
+        openrouter_provider_ignore: String,
+        openrouter_allow_fallbacks: bool,
         auto_cleanup_on_navigate: bool,
     },
     WelcomeLoading(bool),
@@ -83,6 +92,9 @@ impl ConciergeState {
                 provider,
                 model,
                 reasoning_effort,
+                openrouter_provider_order,
+                openrouter_provider_ignore,
+                openrouter_allow_fallbacks,
                 auto_cleanup_on_navigate,
             } => {
                 self.enabled = enabled;
@@ -90,6 +102,9 @@ impl ConciergeState {
                 self.provider = provider;
                 self.model = model;
                 self.reasoning_effort = reasoning_effort;
+                self.openrouter_provider_order = openrouter_provider_order;
+                self.openrouter_provider_ignore = openrouter_provider_ignore;
+                self.openrouter_allow_fallbacks = openrouter_allow_fallbacks;
                 self.auto_cleanup_on_navigate = auto_cleanup_on_navigate;
                 if !enabled {
                     self.loading = false;

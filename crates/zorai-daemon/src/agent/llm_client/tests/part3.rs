@@ -124,6 +124,9 @@
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
 
         let body = build_openai_responses_body(
@@ -160,6 +163,35 @@
     }
 
     #[test]
+    fn openrouter_chat_request_includes_provider_routing_preferences() {
+        let mut config = responses_test_config("https://openrouter.ai/api/v1".to_string(), AuthSource::ApiKey);
+        config.model = "anthropic/claude-sonnet-4.5".to_string();
+        config.openrouter_provider_order = vec!["anthropic".to_string(), "openai".to_string()];
+        config.openrouter_provider_ignore = vec!["deepinfra".to_string()];
+        config.openrouter_allow_fallbacks = Some(false);
+
+        let body = super::build_openai_chat_completions_body(
+            zorai_shared::providers::PROVIDER_ID_OPENROUTER,
+            &config,
+            "system prompt",
+            &[ApiMessage {
+                role: "user".to_string(),
+                content: ApiContent::Text("hello".to_string()),
+                reasoning: None,
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
+            }],
+            &[],
+        )
+        .expect("body should build");
+
+        assert_eq!(body["provider"]["order"], serde_json::json!(["anthropic", "openai"]));
+        assert_eq!(body["provider"]["ignore"], serde_json::json!(["deepinfra"]));
+        assert_eq!(body["provider"]["allow_fallbacks"], false);
+    }
+
+    #[test]
     fn github_copilot_full_responses_request_omits_orphaned_function_calls() {
         let config = ProviderConfig {
             base_url: "https://api.githubcopilot.com".to_string(),
@@ -183,6 +215,9 @@
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
 
         let body = build_openai_responses_body(
@@ -238,6 +273,70 @@
     }
 
     #[test]
+    fn github_copilot_full_responses_request_omits_orphaned_tool_outputs() {
+        let config = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 0,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
+        };
+
+        let body = build_openai_responses_body(
+            zorai_shared::providers::PROVIDER_ID_GITHUB_COPILOT,
+            &config,
+            "system prompt",
+            &[
+                ApiMessage {
+                    role: "tool".to_string(),
+                    content: ApiContent::Text("file contents".to_string()),
+                    reasoning: None,
+                    tool_call_id: Some("call_l5PZSFtWaiVSUe7OkjcI2SPL".to_string()),
+                    name: Some("read_file".to_string()),
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("continue".to_string()),
+                    reasoning: None,
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+            ],
+            &[],
+            None,
+            false,
+        );
+
+        let input = body["input"].as_array().expect("input array");
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["role"], "user");
+        assert!(input.iter().all(|item| {
+            item.get("type").and_then(|value| value.as_str()) != Some("function_call_output")
+        }));
+    }
+
+    #[test]
     fn github_copilot_full_responses_request_preserves_function_call_history() {
         let config = ProviderConfig {
             base_url: "https://api.githubcopilot.com".to_string(),
@@ -261,6 +360,9 @@
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
 
         let body = build_openai_responses_body(

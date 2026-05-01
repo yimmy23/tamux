@@ -28,26 +28,8 @@ fn render_plugins_tab<'a>(
             let is_selected = i == plugin_state.selected_index;
             let marker = if is_selected { "> " } else { "  " };
             let checkbox = if plugin.enabled { "[x]" } else { "[ ]" };
-            let auth_status = if !plugin.has_auth {
-                "N/A".to_string()
-            } else {
-                match plugin.auth_status.as_str() {
-                    "connected" => "OK".to_string(),
-                    "refreshable" => "Auto-refresh".to_string(),
-                    "needs_reconnect" => "Reconnect".to_string(),
-                    _ => "Setup".to_string(),
-                }
-            };
-            let auth_style = if !plugin.has_auth {
-                theme.fg_dim
-            } else {
-                match plugin.auth_status.as_str() {
-                    "connected" => Style::default().fg(Color::Green),
-                    "refreshable" => Style::default().fg(Color::Yellow),
-                    "needs_reconnect" => Style::default().fg(Color::Red),
-                    _ => theme.fg_dim,
-                }
-            };
+            let auth_status = connector_readiness_label(plugin);
+            let auth_style = connector_readiness_style(plugin, theme);
             let name_style = if is_selected {
                 theme.accent_primary
             } else if plugin.enabled {
@@ -76,6 +58,14 @@ fn render_plugins_tab<'a>(
                 ),
                 Span::styled(plugin.name.clone(), name_style),
                 Span::styled(format!("  v{}", plugin.version), meta_style),
+                Span::styled(
+                    plugin
+                        .connector_kind
+                        .as_ref()
+                        .map(|kind| format!("  [{}]", kind))
+                        .unwrap_or_default(),
+                    meta_style,
+                ),
                 Span::styled(format!("  {}", auth_status), auth_style),
             ]));
         }
@@ -104,6 +94,62 @@ fn render_plugins_tab<'a>(
             )));
         }
         lines.push(Line::raw(""));
+        if let Some(kind) = plugin.connector_kind.as_deref() {
+            lines.push(Line::from(Span::styled(
+                format!("  Connector: {}", kind),
+                theme.fg_active,
+            )));
+            lines.push(Line::from(Span::styled(
+                format!("  Readiness: {}", connector_readiness_label(plugin)),
+                connector_readiness_style(plugin, theme),
+            )));
+            if let Some(message) = plugin.readiness_message.as_deref() {
+                lines.push(Line::from(Span::styled(
+                    format!("  Status: {}", message),
+                    theme.fg_dim,
+                )));
+            }
+            if let Some(hint) = plugin.recovery_hint.as_deref() {
+                lines.push(Line::from(Span::styled(
+                    format!("  Recovery: {}", hint),
+                    theme.fg_dim,
+                )));
+            }
+            if let Some(hint) = plugin.setup_hint.as_deref() {
+                lines.push(Line::from(Span::styled(
+                    format!("  Setup: {}", hint),
+                    theme.fg_dim,
+                )));
+            }
+            if let Some(docs_path) = plugin.docs_path.as_deref() {
+                lines.push(Line::from(Span::styled(
+                    format!("  Docs: {}", docs_path),
+                    theme.fg_dim,
+                )));
+            }
+            if !plugin.workflow_primitives.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "  Primitives: {}",
+                        plugin.workflow_primitives.join(", ")
+                    ),
+                    theme.fg_dim,
+                )));
+            }
+            if !plugin.read_actions.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("  Read actions: {}", plugin.read_actions.join(", ")),
+                    theme.fg_dim,
+                )));
+            }
+            if !plugin.write_actions.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("  Write actions: {}", plugin.write_actions.join(", ")),
+                    theme.fg_dim,
+                )));
+            }
+            lines.push(Line::raw(""));
+        }
 
         // Settings fields
         for (i, field) in plugin_state.schema_fields.iter().enumerate() {
@@ -239,4 +285,39 @@ fn mask_api_key(key: &str) -> String {
         "{}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}{}",
         prefix, suffix
     )
+}
+
+fn connector_readiness_label(plugin: &PluginListItem) -> String {
+    match plugin.readiness_state.as_str() {
+        "ready" => "Ready".to_string(),
+        "needs_setup" => "Setup".to_string(),
+        "needs_reconnect" => "Reconnect".to_string(),
+        "degraded" => "Degraded".to_string(),
+        "misconfigured" => "Fix setup".to_string(),
+        "disabled" => "Disabled".to_string(),
+        "unavailable" => "Unavailable".to_string(),
+        _ if !plugin.has_auth => "Configured".to_string(),
+        _ => match plugin.auth_status.as_str() {
+            "connected" => "OK".to_string(),
+            "refreshable" => "Auto-refresh".to_string(),
+            "needs_reconnect" => "Reconnect".to_string(),
+            _ => "Setup".to_string(),
+        },
+    }
+}
+
+fn connector_readiness_style(plugin: &PluginListItem, theme: &ThemeTokens) -> Style {
+    match plugin.readiness_state.as_str() {
+        "ready" => Style::default().fg(Color::Green),
+        "degraded" => Style::default().fg(Color::Yellow),
+        "needs_reconnect" | "misconfigured" => Style::default().fg(Color::Red),
+        "disabled" => theme.fg_dim,
+        _ if !plugin.has_auth => theme.fg_dim,
+        _ => match plugin.auth_status.as_str() {
+            "connected" => Style::default().fg(Color::Green),
+            "refreshable" => Style::default().fg(Color::Yellow),
+            "needs_reconnect" => Style::default().fg(Color::Red),
+            _ => theme.fg_dim,
+        },
+    }
 }

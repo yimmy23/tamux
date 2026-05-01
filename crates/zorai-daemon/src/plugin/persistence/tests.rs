@@ -290,3 +290,26 @@ async fn auth_status_needs_reconnect_when_access_token_expired_without_refresh_t
     let status = persistence.get_auth_status("oauth-plugin").await.unwrap();
     assert_eq!(status, "needs_reconnect");
 }
+
+#[tokio::test]
+async fn auth_status_is_expiring_soon_when_access_token_nearly_expires_without_refresh_token() {
+    let persistence = PluginPersistence::new(make_test_history().await);
+    persistence
+        .upsert_plugin(&sample_record("oauth-plugin"))
+        .await
+        .unwrap();
+
+    let expiring_at = (chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339();
+    persistence
+        .upsert_credential(
+            "oauth-plugin",
+            "access_token",
+            b"encrypted-access",
+            Some(&expiring_at),
+        )
+        .await
+        .unwrap();
+
+    let status = persistence.get_auth_status("oauth-plugin").await.unwrap();
+    assert_eq!(status, "expiring_soon");
+}

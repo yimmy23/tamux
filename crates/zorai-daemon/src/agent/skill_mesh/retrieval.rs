@@ -111,6 +111,13 @@ pub(crate) async fn discover_local_skills_via_mesh(
             triggers: compiled.explicit_trigger_phrases.clone(),
             search_text,
             built_in: compiled.source_kind == "builtin",
+            canonical_pack: false,
+            delivery_modes: Vec::new(),
+            prerequisite_hints: Vec::new(),
+            prerequisite_connectors: Vec::new(),
+            source_links: Vec::new(),
+            mobile_safe: false,
+            approval_behavior: None,
         };
         let reason = build_reason(
             &record,

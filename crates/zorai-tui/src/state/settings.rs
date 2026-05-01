@@ -4,6 +4,7 @@
 mod cursor;
 
 use crate::state::config::ConfigState;
+use zorai_shared::providers::PROVIDER_ID_OPENROUTER;
 
 // ── SettingsTab ───────────────────────────────────────────────────────────────
 
@@ -267,6 +268,9 @@ impl SettingsState {
                 5 => "assistant_id",
                 6 => "reasoning_effort",
                 7 => "context_window_tokens",
+                8 => "openrouter_provider_order",
+                9 => "openrouter_provider_ignore",
+                10 => "openrouter_allow_fallbacks",
                 _ => "",
             },
             SettingsTab::Tools => match self.field_cursor {
@@ -430,6 +434,19 @@ impl SettingsState {
     }
 
     pub fn current_field_name_with_config<'a>(&'a self, config: &'a ConfigState) -> &'a str {
+        if self.active_tab == SettingsTab::Provider && config.provider != PROVIDER_ID_OPENROUTER {
+            return match self.field_cursor {
+                0 => "provider",
+                1 => "base_url",
+                2 => "auth_source",
+                3 => "model",
+                4 => "api_transport",
+                5 => "assistant_id",
+                6 => "reasoning_effort",
+                7 => "context_window_tokens",
+                _ => "",
+            };
+        }
         if self.active_tab == SettingsTab::Advanced {
             return Self::advanced_field_names_for_strategy(&config.compaction_strategy)
                 .get(self.field_cursor)
@@ -459,6 +476,12 @@ impl SettingsState {
     }
 
     pub fn field_count_with_config(&self, config: &ConfigState) -> usize {
+        if self.active_tab == SettingsTab::Provider && config.provider != PROVIDER_ID_OPENROUTER {
+            return 8;
+        }
+        if self.active_tab == SettingsTab::Provider && config.provider == PROVIDER_ID_OPENROUTER {
+            return 11;
+        }
         if self.active_tab == SettingsTab::Advanced {
             return Self::advanced_field_names_for_strategy(&config.compaction_strategy).len();
         }
@@ -666,6 +689,15 @@ pub struct PluginListItem {
     pub description: Option<String>,
     pub install_source: String,
     pub auth_status: String,
+    pub connector_kind: Option<String>,
+    pub readiness_state: String,
+    pub readiness_message: Option<String>,
+    pub recovery_hint: Option<String>,
+    pub setup_hint: Option<String>,
+    pub docs_path: Option<String>,
+    pub workflow_primitives: Vec<String>,
+    pub read_actions: Vec<String>,
+    pub write_actions: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

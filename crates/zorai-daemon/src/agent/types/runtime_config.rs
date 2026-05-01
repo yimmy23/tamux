@@ -319,6 +319,12 @@ pub struct ProviderConfig {
     pub anthropic_tool_choice: Option<AnthropicToolChoice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_order: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_ignore: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openrouter_allow_fallbacks: Option<bool>,
 }
 
 /// A named sub-agent definition that the orchestration engine can dispatch work to.
@@ -356,6 +362,12 @@ pub struct SubAgentDefinition {
     pub protected_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_order: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_ignore: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openrouter_allow_fallbacks: Option<bool>,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -475,6 +487,12 @@ pub struct ConciergeConfig {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_order: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_ignore: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openrouter_allow_fallbacks: Option<bool>,
     #[serde(default = "default_true")]
     pub auto_cleanup_on_navigate: bool,
 }
@@ -487,6 +505,9 @@ impl Default for ConciergeConfig {
             provider: None,
             model: None,
             reasoning_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
             auto_cleanup_on_navigate: true,
         }
     }

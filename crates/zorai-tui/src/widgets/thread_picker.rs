@@ -1278,6 +1278,9 @@ mod tests {
             delete_allowed: !builtin,
             protected_reason: builtin.then(|| "builtin".to_string()),
             reasoning_effort: Some("medium".to_string()),
+            openrouter_provider_order: String::new(),
+            openrouter_provider_ignore: String::new(),
+            openrouter_allow_fallbacks: true,
             raw_json: None,
         }
     }

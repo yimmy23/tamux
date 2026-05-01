@@ -17,6 +17,9 @@ mod rendering;
 mod settings_handlers;
 mod workspace_actor_picker;
 mod workspace_create;
+mod workspace_create_workspace_modal;
+#[cfg(test)]
+mod workspace_create_workspace_modal_tests;
 mod workspace_create_modal;
 #[cfg(test)]
 mod workspace_create_modal_tests;
@@ -142,6 +145,12 @@ enum SettingsPickerTarget {
     ConciergeReasoningEffort,
     CompactionWelesReasoningEffort,
     CompactionCustomReasoningEffort,
+    OpenRouterPreferredProviders,
+    OpenRouterExcludedProviders,
+    SubAgentOpenRouterPreferredProviders,
+    SubAgentOpenRouterExcludedProviders,
+    ConciergeOpenRouterPreferredProviders,
+    ConciergeOpenRouterExcludedProviders,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -631,6 +640,7 @@ pub struct TuiModel {
     // Thread currently awaiting full detail from the daemon.
     thread_loading_id: Option<String>,
     missing_runtime_thread_ids: std::collections::HashSet<String>,
+    empty_hydrated_runtime_thread_ids: std::collections::HashSet<String>,
     pending_reconnect_restore: Option<PendingReconnectRestore>,
     pending_goal_hydration_refreshes: std::collections::HashSet<String>,
 
@@ -694,6 +704,8 @@ pub struct TuiModel {
     workspace_board_selection: Option<widgets::workspace_board::WorkspaceBoardHitTarget>,
     workspace_board_scroll: widgets::workspace_board::WorkspaceBoardScroll,
     workspace_expanded_task_ids: std::collections::HashSet<String>,
+    pending_workspace_create_workspace_form:
+        Option<workspace_create_workspace_modal::WorkspaceCreateForm>,
     pending_workspace_create_form: Option<workspace_create_modal::WorkspaceCreateTaskForm>,
     pending_workspace_review_form: Option<workspace_review_modal::WorkspaceReviewForm>,
     pending_workspace_edit_form: Option<workspace_edit_modal::WorkspaceEditForm>,

@@ -1,0 +1,7 @@
+# Increase default stack size for the daemon binary and tests.
+# handle_connection has very large stack frames due to include!() macros
+# that inline the entire dispatch surface into one function.
+# RUST_MIN_STACK controls the minimum stack the Rust runtime allocates for threads,
+# including tokio task threads.
+[env]
+RUST_MIN_STACK = { value = "16777216", force = true }

@@ -60,6 +60,240 @@ pub(crate) struct PluginAuthHealthIssue {
     pub auto_action_attempted: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct ConnectorReadiness {
+    pub state: String,
+    pub message: Option<String>,
+    pub recovery_hint: Option<String>,
+}
+
+fn required_setting_keys(plugin: &LoadedPlugin) -> Vec<String> {
+    plugin
+        .manifest
+        .settings
+        .as_ref()
+        .map(|settings| {
+            settings
+                .iter()
+                .filter(|(_, field)| field.required && field.default.is_none())
+                .map(|(key, _)| key.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn missing_required_settings(
+    plugin: &LoadedPlugin,
+    settings: &[(String, String, bool)],
+) -> Vec<String> {
+    let present: std::collections::HashMap<&str, &str> = settings
+        .iter()
+        .map(|(key, value, _)| (key.as_str(), value.as_str()))
+        .collect();
+    required_setting_keys(plugin)
+        .into_iter()
+        .filter(|key| {
+            present
+                .get(key.as_str())
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
+        })
+        .collect()
+}
+
+fn connector_setup_hint(plugin: &LoadedPlugin) -> Option<String> {
+    plugin
+        .manifest
+        .connector
+        .as_ref()
+        .and_then(|connector| connector.setup_hint.clone())
+        .or_else(|| {
+            let required = required_setting_keys(plugin);
+            (!required.is_empty()).then(|| {
+                format!(
+                    "Open plugin settings for '{}' and fill: {}.",
+                    plugin.manifest.name,
+                    required.join(", ")
+                )
+            })
+        })
+}
+
+fn connector_docs_path(plugin: &LoadedPlugin) -> Option<String> {
+    plugin
+        .manifest
+        .connector
+        .as_ref()
+        .and_then(|connector| connector.docs_path.clone())
+}
+
+fn connector_scope_hint(manifest: &manifest::PluginManifest) -> String {
+    if let Some(auth) = manifest.auth.as_ref() {
+        if let Some(scopes) = auth.scopes.as_ref().filter(|scopes| !scopes.is_empty()) {
+            return format!(
+                "Reconnect the plugin and grant the required scopes: {}.",
+                scopes.join(", ")
+            );
+        }
+    }
+    manifest
+        .connector
+        .as_ref()
+        .and_then(|connector| connector.setup_hint.clone())
+        .unwrap_or_else(|| {
+            "Reconnect or reconfigure the connector with the documented permissions.".to_string()
+        })
+}
+
+fn connector_service_hint(manifest: &manifest::PluginManifest) -> String {
+    let mut parts = vec!["Verify the remote service is reachable and the configured credentials/base URL are correct.".to_string()];
+    if let Some(setup_hint) = manifest
+        .connector
+        .as_ref()
+        .and_then(|connector| connector.setup_hint.clone())
+    {
+        parts.push(setup_hint);
+    }
+    if let Some(docs_path) = manifest
+        .connector
+        .as_ref()
+        .and_then(|connector| connector.docs_path.clone())
+    {
+        parts.push(format!("See {docs_path}."));
+    }
+    parts.join(" ")
+}
+
+pub(super) fn connector_readiness(
+    plugin: &LoadedPlugin,
+    enabled: bool,
+    auth_status: &str,
+    settings: &[(String, String, bool)],
+) -> ConnectorReadiness {
+    if !enabled {
+        return ConnectorReadiness {
+            state: "disabled".to_string(),
+            message: Some("Connector is disabled.".to_string()),
+            recovery_hint: Some(format!(
+                "Enable plugin '{}' to use this connector.",
+                plugin.manifest.name
+            )),
+        };
+    }
+
+    let missing = missing_required_settings(plugin, settings);
+    if !missing.is_empty() {
+        let state = if settings.is_empty() {
+            "needs_setup"
+        } else {
+            "misconfigured"
+        };
+        return ConnectorReadiness {
+            state: state.to_string(),
+            message: Some(format!(
+                "Missing required settings: {}.",
+                missing.join(", ")
+            )),
+            recovery_hint: connector_setup_hint(plugin),
+        };
+    }
+
+    if plugin.manifest.auth.is_some() {
+        return match auth_status {
+            "connected" => ConnectorReadiness {
+                state: "ready".to_string(),
+                message: Some("Connector auth is healthy.".to_string()),
+                recovery_hint: connector_docs_path(plugin)
+                    .map(|docs| format!("See {docs} for connector usage examples.")),
+            },
+            "expiring_soon" => ConnectorReadiness {
+                state: "degraded".to_string(),
+                message: Some("Access token expires soon.".to_string()),
+                recovery_hint: Some(
+                    "Reconnect this connector before the token expires.".to_string(),
+                ),
+            },
+            "refreshable" => ConnectorReadiness {
+                state: "degraded".to_string(),
+                message: Some(
+                    "Access token expired; daemon will attempt auto-refresh.".to_string(),
+                ),
+                recovery_hint: Some(
+                    "If auto-refresh keeps failing, reconnect the connector.".to_string(),
+                ),
+            },
+            "needs_reconnect" => ConnectorReadiness {
+                state: "needs_reconnect".to_string(),
+                message: Some("Access token expired and requires reconnect.".to_string()),
+                recovery_hint: Some(connector_scope_hint(&plugin.manifest)),
+            },
+            _ => ConnectorReadiness {
+                state: "needs_setup".to_string(),
+                message: Some("Connector authentication is not configured.".to_string()),
+                recovery_hint: connector_setup_hint(plugin),
+            },
+        };
+    }
+
+    ConnectorReadiness {
+        state: "ready".to_string(),
+        message: Some("Connector settings are configured.".to_string()),
+        recovery_hint: connector_docs_path(plugin)
+            .map(|docs| format!("See {docs} for connector usage examples.")),
+    }
+}
+
+pub(super) fn enrich_plugin_api_error(
+    plugin_name: &str,
+    endpoint_name: &str,
+    manifest: &manifest::PluginManifest,
+    error: api_proxy::PluginApiError,
+) -> api_proxy::PluginApiError {
+    match error {
+        api_proxy::PluginApiError::HttpError { status, body } => {
+            let lowered = body.to_ascii_lowercase();
+            if status == 401 {
+                return api_proxy::PluginApiError::AuthExpired {
+                    plugin: plugin_name.to_string(),
+                };
+            }
+            if status == 403
+                && (lowered.contains("scope")
+                    || lowered.contains("insufficient")
+                    || lowered.contains("permission")
+                    || lowered.contains("forbidden"))
+            {
+                return api_proxy::PluginApiError::HttpError {
+                    status,
+                    body: format!(
+                        "{body}\nRecovery: {} (endpoint: {}).",
+                        connector_scope_hint(manifest),
+                        endpoint_name
+                    ),
+                };
+            }
+            if status == 0
+                || lowered.contains("failed to connect")
+                || lowered.contains("dns")
+                || lowered.contains("timed out")
+                || lowered.contains("connection refused")
+                || lowered.contains("name or service not known")
+            {
+                return api_proxy::PluginApiError::HttpError {
+                    status,
+                    body: format!(
+                        "{body}\nRecovery: {} (plugin: {}).",
+                        connector_service_hint(manifest),
+                        plugin_name
+                    ),
+                };
+            }
+            api_proxy::PluginApiError::HttpError { status, body }
+        }
+        other => other,
+    }
+}
+
 impl PluginManager {
     pub(super) async fn check_plugin_enabled(
         &self,
@@ -568,6 +802,7 @@ pub(super) fn to_plugin_info_from_record(
     record: &PluginRecord,
     loaded: Option<&LoadedPlugin>,
     auth_status: String,
+    settings: &[(String, String, bool)],
 ) -> zorai_protocol::PluginInfo {
     if let Some(plugin) = loaded {
         to_plugin_info(
@@ -577,6 +812,7 @@ pub(super) fn to_plugin_info_from_record(
             &record.installed_at,
             &record.updated_at,
             auth_status,
+            settings,
         )
     } else {
         zorai_protocol::PluginInfo {
@@ -595,6 +831,25 @@ pub(super) fn to_plugin_info_from_record(
             installed_at: record.installed_at.clone(),
             updated_at: record.updated_at.clone(),
             auth_status,
+            connector_kind: None,
+            connector_category: None,
+            readiness_state: if record.enabled {
+                "unavailable".to_string()
+            } else {
+                "disabled".to_string()
+            },
+            readiness_message: Some(
+                "Plugin is registered but not currently loaded from disk.".to_string(),
+            ),
+            recovery_hint: Some(
+                "Reinstall or reload the plugin so connector metadata becomes available."
+                    .to_string(),
+            ),
+            setup_hint: None,
+            docs_path: None,
+            workflow_primitives: Vec::new(),
+            read_actions: Vec::new(),
+            write_actions: Vec::new(),
         }
     }
 }
@@ -606,7 +861,11 @@ fn to_plugin_info(
     installed_at: &str,
     updated_at: &str,
     auth_status: String,
+    settings: &[(String, String, bool)],
 ) -> zorai_protocol::PluginInfo {
+    let readiness = connector_readiness(plugin, enabled, &auth_status, settings);
+    let connector = plugin.manifest.connector.as_ref();
+
     zorai_protocol::PluginInfo {
         name: plugin.manifest.name.clone(),
         version: plugin.manifest.version.clone(),
@@ -633,6 +892,22 @@ fn to_plugin_info(
         installed_at: installed_at.to_string(),
         updated_at: updated_at.to_string(),
         auth_status,
+        connector_kind: connector.map(|value| value.kind.clone()),
+        connector_category: connector.and_then(|value| value.category.clone()),
+        readiness_state: readiness.state,
+        readiness_message: readiness.message,
+        recovery_hint: readiness.recovery_hint,
+        setup_hint: connector.and_then(|value| value.setup_hint.clone()),
+        docs_path: connector.and_then(|value| value.docs_path.clone()),
+        workflow_primitives: connector
+            .map(|value| value.workflow_primitives.clone())
+            .unwrap_or_default(),
+        read_actions: connector
+            .map(|value| value.read_actions.clone())
+            .unwrap_or_default(),
+        write_actions: connector
+            .map(|value| value.write_actions.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -641,3 +916,11 @@ pub(super) fn extract_settings_schema(manifest_json: &str) -> Option<String> {
     let settings = value.get("settings")?;
     Some(serde_json::to_string(settings).ok()?)
 }
+
+#[cfg(test)]
+#[path = "connector_readiness_tests.rs"]
+mod connector_readiness_tests;
+
+#[cfg(test)]
+#[path = "manager_extras_tests.rs"]
+mod manager_extras_tests;

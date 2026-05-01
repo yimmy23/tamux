@@ -1,8 +1,8 @@
 {
   "name": "jira",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "schema_version": 1,
-  "description": "Jira integration — fetch issues and projects through the plugin API proxy",
+  "description": "Jira integration \u2014 fetch issues and projects through the plugin API proxy",
   "author": "zorai",
   "license": "MIT",
   "zorai_version": ">=2.0.0",
@@ -51,6 +51,109 @@
           "Accept": "application/json"
         },
         "response_template": "## Projects\n\n{{#each values}}- {{key}} {{name}}\n{{/each}}"
+      },
+      "list_work_items": {
+        "method": "GET",
+        "path": "https://{{settings.site}}/rest/api/3/search?jql={{urlencode (default params.jql \"order by created DESC\")}}&maxResults={{default params.max_results \"20\"}}",
+        "headers": {
+          "Authorization": "{{settings.auth_header}}",
+          "Accept": "application/json"
+        },
+        "response_template": "## Work Items\n\n{{#each issues}}- {{key}} {{fields.summary}} ({{fields.status.name}})\n{{/each}}"
+      },
+      "fetch_work_item_context": {
+        "method": "GET",
+        "path": "https://{{settings.site}}/rest/api/3/issue/{{params.issue_key}}",
+        "headers": {
+          "Authorization": "{{settings.auth_header}}",
+          "Accept": "application/json"
+        },
+        "response_template": "## {{key}} {{fields.summary}}\n\n- Project: {{fields.project.name}} ({{fields.project.key}})\n- Status: {{fields.status.name}}\n- Type: {{fields.issuetype.name}}\n- Assignee: {{fields.assignee.displayName}}"
+      },
+      "create_work_item": {
+        "method": "POST",
+        "path": "https://{{settings.site}}/rest/api/3/issue",
+        "headers": {
+          "Authorization": "{{settings.auth_header}}",
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "fields": {
+            "project": {
+              "key": "{{params.project_key}}"
+            },
+            "summary": "{{params.summary}}",
+            "issuetype": {
+              "id": "{{params.issue_type_id}}"
+            }
+          }
+        },
+        "response_template": "Issue created: {{key}}"
+      },
+      "comment_on_work_item": {
+        "method": "POST",
+        "path": "https://{{settings.site}}/rest/api/3/issue/{{params.issue_key}}/comment",
+        "headers": {
+          "Authorization": "{{settings.auth_header}}",
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "{{params.body}}"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "response_template": "Comment created for {{self}}"
+      },
+      "assign_work_item": {
+        "method": "PUT",
+        "path": "https://{{settings.site}}/rest/api/3/issue/{{params.issue_key}}/assignee",
+        "headers": {
+          "Authorization": "{{settings.auth_header}}",
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "accountId": "{{params.account_id}}"
+        },
+        "response_template": "Issue assignee updated."
+      },
+      "update_work_item_status": {
+        "method": "POST",
+        "path": "https://{{settings.site}}/rest/api/3/issue/{{params.issue_key}}/transitions",
+        "headers": {
+          "Authorization": "{{settings.auth_header}}",
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "transition": {
+            "id": "{{params.transition_id}}"
+          }
+        },
+        "response_template": "Issue transition requested."
+      },
+      "check_health": {
+        "method": "GET",
+        "path": "https://{{settings.site}}/rest/api/3/myself",
+        "headers": {
+          "Authorization": "{{settings.auth_header}}",
+          "Accept": "application/json"
+        },
+        "response_template": "Jira API reachable as {{displayName}} ({{emailAddress}})."
       }
     },
     "rate_limit": {
@@ -69,9 +172,55 @@
     "projects": {
       "description": "List Jira projects",
       "action": "list_projects"
+    },
+    "work": {
+      "description": "Fetch Jira issue details by key",
+      "action": "fetch_work_item_context"
+    },
+    "create": {
+      "description": "Create a Jira issue",
+      "action": "create_work_item"
+    },
+    "comment": {
+      "description": "Comment on a Jira issue",
+      "action": "comment_on_work_item"
+    },
+    "assign": {
+      "description": "Assign a Jira issue",
+      "action": "assign_work_item"
+    },
+    "transition": {
+      "description": "Move a Jira issue through a transition",
+      "action": "update_work_item_status"
     }
   },
   "skills": [
     "skills/jira.md"
-  ]
+  ],
+  "connector": {
+    "kind": "jira",
+    "category": "work_tracking",
+    "setup_hint": "Configure Jira site host and authorization header with issue read/write permissions.",
+    "docs_path": "plugins/zorai-plugin-jira/README.md",
+    "workflow_primitives": [
+      "list_work_items",
+      "fetch_work_item_context",
+      "create_work_item",
+      "comment_on_work_item",
+      "assign_work_item",
+      "update_work_item_status"
+    ],
+    "read_actions": [
+      "get_issue",
+      "list_issues",
+      "list_projects"
+    ],
+    "write_actions": [
+      "create_work_item",
+      "comment_on_work_item",
+      "assign_work_item",
+      "update_work_item_status"
+    ],
+    "readiness_endpoint": "check_health"
+  }
 }

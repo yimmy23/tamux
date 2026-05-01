@@ -86,6 +86,7 @@ impl TuiModel {
             pending_builtin_persona_setup: None,
             thread_loading_id: None,
             missing_runtime_thread_ids: std::collections::HashSet::new(),
+            empty_hydrated_runtime_thread_ids: std::collections::HashSet::new(),
             pending_reconnect_restore: None,
             pending_goal_hydration_refreshes: std::collections::HashSet::new(),
             ignore_pending_concierge_welcome: false,
@@ -134,6 +135,7 @@ impl TuiModel {
             workspace_board_selection: None,
             workspace_board_scroll: widgets::workspace_board::WorkspaceBoardScroll::default(),
             workspace_expanded_task_ids: std::collections::HashSet::new(),
+            pending_workspace_create_workspace_form: None,
             pending_workspace_create_form: None,
             pending_workspace_review_form: None,
             pending_workspace_edit_form: None,
@@ -1381,6 +1383,9 @@ impl TuiModel {
         }
         if self.modal.top() == Some(modal::ModalKind::WorkspaceActorPicker) {
             self.pending_workspace_actor_picker = None;
+        }
+        if self.modal.top() == Some(modal::ModalKind::WorkspaceCreate) {
+            self.pending_workspace_create_workspace_form = None;
         }
         if self.modal.top() == Some(modal::ModalKind::WorkspaceCreateTask) {
             self.pending_workspace_create_form = None;

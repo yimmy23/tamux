@@ -962,6 +962,18 @@ fn daemon_message_roundtrips_plugin_list_with_missing_optional_metadata() {
             installed_at: "2026-04-20T00:00:00Z".to_string(),
             updated_at: "2026-04-20T00:00:00Z".to_string(),
             auth_status: "disconnected".to_string(),
+            connector_kind: Some("calendar".to_string()),
+            connector_category: Some("calendar".to_string()),
+            readiness_state: "ready".to_string(),
+            readiness_message: Some("Connector auth is healthy.".to_string()),
+            recovery_hint: None,
+            setup_hint: Some(
+                "Configure Google OAuth client credentials and connect the plugin.".to_string(),
+            ),
+            docs_path: Some("plugins/zorai-plugin-gmail-calendar/README.md".to_string()),
+            workflow_primitives: vec!["list_schedule_items".to_string()],
+            read_actions: vec!["list_events".to_string()],
+            write_actions: vec!["create_event".to_string()],
         }],
     };
 
@@ -974,6 +986,8 @@ fn daemon_message_roundtrips_plugin_list_with_missing_optional_metadata() {
             assert_eq!(plugins[0].description, None);
             assert_eq!(plugins[0].author, None);
             assert_eq!(plugins[0].auth_status, "disconnected");
+            assert_eq!(plugins[0].connector_kind.as_deref(), Some("calendar"));
+            assert_eq!(plugins[0].readiness_state, "ready");
         }
         other => panic!("expected plugin list result, got {other:?}"),
     }
@@ -1407,6 +1421,13 @@ fn sample_skill_discovery_candidate() -> SkillDiscoveryCandidatePublic {
         use_count: 12,
         success_count: 10,
         failure_count: 2,
+        canonical_pack: false,
+        delivery_modes: Vec::new(),
+        prerequisite_hints: Vec::new(),
+        prerequisite_connectors: Vec::new(),
+        source_links: Vec::new(),
+        mobile_safe: false,
+        approval_behavior: None,
     }
 }
 
@@ -1498,6 +1519,13 @@ fn minimal_skill_discovery_result_deserializes_with_defaults() {
     assert_eq!(candidate.use_count, 0);
     assert_eq!(candidate.success_count, 0);
     assert_eq!(candidate.failure_count, 0);
+    assert!(!candidate.canonical_pack);
+    assert!(candidate.delivery_modes.is_empty());
+    assert!(candidate.prerequisite_hints.is_empty());
+    assert!(candidate.prerequisite_connectors.is_empty());
+    assert!(candidate.source_links.is_empty());
+    assert!(!candidate.mobile_safe);
+    assert_eq!(candidate.approval_behavior, None);
 }
 
 #[test]

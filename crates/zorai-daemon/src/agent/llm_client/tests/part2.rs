@@ -320,6 +320,9 @@ use zorai_shared::providers::{
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
         let request = apply_openai_auth_headers(
             client.get("https://models.github.ai/inference/chat/completions"),
@@ -392,6 +395,9 @@ use zorai_shared::providers::{
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
         let request = apply_openai_auth_headers(
             client.get("https://api.githubcopilot.com/chat/completions"),
@@ -472,6 +478,9 @@ use zorai_shared::providers::{
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
         let request = apply_openai_auth_headers(
             client.get("https://api.githubcopilot.com/chat/completions"),
@@ -516,6 +525,9 @@ use zorai_shared::providers::{
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
 
         let request = apply_openai_auth_headers(
@@ -574,6 +586,9 @@ use zorai_shared::providers::{
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
 
         let body = build_openai_responses_body(
@@ -621,6 +636,9 @@ use zorai_shared::providers::{
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
 
         let body = build_openai_responses_body(
@@ -686,6 +704,9 @@ use zorai_shared::providers::{
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
 
         let request = build_openai_responses_request(
@@ -796,6 +817,9 @@ use zorai_shared::providers::{
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         };
 
         let request = build_anthropic_request(

@@ -398,6 +398,12 @@ pub struct WelesBuiltinOverrides {
     pub supervisor_config: Option<SupervisorConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_order: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_ignore: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openrouter_allow_fallbacks: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_concurrent_reviews: Option<u32>,
 }
@@ -410,6 +416,12 @@ pub struct BuiltinPersonaOverrides {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_order: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub openrouter_provider_ignore: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub openrouter_allow_fallbacks: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

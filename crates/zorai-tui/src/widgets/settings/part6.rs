@@ -174,6 +174,46 @@ fn render_subagents_tab<'a>(
                 model_value
             },
         ));
+        if editor.provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+            let preferred = if editor.openrouter_provider_order.trim().is_empty() {
+                "(none)".to_string()
+            } else {
+                editor.openrouter_provider_order.clone()
+            };
+            let excluded = if editor.openrouter_provider_ignore.trim().is_empty() {
+                "(none)".to_string()
+            } else {
+                editor.openrouter_provider_ignore.clone()
+            };
+            lines.push(field_line(
+                matches!(
+                    editor.field,
+                    crate::state::subagents::SubAgentEditorField::OpenRouterProviderOrder
+                ),
+                "OR Prefer",
+                preferred,
+            ));
+            lines.push(field_line(
+                matches!(
+                    editor.field,
+                    crate::state::subagents::SubAgentEditorField::OpenRouterProviderIgnore
+                ),
+                "OR Exclude",
+                excluded,
+            ));
+            lines.push(field_line(
+                matches!(
+                    editor.field,
+                    crate::state::subagents::SubAgentEditorField::OpenRouterAllowFallbacks
+                ),
+                "OR Fallbacks",
+                if editor.openrouter_allow_fallbacks {
+                    "allowed".to_string()
+                } else {
+                    "strict".to_string()
+                },
+            ));
+        }
         lines.push(field_line(
             matches!(
                 editor.field,

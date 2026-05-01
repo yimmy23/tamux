@@ -351,6 +351,7 @@ mod tests {
                 commands: Some(cmd_map),
                 skills: None,
                 auth: None,
+                connector: None,
                 python: None,
                 extra: HashMap::new(),
             },
@@ -469,6 +470,7 @@ mod tests {
                     commands: Some(commands),
                     skills: None,
                     auth: None,
+                    connector: None,
                     python: Some(PythonDefaults {
                         run_path: Some("workspace".to_string()),
                         source: Some("https://example.com/tool.py".to_string()),
@@ -538,6 +540,7 @@ mod tests {
                     commands: Some(commands),
                     skills: None,
                     auth: None,
+                    connector: None,
                     python: None,
                     extra: HashMap::new(),
                 },

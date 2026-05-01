@@ -154,6 +154,20 @@ pub struct SkillDiscoveryCandidatePublic {
     pub success_count: u32,
     #[serde(default)]
     pub failure_count: u32,
+    #[serde(default)]
+    pub canonical_pack: bool,
+    #[serde(default)]
+    pub delivery_modes: Vec<String>,
+    #[serde(default)]
+    pub prerequisite_hints: Vec<String>,
+    #[serde(default)]
+    pub prerequisite_connectors: Vec<String>,
+    #[serde(default)]
+    pub source_links: Vec<String>,
+    #[serde(default)]
+    pub mobile_safe: bool,
+    #[serde(default)]
+    pub approval_behavior: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -255,6 +269,26 @@ pub struct PluginInfo {
     pub updated_at: String,
     #[serde(default)]
     pub auth_status: String,
+    #[serde(default)]
+    pub connector_kind: Option<String>,
+    #[serde(default)]
+    pub connector_category: Option<String>,
+    #[serde(default)]
+    pub readiness_state: String,
+    #[serde(default)]
+    pub readiness_message: Option<String>,
+    #[serde(default)]
+    pub recovery_hint: Option<String>,
+    #[serde(default)]
+    pub setup_hint: Option<String>,
+    #[serde(default)]
+    pub docs_path: Option<String>,
+    #[serde(default)]
+    pub workflow_primitives: Vec<String>,
+    #[serde(default)]
+    pub read_actions: Vec<String>,
+    #[serde(default)]
+    pub write_actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -68,6 +68,30 @@ pub fn available_embedding_provider_defs(auth: &AuthState) -> Vec<&'static Provi
         .collect()
 }
 
+pub fn filtered_provider_defs(
+    providers: Vec<&'static ProviderDef>,
+    query: &str,
+) -> Vec<&'static ProviderDef> {
+    let query = query.trim().to_ascii_lowercase();
+    if query.is_empty() {
+        return providers;
+    }
+    let terms = query.split_whitespace().collect::<Vec<_>>();
+    providers
+        .into_iter()
+        .filter(|provider| provider_matches_query(provider, &terms))
+        .collect()
+}
+
+fn provider_matches_query(provider: &ProviderDef, terms: &[&str]) -> bool {
+    let searchable = format!(
+        "{} {} {}",
+        provider.name, provider.id, provider.default_model
+    )
+    .to_ascii_lowercase();
+    terms.iter().all(|term| searchable.contains(term))
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -106,13 +130,15 @@ pub fn render(
             .map(|kind| available_audio_provider_defs(auth, kind))
             .unwrap_or_else(|| available_provider_defs(auth))
     };
+    let providers = filtered_provider_defs(providers, modal.command_query());
 
     if providers.is_empty() {
-        frame.render_widget(
-            Paragraph::new("No authenticated providers. Configure one in Auth.")
-                .style(theme.fg_dim),
-            chunks[0],
-        );
+        let message = if modal.command_query().trim().is_empty() {
+            "No authenticated providers. Configure one in Auth.".to_string()
+        } else {
+            format!("No providers match '{}'.", modal.command_query().trim())
+        };
+        frame.render_widget(Paragraph::new(message).style(theme.fg_dim), chunks[0]);
 
         let hints = Line::from(vec![
             Span::raw(" "),
@@ -174,10 +200,42 @@ pub fn render(
 mod tests {
     use super::*;
     use crate::state::auth::{AuthState, ProviderAuthEntry};
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
     use zorai_shared::providers::{
         AudioToolKind, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_GROQ,
         PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
     };
+
+    fn rendered_picker_text(modal: &ModalState, config: &ConfigState, auth: &AuthState) -> String {
+        let theme = ThemeTokens::default();
+        let backend = TestBackend::new(72, 10);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+        terminal
+            .draw(|frame| {
+                render(
+                    frame,
+                    Rect::new(0, 0, 72, 10),
+                    modal,
+                    config,
+                    auth,
+                    None,
+                    false,
+                    &theme,
+                );
+            })
+            .expect("render should succeed");
+
+        let buffer = terminal.backend().buffer();
+        (0..10)
+            .map(|y| {
+                (0..72)
+                    .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 
     #[test]
     fn available_provider_defs_filters_to_authenticated_entries_plus_custom() {
@@ -259,6 +317,38 @@ mod tests {
     }
 
     #[test]
+    fn provider_picker_filters_visible_rows_by_query() {
+        let mut auth = AuthState::new();
+        auth.entries = vec![
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_OPENAI.to_string(),
+                provider_name: "OpenAI".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "gpt-5.4".to_string(),
+            },
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_GROQ.to_string(),
+                provider_name: "Groq".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "llama".to_string(),
+            },
+        ];
+        let config = ConfigState::new();
+        let mut modal = ModalState::new();
+        modal.reduce(crate::state::modal::ModalAction::Push(
+            crate::state::modal::ModalKind::ProviderPicker,
+        ));
+        modal.reduce(crate::state::modal::ModalAction::SetQuery("groq".into()));
+
+        let screen = rendered_picker_text(&modal, &config, &auth);
+
+        assert!(screen.contains("Groq"));
+        assert!(!screen.contains("OpenAI"));
+    }
+
+    #[test]
     fn audio_provider_defs_filter_to_supported_authenticated_entries() {
         let mut auth = AuthState::new();
         auth.entries = vec![
@@ -324,5 +414,18 @@ mod tests {
         assert!(!defs
             .iter()
             .any(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI));
+    }
+
+    #[test]
+    fn provider_filter_matches_name_id_and_default_model() {
+        let providers = PROVIDERS.iter().collect::<Vec<_>>();
+
+        assert!(filtered_provider_defs(providers.clone(), "openai")
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_OPENAI));
+        assert!(filtered_provider_defs(providers.clone(), "gpt")
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_OPENAI));
+        assert!(filtered_provider_defs(providers, "no-such-provider").is_empty());
     }
 }

@@ -146,6 +146,69 @@ fn sample_task_with_scope(
 }
 
 #[tokio::test]
+async fn update_memory_from_custom_agent_scope_writes_only_custom_memory() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let agent_data_dir = root.path().join("agent");
+    let main_paths = write_scope_memory_files(
+        &agent_data_dir,
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        "# Soul\n\n- Main soul fact\n",
+        "# Memory\n\n- Main scope fact\n",
+        "# User\n\n- Shared user fact\n",
+    );
+    let custom_paths = write_scope_memory_files(
+        &agent_data_dir,
+        "dola",
+        "# Soul\n\n- Dola soul fact\n",
+        "# Memory\n\n- Dola scope fact\n",
+        "# User\n\n- Shared user fact\n",
+    );
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-update-custom-memory".to_string(),
+        ToolFunction {
+            name: "update_memory".to_string(),
+            arguments: serde_json::json!({
+                "target": "memory",
+                "mode": "append",
+                "content": "- Dola private update"
+            })
+            .to_string(),
+        },
+    );
+
+    let result = crate::agent::agent_identity::run_with_agent_scope("dola".to_string(), async {
+        execute_tool(
+            &tool_call,
+            &engine,
+            "thread-update-custom-memory",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            &agent_data_dir,
+            &engine.http_client,
+            None,
+        )
+        .await
+    })
+    .await;
+
+    assert!(
+        !result.is_error,
+        "custom scope update_memory should succeed: {}",
+        result.content
+    );
+    let custom_memory =
+        std::fs::read_to_string(custom_paths.memory_path).expect("read custom memory");
+    let main_memory = std::fs::read_to_string(main_paths.memory_path).expect("read main memory");
+    assert!(custom_memory.contains("- Dola private update"));
+    assert!(!main_memory.contains("- Dola private update"));
+}
+
+#[tokio::test]
 async fn list_threads_tool_returns_filtered_visible_summaries() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

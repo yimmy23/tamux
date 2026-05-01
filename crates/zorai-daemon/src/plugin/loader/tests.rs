@@ -622,3 +622,128 @@ fn github_manifest_validates_through_plugin_loader() {
         .expect("github should expose pulls command");
     assert_eq!(pulls.action.as_deref(), Some("list_pull_requests"));
 }
+
+#[test]
+fn core_connector_manifests_expose_readiness_probes_and_normalized_primitives() {
+    let validator = make_validator();
+    let cases: &[(&str, &str, &[&str], &[&str])] = &[
+        (
+            "plugins/zorai-plugin-github/github/plugin.json",
+            "github",
+            &[
+                "check_health",
+                "list_work_items",
+                "fetch_work_item_context",
+                "comment_on_work_item",
+            ],
+            &["comment", "merge"],
+        ),
+        (
+            "plugins/zorai-plugin-gitlab/gitlab/plugin.json",
+            "gitlab",
+            &[
+                "check_health",
+                "list_work_items",
+                "fetch_work_item_context",
+                "comment_on_work_item",
+            ],
+            &["comment", "merge"],
+        ),
+        (
+            "plugins/zorai-plugin-linear/linear/plugin.json",
+            "linear",
+            &[
+                "check_health",
+                "list_work_items",
+                "fetch_work_item_context",
+                "create_work_item",
+            ],
+            &["create", "transition"],
+        ),
+        (
+            "plugins/zorai-plugin-jira/jira/plugin.json",
+            "jira",
+            &[
+                "check_health",
+                "list_work_items",
+                "fetch_work_item_context",
+                "create_work_item",
+            ],
+            &["create", "transition"],
+        ),
+        (
+            "plugins/zorai-plugin-gmail-calendar/gmail/plugin.json",
+            "gmail",
+            &[
+                "check_health",
+                "list_threads",
+                "fetch_thread_context",
+                "draft_message",
+                "reply_in_thread",
+            ],
+            &["draft", "reply"],
+        ),
+        (
+            "plugins/zorai-plugin-gmail-calendar/calendar/plugin.json",
+            "calendar",
+            &[
+                "check_health",
+                "list_schedule_items",
+                "fetch_schedule_context",
+                "schedule_follow_up",
+                "meeting_prep",
+            ],
+            &["update", "rsvp", "prep"],
+        ),
+    ];
+
+    for &(relative_path, expected_kind, expected_endpoints, expected_commands) in cases {
+        let path = repo_plugin_manifest_path(relative_path);
+        let raw = std::fs::read(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        let (manifest, _) = validate_manifest(&raw, &validator)
+            .unwrap_or_else(|error| panic!("{} should validate: {error}", path.display()));
+
+        let connector = manifest
+            .connector
+            .as_ref()
+            .unwrap_or_else(|| panic!("{} should declare connector metadata", path.display()));
+        assert_eq!(connector.kind, expected_kind);
+        assert!(
+            connector.readiness_endpoint.is_some(),
+            "{} should declare readiness_endpoint",
+            path.display()
+        );
+        assert!(
+            !connector.workflow_primitives.is_empty(),
+            "{} should declare workflow primitives",
+            path.display()
+        );
+
+        let api = manifest
+            .api
+            .as_ref()
+            .expect("connector should have api section");
+        for endpoint in expected_endpoints {
+            assert!(
+                api.endpoints.contains_key(*endpoint),
+                "{} should expose endpoint {}",
+                path.display(),
+                endpoint
+            );
+        }
+
+        let commands = manifest
+            .commands
+            .as_ref()
+            .expect("connector should have commands");
+        for command in expected_commands {
+            assert!(
+                commands.contains_key(*command),
+                "{} should expose command {}",
+                path.display(),
+                command
+            );
+        }
+    }
+}

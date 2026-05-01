@@ -588,6 +588,8 @@ pub(super) fn apply_schema_migrations(
             risk_label TEXT NOT NULL DEFAULT 'low',
             notification_kind TEXT NOT NULL,
             prompt_template TEXT,
+            tool_name TEXT,
+            tool_payload_json TEXT,
             title_template TEXT NOT NULL,
             body_template TEXT NOT NULL,
             created_at INTEGER NOT NULL,
@@ -598,6 +600,14 @@ pub(super) fn apply_schema_migrations(
     )?;
     ensure_column(connection, "event_triggers", "agent_id", "TEXT")?;
     ensure_column(connection, "event_triggers", "prompt_template", "TEXT")?;
+    ensure_column(connection, "event_triggers", "tool_name", "TEXT")?;
+    ensure_column(connection, "event_triggers", "tool_payload_json", "TEXT")?;
+    ensure_column(
+        connection,
+        "event_triggers",
+        "max_retries",
+        "INTEGER NOT NULL DEFAULT 3",
+    )?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS routine_definitions (
             id TEXT PRIMARY KEY,
@@ -966,5 +976,51 @@ pub(super) fn apply_schema_migrations(
     // Handoff broker schema (Phase v3.0: HAND-09).
     crate::agent::handoff::schema::init_handoff_schema(connection)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
+    // Browser profile extended schema (Slice 6: health state, auth tracking, scoping).
+    ensure_column(connection, "browser_profiles", "browser_kind", "TEXT")?;
+    ensure_column(connection, "browser_profiles", "workspace_id", "TEXT")?;
+    ensure_column(
+        connection,
+        "browser_profiles",
+        "health_state",
+        "TEXT NOT NULL DEFAULT 'healthy'",
+    )?;
+    ensure_column(
+        connection,
+        "browser_profiles",
+        "last_auth_success_at",
+        "INTEGER",
+    )?;
+    ensure_column(
+        connection,
+        "browser_profiles",
+        "last_auth_failure_at",
+        "INTEGER",
+    )?;
+    ensure_column(
+        connection,
+        "browser_profiles",
+        "last_auth_failure_reason",
+        "TEXT",
+    )?;
+    // Trigger fire history (Slice 6: delivery visibility, retries, dead letters).
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS trigger_fire_history (
+            id               TEXT PRIMARY KEY,
+            trigger_id       TEXT NOT NULL,
+            event_family     TEXT NOT NULL,
+            event_kind       TEXT NOT NULL,
+            status           TEXT NOT NULL DEFAULT 'fired',
+            fired_at_ms      INTEGER NOT NULL,
+            completed_at_ms  INTEGER,
+            retry_count      INTEGER NOT NULL DEFAULT 0,
+            error_message    TEXT,
+            created_task_id  TEXT,
+            notice_id        TEXT,
+            payload_json     TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_trigger_fire_history_trigger_fired ON trigger_fire_history(trigger_id, fired_at_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_trigger_fire_history_status ON trigger_fire_history(status, fired_at_ms DESC);",
+    )?;
     Ok(())
 }

@@ -60,7 +60,8 @@ fn add_available_tools_part_c(
                 "properties": {
                     "url": { "type": "string", "description": "URL to fetch" },
                     "max_length": { "type": "integer", "description": "Max characters to return (default: 10000)" },
-                    "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 300, max: 600)" }
+                    "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 300, max: 600)" },
+                    "profile_id": { "type": "string", "description": "Optional named browser profile for authenticated browsing reuse" }
                 },
                 "required": ["url"]
             }),

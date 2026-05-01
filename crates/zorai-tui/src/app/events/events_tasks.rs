@@ -365,6 +365,15 @@ impl TuiModel {
         self.hidden_auto_response_suggestion_ids
             .retain(|suggestion_id| live_suggestion_ids.contains(suggestion_id));
         let thread_id = thread.id.clone();
+        let is_empty_workspace_runtime_detail = thread_id.starts_with("workspace-thread:")
+            && thread.messages.is_empty()
+            && thread.total_message_count == 0;
+        if is_empty_workspace_runtime_detail {
+            self.empty_hydrated_runtime_thread_ids
+                .insert(thread_id.clone());
+        } else {
+            self.empty_hydrated_runtime_thread_ids.remove(&thread_id);
+        }
         let should_preserve_prepend_anchor = self.chat.active_thread().is_some_and(|existing| {
             let incoming_total = thread.total_message_count.max(thread.messages.len());
             let incoming_end = if thread.loaded_message_end == 0 && !thread.messages.is_empty() {
@@ -478,6 +487,7 @@ impl TuiModel {
         agent_name: Option<String>,
     ) {
         let was_missing_runtime_thread = self.missing_runtime_thread_ids.remove(&thread_id);
+        self.empty_hydrated_runtime_thread_ids.remove(&thread_id);
         let pending_local_activity = self
             .chat
             .active_thread_id()
@@ -558,6 +568,7 @@ impl TuiModel {
         if !is_active_thread && !is_header_thread {
             return;
         }
+        self.empty_hydrated_runtime_thread_ids.remove(&thread_id);
         self.chat.reduce(chat::ChatAction::InvalidateContextWindow {
             thread_id: thread_id.clone(),
         });

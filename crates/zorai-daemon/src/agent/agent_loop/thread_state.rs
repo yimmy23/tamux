@@ -1,6 +1,75 @@
 use super::*;
 
 impl AgentEngine {
+    pub(in crate::agent) async fn assistant_author_identity_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> (String, String) {
+        let author_agent_id = current_agent_scope_id();
+        let nonempty = |value: &str| {
+            let trimmed = value.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        };
+
+        if let Some(state) = self.thread_handoff_state(thread_id).await {
+            if let Some(frame_name) = state
+                .responder_stack
+                .iter()
+                .rev()
+                .find(|frame| frame.agent_id.eq_ignore_ascii_case(&author_agent_id))
+                .and_then(|frame| nonempty(&frame.agent_name))
+            {
+                return (author_agent_id, frame_name);
+            }
+            if state.active_agent_id.eq_ignore_ascii_case(&author_agent_id) {
+                if let Some(frame_name) = state
+                    .responder_stack
+                    .last()
+                    .and_then(|frame| nonempty(&frame.agent_name))
+                {
+                    return (author_agent_id, frame_name);
+                }
+            }
+        }
+
+        if let Some(thread_name) = self
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .and_then(|thread| thread.agent_name.as_deref())
+            .and_then(nonempty)
+            .filter(|thread_name| {
+                thread_name.eq_ignore_ascii_case(&author_agent_id)
+                    || (author_agent_id != MAIN_AGENT_ID
+                        && canonical_agent_id(thread_name) == author_agent_id)
+            })
+        {
+            return (author_agent_id, thread_name);
+        }
+
+        if let Some(sub_agent_name) = self
+            .list_sub_agents()
+            .await
+            .into_iter()
+            .find(|definition| {
+                definition.id.eq_ignore_ascii_case(&author_agent_id)
+                    || definition
+                        .id
+                        .strip_suffix("_builtin")
+                        .is_some_and(|value| value.eq_ignore_ascii_case(&author_agent_id))
+            })
+            .and_then(|definition| nonempty(&definition.name))
+        {
+            return (author_agent_id, sub_agent_name);
+        }
+
+        (
+            author_agent_id.clone(),
+            canonical_agent_name(&author_agent_id).to_string(),
+        )
+    }
+
     pub(in crate::agent) async fn clear_thread_continuation_state(&self, thread_id: &str) {
         let mut threads = self.threads.write().await;
         if let Some(thread) = threads.get_mut(thread_id) {
@@ -131,10 +200,10 @@ impl AgentEngine {
         upstream_message: Option<CompletionUpstreamMessage>,
         provider_final_result: Option<CompletionProviderFinalResult>,
     ) {
+        let (author_agent_id, author_agent_name) =
+            self.assistant_author_identity_for_thread(thread_id).await;
         let mut threads = self.threads.write().await;
         if let Some(thread) = threads.get_mut(thread_id) {
-            let author_agent_id = current_agent_scope_id();
-            let author_agent_name = canonical_agent_name(&author_agent_id).to_string();
             thread.messages.push(AgentMessage {
                 id: generate_message_id(),
                 role: MessageRole::Assistant,

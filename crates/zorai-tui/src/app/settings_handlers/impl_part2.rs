@@ -95,6 +95,28 @@ impl TuiModel {
                     .map(serde_json::Value::String)
                     .unwrap_or(serde_json::Value::Null),
             );
+            if editor.provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+                obj.insert(
+                    "openrouter_provider_order".to_string(),
+                    crate::state::subagents::openrouter_provider_list_to_json(
+                        &editor.openrouter_provider_order,
+                    ),
+                );
+                obj.insert(
+                    "openrouter_provider_ignore".to_string(),
+                    crate::state::subagents::openrouter_provider_list_to_json(
+                        &editor.openrouter_provider_ignore,
+                    ),
+                );
+                obj.insert(
+                    "openrouter_allow_fallbacks".to_string(),
+                    serde_json::Value::Bool(editor.openrouter_allow_fallbacks),
+                );
+            } else {
+                obj.remove("openrouter_provider_order");
+                obj.remove("openrouter_provider_ignore");
+                obj.remove("openrouter_allow_fallbacks");
+            }
             obj.insert(
                 "created_at".to_string(),
                 serde_json::Value::Number(editor.created_at.into()),
@@ -152,6 +174,20 @@ impl TuiModel {
                 .get("reasoning_effort")
                 .and_then(|v| v.as_str())
                 .map(ToString::to_string),
+            openrouter_provider_order:
+                crate::state::subagents::openrouter_provider_list_from_json(
+                    &raw,
+                    "openrouter_provider_order",
+                ),
+            openrouter_provider_ignore:
+                crate::state::subagents::openrouter_provider_list_from_json(
+                    &raw,
+                    "openrouter_provider_ignore",
+                ),
+            openrouter_allow_fallbacks: raw
+                .get("openrouter_allow_fallbacks")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
             raw_json: Some(raw),
         };
         if self
@@ -178,9 +214,7 @@ impl TuiModel {
         self.settings_picker_target = Some(SettingsPickerTarget::SubAgentProvider);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-        self.modal.set_picker_item_count(
-            widgets::provider_picker::available_provider_defs(&self.auth).len(),
-        );
+        self.sync_provider_picker_item_count();
     }
 
     fn open_subagent_model_picker(&mut self) {
@@ -213,8 +247,23 @@ impl TuiModel {
         self.modal.set_picker_item_count(6);
     }
 
+    fn open_subagent_openrouter_provider_picker(&mut self, target: SettingsPickerTarget) {
+        let Some(editor) = self.subagents.editor.as_ref() else {
+            return;
+        };
+        if editor.provider != zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+            self.status_line =
+                "OpenRouter provider routing only applies to OpenRouter sub-agents".to_string();
+            return;
+        }
+        let model = editor.model.clone();
+        let (base_url, api_key, _auth_source) =
+            self.provider_auth_snapshot(zorai_shared::providers::PROVIDER_ID_OPENROUTER);
+        self.open_openrouter_provider_picker_for(target, model, base_url, api_key);
+    }
+
     pub(super) fn send_concierge_config(&mut self) {
-        let config = serde_json::json!({
+        let mut config = serde_json::json!({
             "enabled": self.concierge.enabled,
             "detail_level": self.concierge.detail_level,
             "provider": self.concierge.provider,
@@ -222,7 +271,37 @@ impl TuiModel {
             "reasoning_effort": self.concierge.reasoning_effort,
             "auto_cleanup_on_navigate": self.concierge.auto_cleanup_on_navigate,
         });
+        if self.concierge.provider.as_deref() == Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER)
+        {
+            config["openrouter_provider_order"] =
+                crate::state::subagents::openrouter_provider_list_to_json(
+                    &self.concierge.openrouter_provider_order,
+                );
+            config["openrouter_provider_ignore"] =
+                crate::state::subagents::openrouter_provider_list_to_json(
+                    &self.concierge.openrouter_provider_ignore,
+                );
+            config["openrouter_allow_fallbacks"] =
+                serde_json::Value::Bool(self.concierge.openrouter_allow_fallbacks);
+        }
         self.send_daemon_command(DaemonCommand::SetConciergeConfig(config.to_string()));
+    }
+
+    fn open_concierge_openrouter_provider_picker(&mut self, target: SettingsPickerTarget) {
+        if self.concierge.provider.as_deref()
+            != Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER)
+        {
+            self.status_line =
+                "OpenRouter provider routing only applies to OpenRouter agents".to_string();
+            return;
+        }
+        let Some(model) = self.concierge.model.clone() else {
+            self.status_line = "Choose an OpenRouter model first".to_string();
+            return;
+        };
+        let (base_url, api_key, _auth_source) =
+            self.provider_auth_snapshot(zorai_shared::providers::PROVIDER_ID_OPENROUTER);
+        self.open_openrouter_provider_picker_for(target, model, base_url, api_key);
     }
 
     pub(super) fn refresh_provider_models_for_current_auth(&mut self) {

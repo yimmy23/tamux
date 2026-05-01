@@ -256,7 +256,15 @@ pub(super) fn is_concierge_target(alias: &str) -> bool {
 }
 
 pub(super) fn is_main_agent_scope(alias: &str) -> bool {
-    canonical_agent_id(alias) == MAIN_AGENT_ID
+    let normalized = alias.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        MAIN_AGENT_ID
+            | MAIN_AGENT_PUBLIC_ALIAS
+            | MAIN_AGENT_ALIAS
+            | MAIN_AGENT_LEGACY_ALIAS
+            | MAIN_AGENT_FALLBACK_ALIAS
+    )
 }
 
 pub(crate) fn is_weles_internal_scope(scope: &str) -> bool {

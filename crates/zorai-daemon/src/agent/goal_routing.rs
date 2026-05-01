@@ -471,6 +471,9 @@ mod tests {
             delete_allowed: true,
             protected_reason: None,
             reasoning_effort: Some("medium".to_string()),
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
             created_at: 0,
         }
     }

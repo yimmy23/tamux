@@ -356,6 +356,18 @@ pub(crate) fn resolve_concierge_provider(config: &AgentConfig) -> Result<Provide
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "off".to_string());
+    if provider_id == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+        if !config.concierge.openrouter_provider_order.is_empty() {
+            resolved.openrouter_provider_order = config.concierge.openrouter_provider_order.clone();
+        }
+        if !config.concierge.openrouter_provider_ignore.is_empty() {
+            resolved.openrouter_provider_ignore =
+                config.concierge.openrouter_provider_ignore.clone();
+        }
+        if config.concierge.openrouter_allow_fallbacks.is_some() {
+            resolved.openrouter_allow_fallbacks = config.concierge.openrouter_allow_fallbacks;
+        }
+    }
     Ok(resolved)
 }
 

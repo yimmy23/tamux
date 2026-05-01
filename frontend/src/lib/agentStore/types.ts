@@ -135,6 +135,9 @@ export interface AgentProviderConfig {
   auth_source: AuthSource;
   context_window_tokens: number | null;
   custom_modalities?: Modality[];
+  openrouter_provider_order?: string[];
+  openrouter_provider_ignore?: string[];
+  openrouter_allow_fallbacks?: boolean | null;
 }
 
 export interface ProviderAuthState {
@@ -170,6 +173,9 @@ export interface SubAgentDefinition {
   delete_allowed?: boolean;
   protected_reason?: string;
   reasoning_effort?: string;
+  openrouter_provider_order?: string[];
+  openrouter_provider_ignore?: string[];
+  openrouter_allow_fallbacks?: boolean | null;
   created_at: number;
 }
 

@@ -18,9 +18,33 @@ struct DirectThreadResponderConfig {
     provider_id: String,
     model: Option<String>,
     reasoning_effort: Option<String>,
+    openrouter_provider_order: Vec<String>,
+    openrouter_provider_ignore: Vec<String>,
+    openrouter_allow_fallbacks: Option<bool>,
     system_prompt: String,
     persona_prompt: String,
     tool_filter: Option<crate::agent::subagent::tool_filter::ToolFilter>,
+}
+
+fn apply_openrouter_routing_override(
+    provider_id: &str,
+    provider_config: &mut ProviderConfig,
+    order: &[String],
+    ignore: &[String],
+    allow_fallbacks: Option<bool>,
+) {
+    if provider_id != zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+        return;
+    }
+    if !order.is_empty() {
+        provider_config.openrouter_provider_order = order.to_vec();
+    }
+    if !ignore.is_empty() {
+        provider_config.openrouter_provider_ignore = ignore.to_vec();
+    }
+    if allow_fallbacks.is_some() {
+        provider_config.openrouter_allow_fallbacks = allow_fallbacks;
+    }
 }
 
 fn is_workspace_agent_task(task: &AgentTask) -> bool {
@@ -104,6 +128,9 @@ fn build_direct_thread_responder_config(
             provider_id,
             model: Some(provider_config.model.clone()),
             reasoning_effort: Some(provider_config.reasoning_effort.clone()),
+            openrouter_provider_order: config.concierge.openrouter_provider_order.clone(),
+            openrouter_provider_ignore: config.concierge.openrouter_provider_ignore.clone(),
+            openrouter_allow_fallbacks: config.concierge.openrouter_allow_fallbacks,
             system_prompt: crate::agent::concierge::concierge_system_prompt(),
             persona_prompt: String::new(),
             tool_filter: None,
@@ -159,6 +186,32 @@ fn build_direct_thread_responder_config(
                     .and_then(|overrides| nonempty(overrides.reasoning_effort.as_deref()))
             })
             .or_else(|| profile_reasoning_effort.clone()),
+        openrouter_provider_order: matched_def
+            .as_ref()
+            .map(|def| def.openrouter_provider_order.clone())
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                builtin_persona_overrides
+                    .map(|overrides| overrides.openrouter_provider_order.clone())
+                    .filter(|value| !value.is_empty())
+            })
+            .unwrap_or_default(),
+        openrouter_provider_ignore: matched_def
+            .as_ref()
+            .map(|def| def.openrouter_provider_ignore.clone())
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                builtin_persona_overrides
+                    .map(|overrides| overrides.openrouter_provider_ignore.clone())
+                    .filter(|value| !value.is_empty())
+            })
+            .unwrap_or_default(),
+        openrouter_allow_fallbacks: matched_def
+            .as_ref()
+            .and_then(|def| def.openrouter_allow_fallbacks)
+            .or_else(|| {
+                builtin_persona_overrides.and_then(|overrides| overrides.openrouter_allow_fallbacks)
+            }),
         system_prompt: matched_def
             .as_ref()
             .and_then(|def| def.system_prompt.clone())
@@ -448,6 +501,13 @@ impl<'a> SendMessageRunner<'a> {
                 if let Some(reasoning_effort) = responder.reasoning_effort.as_ref() {
                     pc.reasoning_effort = reasoning_effort.clone();
                 }
+                apply_openrouter_routing_override(
+                    &responder.provider_id,
+                    &mut pc,
+                    &responder.openrouter_provider_order,
+                    &responder.openrouter_provider_ignore,
+                    responder.openrouter_allow_fallbacks,
+                );
                 Ok(pc)
             } else {
                 engine.resolve_provider_config(&config)
@@ -1185,6 +1245,9 @@ mod tests {
             delete_allowed: true,
             protected_reason: None,
             reasoning_effort: Some("medium".to_string()),
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
             created_at: 1,
         }];
 
@@ -1779,6 +1842,9 @@ mod tests {
             delete_allowed: true,
             protected_reason: None,
             reasoning_effort: Some("medium".to_string()),
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
             created_at: 1,
         });
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
@@ -2561,6 +2627,9 @@ mod tests {
                 max_tokens: None,
                 anthropic_tool_choice: None,
                 output_effort: None,
+                openrouter_provider_order: Vec::new(),
+                openrouter_provider_ignore: Vec::new(),
+                openrouter_allow_fallbacks: None,
             },
         );
         config.builtin_sub_agents.mokosh.provider = Some("alibaba-coding-plan".to_string());

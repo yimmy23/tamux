@@ -936,6 +936,9 @@ async fn structured_heartbeat_routes_synthesis_through_weles_runtime() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());

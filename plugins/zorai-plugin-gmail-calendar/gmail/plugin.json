@@ -1,8 +1,8 @@
 {
   "name": "gmail",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "schema_version": 1,
-  "description": "Gmail integration — read, search, send, trash, and manage emails",
+  "description": "Gmail integration \u2014 read, search, send, trash, and manage emails",
   "author": "zorai",
   "license": "MIT",
   "zorai_version": ">=2.0.0",
@@ -12,7 +12,8 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": [
       "https://www.googleapis.com/auth/gmail.modify",
-      "https://www.googleapis.com/auth/gmail.send"
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/gmail.compose"
     ],
     "pkce": true
   },
@@ -45,25 +46,33 @@
       "list_inbox": {
         "method": "GET",
         "path": "/gmail/v1/users/me/messages?maxResults={{default params.max_results \"10\"}}&q={{urlencode (default params.query \"in:inbox\")}}",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "## Inbox ({{resultSizeEstimate}} messages)\n\n{{#each messages}}Message ID: {{id}} (Thread: {{threadId}})\n{{/each}}"
       },
       "get_message": {
         "method": "GET",
         "path": "/gmail/v1/users/me/messages/{{params.message_id}}?format={{default params.format \"METADATA\"}}&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Date",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "Snippet: {{snippet}}\n\nHeaders:\n{{#each payload.headers}}- {{name}}: {{value}}\n{{/each}}\n\nLabels: {{join labelIds \", \"}}"
       },
       "get_message_full": {
         "method": "GET",
         "path": "/gmail/v1/users/me/messages/{{params.message_id}}?format=FULL",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "Subject: {{snippet}}\nLabels: {{join labelIds \", \"}}\n\n{{#each payload.headers}}- {{name}}: {{value}}\n{{/each}}\n\nBody parts: {{#each payload.parts}}[{{mimeType}}] {{/each}}"
       },
       "search_messages": {
         "method": "GET",
         "path": "/gmail/v1/users/me/messages?maxResults={{default params.max_results \"10\"}}&q={{urlencode params.query}}",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "## Search Results ({{resultSizeEstimate}} messages)\n\n{{#each messages}}Message ID: {{id}} (Thread: {{threadId}})\n{{/each}}"
       },
       "send_message": {
@@ -104,7 +113,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "removeLabelIds": ["UNREAD"]
+          "removeLabelIds": [
+            "UNREAD"
+          ]
         },
         "response_template": "Message marked as read. Labels: {{join labelIds \", \"}}"
       },
@@ -116,7 +127,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "addLabelIds": ["UNREAD"]
+          "addLabelIds": [
+            "UNREAD"
+          ]
         },
         "response_template": "Message marked as unread. Labels: {{join labelIds \", \"}}"
       },
@@ -128,7 +141,9 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "addLabelIds": ["STARRED"]
+          "addLabelIds": [
+            "STARRED"
+          ]
         },
         "response_template": "Message starred. Labels: {{join labelIds \", \"}}"
       },
@@ -140,21 +155,94 @@
           "Content-Type": "application/json"
         },
         "body": {
-          "removeLabelIds": ["INBOX"]
+          "removeLabelIds": [
+            "INBOX"
+          ]
         },
         "response_template": "Message archived. Labels: {{join labelIds \", \"}}"
       },
       "list_labels": {
         "method": "GET",
         "path": "/gmail/v1/users/me/labels",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "## Labels\n\n{{#each labels}}- {{name}} ({{type}}, ID: {{id}})\n{{/each}}"
       },
       "get_thread": {
         "method": "GET",
         "path": "/gmail/v1/users/me/threads/{{params.thread_id}}?format=METADATA&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date",
-        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
         "response_template": "Thread {{id}} ({{historyId}}):\n\n{{#each messages}}--- Message {{id}} ---\nSnippet: {{snippet}}\n{{#each payload.headers}}- {{name}}: {{value}}\n{{/each}}\n\n{{/each}}"
+      },
+      "list_threads": {
+        "method": "GET",
+        "path": "/gmail/v1/users/me/messages?maxResults={{default params.max_results \"10\"}}&q={{urlencode (default params.query \"in:inbox\")}}",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
+        "response_template": "## Threads ({{resultSizeEstimate}} messages)\n\n{{#each messages}}Message ID: {{id}} (Thread: {{threadId}})\n{{/each}}"
+      },
+      "fetch_thread_context": {
+        "method": "GET",
+        "path": "/gmail/v1/users/me/threads/{{params.thread_id}}?format=METADATA&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
+        "response_template": "Thread {{id}} ({{historyId}}):\n\n{{#each messages}}--- Message {{id}} ---\nSnippet: {{snippet}}\n{{#each payload.headers}}- {{name}}: {{value}}\n{{/each}}\n\n{{/each}}"
+      },
+      "create_draft": {
+        "method": "POST",
+        "path": "/gmail/v1/users/me/drafts",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "message": {
+            "raw": "{{params.raw_base64}}",
+            "threadId": "{{default params.thread_id \"\"}}"
+          }
+        },
+        "response_template": "Draft created. Draft ID: {{id}}"
+      },
+      "draft_message": {
+        "method": "POST",
+        "path": "/gmail/v1/users/me/drafts",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "message": {
+            "raw": "{{params.raw_base64}}",
+            "threadId": "{{default params.thread_id \"\"}}"
+          }
+        },
+        "response_template": "Draft created. Draft ID: {{id}}"
+      },
+      "reply_in_thread": {
+        "method": "POST",
+        "path": "/gmail/v1/users/me/messages/send",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "raw": "{{params.raw_base64}}",
+          "threadId": "{{params.thread_id}}"
+        },
+        "response_template": "Reply sent. ID: {{id}}, Thread: {{threadId}}"
+      },
+      "check_health": {
+        "method": "GET",
+        "path": "/gmail/v1/users/me/profile",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}"
+        },
+        "response_template": "Gmail API reachable for {{emailAddress}} with {{messagesTotal}} messages."
       }
     },
     "rate_limit": {
@@ -197,7 +285,49 @@
     "thread": {
       "description": "View a full email thread",
       "action": "get_thread"
+    },
+    "draft": {
+      "description": "Create a Gmail draft from an RFC 2822 base64 message",
+      "action": "draft_message"
+    },
+    "reply": {
+      "description": "Reply inside a Gmail thread using raw_base64 and thread_id",
+      "action": "reply_in_thread"
     }
   },
-  "skills": ["skills/gmail-inbox.md"]
+  "skills": [
+    "skills/gmail-inbox.md"
+  ],
+  "connector": {
+    "kind": "gmail",
+    "category": "communication",
+    "setup_hint": "Configure Google OAuth client credentials, connect the plugin, and grant Gmail modify/send/compose scopes.",
+    "docs_path": "plugins/zorai-plugin-gmail-calendar/README.md",
+    "workflow_primitives": [
+      "list_threads",
+      "fetch_thread_context",
+      "draft_message",
+      "reply_in_thread",
+      "send_message"
+    ],
+    "read_actions": [
+      "list_inbox",
+      "search_messages",
+      "get_message",
+      "get_message_full",
+      "get_thread",
+      "list_labels"
+    ],
+    "write_actions": [
+      "create_draft",
+      "reply_in_thread",
+      "send_message",
+      "archive_message",
+      "trash_message",
+      "mark_read",
+      "mark_unread",
+      "star_message"
+    ],
+    "readiness_endpoint": "check_health"
+  }
 }

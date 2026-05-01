@@ -1,4 +1,4 @@
-use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI};
+use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER};
 
 #[test]
 fn settings_handles_empty_state() {
@@ -652,6 +652,73 @@ fn subagent_editor_shows_live_model_edit_buffer() {
 }
 
 #[test]
+fn subagent_editor_shows_openrouter_rows_only_for_openrouter_provider() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::SubAgents,
+    ));
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+    let mut subagents = SubAgentsState::new();
+    let openai_editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        0,
+        PROVIDER_ID_OPENAI.to_string(),
+        "gpt-5.4".to_string(),
+    );
+    subagents.editor = Some(openai_editor);
+    let openai_text = render_tab_content(
+        80,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    )
+    .iter()
+    .map(|line| line.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+    assert!(!openai_text.contains("OR Prefer"));
+
+    let mut openrouter_editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        0,
+        PROVIDER_ID_OPENROUTER.to_string(),
+        "openai/gpt-5.4".to_string(),
+    );
+    openrouter_editor.openrouter_provider_order = "openai".to_string();
+    subagents.editor = Some(openrouter_editor);
+    let openrouter_text = render_tab_content(
+        80,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    )
+    .iter()
+    .map(|line| line.to_string())
+    .collect::<Vec<_>>()
+    .join("\n");
+    assert!(openrouter_text.contains("OR Prefer"));
+    assert!(openrouter_text.contains("openai"));
+}
+
+#[test]
 fn subagent_system_prompt_textarea_wraps_long_lines_to_content_width() {
     let mut settings = SettingsState::new();
     settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
@@ -710,6 +777,52 @@ fn subagent_system_prompt_textarea_wraps_long_lines_to_content_width() {
         "wrapped textarea should stay within content width, got: {:?}",
         prompt_lines
     );
+}
+
+#[test]
+fn provider_tab_hides_openrouter_rows_for_non_openrouter_provider() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Provider,
+    ));
+    let mut config = ConfigState::new();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+
+    let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(!text.contains("OR Prefer"));
+    assert!(!text.contains("OR Exclude"));
+    assert!(!text.contains("OR Fallbacks"));
+}
+
+#[test]
+fn provider_tab_shows_openrouter_rows_for_openrouter_provider() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Provider,
+    ));
+    let mut config = ConfigState::new();
+    config.provider = PROVIDER_ID_OPENROUTER.to_string();
+    config.openrouter_provider_order = "anthropic".to_string();
+    config.openrouter_provider_ignore = "deepinfra".to_string();
+
+    let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("OR Prefer"));
+    assert!(text.contains("anthropic"));
+    assert!(text.contains("OR Exclude"));
+    assert!(text.contains("deepinfra"));
+    assert!(text.contains("OR Fallbacks"));
 }
 
 #[test]
@@ -852,6 +965,9 @@ fn protected_weles_row_hides_delete_and_disable_actions() {
             delete_allowed: false,
             protected_reason: Some("Daemon-owned governance agent".to_string()),
             reasoning_effort: Some("medium".to_string()),
+            openrouter_provider_order: String::new(),
+            openrouter_provider_ignore: String::new(),
+            openrouter_allow_fallbacks: true,
             raw_json: Some(serde_json::json!({ "id": "weles_builtin" })),
         });
     let concierge = crate::state::concierge::ConciergeState::new();

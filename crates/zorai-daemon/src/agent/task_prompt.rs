@@ -468,7 +468,9 @@ pub(super) fn dir_has_memory_files(dir: &std::path::Path) -> bool {
 }
 
 fn persona_memory_dir(agent_data_dir: &std::path::Path, scope_id: &str) -> std::path::PathBuf {
-    agent_data_dir.join("personas").join(scope_id)
+    active_memory_dir_for_scope(agent_data_dir, MAIN_AGENT_ID)
+        .join("personas")
+        .join(scope_id)
 }
 
 pub(super) fn active_memory_dir_for_scope(
@@ -885,6 +887,9 @@ mod tests {
             delete_allowed: true,
             protected_reason: None,
             reasoning_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
             created_at: 1,
         };
         let protected = SubAgentDefinition {
@@ -906,6 +911,9 @@ mod tests {
             delete_allowed: false,
             protected_reason: Some("Daemon-owned WELES registry entry".to_string()),
             reasoning_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
             created_at: 1,
         };
 

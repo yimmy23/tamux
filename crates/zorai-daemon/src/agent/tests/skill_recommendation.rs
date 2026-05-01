@@ -2565,3 +2565,378 @@ async fn discover_community_skills_matches_query_tokens_against_cached_registry(
 
     Ok(())
 }
+
+#[tokio::test]
+async fn canonical_pack_metadata_is_extracted_from_frontmatter() -> Result<()> {
+    let metadata = extract_skill_metadata(
+        "workflow-packs/daily-brief/SKILL.md",
+        r#"---
+name: daily-brief
+description: Canonical daily brief pack.
+canonical_pack: true
+delivery_modes: [manual, routine, chat-delivery]
+prerequisite_hints: [gmail ready, calendar ready]
+source_links: [docs/operating/routines.md]
+mobile_safe: true
+approval_behavior: read-only by default
+---
+
+# Daily Brief
+"#,
+    );
+
+    assert!(metadata.canonical_pack);
+    assert_eq!(
+        metadata.delivery_modes,
+        vec![
+            "manual".to_string(),
+            "routine".to_string(),
+            "chat-delivery".to_string()
+        ]
+    );
+    assert_eq!(
+        metadata.prerequisite_hints,
+        vec!["gmail ready".to_string(), "calendar ready".to_string()]
+    );
+    assert!(metadata.prerequisite_connectors.is_empty());
+    assert_eq!(
+        metadata.source_links,
+        vec!["docs/operating/routines.md".to_string()]
+    );
+    assert!(metadata.mobile_safe);
+    assert_eq!(
+        metadata.approval_behavior.as_deref(),
+        Some("read-only by default")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn canonical_pack_bonus_prefers_pack_over_general_skill_for_matching_query() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+
+    write_skill(
+        &skills_root.join("workflow-packs"),
+        "daily-brief",
+        r#"---
+name: daily-brief
+description: Canonical daily brief pack for day-start summaries.
+keywords: [daily, brief, morning, summary]
+canonical_pack: true
+delivery_modes: [manual, routine]
+prerequisite_hints: [gmail optional, calendar optional]
+mobile_safe: true
+approval_behavior: read-only
+---
+
+# Daily Brief
+"#,
+    )?;
+    write_skill(
+        &skills_root.join("development"),
+        "daily-brief-helper",
+        r#"---
+name: daily-brief-helper
+description: Generic daily brief helper.
+keywords: [daily, brief, morning, summary]
+---
+
+# Daily Brief Helper
+"#,
+    )?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "daily brief morning summary",
+        &[],
+        5,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("daily-brief")
+    );
+    assert!(result
+        .recommendations
+        .first()
+        .map(|item| item.metadata.canonical_pack)
+        .unwrap_or(false));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_skill_recommendations_public_exposes_canonical_pack_metadata() -> Result<()> {
+    let root = tempdir()?;
+    let manager = SessionManager::new_test(root.path()).await;
+    write_skill(
+        root.path().join("skills").join("workflow-packs").as_path(),
+        "watch-monitor",
+        r#"---
+name: watch-monitor
+description: Canonical monitoring pack.
+keywords: [watch, monitor, change, alert]
+canonical_pack: true
+delivery_modes: [manual, routine, trigger]
+prerequisite_hints: [connector optional, trigger optional]
+source_links: [docs/operating/routines.md, skills/zorai-mcp/operating/observability.md]
+mobile_safe: true
+approval_behavior: remediation requires approval
+---
+
+# Watch Monitor
+"#,
+    )?;
+
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let result = engine
+        .discover_skill_recommendations_public("watch monitor changes", None, 3, None)
+        .await?;
+
+    assert_eq!(result.candidates.len(), 1);
+    let candidate = &result.candidates[0];
+    assert!(candidate.canonical_pack);
+    assert_eq!(candidate.delivery_modes.len(), 3);
+    assert_eq!(candidate.prerequisite_hints.len(), 2);
+    assert!(candidate.prerequisite_connectors.is_empty());
+    assert_eq!(candidate.source_links.len(), 2);
+    assert!(candidate.mobile_safe);
+    assert_eq!(
+        candidate.approval_behavior.as_deref(),
+        Some("remediation requires approval")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_skill_recommendations_public_surfaces_prerequisite_hints_for_missing_connectors(
+) -> Result<()> {
+    let root = tempdir()?;
+    let manager = SessionManager::new_test(root.path()).await;
+    write_skill(
+        root.path().join("skills").join("workflow-packs").as_path(),
+        "inbox-calendar-triage",
+        r#"---
+name: inbox-calendar-triage
+description: Canonical inbox and calendar triage pack.
+keywords: [inbox, calendar, gmail, meeting, triage]
+canonical_pack: true
+delivery_modes: [manual, routine]
+prerequisite_hints: [gmail connector recommended, calendar connector recommended]
+prerequisite_connectors: [gmail, calendar]
+source_links: [plugins/zorai-plugin-gmail-calendar/README.md]
+mobile_safe: true
+approval_behavior: sending replies requires approval
+---
+
+# Inbox Calendar Triage
+"#,
+    )?;
+
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let result = engine
+        .discover_skill_recommendations_public("inbox calendar triage for today", None, 3, None)
+        .await?;
+
+    let candidate = &result.candidates[0];
+    assert!(candidate.canonical_pack);
+    assert_eq!(
+        candidate.prerequisite_hints,
+        vec![
+            "gmail connector recommended".to_string(),
+            "calendar connector recommended".to_string()
+        ]
+    );
+    assert_eq!(
+        candidate.prerequisite_connectors,
+        vec!["gmail".to_string(), "calendar".to_string()]
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn canonical_pack_discovery_prefers_ready_pack_when_prerequisite_connector_exists(
+) -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    write_skill(
+        &skills_root.join("workflow-packs"),
+        "pr-issue-triage",
+        r#"---
+name: pr-issue-triage
+description: Canonical PR issue triage pack.
+keywords: [pr, issue, triage, github, gitlab, review]
+context_tags: [github]
+canonical_pack: true
+delivery_modes: [manual, routine]
+prerequisite_hints: [repo connector required, tracker optional]
+prerequisite_connectors: [github]
+source_links: [plugins/zorai-plugin-github/README.md]
+mobile_safe: true
+approval_behavior: write-backs require approval
+---
+
+# PR Issue Triage
+"#,
+    )?;
+    write_skill(
+        &skills_root.join("development"),
+        "repo-triage-helper",
+        r#"---
+name: repo-triage-helper
+description: Generic repo triage helper.
+keywords: [pr, issue, triage, github, gitlab, review]
+---
+
+# Repo Triage Helper
+"#,
+    )?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "github pr issue triage",
+        &["github".to_string()],
+        3,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("pr-issue-triage")
+    );
+    assert!(result.recommendations[0].metadata.canonical_pack);
+    assert_eq!(
+        result.recommendations[0].metadata.prerequisite_connectors,
+        vec!["github".to_string()]
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn approval_checkpoint_long_task_pack_is_discoverable() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+
+    write_skill(
+        &skills_root.join("workflow-packs"),
+        "approval-checkpoint-long-task",
+        r#"---
+name: approval-checkpoint-long-task
+description: Canonical long-task pack with approval checkpoints.
+keywords: [approval, long, task, checkpoint, rollback, resume]
+canonical_pack: true
+delivery_modes: [manual, task, goal, chat-approval]
+prerequisite_hints: [daemon tasks required, chat approval optional]
+source_links: [skills/zorai-mcp/operating/tasks.md, skills/zorai-mcp/operating/safety.md]
+mobile_safe: true
+approval_behavior: risky transitions must pause for approval
+---
+
+# Approval Checkpoint Long Task
+"#,
+    )?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "approval checkpoint long task rollback resume",
+        &[],
+        3,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+
+    let top = result.recommendations.first().expect("one recommendation");
+    assert_eq!(top.record.skill_name, "approval-checkpoint-long-task");
+    assert!(top.metadata.canonical_pack);
+    assert!(top.metadata.mobile_safe);
+    assert_eq!(top.metadata.delivery_modes.len(), 4);
+    assert!(top.metadata.approval_behavior.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn shipped_wave1_canonical_pack_docs_follow_contract() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cases = [
+        ("skills/workflow-packs/daily-brief/SKILL.md", "daily-brief"),
+        (
+            "skills/workflow-packs/pr-issue-triage/SKILL.md",
+            "pr-issue-triage",
+        ),
+        (
+            "skills/workflow-packs/inbox-calendar-triage/SKILL.md",
+            "inbox-calendar-triage",
+        ),
+        (
+            "skills/workflow-packs/watch-monitor/SKILL.md",
+            "watch-monitor",
+        ),
+        (
+            "skills/workflow-packs/approval-checkpoint-long-task/SKILL.md",
+            "approval-checkpoint-long-task",
+        ),
+    ];
+
+    for (relative, expected_name) in cases {
+        let path = repo_root.join(relative);
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        let metadata = extract_skill_metadata(relative, &content);
+        assert!(metadata.canonical_pack, "{relative} should be canonical");
+        assert!(
+            !metadata.delivery_modes.is_empty(),
+            "{relative} should declare delivery modes"
+        );
+        assert!(
+            !metadata.prerequisite_hints.is_empty(),
+            "{relative} should declare prerequisite hints"
+        );
+        assert!(
+            !metadata.source_links.is_empty(),
+            "{relative} should declare source links"
+        );
+        assert!(metadata.mobile_safe, "{relative} should be mobile safe");
+        assert!(
+            metadata.approval_behavior.is_some(),
+            "{relative} should declare approval behavior"
+        );
+        let search = metadata.search_text.to_ascii_lowercase();
+        assert!(
+            search.contains(expected_name),
+            "{relative} should remain discoverable by pack name"
+        );
+    }
+}

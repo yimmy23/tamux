@@ -35,6 +35,9 @@ async fn merge_config_patch_preserves_existing_provider_state() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     config.providers.insert(
@@ -61,6 +64,9 @@ async fn merge_config_patch_preserves_existing_provider_state() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
     );
     engine.set_config(config).await;

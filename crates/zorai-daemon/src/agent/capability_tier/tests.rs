@@ -45,6 +45,9 @@ fn provider_config(base_url: &str, model: &str, api_key: &str) -> ProviderConfig
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
     }
 }
 

@@ -14,6 +14,8 @@ impl AgentEngine {
         let mut task = self
             .prepare_failed_review_rerun_task(task, feedback)
             .await?;
+        self.seed_failed_review_follow_up_runtime(&mut task, feedback)
+            .await?;
         self.history.upsert_workspace_task(&task).await?;
         self.insert_workspace_notice(
             &task.workspace_id,
@@ -29,8 +31,71 @@ impl AgentEngine {
             Some(WorkspaceActor::Agent(AGENT_ID_SWAROG.to_string())),
         )
         .await?;
-        task = self.run_workspace_task(&task.id).await?;
         Ok(task)
+    }
+
+    async fn seed_failed_review_follow_up_runtime(
+        &self,
+        task: &mut WorkspaceTask,
+        feedback: &str,
+    ) -> Result<()> {
+        let now = now_millis();
+        match task.task_type {
+            WorkspaceTaskType::Thread => {
+                self.seed_failed_review_follow_up_thread(task, feedback, now)
+                    .await?;
+            }
+            WorkspaceTaskType::Goal => {
+                if let Some(assignee) = task.assignee.as_ref() {
+                    let goal_run_id = self.queue_workspace_goal_run(task, assignee, now).await?;
+                    task.goal_run_id = Some(goal_run_id);
+                }
+            }
+        }
+        upsert_workspace_runtime_history_entry(
+            task,
+            WorkspaceTaskRuntimeHistoryEntry {
+                task_type: task.task_type.clone(),
+                thread_id: task.thread_id.clone(),
+                goal_run_id: task.goal_run_id.clone(),
+                agent_task_id: None,
+                source: Some("workspace_runtime".to_string()),
+                title: Some(task.title.clone()),
+                review_path: None,
+                review_feedback: Some(feedback.to_string()),
+                archived_at: now,
+            },
+        );
+        Ok(())
+    }
+
+    async fn seed_failed_review_follow_up_thread(
+        &self,
+        task: &WorkspaceTask,
+        feedback: &str,
+        now: u64,
+    ) -> Result<()> {
+        let Some(thread_id) = task.thread_id.as_deref() else {
+            return Ok(());
+        };
+        let target = task.assignee.as_ref().and_then(actor_target);
+        let prompt = format!(
+            "{}\n\nReview verdict: fail\n\nReviewer feedback:\n{}",
+            task_run_prompt(task),
+            feedback
+        );
+        let (thread_id, _) = self
+            .get_or_create_thread_with_target(Some(thread_id), &task.title, target.as_deref())
+            .await;
+        {
+            let mut threads = self.threads.write().await;
+            if let Some(thread) = threads.get_mut(&thread_id) {
+                thread.messages.push(AgentMessage::user(prompt, now));
+                thread.updated_at = now;
+            }
+        }
+        self.persist_thread_by_id(&thread_id).await;
+        Ok(())
     }
 
     async fn prepare_failed_review_rerun_task(

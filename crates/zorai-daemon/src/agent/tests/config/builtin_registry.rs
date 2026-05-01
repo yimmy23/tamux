@@ -39,6 +39,9 @@ fn sub_agent_definition_roundtrip_preserves_builtin_metadata_and_reasoning_effor
         delete_allowed: false,
         protected_reason: Some("Daemon-owned WELES registry entry".to_string()),
         reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 1_712_000_000,
     };
 
@@ -331,6 +334,9 @@ async fn set_sub_agent_rejects_minimal_weles_override_payload_without_protection
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("high".to_string()),
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
         created_at: 0,
     };
 

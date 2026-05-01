@@ -160,7 +160,12 @@ assert(
 const customModelDaemonConfig = buildDaemonAgentConfig({
   ...DEFAULT_AGENT_SETTINGS,
   active_provider: "openrouter",
-  openrouter: customModelProviderConfig,
+  openrouter: {
+    ...customModelProviderConfig,
+    openrouter_provider_order: ["anthropic", "openai"],
+    openrouter_provider_ignore: ["deepinfra"],
+    openrouter_allow_fallbacks: false,
+  },
 });
 
 assert(
@@ -171,6 +176,21 @@ assert(
 assert(
   customModelDaemonConfig.providers?.openrouter?.context_window_tokens === 333_000,
   "Provider config should preserve the custom-model context window override",
+);
+
+assert(
+  JSON.stringify(customModelDaemonConfig.providers?.openrouter?.openrouter_provider_order) === JSON.stringify(["anthropic", "openai"]),
+  "Provider config should serialize preferred OpenRouter provider order",
+);
+
+assert(
+  JSON.stringify(customModelDaemonConfig.providers?.openrouter?.openrouter_provider_ignore) === JSON.stringify(["deepinfra"]),
+  "Provider config should serialize excluded OpenRouter providers",
+);
+
+assert(
+  customModelDaemonConfig.providers?.openrouter?.openrouter_allow_fallbacks === false,
+  "Provider config should serialize strict OpenRouter fallback settings",
 );
 
 const namedKnownModelConfig = {

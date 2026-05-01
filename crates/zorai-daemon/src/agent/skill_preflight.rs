@@ -3,6 +3,7 @@
 use super::*;
 use crate::agent::types::SkillRecommendationConfig;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 #[cfg(test)]
@@ -252,10 +253,11 @@ impl AgentEngine {
         cursor: Option<&str>,
     ) -> Result<zorai_protocol::SkillDiscoveryResultPublic> {
         let guidelines_root = super::guidelines_dir(self.history.data_dir());
-        let context_tags = resolve_skill_context_tags(
+        let context_tags = resolve_skill_discovery_context_tags(
             self.workspace_root.as_ref(),
             &self.session_manager,
             session_id,
+            self.plugin_manager.get().map(|manager| manager.as_ref()),
         )
         .await;
         let cfg = self.config.read().await.skill_recommendation.clone();
@@ -302,10 +304,11 @@ impl AgentEngine {
             }
         }
 
-        let context_tags = resolve_skill_context_tags(
+        let context_tags = resolve_skill_discovery_context_tags(
             self.workspace_root.as_ref(),
             &self.session_manager,
             session_id,
+            self.plugin_manager.get().map(|manager| manager.as_ref()),
         )
         .await;
         let cfg = self.config.read().await.skill_recommendation.clone();
@@ -498,10 +501,11 @@ impl AgentEngine {
         limit: usize,
     ) -> Result<SkillDiscoveryComputation> {
         let skills_root = self.history.data_dir().to_path_buf();
-        let context_tags = resolve_skill_context_tags(
+        let context_tags = resolve_skill_discovery_context_tags(
             self.workspace_root.as_ref(),
             &self.session_manager,
             session_id,
+            self.plugin_manager.get().map(|manager| manager.as_ref()),
         )
         .await;
         let cfg = self.config.read().await.skill_recommendation.clone();
@@ -997,10 +1001,11 @@ struct SkillDiscoveryComputation {
     mesh_degraded: bool,
 }
 
-async fn resolve_skill_context_tags(
+async fn resolve_skill_discovery_context_tags(
     workspace_root: Option<&PathBuf>,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
+    plugin_manager: Option<&crate::plugin::PluginManager>,
 ) -> Vec<String> {
     let root = if let Some(session_id) = session_id {
         let sessions = session_manager.list().await;
@@ -1015,9 +1020,39 @@ async fn resolve_skill_context_tags(
     .or_else(|| workspace_root.cloned())
     .or_else(|| std::env::current_dir().ok());
 
-    root.filter(|path| path.is_dir())
+    let mut tags = root
+        .filter(|path| path.is_dir())
         .map(|path| super::semantic_env::infer_workspace_context_tags(&path))
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    if let Some(plugin_manager) = plugin_manager {
+        let plugins = plugin_manager.list_plugins().await;
+        let mut tag_set = tags
+            .into_iter()
+            .map(|tag| tag.to_ascii_lowercase())
+            .collect::<BTreeSet<_>>();
+        for plugin in plugins {
+            if plugin.readiness_state == "ready" || plugin.readiness_state == "degraded" {
+                if let Some(kind) = plugin.connector_kind.as_deref() {
+                    tag_set.insert(kind.to_ascii_lowercase());
+                }
+                if let Some(category) = plugin.connector_category.as_deref() {
+                    tag_set.insert(category.to_ascii_lowercase());
+                }
+            }
+        }
+        tags = tag_set.into_iter().collect();
+    }
+
+    tags
+}
+
+pub(crate) async fn resolve_skill_context_tags(
+    workspace_root: Option<&PathBuf>,
+    session_manager: &Arc<SessionManager>,
+    session_id: Option<SessionId>,
+) -> Vec<String> {
+    resolve_skill_discovery_context_tags(workspace_root, session_manager, session_id, None).await
 }
 
 fn should_attempt_query_normalization(

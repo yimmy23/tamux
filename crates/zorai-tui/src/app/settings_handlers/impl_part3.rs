@@ -163,19 +163,19 @@ impl TuiModel {
                 }
                 KeyCode::Up => {
                     if let Some(editor) = self.subagents.editor.as_mut() {
-                        editor.field = editor.field.prev();
+                        editor.field = editor.field.prev_for_provider(&editor.provider);
                     }
                     true
                 }
                 KeyCode::Down | KeyCode::Tab => {
                     if let Some(editor) = self.subagents.editor.as_mut() {
-                        editor.field = editor.field.next();
+                        editor.field = editor.field.next_for_provider(&editor.provider);
                     }
                     true
                 }
                 KeyCode::BackTab => {
                     if let Some(editor) = self.subagents.editor.as_mut() {
-                        editor.field = editor.field.prev();
+                        editor.field = editor.field.prev_for_provider(&editor.provider);
                     }
                     true
                 }
@@ -211,6 +211,22 @@ impl TuiModel {
                         }
                         crate::state::subagents::SubAgentEditorField::Model => {
                             self.open_subagent_model_picker();
+                        }
+                        crate::state::subagents::SubAgentEditorField::OpenRouterProviderOrder => {
+                            self.open_subagent_openrouter_provider_picker(
+                                SettingsPickerTarget::SubAgentOpenRouterPreferredProviders,
+                            );
+                        }
+                        crate::state::subagents::SubAgentEditorField::OpenRouterProviderIgnore => {
+                            self.open_subagent_openrouter_provider_picker(
+                                SettingsPickerTarget::SubAgentOpenRouterExcludedProviders,
+                            );
+                        }
+                        crate::state::subagents::SubAgentEditorField::OpenRouterAllowFallbacks => {
+                            if let Some(editor) = self.subagents.editor.as_mut() {
+                                editor.openrouter_allow_fallbacks =
+                                    !editor.openrouter_allow_fallbacks;
+                            }
                         }
                         crate::state::subagents::SubAgentEditorField::ReasoningEffort => {
                             self.open_subagent_effort_picker();

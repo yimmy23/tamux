@@ -448,6 +448,9 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
     auth_source?: string;
     api_transport?: string;
     context_window_tokens?: number;
+    openrouter_provider_order?: string[];
+    openrouter_provider_ignore?: string[];
+    openrouter_allow_fallbacks?: boolean | null;
   }>;
   tools?: {
     bash?: boolean;
@@ -526,6 +529,12 @@ function providerConfigFromRaw(
       typeof providerMapValue?.context_window_tokens === "number"
         ? providerMapValue.context_window_tokens
         : flatValue?.context_window_tokens,
+    openrouter_provider_order:
+      providerMapValue?.openrouter_provider_order ?? flatValue?.openrouter_provider_order,
+    openrouter_provider_ignore:
+      providerMapValue?.openrouter_provider_ignore ?? flatValue?.openrouter_provider_ignore,
+    openrouter_allow_fallbacks:
+      providerMapValue?.openrouter_allow_fallbacks ?? flatValue?.openrouter_allow_fallbacks,
   };
   return normalizeProviderConfig(providerId, fallback, mergedValue);
 }

@@ -1,8 +1,8 @@
 {
   "name": "gitlab",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "schema_version": 1,
-  "description": "GitLab integration — fetch project details, issues, and merge requests through the plugin API proxy",
+  "description": "GitLab integration \u2014 fetch project details, issues, and merge requests through the plugin API proxy",
   "author": "zorai",
   "license": "MIT",
   "zorai_version": ">=2.0.0",
@@ -32,7 +32,7 @@
         "headers": {
           "PRIVATE-TOKEN": "{{settings.token}}"
         },
-        "response_template": "## Issues\n\n{{#each this}}- #{{iid}} {{title}} ({{state}}) — {{web_url}}\n{{/each}}"
+        "response_template": "## Issues\n\n{{#each this}}- #{{iid}} {{title}} ({{state}}) \u2014 {{web_url}}\n{{/each}}"
       },
       "list_merge_requests": {
         "method": "GET",
@@ -40,7 +40,119 @@
         "headers": {
           "PRIVATE-TOKEN": "{{settings.token}}"
         },
-        "response_template": "## Merge Requests\n\n{{#each this}}- !{{iid}} {{title}} ({{state}}) — {{web_url}}\n{{/each}}"
+        "response_template": "## Merge Requests\n\n{{#each this}}- !{{iid}} {{title}} ({{state}}) \u2014 {{web_url}}\n{{/each}}"
+      },
+      "get_issue": {
+        "method": "GET",
+        "path": "/api/v4/projects/{{urlencode params.project}}/issues/{{params.iid}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "## Issue !{{iid}} {{title}}\n\n- State: {{state}}\n- Assignees: {{#each assignees}}{{username}}{{#unless @last}}, {{/unless}}{{/each}}\n- Labels: {{#each labels}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}\n- URL: {{web_url}}\n\n{{description}}"
+      },
+      "get_merge_request": {
+        "method": "GET",
+        "path": "/api/v4/projects/{{urlencode params.project}}/merge_requests/{{params.iid}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "## Merge Request !{{iid}} {{title}}\n\n- State: {{state}}\n- Draft: {{draft}}\n- Source: {{source_branch}}\n- Target: {{target_branch}}\n- URL: {{web_url}}\n\n{{description}}"
+      },
+      "list_work_items": {
+        "method": "GET",
+        "path": "/api/v4/projects/{{urlencode params.project}}/issues?state={{default params.state \"opened\"}}&per_page={{default params.per_page \"20\"}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "## Work Items\n\n{{#each this}}- #{{iid}} {{title}} ({{state}}) \u2014 {{web_url}}\n{{/each}}"
+      },
+      "fetch_work_item_context": {
+        "method": "GET",
+        "path": "/api/v4/projects/{{urlencode params.project}}/issues/{{params.iid}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "## Work Item #{{iid}} {{title}}\n\n- State: {{state}}\n- Labels: {{#each labels}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}\n- URL: {{web_url}}\n\n{{description}}"
+      },
+      "comment_on_work_item": {
+        "method": "POST",
+        "path": "/api/v4/projects/{{urlencode params.project}}/issues/{{params.iid}}/notes",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "body": "{{params.body}}"
+        },
+        "response_template": "Comment created: {{web_url}}"
+      },
+      "assign_work_item": {
+        "method": "PUT",
+        "path": "/api/v4/projects/{{urlencode params.project}}/issues/{{params.iid}}?assignee_ids={{params.assignee_id}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "Issue !{{iid}} assignee updated."
+      },
+      "label_work_item": {
+        "method": "PUT",
+        "path": "/api/v4/projects/{{urlencode params.project}}/issues/{{params.iid}}?add_labels={{urlencode params.label}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "Issue !{{iid}} labels: {{#each labels}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}"
+      },
+      "update_work_item_status": {
+        "method": "PUT",
+        "path": "/api/v4/projects/{{urlencode params.project}}/issues/{{params.iid}}?state_event={{default params.state_event \"close\"}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "Issue !{{iid}} is now {{state}}."
+      },
+      "list_review_items": {
+        "method": "GET",
+        "path": "/api/v4/projects/{{urlencode params.project}}/merge_requests?state={{default params.state \"opened\"}}&per_page={{default params.per_page \"20\"}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "## Review Items\n\n{{#each this}}- !{{iid}} {{title}} ({{state}}) \u2014 {{web_url}}\n{{/each}}"
+      },
+      "fetch_review_context": {
+        "method": "GET",
+        "path": "/api/v4/projects/{{urlencode params.project}}/merge_requests/{{params.iid}}",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "## Review Item !{{iid}} {{title}}\n\n- State: {{state}}\n- Draft: {{draft}}\n- Source: {{source_branch}}\n- Target: {{target_branch}}\n- URL: {{web_url}}\n\n{{description}}"
+      },
+      "comment_on_review_item": {
+        "method": "POST",
+        "path": "/api/v4/projects/{{urlencode params.project}}/merge_requests/{{params.iid}}/notes",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "body": "{{params.body}}"
+        },
+        "response_template": "Review note created: {{web_url}}"
+      },
+      "merge_review_item": {
+        "method": "PUT",
+        "path": "/api/v4/projects/{{urlencode params.project}}/merge_requests/{{params.iid}}/merge",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "Merge request !{{iid}} merged."
+      },
+      "check_health": {
+        "method": "GET",
+        "path": "/api/v4/user",
+        "headers": {
+          "PRIVATE-TOKEN": "{{settings.token}}"
+        },
+        "response_template": "GitLab API reachable as {{username}}."
       }
     },
     "rate_limit": {
@@ -59,9 +171,71 @@
     "mrs": {
       "description": "List GitLab merge requests for a project",
       "action": "list_merge_requests"
+    },
+    "issue": {
+      "description": "Fetch GitLab issue details",
+      "action": "fetch_work_item_context"
+    },
+    "comment": {
+      "description": "Comment on a GitLab issue or MR",
+      "action": "comment_on_work_item"
+    },
+    "assign": {
+      "description": "Assign a GitLab issue",
+      "action": "assign_work_item"
+    },
+    "label": {
+      "description": "Add a label to a GitLab issue",
+      "action": "label_work_item"
+    },
+    "status": {
+      "description": "Update GitLab issue status",
+      "action": "update_work_item_status"
+    },
+    "mr": {
+      "description": "Fetch GitLab merge request details",
+      "action": "fetch_review_context"
+    },
+    "merge": {
+      "description": "Merge a GitLab merge request",
+      "action": "merge_review_item"
     }
   },
   "skills": [
     "skills/gitlab.md"
-  ]
+  ],
+  "connector": {
+    "kind": "gitlab",
+    "category": "repo",
+    "setup_hint": "Add a GitLab personal access token with API scope in plugin settings.",
+    "docs_path": "plugins/zorai-plugin-gitlab/README.md",
+    "workflow_primitives": [
+      "list_work_items",
+      "fetch_work_item_context",
+      "comment_on_work_item",
+      "assign_work_item",
+      "label_work_item",
+      "update_work_item_status",
+      "list_review_items",
+      "fetch_review_context",
+      "comment_on_review_item",
+      "merge_review_item"
+    ],
+    "read_actions": [
+      "get_repo",
+      "list_issues",
+      "get_issue",
+      "list_merge_requests",
+      "get_merge_request"
+    ],
+    "write_actions": [
+      "comment_on_work_item",
+      "assign_work_item",
+      "label_work_item",
+      "update_work_item_status",
+      "comment_on_review_item",
+      "merge_review_item"
+    ],
+    "readiness_endpoint": "check_health"
+  }
 }

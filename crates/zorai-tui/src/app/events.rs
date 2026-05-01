@@ -304,6 +304,7 @@ impl TuiModel {
                     .as_deref()
                     .is_some_and(|thread_id| {
                         !self.missing_runtime_thread_ids.contains(thread_id)
+                            && !self.empty_hydrated_runtime_thread_ids.contains(thread_id)
                             && self.chat.active_thread_id() == Some(thread_id)
                             && self
                                 .chat

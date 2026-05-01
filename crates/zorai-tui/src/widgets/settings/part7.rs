@@ -158,6 +158,61 @@ fn render_concierge_tab<'a>(
         ]));
     }
 
+    if concierge.provider.as_deref() == Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER) {
+        let openrouter_fields = [
+            (
+                5,
+                "OR Prefer:   ",
+                if concierge.openrouter_provider_order.trim().is_empty() {
+                    "(none)".to_string()
+                } else {
+                    concierge.openrouter_provider_order.clone()
+                },
+            ),
+            (
+                6,
+                "OR Exclude:  ",
+                if concierge.openrouter_provider_ignore.trim().is_empty() {
+                    "(none)".to_string()
+                } else {
+                    concierge.openrouter_provider_ignore.clone()
+                },
+            ),
+            (
+                7,
+                "OR Fallback: ",
+                if concierge.openrouter_allow_fallbacks {
+                    "allowed".to_string()
+                } else {
+                    "strict".to_string()
+                },
+            ),
+        ];
+        for (idx, label, value) in openrouter_fields {
+            let is_selected = settings.field_cursor() == idx;
+            let marker = if is_selected { "> " } else { "  " };
+            lines.push(Line::from(vec![
+                Span::styled(
+                    marker,
+                    if is_selected {
+                        theme.fg_active
+                    } else {
+                        theme.fg_dim
+                    },
+                ),
+                Span::styled(label, theme.fg_dim),
+                Span::styled(
+                    value,
+                    if is_selected {
+                        theme.fg_active
+                    } else {
+                        theme.fg_dim
+                    },
+                ),
+            ]));
+        }
+    }
+
     lines
 }
 

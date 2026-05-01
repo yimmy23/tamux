@@ -32,9 +32,17 @@ struct GoalRoutinePlan {
 }
 
 #[derive(Debug, Clone)]
+struct ToolRoutinePlan {
+    tool_name: String,
+    tool_args: Value,
+    thread_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 enum RoutineExecutionTarget {
     Task(TaskRoutinePlan),
     Goal(GoalRoutinePlan),
+    Tool(ToolRoutinePlan),
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +59,7 @@ struct RoutineExecutionOutcome {
     run: crate::history::RoutineRunRow,
     task: Option<AgentTask>,
     goal_run: Option<GoalRun>,
+    tool_result: Option<Value>,
 }
 
 fn next_routine_run_at(schedule_expression: &str, after_ms: u64) -> Option<u64> {
@@ -471,6 +480,54 @@ fn build_goal_execution_plan(row_title: &str, payload: &Value) -> Result<Routine
     })
 }
 
+fn build_tool_execution_plan(payload: &Value) -> Result<RoutineExecutionPlan> {
+    let payload = payload
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("'target_payload' must be an object for tool routines"))?;
+    let payload = Value::Object(payload.clone());
+
+    let tool_name = trimmed_string(payload.get("tool_name"))
+        .ok_or_else(|| anyhow::anyhow!("tool routines require 'target_payload.tool_name'"))?;
+    let tool_args = payload
+        .get("args")
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Default::default()));
+    if !tool_args.is_object() {
+        anyhow::bail!("'target_payload.args' must be an object for tool routines");
+    }
+    let thread_id = trimmed_string(payload.get("thread_id"));
+
+    let materialized_payload = serde_json::json!({
+        "tool_name": tool_name,
+        "args": tool_args,
+        "thread_id": thread_id,
+    });
+
+    Ok(RoutineExecutionPlan {
+        target_kind: "tool".to_string(),
+        delivery_fan_out: serde_json::json!({
+            "kind": "tool_execution",
+            "channels": ["in-app"],
+            "channel_count": 1,
+            "notify_on_complete": false,
+        }),
+        approval_posture: serde_json::json!({
+            "kind": "tool_execution",
+            "requires_approval": false,
+            "summary": "Routine-backed tool execution reuses normal tool governance; downstream tool calls may still request approval.",
+        }),
+        execution_target: RoutineExecutionTarget::Tool(ToolRoutinePlan {
+            tool_name: materialized_payload["tool_name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            tool_args: materialized_payload["args"].clone(),
+            thread_id,
+        }),
+        materialized_payload,
+    })
+}
+
 fn build_execution_plan_from_payload(
     routine_id: &str,
     row_title: &str,
@@ -481,9 +538,7 @@ fn build_execution_plan_from_payload(
     match target_kind {
         "task" => build_task_execution_plan(routine_id, row_title, row_description, payload),
         "goal" => build_goal_execution_plan(row_title, payload),
-        "tool" => anyhow::bail!(
-            "target_kind 'tool' is reserved but not yet supported for routine execution"
-        ),
+        "tool" => build_tool_execution_plan(payload),
         other => anyhow::bail!("unsupported target kind '{other}'"),
     }
 }
@@ -597,6 +652,7 @@ impl AgentEngine {
         snapshot: Value,
         task: Option<&AgentTask>,
         goal_run: Option<&GoalRun>,
+        tool_result_summary: Option<String>,
         error: Option<String>,
         advance_schedule: bool,
     ) -> Result<crate::history::RoutineRunRow> {
@@ -609,6 +665,8 @@ impl AgentEngine {
                 "Started goal run {} ({})",
                 goal_run.id, goal_run.title
             ))
+        } else if let Some(summary) = tool_result_summary.clone() {
+            Some(summary)
         } else {
             None
         };
@@ -675,60 +733,148 @@ impl AgentEngine {
         advance_schedule: bool,
     ) -> Result<RoutineExecutionOutcome> {
         let started_at = now_millis();
+
+        // Proactive browser profile repair alert: scan for unhealthy profiles
+        // before executing the routine so the operator can see repair-needed
+        // state before an automated workflow tries to use a broken profile.
+        // First, run expiry detection to auto-classify any expired/stale profiles.
+        if let Ok(reclassified) = self
+            .history
+            .detect_and_classify_expired_profiles(now_millis())
+            .await
+        {
+            if !reclassified.is_empty() {
+                let reclassified_list = reclassified
+                    .iter()
+                    .map(|(pid, old, new, reason)| format!("  - {pid}: {old} → {new} ({reason})"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                self.emit_workflow_notice(
+                    "system",
+                    "browser_profile_expiry_detected",
+                    format!(
+                        "Expiry detection reclassified {} browser profile(s)",
+                        reclassified.len()
+                    ),
+                    Some(format!(
+                        "Browser profiles automatically reclassified:\n{}\n\nThese profiles may need repair/re-auth before use.",
+                        reclassified_list
+                    )),
+                );
+            }
+        }
+
+        if let Ok(profiles) = self.history.list_browser_profiles().await {
+            let unhealthy: Vec<_> = profiles
+                .iter()
+                .filter(|p| p.health_state != "healthy")
+                .collect();
+            if !unhealthy.is_empty() {
+                let profile_list = unhealthy
+                    .iter()
+                    .map(|p| format!("  - {} ({}) → {}", p.label, p.profile_id, p.health_state))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                self.emit_workflow_notice(
+                    "system",
+                    "browser_profile_unhealthy_before_routine",
+                    format!(
+                        "Routine '{}' is about to execute but {} browser profile(s) are not healthy",
+                        row.title,
+                        unhealthy.len()
+                    ),
+                    Some(format!(
+                        "Unhealthy browser profiles detected before routine execution:\n{}\n\nConsider repairing these profiles before the routine runs.",
+                        profile_list
+                    )),
+                );
+            }
+        }
+
         let snapshot = routine_snapshot_json(&plan);
 
-        let execution_result: Result<(Option<AgentTask>, Option<GoalRun>)> =
-            match plan.execution_target {
-                RoutineExecutionTarget::Task(task_plan) => {
-                    let task = self
-                        .enqueue_task(
-                            task_plan.title,
-                            task_plan.description,
-                            &task_plan.priority,
-                            task_plan.command,
-                            task_plan.session_id,
-                            task_plan.dependencies,
-                            None,
-                            &format!("routine:{}", row.id),
-                            None,
-                            None,
-                            None,
-                            task_plan.runtime,
-                        )
-                        .await;
-                    let task = self
-                        .apply_materialized_task_notification_preferences(
-                            &task.id,
-                            Some(task_plan.notify_on_complete),
-                            Some(task_plan.notify_channels),
-                        )
-                        .await
-                        .unwrap_or(task);
-                    Ok((Some(task), None))
+        let execution_result: Result<(
+            Option<AgentTask>,
+            Option<GoalRun>,
+            Option<Value>,
+            Option<String>,
+        )> = match plan.execution_target {
+            RoutineExecutionTarget::Task(task_plan) => {
+                let task = self
+                    .enqueue_task(
+                        task_plan.title,
+                        task_plan.description,
+                        &task_plan.priority,
+                        task_plan.command,
+                        task_plan.session_id,
+                        task_plan.dependencies,
+                        None,
+                        &format!("routine:{}", row.id),
+                        None,
+                        None,
+                        None,
+                        task_plan.runtime,
+                    )
+                    .await;
+                let task = self
+                    .apply_materialized_task_notification_preferences(
+                        &task.id,
+                        Some(task_plan.notify_on_complete),
+                        Some(task_plan.notify_channels),
+                    )
+                    .await
+                    .unwrap_or(task);
+                Ok((Some(task), None, None, None))
+            }
+            RoutineExecutionTarget::Goal(goal_plan) => {
+                let goal_run = self
+                    .start_goal_run_with_surface_and_approval_policy(
+                        goal_plan.goal,
+                        goal_plan.title,
+                        goal_plan.thread_id,
+                        goal_plan.session_id,
+                        Some(goal_plan.priority.as_str()),
+                        None,
+                        goal_plan.autonomy_level,
+                        None,
+                        goal_plan.requires_approval,
+                        goal_plan.launch_assignments,
+                    )
+                    .await;
+                Ok((None, Some(goal_run), None, None))
+            }
+            RoutineExecutionTarget::Tool(tool_plan) => match tool_plan.tool_name.as_str() {
+                "run_workflow_pack" => {
+                    let thread_id = tool_plan.thread_id.as_deref().unwrap_or("system");
+                    let execution = self
+                        .run_workflow_pack_json(&tool_plan.tool_args, Some(thread_id), None)
+                        .await?;
+                    if let Some(pending_approval) = execution.pending_approval.as_ref() {
+                        self.record_operator_approval_requested(pending_approval)
+                            .await?;
+                    }
+                    let summary = Some(format!(
+                        "Executed tool run_workflow_pack for {}",
+                        execution
+                            .payload
+                            .get("pack_name")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("workflow pack")
+                    ));
+                    Ok((None, None, Some(execution.payload), summary))
                 }
-                RoutineExecutionTarget::Goal(goal_plan) => {
-                    let goal_run = self
-                        .start_goal_run_with_surface_and_approval_policy(
-                            goal_plan.goal,
-                            goal_plan.title,
-                            goal_plan.thread_id,
-                            goal_plan.session_id,
-                            Some(goal_plan.priority.as_str()),
-                            None,
-                            goal_plan.autonomy_level,
-                            None,
-                            goal_plan.requires_approval,
-                            goal_plan.launch_assignments,
-                        )
-                        .await;
-                    Ok((None, Some(goal_run)))
-                }
-            };
+                other => anyhow::bail!(
+                    "routine tool target `{other}` is not supported; use run_workflow_pack"
+                ),
+            },
+        };
 
         let finished_at = now_millis();
-        let (task, goal_run, error) = match execution_result {
-            Ok((task, goal_run)) => (task, goal_run, None),
-            Err(error) => (None, None, Some(error.to_string())),
+        let (task, goal_run, tool_result, tool_result_summary, error) = match execution_result {
+            Ok((task, goal_run, tool_result, tool_result_summary)) => {
+                (task, goal_run, tool_result, tool_result_summary, None)
+            }
+            Err(error) => (None, None, None, None, Some(error.to_string())),
         };
         let run = self
             .persist_routine_run_outcome(
@@ -740,6 +886,7 @@ impl AgentEngine {
                 snapshot,
                 task.as_ref(),
                 goal_run.as_ref(),
+                tool_result_summary,
                 error,
                 advance_schedule,
             )
@@ -749,6 +896,7 @@ impl AgentEngine {
             run,
             task,
             goal_run,
+            tool_result,
         })
     }
 
@@ -788,6 +936,7 @@ impl AgentEngine {
                         snapshot,
                         None,
                         None,
+                        None,
                         Some(error.to_string()),
                         advance_schedule,
                     )
@@ -796,6 +945,7 @@ impl AgentEngine {
                     run,
                     task: None,
                     goal_run: None,
+                    tool_result: None,
                 })
             }
         }
@@ -1054,6 +1204,7 @@ impl AgentEngine {
             "run": routine_run_row_json(&outcome.run),
             "created_task": outcome.task,
             "created_goal_run": outcome.goal_run,
+            "tool_result": outcome.tool_result,
         }))
     }
 
@@ -1106,6 +1257,7 @@ impl AgentEngine {
             "rerun_of": routine_run_row_json(&prior_run),
             "created_task": outcome.task,
             "created_goal_run": outcome.goal_run,
+            "tool_result": outcome.tool_result,
         }))
     }
 

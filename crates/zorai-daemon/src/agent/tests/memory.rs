@@ -325,3 +325,30 @@ async fn persona_scope_loads_local_memory_and_shared_user() -> Result<()> {
     let _ = history;
     Ok(())
 }
+
+#[tokio::test]
+async fn custom_agent_scope_uses_legacy_agent_mission_persona_dir() -> Result<()> {
+    let root = std::env::temp_dir().join(format!("zorai-memory-test-{}", Uuid::new_v4()));
+    let agent_data_dir = root.join("agent");
+    let legacy_memory_dir = root.join("agent-mission");
+    tokio::fs::create_dir_all(&legacy_memory_dir).await?;
+    tokio::fs::write(legacy_memory_dir.join("SOUL.md"), "# Identity\nSvarog\n").await?;
+    tokio::fs::write(legacy_memory_dir.join("MEMORY.md"), "# Memory\nmain\n").await?;
+    tokio::fs::write(legacy_memory_dir.join("USER.md"), "# User\nshared\n").await?;
+
+    let custom_paths = memory_paths_for_scope(&agent_data_dir, "dola");
+    assert_eq!(
+        custom_paths.memory_dir,
+        legacy_memory_dir.join("personas/dola")
+    );
+    assert_eq!(custom_paths.user_path, legacy_memory_dir.join("USER.md"));
+
+    ensure_memory_files_for_scope(&agent_data_dir, "dola").await?;
+    let custom_soul = tokio::fs::read_to_string(&custom_paths.soul_path).await?;
+    assert!(custom_soul.contains("I'm dola"), "{custom_soul}");
+    assert!(!custom_soul.contains("I'm Svarog"), "{custom_soul}");
+    assert!(tokio::fs::try_exists(custom_paths.memory_path).await?);
+    assert!(tokio::fs::try_exists(custom_paths.soul_path).await?);
+
+    Ok(())
+}

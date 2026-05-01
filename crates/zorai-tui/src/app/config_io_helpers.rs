@@ -1,5 +1,5 @@
 use super::*;
-use zorai_shared::providers::PROVIDER_ID_CUSTOM;
+use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENROUTER};
 
 pub(super) fn normalize_provider_auth_source(provider_id: &str, auth_source: &str) -> String {
     if providers::supported_auth_sources_for(provider_id).contains(&auth_source) {
@@ -22,6 +22,43 @@ pub(super) fn normalize_compliance_mode(mode: &str) -> String {
         "standard" | "soc2" | "hipaa" | "fedramp" => mode.to_string(),
         _ => "standard".to_string(),
     }
+}
+
+pub(super) fn split_openrouter_provider_list(value: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in value.split(',') {
+        let trimmed = item.trim();
+        if trimmed.is_empty() || out.iter().any(|existing| existing == trimmed) {
+            continue;
+        }
+        out.push(trimmed.to_string());
+    }
+    out
+}
+
+pub(super) fn openrouter_provider_list_value(
+    provider_value: &serde_json::Value,
+    key: &str,
+) -> String {
+    provider_value
+        .get(key)
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .or_else(|| {
+            provider_value
+                .get(key)
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
 }
 
 fn escape_pointer_segment(segment: &str) -> String {
@@ -144,7 +181,7 @@ impl TuiModel {
 
     pub(in super::super) fn provider_config_value(&self, provider_id: &str) -> serde_json::Value {
         if provider_id == self.config.provider {
-            return serde_json::json!({
+            let mut value = serde_json::json!({
                 "base_url": &self.config.base_url,
                 "model": &self.config.model,
                 "custom_model_name": &self.config.custom_model_name,
@@ -154,6 +191,17 @@ impl TuiModel {
                 "auth_source": &self.config.auth_source,
                 "context_window_tokens": self.config.custom_context_window_tokens,
             });
+            if provider_id == PROVIDER_ID_OPENROUTER {
+                value["openrouter_provider_order"] = serde_json::json!(
+                    split_openrouter_provider_list(&self.config.openrouter_provider_order)
+                );
+                value["openrouter_provider_ignore"] = serde_json::json!(
+                    split_openrouter_provider_list(&self.config.openrouter_provider_ignore)
+                );
+                value["openrouter_allow_fallbacks"] =
+                    serde_json::Value::Bool(self.config.openrouter_allow_fallbacks);
+            }
+            return value;
         }
 
         if let Some(existing) = self
@@ -171,7 +219,7 @@ impl TuiModel {
         }
 
         let def = providers::find_by_id(provider_id);
-        serde_json::json!({
+        let mut value = serde_json::json!({
             "base_url": def.map(|entry| entry.default_base_url).unwrap_or(""),
             "model": def.map(|entry| entry.default_model).unwrap_or(""),
             "custom_model_name": "",
@@ -180,7 +228,13 @@ impl TuiModel {
             "api_transport": providers::default_transport_for(provider_id),
             "auth_source": providers::default_auth_source_for(provider_id),
             "context_window_tokens": if provider_id == PROVIDER_ID_CUSTOM { serde_json::Value::from(128_000u32) } else { serde_json::Value::Null },
-        })
+        });
+        if provider_id == PROVIDER_ID_OPENROUTER {
+            value["openrouter_provider_order"] = serde_json::json!([]);
+            value["openrouter_provider_ignore"] = serde_json::json!([]);
+            value["openrouter_allow_fallbacks"] = serde_json::Value::Bool(true);
+        }
+        value
     }
 
     pub(in super::super) fn provider_wire_config_value(
@@ -208,7 +262,7 @@ impl TuiModel {
             model,
             custom_model_name,
         );
-        serde_json::json!({
+        let mut value = serde_json::json!({
             "base_url": Self::provider_field_str(&ui_value, "base_url", "base_url").unwrap_or(""),
             "model": model,
             "custom_model_name": custom_model_name,
@@ -234,7 +288,49 @@ impl TuiModel {
                 )
                 .unwrap_or(128_000) as u64
             },
-        })
+        });
+        if provider_id == PROVIDER_ID_OPENROUTER {
+            let order_value =
+                openrouter_provider_list_value(&ui_value, "openrouter_provider_order");
+            let order_fallback = if self.config.provider == PROVIDER_ID_OPENROUTER {
+                self.config.openrouter_provider_order.as_str()
+            } else {
+                ""
+            };
+            let order_source = if order_value.is_empty() {
+                order_fallback
+            } else {
+                order_value.as_str()
+            };
+            let ignore_value =
+                openrouter_provider_list_value(&ui_value, "openrouter_provider_ignore");
+            let ignore_fallback = if self.config.provider == PROVIDER_ID_OPENROUTER {
+                self.config.openrouter_provider_ignore.as_str()
+            } else {
+                ""
+            };
+            let ignore_source = if ignore_value.is_empty() {
+                ignore_fallback
+            } else {
+                ignore_value.as_str()
+            };
+            value["openrouter_provider_order"] =
+                serde_json::json!(split_openrouter_provider_list(order_source));
+            value["openrouter_provider_ignore"] =
+                serde_json::json!(split_openrouter_provider_list(ignore_source));
+            value["openrouter_allow_fallbacks"] = ui_value
+                .get("openrouter_allow_fallbacks")
+                .and_then(|value| value.as_bool())
+                .map(serde_json::Value::Bool)
+                .unwrap_or(serde_json::Value::Bool(
+                    if self.config.provider == PROVIDER_ID_OPENROUTER {
+                        self.config.openrouter_allow_fallbacks
+                    } else {
+                        true
+                    },
+                ));
+        }
+        value
     }
 
     #[allow(dead_code)]

@@ -987,6 +987,21 @@ async fn execute_delete_routine(args: &serde_json::Value, agent: &AgentEngine) -
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
+async fn execute_run_workflow_pack(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<(String, Option<ToolPendingApproval>)> {
+    let execution = agent
+        .run_workflow_pack_json(args, Some(thread_id), task_id)
+        .await?;
+    Ok((
+        serde_json::to_string_pretty(&execution.payload).unwrap_or_else(|_| "{}".to_string()),
+        execution.pending_approval,
+    ))
+}
+
 async fn execute_whatsapp_link_start(
     _args: &serde_json::Value,
     agent: &AgentEngine,
@@ -1071,6 +1086,276 @@ async fn execute_ingest_webhook_event(
 async fn execute_add_trigger(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
     let payload = agent.add_event_trigger_from_args(args).await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_list_trigger_fire_history(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let trigger_id = args
+        .get("trigger_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let status = args
+        .get("status")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(20);
+
+    let rows = agent
+        .history
+        .list_trigger_fire_history(trigger_id, status, limit)
+        .await?;
+
+    let payload: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|row| {
+            serde_json::json!({
+                "id": row.id,
+                "trigger_id": row.trigger_id,
+                "event_family": row.event_family,
+                "event_kind": row.event_kind,
+                "status": row.status,
+                "fired_at_ms": row.fired_at_ms,
+                "completed_at_ms": row.completed_at_ms,
+                "retry_count": row.retry_count,
+                "error_message": row.error_message,
+                "created_task_id": row.created_task_id,
+                "notice_id": row.notice_id,
+                "payload_json": row.payload_json,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_get_cost_summary(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let window = args
+        .get("window")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let payload = agent.get_cost_summary_json(window).await?;
+    Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_list_browser_profiles(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let health_filter = args
+        .get("health_state")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let workspace_filter = args
+        .get("workspace_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let rows = agent.list_browser_profiles_with_current_health().await?;
+
+    let filtered: Vec<serde_json::Value> = rows
+        .into_iter()
+        .filter(|row| {
+            if let Some(hs) = health_filter {
+                if row.health_state != hs {
+                    return false;
+                }
+            }
+            if let Some(ws) = workspace_filter {
+                if row.workspace_id.as_deref() != Some(ws) {
+                    return false;
+                }
+            }
+            true
+        })
+        .map(|row| {
+            serde_json::json!({
+                "profile_id": row.profile_id,
+                "label": row.label,
+                "profile_dir": row.profile_dir,
+                "browser_kind": row.browser_kind,
+                "workspace_id": row.workspace_id,
+                "health_state": row.health_state,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+                "last_used_at": row.last_used_at,
+                "last_auth_success_at": row.last_auth_success_at,
+                "last_auth_failure_at": row.last_auth_failure_at,
+                "last_auth_failure_reason": row.last_auth_failure_reason,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::to_string_pretty(&filtered).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_create_browser_profile(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let profile_id = args
+        .get("profile_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'profile_id' argument"))?;
+
+    let label = args
+        .get("label")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'label' argument"))?;
+
+    let profile_dir = args
+        .get("profile_dir")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'profile_dir' argument"))?;
+
+    let browser_kind = args
+        .get("browser_kind")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let workspace_id = args
+        .get("workspace_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let now = crate::agent::now_millis();
+    let profile = crate::agent::types::BrowserProfile {
+        profile_id: profile_id.to_string(),
+        label: label.to_string(),
+        profile_dir: profile_dir.to_string(),
+        browser_kind,
+        workspace_id,
+        health_state: crate::agent::types::BrowserProfileHealth::Healthy,
+        created_at: now,
+        updated_at: now,
+        last_used_at: None,
+        last_auth_success_at: None,
+        last_auth_failure_at: None,
+        last_auth_failure_reason: None,
+    };
+
+    agent.history.upsert_browser_profile(&profile).await?;
+
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "profile_id": profile.profile_id,
+        "label": profile.label,
+        "profile_dir": profile.profile_dir,
+        "browser_kind": profile.browser_kind,
+        "workspace_id": profile.workspace_id,
+        "health_state": profile.health_state.as_str(),
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_update_browser_profile_health(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let profile_id = args
+        .get("profile_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'profile_id' argument"))?;
+
+    let health_state = args
+        .get("health_state")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'health_state' argument"))?;
+
+    let health = crate::agent::types::BrowserProfileHealth::from_str(health_state)
+        .ok_or_else(|| anyhow::anyhow!("invalid 'health_state': {health_state}"))?;
+
+    let now = crate::agent::now_millis();
+
+    let last_auth_success_at = args
+        .get("last_auth_success_at")
+        .and_then(|value| value.as_u64());
+
+    let last_auth_failure_at = args
+        .get("last_auth_failure_at")
+        .and_then(|value| value.as_u64());
+
+    let last_auth_failure_reason = args
+        .get("last_auth_failure_reason")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let mut row = agent
+        .history
+        .get_browser_profile(profile_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("browser profile not found: {profile_id}"))?;
+
+    row.health_state = health.as_str().to_string();
+    row.updated_at = now;
+    if last_auth_success_at.is_some() {
+        row.last_auth_success_at = last_auth_success_at;
+    }
+    if last_auth_failure_at.is_some() {
+        row.last_auth_failure_at = last_auth_failure_at;
+    }
+    if last_auth_failure_reason.is_some() {
+        row.last_auth_failure_reason = last_auth_failure_reason;
+    }
+
+    // Reconstruct a BrowserProfile from the row for upsert
+    let profile = crate::agent::types::BrowserProfile {
+        profile_id: row.profile_id.clone(),
+        label: row.label.clone(),
+        profile_dir: row.profile_dir.clone(),
+        browser_kind: row.browser_kind.clone(),
+        workspace_id: row.workspace_id.clone(),
+        health_state: health,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        last_used_at: row.last_used_at,
+        last_auth_success_at: row.last_auth_success_at,
+        last_auth_failure_at: row.last_auth_failure_at,
+        last_auth_failure_reason: row.last_auth_failure_reason.clone(),
+    };
+
+    agent.history.upsert_browser_profile(&profile).await?;
+
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "profile_id": profile.profile_id,
+        "label": profile.label,
+        "health_state": profile.health_state.as_str(),
+        "updated_at": profile.updated_at,
+        "last_auth_success_at": profile.last_auth_success_at,
+        "last_auth_failure_at": profile.last_auth_failure_at,
+        "last_auth_failure_reason": profile.last_auth_failure_reason,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
 }
 
 async fn execute_show_dreams(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {

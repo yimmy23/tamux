@@ -1,6 +1,40 @@
 use super::*;
 use crate::app::commands::GoalActionPickerItem;
-use zorai_shared::providers::{AudioToolKind, PROVIDER_ID_CUSTOM};
+use zorai_shared::providers::PROVIDER_ID_CUSTOM;
+
+fn split_openrouter_provider_csv(value: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in value.split(',') {
+        let trimmed = item.trim();
+        if trimmed.is_empty() || out.iter().any(|existing| existing == trimmed) {
+            continue;
+        }
+        out.push(trimmed.to_string());
+    }
+    out
+}
+
+fn join_openrouter_provider_csv(values: &[String]) -> String {
+    values.join(", ")
+}
+
+fn toggle_openrouter_provider_slug(value: &str, slug: &str) -> (String, bool) {
+    let mut values = split_openrouter_provider_csv(value);
+    if let Some(index) = values.iter().position(|item| item == slug) {
+        values.remove(index);
+        return (join_openrouter_provider_csv(&values), false);
+    }
+    values.push(slug.to_string());
+    (join_openrouter_provider_csv(&values), true)
+}
+
+fn remove_openrouter_provider_slug(value: &str, slug: &str) -> String {
+    let values = split_openrouter_provider_csv(value)
+        .into_iter()
+        .filter(|item| item != slug)
+        .collect::<Vec<_>>();
+    join_openrouter_provider_csv(&values)
+}
 
 pub(super) fn begin_custom_model_edit(model: &mut TuiModel) {
     let current = if model.config.custom_model_name.trim().is_empty()
@@ -235,6 +269,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         modal::ModalKind::WorkspacePicker => {
             model.submit_workspace_picker();
         }
+        modal::ModalKind::WorkspaceCreate => {
+            model.submit_workspace_create_workspace_modal();
+        }
         modal::ModalKind::WorkspaceCreateTask => {
             model.submit_workspace_create_modal();
         }
@@ -359,7 +396,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         modal::ModalKind::ProviderPicker => {
             if let Some(edit) = model.goal_mission_control.pending_runtime_edit.clone() {
                 let cursor = model.modal.picker_cursor();
-                let provider_defs = widgets::provider_picker::available_provider_defs(&model.auth);
+                let provider_defs = model.filtered_provider_picker_defs();
                 if let Some(def) = provider_defs.get(cursor) {
                     let next_provider = def.id.to_string();
                     let (_, _, auth_source) = model.provider_auth_snapshot(def.id);
@@ -388,27 +425,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 return;
             }
             let cursor = model.modal.picker_cursor();
-            let provider_defs = match model.settings_picker_target {
-                Some(SettingsPickerTarget::AudioSttProvider) => {
-                    widgets::provider_picker::available_audio_provider_defs(
-                        &model.auth,
-                        AudioToolKind::SpeechToText,
-                    )
-                }
-                Some(SettingsPickerTarget::AudioTtsProvider) => {
-                    widgets::provider_picker::available_audio_provider_defs(
-                        &model.auth,
-                        AudioToolKind::TextToSpeech,
-                    )
-                }
-                Some(SettingsPickerTarget::ImageGenerationProvider) => {
-                    widgets::provider_picker::available_provider_defs(&model.auth)
-                }
-                Some(SettingsPickerTarget::EmbeddingProvider) => {
-                    widgets::provider_picker::available_embedding_provider_defs(&model.auth)
-                }
-                _ => widgets::provider_picker::available_provider_defs(&model.auth),
-            };
+            let provider_defs = model.filtered_provider_picker_defs();
             if let Some(def) = provider_defs.get(cursor) {
                 match model
                     .settings_picker_target
@@ -579,6 +596,12 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     SettingsPickerTarget::SubAgentProvider => {
                         if let Some(editor) = model.subagents.editor.as_mut() {
                             editor.provider = def.id.to_string();
+                            if editor.provider != zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+                                editor.openrouter_provider_order.clear();
+                                editor.openrouter_provider_ignore.clear();
+                                editor.openrouter_allow_fallbacks = true;
+                                editor.field = editor.field.next_for_provider(&editor.provider);
+                            }
                             let default_model =
                                 providers::default_model_for_provider_auth(def.id, "api_key");
                             if editor.model.trim().is_empty()
@@ -593,6 +616,12 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     }
                     SettingsPickerTarget::ConciergeProvider => {
                         model.concierge.provider = Some(def.id.to_string());
+                        if def.id != zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+                            model.concierge.openrouter_provider_order.clear();
+                            model.concierge.openrouter_provider_ignore.clear();
+                            model.concierge.openrouter_allow_fallbacks = true;
+                            model.clamp_settings_cursor();
+                        }
                         let default_model =
                             providers::default_model_for_provider_auth(def.id, "api_key");
                         if model.concierge.model.as_deref().unwrap_or("").is_empty() {
@@ -615,7 +644,13 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     | SettingsPickerTarget::ConciergeModel
                     | SettingsPickerTarget::ConciergeReasoningEffort
                     | SettingsPickerTarget::CompactionWelesReasoningEffort
-                    | SettingsPickerTarget::CompactionCustomReasoningEffort => {}
+                    | SettingsPickerTarget::CompactionCustomReasoningEffort
+                    | SettingsPickerTarget::OpenRouterPreferredProviders
+                    | SettingsPickerTarget::OpenRouterExcludedProviders
+                    | SettingsPickerTarget::SubAgentOpenRouterPreferredProviders
+                    | SettingsPickerTarget::SubAgentOpenRouterExcludedProviders
+                    | SettingsPickerTarget::ConciergeOpenRouterPreferredProviders
+                    | SettingsPickerTarget::ConciergeOpenRouterExcludedProviders => {}
                 }
             } else {
                 model.status_line = "No authenticated providers available".to_string();
@@ -625,7 +660,10 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         }
         modal::ModalKind::ModelPicker => {
             if let Some(edit) = model.goal_mission_control.pending_runtime_edit.clone() {
-                let models = model.available_runtime_assignment_models();
+                let models = widgets::model_picker::filtered_models_for_selection(
+                    &model.available_runtime_assignment_models(),
+                    model.modal.command_query(),
+                );
                 let cursor = model.modal.picker_cursor();
                 if cursor == models.len() {
                     model.settings_picker_target = None;
@@ -653,7 +691,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 }
                 return;
             }
-            let models = model.available_model_picker_models();
+            let models = model.filtered_model_picker_models();
             let cursor = model.modal.picker_cursor();
             if cursor == models.len() {
                 let picker_target = model.settings_picker_target;
@@ -859,7 +897,13 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     | SettingsPickerTarget::ConciergeProvider
                     | SettingsPickerTarget::ConciergeReasoningEffort
                     | SettingsPickerTarget::CompactionWelesReasoningEffort
-                    | SettingsPickerTarget::CompactionCustomReasoningEffort => {}
+                    | SettingsPickerTarget::CompactionCustomReasoningEffort
+                    | SettingsPickerTarget::OpenRouterPreferredProviders
+                    | SettingsPickerTarget::OpenRouterExcludedProviders
+                    | SettingsPickerTarget::SubAgentOpenRouterPreferredProviders
+                    | SettingsPickerTarget::SubAgentOpenRouterExcludedProviders
+                    | SettingsPickerTarget::ConciergeOpenRouterPreferredProviders
+                    | SettingsPickerTarget::ConciergeOpenRouterExcludedProviders => {}
                 }
                 model.settings_picker_target = None;
                 model.close_top_modal();
@@ -870,6 +914,120 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             }
             model.settings_picker_target = None;
             model.close_top_modal();
+        }
+        modal::ModalKind::OpenRouterProviderPicker => {
+            let cursor = model.modal.picker_cursor();
+            let Some(slug) = model
+                .filtered_openrouter_endpoint_providers()
+                .get(cursor)
+                .map(|slug| (*slug).to_string())
+            else {
+                model.status_line = "No OpenRouter endpoint provider selected".to_string();
+                return;
+            };
+            match model.settings_picker_target {
+                Some(SettingsPickerTarget::OpenRouterPreferredProviders) => {
+                    let (next_order, added) = toggle_openrouter_provider_slug(
+                        &model.config.openrouter_provider_order,
+                        &slug,
+                    );
+                    model.config.openrouter_provider_order = next_order;
+                    if added {
+                        model.config.openrouter_provider_ignore = remove_openrouter_provider_slug(
+                            &model.config.openrouter_provider_ignore,
+                            &slug,
+                        );
+                    }
+                    model.status_line = format!("OpenRouter preferred provider toggled: {slug}");
+                    model.sync_config_to_daemon();
+                }
+                Some(SettingsPickerTarget::OpenRouterExcludedProviders) => {
+                    let (next_ignore, added) = toggle_openrouter_provider_slug(
+                        &model.config.openrouter_provider_ignore,
+                        &slug,
+                    );
+                    model.config.openrouter_provider_ignore = next_ignore;
+                    if added {
+                        model.config.openrouter_provider_order = remove_openrouter_provider_slug(
+                            &model.config.openrouter_provider_order,
+                            &slug,
+                        );
+                    }
+                    model.status_line = format!("OpenRouter excluded provider toggled: {slug}");
+                    model.sync_config_to_daemon();
+                }
+                Some(SettingsPickerTarget::SubAgentOpenRouterPreferredProviders) => {
+                    if let Some(editor) = model.subagents.editor.as_mut() {
+                        let (next_order, added) = toggle_openrouter_provider_slug(
+                            &editor.openrouter_provider_order,
+                            &slug,
+                        );
+                        editor.openrouter_provider_order = next_order;
+                        if added {
+                            editor.openrouter_provider_ignore = remove_openrouter_provider_slug(
+                                &editor.openrouter_provider_ignore,
+                                &slug,
+                            );
+                        }
+                        model.status_line =
+                            format!("OpenRouter preferred provider toggled: {slug}");
+                    }
+                }
+                Some(SettingsPickerTarget::SubAgentOpenRouterExcludedProviders) => {
+                    if let Some(editor) = model.subagents.editor.as_mut() {
+                        let (next_ignore, added) = toggle_openrouter_provider_slug(
+                            &editor.openrouter_provider_ignore,
+                            &slug,
+                        );
+                        editor.openrouter_provider_ignore = next_ignore;
+                        if added {
+                            editor.openrouter_provider_order = remove_openrouter_provider_slug(
+                                &editor.openrouter_provider_order,
+                                &slug,
+                            );
+                        }
+                        model.status_line = format!("OpenRouter excluded provider toggled: {slug}");
+                    }
+                }
+                Some(SettingsPickerTarget::ConciergeOpenRouterPreferredProviders) => {
+                    let (next_order, added) = toggle_openrouter_provider_slug(
+                        &model.concierge.openrouter_provider_order,
+                        &slug,
+                    );
+                    model.concierge.openrouter_provider_order = next_order;
+                    if added {
+                        model.concierge.openrouter_provider_ignore =
+                            remove_openrouter_provider_slug(
+                                &model.concierge.openrouter_provider_ignore,
+                                &slug,
+                            );
+                    }
+                    model.status_line = format!("OpenRouter preferred provider toggled: {slug}");
+                    model.send_concierge_config();
+                }
+                Some(SettingsPickerTarget::ConciergeOpenRouterExcludedProviders) => {
+                    let (next_ignore, added) = toggle_openrouter_provider_slug(
+                        &model.concierge.openrouter_provider_ignore,
+                        &slug,
+                    );
+                    model.concierge.openrouter_provider_ignore = next_ignore;
+                    if added {
+                        model.concierge.openrouter_provider_order = remove_openrouter_provider_slug(
+                            &model.concierge.openrouter_provider_order,
+                            &slug,
+                        );
+                    }
+                    model.status_line = format!("OpenRouter excluded provider toggled: {slug}");
+                    model.send_concierge_config();
+                }
+                _ => {
+                    model.status_line =
+                        "OpenRouter provider picker target is unavailable".to_string();
+                }
+            }
+            model
+                .modal
+                .set_picker_item_count(model.filtered_openrouter_endpoint_providers().len());
         }
         modal::ModalKind::OpenAIAuth => {
             if let Some(url) = model.openai_auth_url.clone() {

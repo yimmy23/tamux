@@ -53,6 +53,9 @@ async fn anthropic_batch_results_parse_typed_document_source_and_citations() {
             max_tokens: None,
             anthropic_tool_choice: None,
             output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
         },
         "msgbatch_document_typed",
     )

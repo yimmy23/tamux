@@ -30,6 +30,8 @@ pub struct PluginManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<AuthSection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector: Option<ConnectorSection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub python: Option<PythonDefaults>,
 
     /// D-01: Capture unknown fields silently for forward compatibility.
@@ -131,6 +133,26 @@ pub struct PythonCommandDef {
     pub dependencies: Vec<String>,
 }
 
+/// Optional connector metadata for productized daily-work integrations.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConnectorSection {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docs_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness_endpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workflow_primitives: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_actions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub write_actions: Vec<String>,
+}
+
 /// Auth section for plugins requiring OAuth2, API key, or bearer auth.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthSection {
@@ -163,6 +185,7 @@ mod tests {
         assert!(manifest.commands.is_none());
         assert!(manifest.skills.is_none());
         assert!(manifest.auth.is_none());
+        assert!(manifest.connector.is_none());
         assert!(manifest.python.is_none());
         assert!(manifest.extra.is_empty());
     }
