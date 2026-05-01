@@ -206,8 +206,13 @@ pub async fn fetch_models(
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            url.push_str("?output_modalities=");
-            url.push_str(output_modalities);
+            let normalized = output_modalities.to_ascii_lowercase();
+            if normalized == "embedding" || normalized == "embeddings" {
+                url = format!("{}/embeddings/models", base_url.trim_end_matches('/'));
+            } else {
+                url.push_str("?output_modalities=");
+                url.push_str(output_modalities);
+            }
         }
     }
     let send_request = |include_auth: bool| {

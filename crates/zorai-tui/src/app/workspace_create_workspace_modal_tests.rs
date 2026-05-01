@@ -21,7 +21,10 @@ fn command_palette_new_workspace_opens_workspace_creator_without_seeding_input()
     model.execute_command("new-workspace");
 
     assert_eq!(model.modal.top(), Some(modal::ModalKind::WorkspaceCreate));
-    let form = model.pending_workspace_create_workspace_form.as_ref().unwrap();
+    let form = model
+        .pending_workspace_create_workspace_form
+        .as_ref()
+        .unwrap();
     assert_eq!(form.workspace_id, "");
     assert_eq!(form.operator, WorkspaceOperator::User);
     assert_eq!(model.input.buffer(), "");
@@ -46,7 +49,10 @@ fn new_workspace_modal_submit_creates_workspace_with_operator_and_switches_to_it
 
     assert_eq!(model.workspace.workspace_id(), "client-a");
     assert_eq!(model.modal.top(), None);
-    match daemon_rx.try_recv().expect("set workspace operator command") {
+    match daemon_rx
+        .try_recv()
+        .expect("set workspace operator command")
+    {
         DaemonCommand::SetWorkspaceOperator {
             workspace_id,
             operator,

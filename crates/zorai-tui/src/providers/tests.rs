@@ -3,8 +3,8 @@ use crate::providers::context::is_known_default_url;
 use zorai_shared::providers::{
     MINIMAX_PROVIDER, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE,
     PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_KIMI,
-    PROVIDER_ID_KIMI_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_Z_AI,
-    PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
+    PROVIDER_ID_KIMI_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI,
+    PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
 };
 
 #[test]
@@ -126,6 +126,27 @@ fn known_models_openai_chatgpt_subscription_is_restricted() {
     assert!(models.iter().any(|m| m.id == "gpt-5.4"));
     assert!(!models.iter().any(|m| m.id == "gpt-4o"));
     assert!(!models.iter().any(|m| m.id == "o3"));
+}
+
+#[test]
+fn xai_static_catalog_uses_current_grok_defaults() {
+    let provider = find_by_id(PROVIDER_ID_XAI).unwrap();
+    assert_eq!(provider.default_model, "grok-4.3");
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_XAI, "api_key"),
+        "grok-4.3"
+    );
+    let models = known_models_for_provider(PROVIDER_ID_XAI);
+    assert_eq!(
+        models.first().map(|model| model.id.as_str()),
+        Some("grok-4.3")
+    );
+    assert_eq!(
+        known_context_window_for(PROVIDER_ID_XAI, "grok-4.3"),
+        Some(1_000_000)
+    );
+    assert!(models.iter().any(|model| model.id == "grok-4"));
+    assert!(models.iter().any(|model| model.id == "grok-code-fast-1"));
 }
 
 #[test]

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   audioModelOptions,
+  embeddingModelOptions,
   filterImageGenerationProviderOptions,
   imageGenerationModelOptions,
   normalizeImageGenerationModelForProviderChange,
@@ -43,10 +44,46 @@ test("minimax audio model options expose tts only catalogs", () => {
   expect(audioModelOptions("minimax", "stt")).toBeUndefined();
 });
 
+test("audio model options match tui static catalogs", () => {
+  expect(audioModelOptions("openai", "stt")?.map((model) => model.id)).toEqual([
+    "gpt-4o-transcribe",
+    "gpt-4o-mini-transcribe",
+    "gpt-4o-transcribe-diarize",
+    "whisper-1",
+  ]);
+  expect(audioModelOptions("groq", "stt")?.map((model) => model.id)).toEqual([
+    "whisper-large-v3-turbo",
+    "whisper-large-v3",
+  ]);
+  expect(audioModelOptions("groq", "tts")?.map((model) => model.id)).toEqual([
+    "canopylabs/orpheus-v1-english",
+    "canopylabs/orpheus-arabic-saudi",
+  ]);
+});
+
 test("minimax provider changes normalize tts defaults and image defaults", () => {
   expect(normalizeAudioModelForProviderChange("minimax", "tts", "")).toBe("speech-2.8-hd");
   expect(normalizeAudioModelForProviderChange("minimax-coding-plan", "tts", "speech-2.6-turbo")).toBe("speech-2.6-turbo");
   expect(normalizeAudioModelForProviderChange("minimax", "stt", "whisper-1")).toBe("");
   expect(normalizeImageGenerationModelForProviderChange("minimax", "")).toBe("image-01");
   expect(normalizeImageGenerationModelForProviderChange("minimax-coding-plan", "image-01")).toBe("image-01");
+});
+
+test("embedding model options match tui static catalogs", () => {
+  expect(embeddingModelOptions("openai").map((model) => model.id)).toEqual([
+    "text-embedding-3-small",
+    "text-embedding-3-large",
+  ]);
+  expect(embeddingModelOptions("azure-openai").map((model) => model.id)).toEqual([
+    "text-embedding-3-small",
+    "text-embedding-3-large",
+  ]);
+  expect(embeddingModelOptions("custom").map((model) => model.id)).toEqual([
+    "text-embedding-3-small",
+    "text-embedding-3-large",
+  ]);
+  expect(embeddingModelOptions("openrouter").map((model) => model.id)).toEqual([
+    "openai/text-embedding-3-small",
+    "openai/text-embedding-3-large",
+  ]);
 });

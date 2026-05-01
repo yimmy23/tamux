@@ -8,6 +8,7 @@ import {
 const OPENAI_STT_MODELS: ModelDefinition[] = [
   { id: "gpt-4o-transcribe", name: "GPT-4o Transcribe", contextWindow: 128000, modalities: ["audio"] },
   { id: "gpt-4o-mini-transcribe", name: "GPT-4o Mini Transcribe", contextWindow: 128000, modalities: ["audio"] },
+  { id: "gpt-4o-transcribe-diarize", name: "GPT-4o Transcribe Diarize", contextWindow: 16000, modalities: ["audio"] },
   { id: "whisper-1", name: "Whisper 1", contextWindow: 0, modalities: ["audio"] },
 ];
 
@@ -18,7 +19,17 @@ const OPENAI_TTS_MODELS: ModelDefinition[] = [
 ];
 
 const XAI_AUDIO_MODELS: ModelDefinition[] = [
-  { id: "grok-4", name: "Grok 4", contextWindow: 262144, modalities: ["audio"] },
+  { id: "grok-4.3", name: "Grok 4.3", contextWindow: 1_000_000, modalities: ["audio"] },
+];
+
+const GROQ_STT_MODELS: ModelDefinition[] = [
+  { id: "whisper-large-v3-turbo", name: "Whisper Large V3 Turbo", contextWindow: 0, modalities: ["audio"] },
+  { id: "whisper-large-v3", name: "Whisper Large V3", contextWindow: 0, modalities: ["audio"] },
+];
+
+const GROQ_TTS_MODELS: ModelDefinition[] = [
+  { id: "canopylabs/orpheus-v1-english", name: "CanopyLabs Orpheus V1 English", contextWindow: 0, modalities: ["audio"] },
+  { id: "canopylabs/orpheus-arabic-saudi", name: "CanopyLabs Orpheus Arabic Saudi", contextWindow: 0, modalities: ["audio"] },
 ];
 
 const XIAOMI_TTS_MODELS: ModelDefinition[] = [
@@ -105,6 +116,9 @@ export function audioModelOptions(
   if (providerId === "xai") {
     return XAI_AUDIO_MODELS;
   }
+  if (providerId === "groq") {
+    return kind === "stt" ? GROQ_STT_MODELS : GROQ_TTS_MODELS;
+  }
   if ((providerId === "minimax" || providerId === "minimax-coding-plan") && kind === "tts") {
     return MINIMAX_TTS_MODELS;
   }
@@ -156,15 +170,16 @@ export function imageGenerationModelOptions(providerId: AgentProviderId): ModelD
 }
 
 export function embeddingModelOptions(providerId: AgentProviderId): ModelDefinition[] {
-  if (providerId === "openai") {
+  if (providerId === "openai" || providerId === "azure-openai" || providerId === "custom") {
     return [
       { id: "text-embedding-3-small", name: "Text Embedding 3 Small", contextWindow: 8192, modalities: ["embedding"] },
       { id: "text-embedding-3-large", name: "Text Embedding 3 Large", contextWindow: 8192, modalities: ["embedding"] },
     ];
   }
-  if (providerId === "azure-openai" || providerId === "custom") {
+  if (providerId === "openrouter") {
     return [
-      { id: "text-embedding-3-small", name: "Text Embedding 3 Small", contextWindow: 8192, modalities: ["embedding"] },
+      { id: "openai/text-embedding-3-small", name: "OpenAI Text Embedding 3 Small", contextWindow: 8192, modalities: ["embedding"] },
+      { id: "openai/text-embedding-3-large", name: "OpenAI Text Embedding 3 Large", contextWindow: 8192, modalities: ["embedding"] },
     ];
   }
   return [];

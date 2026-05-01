@@ -125,7 +125,10 @@ impl TuiModel {
         }
         if cmd == "new" {
             let target_agent_id = if args.trim().is_empty() {
-                Some(zorai_protocol::AGENT_ID_SWAROG.to_string())
+                Some(
+                    self.active_thread_owner_agent_id()
+                        .unwrap_or_else(|| zorai_protocol::AGENT_ID_SWAROG.to_string()),
+                )
             } else {
                 self.resolve_target_agent_id(args.trim())
             };

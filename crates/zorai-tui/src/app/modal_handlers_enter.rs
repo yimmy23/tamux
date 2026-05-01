@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::commands::GoalActionPickerItem;
+use crate::state::config::embedding_dimensions_from_fetched_model;
 use zorai_shared::providers::PROVIDER_ID_CUSTOM;
 
 fn split_openrouter_provider_csv(value: &str) -> Vec<String> {
@@ -34,6 +35,34 @@ fn remove_openrouter_provider_slug(value: &str, slug: &str) -> String {
         .filter(|item| item != slug)
         .collect::<Vec<_>>();
     join_openrouter_provider_csv(&values)
+}
+
+fn apply_target_agent_reasoning_effort_locally(
+    model: &mut TuiModel,
+    target_agent_id: &str,
+    target_agent_name: &str,
+    reasoning_effort: Option<String>,
+) {
+    if target_agent_id.eq_ignore_ascii_case(zorai_protocol::AGENT_ID_RAROG) {
+        model.concierge.reasoning_effort = reasoning_effort.clone();
+    }
+
+    for entry in &mut model.subagents.entries {
+        let id_matches = entry.id.eq_ignore_ascii_case(target_agent_id)
+            || entry
+                .id
+                .strip_suffix("_builtin")
+                .is_some_and(|alias| alias.eq_ignore_ascii_case(target_agent_id));
+        let name_matches = entry.name.eq_ignore_ascii_case(target_agent_name)
+            || entry.name.eq_ignore_ascii_case(target_agent_id);
+        if id_matches || name_matches {
+            entry.reasoning_effort = reasoning_effort.clone();
+        }
+    }
+
+    if let Some(thread) = model.chat.active_thread_mut() {
+        thread.runtime_reasoning_effort = reasoning_effort;
+    }
 }
 
 pub(super) fn begin_custom_model_edit(model: &mut TuiModel) {
@@ -614,6 +643,33 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         }
                         model.status_line = format!("Sub-agent provider: {}", def.name);
                     }
+                    SettingsPickerTarget::TargetAgentProvider => {
+                        let target_agent_name = model
+                            .pending_target_agent_config
+                            .as_ref()
+                            .map(|pending| pending.target_agent_name.clone())
+                            .unwrap_or_else(|| "agent".to_string());
+                        let (base_url, api_key, auth_source) = model.provider_auth_snapshot(def.id);
+                        if let Some(pending) = model.pending_target_agent_config.as_mut() {
+                            pending.provider_id = def.id.to_string();
+                            let default_model =
+                                providers::default_model_for_provider_auth(def.id, &auth_source);
+                            if !default_model.trim().is_empty() {
+                                pending.model = default_model;
+                            }
+                        }
+                        model.close_top_modal();
+                        model.open_provider_backed_model_picker(
+                            SettingsPickerTarget::TargetAgentModel,
+                            def.id.to_string(),
+                            base_url,
+                            api_key,
+                            auth_source,
+                        );
+                        model.status_line =
+                            format!("Configure {target_agent_name} model for {}", def.name);
+                        return;
+                    }
                     SettingsPickerTarget::ConciergeProvider => {
                         model.concierge.provider = Some(def.id.to_string());
                         if def.id != zorai_shared::providers::PROVIDER_ID_OPENROUTER {
@@ -641,6 +697,8 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     | SettingsPickerTarget::SubAgentModel
                     | SettingsPickerTarget::SubAgentRole
                     | SettingsPickerTarget::SubAgentReasoningEffort
+                    | SettingsPickerTarget::TargetAgentModel
+                    | SettingsPickerTarget::TargetAgentReasoningEffort
                     | SettingsPickerTarget::ConciergeModel
                     | SettingsPickerTarget::ConciergeReasoningEffort
                     | SettingsPickerTarget::CompactionWelesReasoningEffort
@@ -807,7 +865,12 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.status_line = format!("Image model: {}", model_id);
                     }
                     SettingsPickerTarget::EmbeddingModel => {
+                        let embedding_dimensions =
+                            embedding_dimensions_from_fetched_model(model_entry);
                         model.set_embedding_config_string("model", model_id.clone());
+                        if let Some(dimensions) = embedding_dimensions {
+                            model.set_embedding_dimensions_config(dimensions);
+                        }
                         model.status_line = format!("Embedding model: {}", model_id);
                     }
                     SettingsPickerTarget::BuiltinPersonaModel => {
@@ -878,6 +941,27 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         }
                         model.status_line = format!("Sub-agent model: {}", model_id);
                     }
+                    SettingsPickerTarget::TargetAgentModel => {
+                        let Some(pending) = model.pending_target_agent_config.clone() else {
+                            model.status_line =
+                                "No thread-owned agent target is active".to_string();
+                            model.settings_picker_target = None;
+                            model.close_top_modal();
+                            return;
+                        };
+                        model.send_daemon_command(DaemonCommand::SetTargetAgentProviderModel {
+                            target_agent_id: pending.target_agent_id.clone(),
+                            provider_id: pending.provider_id.clone(),
+                            model: model_id.clone(),
+                        });
+                        if let Some(thread) = model.chat.active_thread_mut() {
+                            thread.runtime_provider = Some(pending.provider_id.clone());
+                            thread.runtime_model = Some(model_id.clone());
+                        }
+                        model.status_line =
+                            format!("{} model: {}", pending.target_agent_name, model_id);
+                        model.pending_target_agent_config = None;
+                    }
                     SettingsPickerTarget::ConciergeModel => {
                         model.concierge.model = Some(model_id.clone());
                         model.send_concierge_config();
@@ -894,6 +978,8 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     | SettingsPickerTarget::SubAgentProvider
                     | SettingsPickerTarget::SubAgentRole
                     | SettingsPickerTarget::SubAgentReasoningEffort
+                    | SettingsPickerTarget::TargetAgentProvider
+                    | SettingsPickerTarget::TargetAgentReasoningEffort
                     | SettingsPickerTarget::ConciergeProvider
                     | SettingsPickerTarget::ConciergeReasoningEffort
                     | SettingsPickerTarget::CompactionWelesReasoningEffort
@@ -1158,6 +1244,32 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                             format!("Sub-agent effort: {}", effort)
                         };
                     }
+                    Some(SettingsPickerTarget::TargetAgentReasoningEffort) => {
+                        let Some(pending) = model.pending_target_agent_config.clone() else {
+                            model.status_line =
+                                "No thread-owned agent target is active".to_string();
+                            model.settings_picker_target = None;
+                            model.close_top_modal();
+                            return;
+                        };
+                        let reasoning_effort = effort.to_string();
+                        model.send_daemon_command(DaemonCommand::SetTargetAgentReasoningEffort {
+                            target_agent_id: pending.target_agent_id.clone(),
+                            reasoning_effort: reasoning_effort.clone(),
+                        });
+                        apply_target_agent_reasoning_effort_locally(
+                            model,
+                            &pending.target_agent_id,
+                            &pending.target_agent_name,
+                            (!reasoning_effort.is_empty()).then_some(reasoning_effort.clone()),
+                        );
+                        model.status_line = if effort.is_empty() {
+                            format!("{} effort: none", pending.target_agent_name)
+                        } else {
+                            format!("{} effort: {}", pending.target_agent_name, effort)
+                        };
+                        model.pending_target_agent_config = None;
+                    }
                     Some(SettingsPickerTarget::ConciergeReasoningEffort) => {
                         model.concierge.reasoning_effort = if effort.is_empty() {
                             None
@@ -1198,9 +1310,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         };
                     }
                     _ => {
-                        model
-                            .config
-                            .reduce(config::ConfigAction::SetReasoningEffort(effort.to_string()));
+                        model.set_pending_svarog_reasoning_effort(effort.to_string());
                         if let Ok(value_json) =
                             serde_json::to_string(&serde_json::Value::String(effort.to_string()))
                         {

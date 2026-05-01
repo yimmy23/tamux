@@ -781,6 +781,15 @@ fn start_daemon_bridge(
                                     model,
                                 );
                             }
+                            DaemonCommand::SetTargetAgentReasoningEffort {
+                                target_agent_id,
+                                reasoning_effort,
+                            } => {
+                                let _ = client.set_target_agent_reasoning_effort(
+                                    target_agent_id,
+                                    reasoning_effort,
+                                );
+                            }
                             DaemonCommand::ControlGoalRun {
                                 goal_run_id,
                                 action,
@@ -865,6 +874,13 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::LogoutOpenAICodex => {
                                 let _ = client.logout_openai_codex();
+                            }
+                            DaemonCommand::LoginProvider {
+                                provider_id,
+                                api_key,
+                                base_url,
+                            } => {
+                                let _ = client.login_provider(provider_id, api_key, base_url);
                             }
                             DaemonCommand::ValidateProvider { provider_id, base_url, api_key, auth_source } => {
                                 let _ = client.validate_provider(provider_id, base_url, api_key, auth_source);

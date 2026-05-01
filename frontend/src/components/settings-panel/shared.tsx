@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback, type CSSProperties, type ReactNode } from "react";
 import { getBridge } from "@/lib/bridge";
 import { BUILTIN_THEMES } from "../../lib/themes";
 import type { ZoraiSettings } from "../../lib/types";
@@ -9,6 +9,7 @@ import {
     normalizeFetchedRemoteModel,
     type FetchedRemoteModel,
 } from "../../lib/providerModels";
+import { buildModelFetchKey, shouldFetchRemoteModels } from "./modelSelectorFetch";
 
 export type SettingsUpdater = <K extends keyof ZoraiSettings>(key: K, value: ZoraiSettings[K]) => void;
 
@@ -261,7 +262,7 @@ export const smallBtnStyle: CSSProperties = {
     padding: "4px 8px",
 };
 
-export function ModelSelector({ providerId, value, customName, onChange, disabled, base_url, api_key, auth_source, allowProviderAuthFetch, modelOptions, remoteModelFilter }: {
+export function ModelSelector({ providerId, value, customName, onChange, disabled, base_url, api_key, auth_source, modelOptions, remoteModelFilter, fetchOutputModalities }: {
     providerId: AgentProviderId;
     value: string;
     customName?: string;
@@ -273,6 +274,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     allowProviderAuthFetch?: boolean;
     modelOptions?: ModelDefinition[];
     remoteModelFilter?: (model: FetchedRemoteModel) => boolean;
+    fetchOutputModalities?: string;
 }) {
     type ModelSelectorOption = {
         id: string;
@@ -291,12 +293,16 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     const [fetchError, setFetchError] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const openFetchKeyRef = useRef<string | null>(null);
 
     const definition = getProviderDefinition(providerId);
     const predefinedModels = modelOptions ?? getProviderModels(providerId, auth_source);
-    const supportsFetch = (definition?.supportsModelFetch ?? false)
-        && !(providerId === "openai" && auth_source === "chatgpt_subscription");
-    const canFetch = supportsFetch && (Boolean(api_key) || Boolean(allowProviderAuthFetch));
+    const supportsFetch = shouldFetchRemoteModels({
+        supportsModelFetch: definition?.supportsModelFetch ?? false,
+        providerId,
+        authSource: auth_source,
+    });
+    const canFetch = supportsFetch;
     
     const allModels = useMemo(() => {
         const merged: ModelSelectorOption[] = predefinedModels.map((model: ModelDefinition) => ({
@@ -348,7 +354,16 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
         return filteredModels.some(m => m.id === search || m.id === value);
     }, [filteredModels, search, value]);
 
-    const handleFetchModels = async () => {
+    const fetchBaseUrl = base_url || definition?.defaultBaseUrl || "";
+    const fetchApiKey = api_key || "";
+    const fetchKey = useMemo(() => buildModelFetchKey({
+        providerId,
+        baseUrl: fetchBaseUrl,
+        apiKey: fetchApiKey,
+        outputModalities: fetchOutputModalities,
+    }), [providerId, fetchBaseUrl, fetchApiKey, fetchOutputModalities]);
+
+    const handleFetchModels = useCallback(async () => {
         const zorai = getBridge();
         if (!zorai?.agentFetchModels) {
             setFetchError("API not available");
@@ -361,8 +376,9 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
         try {
             const result = await zorai.agentFetchModels(
                 providerId,
-                base_url || definition?.defaultBaseUrl || "",
-                api_key || ""
+                fetchBaseUrl,
+                fetchApiKey,
+                fetchOutputModalities,
             );
 
             if (result && typeof result === "object") {
@@ -377,7 +393,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
         } finally {
             setIsFetching(false);
         }
-    };
+    }, [providerId, fetchBaseUrl, fetchApiKey, fetchOutputModalities]);
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -395,6 +411,18 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
             inputRef.current.focus();
         }
     }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            openFetchKeyRef.current = null;
+            return;
+        }
+        if (disabled || useCustom || !canFetch || openFetchKeyRef.current === fetchKey) {
+            return;
+        }
+        openFetchKeyRef.current = fetchKey;
+        void handleFetchModels();
+    }, [canFetch, disabled, fetchKey, handleFetchModels, isOpen, useCustom]);
 
     useEffect(() => {
         setCustomModelId(value);

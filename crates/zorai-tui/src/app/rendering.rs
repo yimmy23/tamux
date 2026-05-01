@@ -2197,11 +2197,12 @@ impl TuiModel {
                             &self.theme,
                         );
                     } else {
-                        render_helpers::render_effort_picker(
+                        let current_effort = self.effort_picker_current_value();
+                        render_runtime_effort_picker(
                             frame,
                             overlay_area,
                             &self.modal,
-                            &self.config,
+                            current_effort.as_deref(),
                             &self.theme,
                         );
                     }

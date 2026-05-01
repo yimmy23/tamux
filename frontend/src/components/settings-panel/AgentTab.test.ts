@@ -68,9 +68,9 @@ test("selectableProviderAuthStates keeps unauthenticated custom catalog provider
 });
 
 test("normalizeAudioModelForProviderChange resets stale xAI audio models", () => {
-  expect(normalizeAudioModelForProviderChange("xai", "stt", "whisper-1")).toBe("grok-4");
-  expect(normalizeAudioModelForProviderChange("xai", "tts", "gpt-4o-mini-tts")).toBe("grok-4");
-  expect(normalizeAudioModelForProviderChange("xai", "stt", "grok-4")).toBe("grok-4");
+  expect(normalizeAudioModelForProviderChange("xai", "stt", "whisper-1")).toBe("grok-4.3");
+  expect(normalizeAudioModelForProviderChange("xai", "tts", "gpt-4o-mini-tts")).toBe("grok-4.3");
+  expect(normalizeAudioModelForProviderChange("xai", "stt", "grok-4.3")).toBe("grok-4.3");
 });
 
 test("normalizeAudioModelForProviderChange uses Xiaomi TTS defaults and keeps STT empty", () => {

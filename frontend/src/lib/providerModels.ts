@@ -87,6 +87,101 @@ export function normalizeFetchedRemoteModel(value: unknown): FetchedRemoteModel 
   };
 }
 
+function positiveInteger(value: unknown): number | null {
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string"
+      ? Number.parseInt(value.trim(), 10)
+      : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return Math.trunc(parsed);
+}
+
+function settingNameMatchesDimensions(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+  return [
+    "dimensions",
+    "dimension",
+    "embedding_dimensions",
+    "embedding_dimension",
+    "output_dimensions",
+    "vector_dimensions",
+  ].includes(value.trim().toLowerCase());
+}
+
+function dimensionsFromSettingsArray(settings: unknown[]): number | null {
+  for (const setting of settings) {
+    if (!setting || typeof setting !== "object" || Array.isArray(setting)) {
+      continue;
+    }
+    const record = setting as Record<string, unknown>;
+    const nameMatches = ["id", "key", "name", "param", "parameter"]
+      .some((key) => settingNameMatchesDimensions(record[key]));
+    if (!nameMatches) {
+      continue;
+    }
+    for (const key of ["value", "default", "default_value", "current"]) {
+      const dimensions = positiveInteger(record[key]);
+      if (dimensions != null) {
+        return dimensions;
+      }
+    }
+  }
+  return null;
+}
+
+function readPath(record: Record<string, unknown>, path: string[]): unknown {
+  let current: unknown = record;
+  for (const key of path) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+export function embeddingDimensionsFromFetchedModel(
+  model: Pick<FetchedRemoteModel, "metadata"> | null | undefined,
+): number | null {
+  const metadata = model?.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+  const record = metadata as Record<string, unknown>;
+  const directPaths = [
+    ["settings", "dimensions"],
+    ["settings", "dimension"],
+    ["settings", "embedding_dimensions"],
+    ["settings", "embedding_dimension"],
+    ["settings", "output_dimensions"],
+    ["settings", "vector_dimensions"],
+    ["dimensions"],
+    ["dimension"],
+    ["embedding_dimensions"],
+    ["embedding_dimension"],
+    ["output_dimensions"],
+    ["vector_dimensions"],
+    ["architecture", "dimensions"],
+    ["architecture", "embedding_dimensions"],
+    ["top_provider", "dimensions"],
+  ];
+
+  for (const path of directPaths) {
+    const dimensions = positiveInteger(readPath(record, path));
+    if (dimensions != null) {
+      return dimensions;
+    }
+  }
+
+  const settings = record.settings;
+  return Array.isArray(settings) ? dimensionsFromSettingsArray(settings) : null;
+}
+
 export function formatRemoteModelPricingSubtitle(
   model: Pick<FetchedRemoteModel, "pricing">,
 ): string | null {

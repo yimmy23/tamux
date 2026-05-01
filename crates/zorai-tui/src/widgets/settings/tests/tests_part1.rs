@@ -535,6 +535,39 @@ fn custom_provider_model_row_shows_active_edit_buffer() {
 }
 
 #[test]
+fn features_embedding_dimensions_row_shows_active_edit_buffer() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Features,
+    ));
+    settings.reduce(crate::state::settings::SettingsAction::NavigateField(28));
+    settings.start_editing("feat_embedding_dimensions", "3072");
+    let mut config = ConfigState::new();
+    config.agent_config_raw = Some(serde_json::json!({
+        "semantic": {
+            "embedding": {
+                "dimensions": 1536
+            }
+        }
+    }));
+
+    let lines = render_features_tab(
+        &settings,
+        &config,
+        &crate::state::tier::TierState::default(),
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("Embedding Dimensions 3072█"));
+    assert!(!text.contains("Embedding Dimensions 1536"));
+}
+
+#[test]
 fn custom_model_context_row_invites_edit_for_non_custom_provider() {
     let mut settings = SettingsState::new();
     settings.reduce(crate::state::settings::SettingsAction::SwitchTab(

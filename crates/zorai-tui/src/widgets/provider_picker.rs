@@ -10,7 +10,7 @@ use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
 use zorai_shared::providers::{
     provider_supports_audio_tool, AudioToolKind, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM,
-    PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
 };
 
 pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
@@ -62,7 +62,10 @@ pub fn available_embedding_provider_defs(auth: &AuthState) -> Vec<&'static Provi
         .filter(|provider| {
             matches!(
                 provider.id,
-                PROVIDER_ID_OPENAI | PROVIDER_ID_AZURE_OPENAI | PROVIDER_ID_CUSTOM
+                PROVIDER_ID_OPENAI
+                    | PROVIDER_ID_AZURE_OPENAI
+                    | PROVIDER_ID_OPENROUTER
+                    | PROVIDER_ID_CUSTOM
             )
         })
         .collect()
@@ -414,6 +417,39 @@ mod tests {
         assert!(!defs
             .iter()
             .any(|provider| provider.id == PROVIDER_ID_AZURE_OPENAI));
+    }
+
+    #[test]
+    fn embedding_provider_defs_include_authenticated_openrouter() {
+        let mut auth = AuthState::new();
+        auth.entries = vec![
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_OPENAI.to_string(),
+                provider_name: "OpenAI".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "gpt-5.4".to_string(),
+            },
+            ProviderAuthEntry {
+                provider_id: PROVIDER_ID_OPENROUTER.to_string(),
+                provider_name: "OpenRouter".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "openai/text-embedding-3-small".to_string(),
+            },
+        ];
+
+        let defs = available_embedding_provider_defs(&auth);
+
+        assert!(defs
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_OPENAI));
+        assert!(defs
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_OPENROUTER));
+        assert!(defs
+            .iter()
+            .any(|provider| provider.id == PROVIDER_ID_CUSTOM));
     }
 
     #[test]

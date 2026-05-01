@@ -1,5 +1,6 @@
 use super::*;
 
+include!("embedding_dimensions.rs");
 include!("impl_part1.rs");
 include!("impl_part2.rs");
 include!("impl_part3.rs");

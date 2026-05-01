@@ -1,4 +1,5 @@
 import {
+  embeddingDimensionsFromFetchedModel,
   filterFetchedModelsForAudio,
   filterFetchedModelsForEmbeddings,
   filterFetchedModelsForImageGeneration,
@@ -214,4 +215,27 @@ test("filterFetchedModelsForEmbeddings keeps embedding/vector models only", () =
     "openai/text-embedding-3-small",
     "local/bge-m3",
   ]);
+});
+
+test("embeddingDimensionsFromFetchedModel reads model settings dimensions", () => {
+  const model = normalizeFetchedRemoteModel({
+    id: "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+    settings: {
+      dimensions: 2048,
+    },
+  });
+
+  expect(embeddingDimensionsFromFetchedModel(model)).toBe(2048);
+});
+
+test("embeddingDimensionsFromFetchedModel reads array-style settings defaults", () => {
+  const model = normalizeFetchedRemoteModel({
+    id: "local/bge",
+    settings: [
+      { key: "temperature", default: 0 },
+      { key: "embedding_dimensions", default: "1024" },
+    ],
+  });
+
+  expect(embeddingDimensionsFromFetchedModel(model)).toBe(1024);
 });

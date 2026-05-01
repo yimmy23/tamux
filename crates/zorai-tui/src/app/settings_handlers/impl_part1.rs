@@ -77,7 +77,7 @@ impl TuiModel {
                 model("tts-1-hd", "TTS 1 HD", None),
             ],
             (PROVIDER_ID_XAI, "stt" | "tts") => {
-                vec![model("grok-4", "Grok 4", Some(262_144))]
+                vec![model("grok-4.3", "Grok 4.3", Some(1_000_000))]
             }
             (PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "tts") => vec![
                 model("mimo-v2.5-tts", "MiMo V2.5 TTS", Some(128_000)),
@@ -177,6 +177,20 @@ impl TuiModel {
                     model(
                         "text-embedding-3-large",
                         "Text Embedding 3 Large",
+                        Some(8192),
+                    ),
+                ]
+            }
+            PROVIDER_ID_OPENROUTER => {
+                vec![
+                    model(
+                        "openai/text-embedding-3-small",
+                        "OpenAI Text Embedding 3 Small",
+                        Some(8192),
+                    ),
+                    model(
+                        "openai/text-embedding-3-large",
+                        "OpenAI Text Embedding 3 Large",
                         Some(8192),
                     ),
                 ]
@@ -652,6 +666,11 @@ impl TuiModel {
             SettingsPickerTarget::ConciergeModel => {
                 (self.concierge.model.clone().unwrap_or_default(), None)
             }
+            SettingsPickerTarget::TargetAgentModel => self
+                .pending_target_agent_config
+                .as_ref()
+                .map(|pending| (pending.model.clone(), None))
+                .unwrap_or_else(|| (String::new(), None)),
             _ => (
                 self.config.model.clone(),
                 Some(self.config.custom_model_name.clone()),
@@ -668,7 +687,8 @@ impl TuiModel {
             SettingsPickerTarget::AudioSttModel
             | SettingsPickerTarget::AudioTtsModel
             | SettingsPickerTarget::ImageGenerationModel
-            | SettingsPickerTarget::EmbeddingModel => {
+            | SettingsPickerTarget::EmbeddingModel
+            | SettingsPickerTarget::TargetAgentModel => {
                 let (endpoint, provider_id) = match self
                     .settings_picker_target
                     .unwrap_or(SettingsPickerTarget::Model)
@@ -685,11 +705,19 @@ impl TuiModel {
                     SettingsPickerTarget::EmbeddingModel => {
                         ("embedding", self.config.semantic_embedding_provider())
                     }
+                    SettingsPickerTarget::TargetAgentModel => (
+                        "chat",
+                        self.pending_target_agent_config
+                            .as_ref()
+                            .map(|pending| pending.provider_id.clone())
+                            .unwrap_or_else(|| self.config.provider.clone()),
+                    ),
                     _ => unreachable!(),
                 };
                 let mut models = match endpoint {
                     "image_generation" => Self::image_generation_catalog_models(&provider_id),
                     "embedding" => Self::embedding_catalog_models(&provider_id),
+                    "chat" => self.config.fetched_models().to_vec(),
                     _ => Self::audio_catalog_models(endpoint, &provider_id),
                 };
                 for model in self.config.fetched_models() {
@@ -722,6 +750,7 @@ impl TuiModel {
                                     })
                                     .unwrap_or(false)
                         }
+                        "chat" => true,
                         _ => Self::fetched_model_supports_audio_endpoint(model, endpoint),
                     };
                     if include && !models.iter().any(|existing| existing.id == model.id) {
@@ -923,6 +952,11 @@ impl TuiModel {
                     self.concierge.model.as_deref().unwrap_or(""),
                 );
                 self.status_line = "Enter Rarog model ID".to_string();
+            }
+            SettingsPickerTarget::TargetAgentModel => {
+                self.status_line =
+                    "Custom model entry is not available for thread-owned agents here"
+                        .to_string();
             }
             _ => self.begin_custom_model_edit(),
         }
@@ -1298,24 +1332,27 @@ impl TuiModel {
             self.config.api_key = api_key.clone();
         }
         self.upsert_saved_provider_api_key(&provider_id, &api_key);
-
-        if let Ok(value_json) = serde_json::to_string(&serde_json::Value::String(api_key.clone())) {
-            self.send_daemon_command(DaemonCommand::SetConfigItem {
-                key_path: format!("/providers/{provider_id}/api_key"),
-                value_json: value_json.clone(),
-            });
-            self.send_daemon_command(DaemonCommand::SetConfigItem {
-                key_path: format!("/{provider_id}/api_key"),
-                value_json: value_json.clone(),
-            });
-            if is_active_provider {
-                self.send_daemon_command(DaemonCommand::SetConfigItem {
-                    key_path: "/api_key".to_string(),
-                    value_json,
-                });
+        if let Some(entry) = self
+            .auth
+            .entries
+            .iter_mut()
+            .find(|entry| entry.provider_id == provider_id)
+        {
+            entry.authenticated = true;
+            if entry.auth_source.trim().is_empty() {
+                entry.auth_source = "api_key".to_string();
             }
         }
-        self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+
+        let (base_url, _, _) = self.provider_auth_snapshot(&provider_id);
+        self.send_daemon_command(DaemonCommand::LoginProvider {
+            provider_id: provider_id.clone(),
+            api_key,
+            base_url,
+        });
+        if is_active_provider {
+            self.send_daemon_command(DaemonCommand::GetConfig);
+        }
         self.auth
             .reduce(crate::state::auth::AuthAction::ConfirmLogin);
         self.status_line = format!("Saved credentials for {provider_name}");

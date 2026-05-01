@@ -14,6 +14,7 @@
 #   - npm-package/package.json    (npm wrapper package version)
 #   - npm-package/PUBLISH.md      (npm publish and release examples)
 #   - frontend/src/components/settings-panel/AboutTab.tsx
+#   - frontend/src/zorai/features/settings/SettingsPanels.tsx
 #   - frontend/src/plugins/coding-agents/registerPlugin.ts
 #   - frontend/src/plugins/ai-training/registerPlugin.ts
 #   - docs/plugin-development.md
@@ -127,6 +128,13 @@ bump_file "npm-package/PUBLISH.md" \
 bump_file "frontend/src/components/settings-panel/AboutTab.tsx" \
   "Version $CURRENT" \
   "Version $NEXT"
+
+# ---------------------------------------------------------------------------
+# SettingsPanels.tsx — displayed app version constant
+# ---------------------------------------------------------------------------
+bump_file "frontend/src/zorai/features/settings/SettingsPanels.tsx" \
+  "const APP_VERSION = \"$CURRENT\";" \
+  "const APP_VERSION = \"$NEXT\";"
 
 # ---------------------------------------------------------------------------
 # Built-in plugins

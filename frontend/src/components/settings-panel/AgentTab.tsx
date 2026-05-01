@@ -414,6 +414,7 @@ export function AgentTab({
                             allowProviderAuthFetch={providerHasDaemonAuth(settings.audio_tts_provider)}
                             modelOptions={audioModelOptions(settings.audio_tts_provider, "tts")}
                             remoteModelFilter={(model) => filterFetchedModelsForAudio([model], "tts").length > 0}
+                            fetchOutputModalities={settings.audio_tts_provider === "openrouter" ? "audio" : undefined}
                             disabled={!settings.audio_tts_enabled}
                         />
                     </SettingRow>
@@ -500,6 +501,7 @@ export function AgentTab({
                         allowProviderAuthFetch={providerHasDaemonAuth(settings.semantic_embedding_provider)}
                         modelOptions={embeddingModelOptions(settings.semantic_embedding_provider)}
                         remoteModelFilter={(model) => filterFetchedModelsForEmbeddings([model]).length > 0}
+                        fetchOutputModalities="embedding"
                         disabled={!settings.semantic_embedding_enabled}
                     />
                 </SettingRow>

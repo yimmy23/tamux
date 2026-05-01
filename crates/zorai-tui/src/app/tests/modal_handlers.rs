@@ -5,8 +5,8 @@ use ratatui::Terminal;
 use tokio::sync::mpsc::unbounded_channel;
 use zorai_shared::providers::{
     AudioToolKind, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CHUTES,
-    PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN,
-    PROVIDER_ID_XAI,
+    PROVIDER_ID_CUSTOM, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+    PROVIDER_ID_QWEN, PROVIDER_ID_XAI,
 };
 
 fn make_model() -> (
@@ -2250,6 +2250,72 @@ fn selecting_compaction_weles_model_updates_compaction_model() {
 }
 
 #[test]
+fn selecting_embedding_model_applies_dimension_from_model_settings() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "semantic": {
+            "embedding": {
+                "provider": PROVIDER_ID_DEEPSEEK,
+                "model": "old-embedding-model",
+                "dimensions": 1536
+            }
+        }
+    }));
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "vendor/new-embed-model".to_string(),
+                name: Some("New Embed Model".to_string()),
+                context_window: Some(8192),
+                pricing: None,
+                metadata: Some(serde_json::json!({
+                    "architecture": {
+                        "output_modalities": ["embeddings"]
+                    },
+                    "settings": {
+                        "dimensions": 2048
+                    }
+                })),
+            },
+        ]));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::EmbeddingModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model.config.semantic_embedding_model(),
+        "vendor/new-embed-model"
+    );
+    assert_eq!(model.config.semantic_embedding_dimensions(), 2048);
+
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected embedding model command"),
+        DaemonCommand::SetConfigItem {
+            key_path,
+            value_json,
+        } if key_path == "/semantic/embedding/model" && value_json == "\"vendor/new-embed-model\""
+    ));
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected embedding dimensions command"),
+        DaemonCommand::SetConfigItem {
+            key_path,
+            value_json,
+        } if key_path == "/semantic/embedding/dimensions" && value_json == "2048"
+    ));
+}
+
+#[test]
 fn selecting_compaction_custom_provider_updates_provider_and_opens_model_picker() {
     let (mut model, mut daemon_rx) = make_model();
     model.auth.entries = vec![
@@ -2468,7 +2534,7 @@ fn selecting_audio_stt_provider_updates_audio_provider_and_opens_model_picker() 
             .and_then(|audio| audio.get("stt"))
             .and_then(|stt| stt.get("model"))
             .and_then(|value| value.as_str()),
-        Some("grok-4")
+        Some("grok-4.3")
     );
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
 }
@@ -2615,7 +2681,7 @@ fn selecting_audio_tts_provider_updates_audio_provider_and_opens_model_picker() 
             .and_then(|audio| audio.get("tts"))
             .and_then(|tts| tts.get("model"))
             .and_then(|value| value.as_str()),
-        Some("grok-4")
+        Some("grok-4.3")
     );
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
 }
@@ -5772,6 +5838,498 @@ fn new_weles_conversation_keeps_weles_profile_after_first_prompt_locally() {
     assert_eq!(profile.agent_label, "Weles");
     assert_eq!(profile.provider, "anthropic");
     assert_eq!(profile.model, "claude-sonnet-4-5");
+}
+
+fn seed_active_weles_thread(model: &mut TuiModel) {
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.config.provider = PROVIDER_ID_OPENAI.to_string();
+    model.config.model = "gpt-5.4".to_string();
+    model.auth.loaded = true;
+    model
+        .auth
+        .entries
+        .push(crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        });
+    model.subagents.entries.push(crate::state::SubAgentEntry {
+        id: "weles_builtin".to_string(),
+        name: "WELES".to_string(),
+        provider: PROVIDER_ID_OPENAI.to_string(),
+        model: "gpt-5.4".to_string(),
+        role: Some("review".to_string()),
+        enabled: true,
+        builtin: true,
+        immutable_identity: true,
+        disable_allowed: false,
+        delete_allowed: false,
+        protected_reason: Some("Built-in reviewer".to_string()),
+        reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
+        raw_json: None,
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "thread-weles".to_string(),
+            agent_name: Some("Weles".to_string()),
+            profile_provider: Some(PROVIDER_ID_OPENAI.to_string()),
+            profile_model: Some("gpt-5.4".to_string()),
+            profile_reasoning_effort: Some("medium".to_string()),
+            title: "Weles thread".to_string(),
+            ..Default::default()
+        }));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-weles".to_string()));
+}
+
+fn seed_dola_subagent(model: &mut TuiModel) {
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.config.provider = PROVIDER_ID_OPENAI.to_string();
+    model.config.model = "gpt-5.4".to_string();
+    model.subagents.entries.push(crate::state::SubAgentEntry {
+        id: "dola".to_string(),
+        name: "Dola".to_string(),
+        provider: PROVIDER_ID_OPENAI.to_string(),
+        model: "gpt-5.4".to_string(),
+        role: Some("specialist".to_string()),
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("high".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
+        raw_json: None,
+    });
+}
+
+#[test]
+fn slash_new_without_args_uses_active_thread_owner() {
+    let (mut model, _daemon_rx) = make_model();
+    seed_active_weles_thread(&mut model);
+
+    assert!(model.execute_slash_command_line("/new"));
+
+    let profile = model.current_conversation_agent_profile();
+    assert_eq!(profile.agent_label, "Weles");
+}
+
+#[test]
+fn slash_effort_on_pending_subagent_thread_updates_that_subagent() {
+    let (mut model, mut daemon_rx) = make_model();
+    seed_dola_subagent(&mut model);
+    model.start_new_thread_view_for_agent(Some("dola"));
+
+    assert_eq!(
+        model
+            .current_header_agent_profile()
+            .reasoning_effort
+            .as_deref(),
+        Some("high")
+    );
+    assert!(model.execute_slash_command_line("/effort"));
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::EffortPicker));
+    assert_eq!(model.modal.picker_cursor(), 4);
+    model.modal.reduce(modal::ModalAction::Navigate(-2));
+    model.handle_modal_enter(modal::ModalKind::EffortPicker);
+
+    assert_eq!(
+        model
+            .current_header_agent_profile()
+            .reasoning_effort
+            .as_deref(),
+        Some("low")
+    );
+    assert_eq!(
+        model
+            .subagents
+            .entries
+            .iter()
+            .find(|entry| entry.id == "dola")
+            .and_then(|entry| entry.reasoning_effort.as_deref()),
+        Some("low")
+    );
+    let mut saw_dola_update = false;
+    let mut saw_svarog_update = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        match command {
+            DaemonCommand::SetTargetAgentReasoningEffort {
+                target_agent_id,
+                reasoning_effort,
+            } if target_agent_id == "dola" && reasoning_effort == "low" => {
+                saw_dola_update = true;
+            }
+            DaemonCommand::SetTargetAgentReasoningEffort {
+                target_agent_id, ..
+            } if target_agent_id == zorai_protocol::AGENT_ID_SWAROG => {
+                saw_svarog_update = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_dola_update);
+    assert!(!saw_svarog_update);
+}
+
+#[test]
+fn slash_model_updates_active_thread_owner_model() {
+    let (mut model, mut daemon_rx) = make_model();
+    seed_active_weles_thread(&mut model);
+
+    assert!(model.execute_slash_command_line("/model"));
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    let target_index = model
+        .available_model_picker_models()
+        .iter()
+        .position(|entry| entry.id == "gpt-5.4-mini")
+        .expect("expected OpenAI mini model");
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(target_index as i32));
+    model.handle_modal_enter(modal::ModalKind::ModelPicker);
+
+    let mut saw_target_update = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        if matches!(
+            command,
+            DaemonCommand::SetTargetAgentProviderModel {
+                target_agent_id,
+                provider_id,
+                model,
+            } if target_agent_id == "weles"
+                && provider_id == PROVIDER_ID_OPENAI
+                && model == "gpt-5.4-mini"
+        ) {
+            saw_target_update = true;
+        }
+    }
+    assert!(saw_target_update);
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
+fn slash_provider_updates_active_thread_owner_provider_after_model_pick() {
+    let (mut model, mut daemon_rx) = make_model();
+    seed_active_weles_thread(&mut model);
+    model
+        .auth
+        .entries
+        .push(crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_XAI.to_string(),
+            provider_name: "xAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "grok-4".to_string(),
+        });
+
+    assert!(model.execute_slash_command_line("/provider"));
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+    let provider_index = model
+        .filtered_provider_picker_defs()
+        .iter()
+        .position(|provider| provider.id == PROVIDER_ID_XAI)
+        .expect("expected xAI provider");
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(provider_index as i32));
+    model.handle_modal_enter(modal::ModalKind::ProviderPicker);
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    let model_index = model
+        .available_model_picker_models()
+        .iter()
+        .position(|entry| entry.id == "grok-4")
+        .expect("expected xAI model");
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(model_index as i32));
+    model.handle_modal_enter(modal::ModalKind::ModelPicker);
+
+    let mut saw_target_update = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        if matches!(
+            command,
+            DaemonCommand::SetTargetAgentProviderModel {
+                target_agent_id,
+                provider_id,
+                model,
+            } if target_agent_id == "weles"
+                && provider_id == PROVIDER_ID_XAI
+                && model == "grok-4"
+        ) {
+            saw_target_update = true;
+        }
+    }
+    assert!(saw_target_update);
+}
+
+#[test]
+fn slash_effort_updates_active_thread_owner_effort() {
+    let (mut model, mut daemon_rx) = make_model();
+    seed_active_weles_thread(&mut model);
+
+    assert!(model.execute_slash_command_line("/effort"));
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::EffortPicker));
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+    model.handle_modal_enter(modal::ModalKind::EffortPicker);
+
+    assert!(matches!(
+        daemon_rx
+            .try_recv()
+            .expect("expected target agent effort update"),
+        DaemonCommand::SetTargetAgentReasoningEffort {
+            target_agent_id,
+            reasoning_effort,
+        } if target_agent_id == "weles" && reasoning_effort == "high"
+    ));
+    assert_eq!(
+        model
+            .current_header_agent_profile()
+            .reasoning_effort
+            .as_deref(),
+        Some("high")
+    );
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
+fn slash_effort_picker_starts_on_active_thread_owner_effort() {
+    let (mut model, _daemon_rx) = make_model();
+    seed_active_weles_thread(&mut model);
+    model.config.reasoning_effort = "xhigh".to_string();
+
+    assert!(model.execute_slash_command_line("/effort"));
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::EffortPicker));
+    assert_eq!(model.modal.picker_cursor(), 3);
+}
+
+#[test]
+fn slash_effort_updates_active_svarog_thread_header_effort() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.config.provider = PROVIDER_ID_DEEPSEEK.to_string();
+    model.config.model = "deepseek-v4-pro".to_string();
+    model.config.reasoning_effort = "high".to_string();
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "thread-svarog".to_string(),
+            agent_name: Some("Swarog".to_string()),
+            profile_provider: Some(PROVIDER_ID_DEEPSEEK.to_string()),
+            profile_model: Some("deepseek-v4-pro".to_string()),
+            profile_reasoning_effort: Some("xhigh".to_string()),
+            title: "Swarog thread".to_string(),
+            ..Default::default()
+        }));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-svarog".to_string()));
+
+    assert_eq!(
+        model
+            .current_header_agent_profile()
+            .reasoning_effort
+            .as_deref(),
+        Some("xhigh")
+    );
+    assert!(model.execute_slash_command_line("/effort"));
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::EffortPicker));
+    assert_eq!(model.modal.picker_cursor(), 5);
+    model.modal.reduce(modal::ModalAction::Navigate(-2));
+    model.handle_modal_enter(modal::ModalKind::EffortPicker);
+
+    assert_eq!(
+        model
+            .current_header_agent_profile()
+            .reasoning_effort
+            .as_deref(),
+        Some("medium")
+    );
+    let mut saved_paths = std::collections::BTreeMap::new();
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::SetConfigItem {
+            key_path,
+            value_json,
+        } = command
+        {
+            saved_paths.insert(key_path, value_json);
+        }
+    }
+    assert_eq!(
+        saved_paths.get("/reasoning_effort").map(String::as_str),
+        Some("\"medium\"")
+    );
+    assert_eq!(
+        saved_paths
+            .get(&format!(
+                "/providers/{}/reasoning_effort",
+                PROVIDER_ID_DEEPSEEK
+            ))
+            .map(String::as_str),
+        Some("\"medium\"")
+    );
+}
+
+#[test]
+fn slash_effort_updates_svarog_config_sources_before_settings_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.config.provider = PROVIDER_ID_DEEPSEEK.to_string();
+    model.config.model = "deepseek-v4-pro".to_string();
+    model.config.reasoning_effort = "xhigh".to_string();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "provider": PROVIDER_ID_DEEPSEEK,
+        "model": "deepseek-v4-pro",
+        "reasoning_effort": "xhigh",
+        "providers": {
+            PROVIDER_ID_DEEPSEEK: {
+                "model": "deepseek-v4-pro",
+                "reasoning_effort": "xhigh"
+            }
+        }
+    }));
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "thread-svarog".to_string(),
+            agent_name: Some("Swarog".to_string()),
+            profile_provider: Some(PROVIDER_ID_DEEPSEEK.to_string()),
+            profile_model: Some("deepseek-v4-pro".to_string()),
+            profile_reasoning_effort: Some("xhigh".to_string()),
+            title: "Swarog thread".to_string(),
+            ..Default::default()
+        }));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-svarog".to_string()));
+
+    assert!(model.execute_slash_command_line("/effort"));
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::EffortPicker));
+    assert_eq!(model.modal.picker_cursor(), 5);
+    model.modal.reduce(modal::ModalAction::Navigate(-1));
+    model.handle_modal_enter(modal::ModalKind::EffortPicker);
+
+    assert_eq!(model.config.reasoning_effort, "high");
+    let raw = model
+        .config
+        .agent_config_raw
+        .as_ref()
+        .expect("raw config should stay loaded");
+    assert_eq!(raw["reasoning_effort"].as_str(), Some("high"));
+    assert_eq!(
+        raw["providers"][PROVIDER_ID_DEEPSEEK]["reasoning_effort"].as_str(),
+        Some("high")
+    );
+    assert_eq!(
+        model
+            .chat
+            .active_thread()
+            .and_then(|thread| thread.profile_reasoning_effort.as_deref()),
+        Some("high")
+    );
+    model.open_settings_tab(SettingsTab::Auth);
+    assert_eq!(
+        model
+            .current_header_agent_profile()
+            .reasoning_effort
+            .as_deref(),
+        Some("high")
+    );
+
+    model.handle_agent_config_event(crate::wire::AgentConfigSnapshot {
+        provider: PROVIDER_ID_DEEPSEEK.to_string(),
+        base_url: String::new(),
+        model: "deepseek-v4-pro".to_string(),
+        api_key: String::new(),
+        assistant_id: String::new(),
+        auth_source: "api_key".to_string(),
+        api_transport: "responses".to_string(),
+        reasoning_effort: "xhigh".to_string(),
+        context_window_tokens: 1_000_000,
+    });
+    model.handle_agent_config_raw_event(serde_json::json!({
+        "provider": PROVIDER_ID_DEEPSEEK,
+        "model": "deepseek-v4-pro",
+        "reasoning_effort": "xhigh",
+        "providers": {
+            PROVIDER_ID_DEEPSEEK: {
+                "model": "deepseek-v4-pro",
+                "reasoning_effort": "xhigh"
+            }
+        }
+    }));
+    assert_eq!(
+        model
+            .current_header_agent_profile()
+            .reasoning_effort
+            .as_deref(),
+        Some("high")
+    );
+    assert_eq!(model.config.reasoning_effort, "high");
+    assert_eq!(
+        model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get("reasoning_effort"))
+            .and_then(|value| value.as_str()),
+        Some("high")
+    );
+
+    model.handle_agent_config_raw_event(serde_json::json!({
+        "provider": PROVIDER_ID_DEEPSEEK,
+        "model": "deepseek-v4-pro",
+        "reasoning_effort": "high",
+        "providers": {
+            PROVIDER_ID_DEEPSEEK: {
+                "model": "deepseek-v4-pro",
+                "reasoning_effort": "high"
+            }
+        }
+    }));
+    assert!(
+        model.pending_svarog_reasoning_effort.is_none(),
+        "matching persisted config should clear the optimistic override"
+    );
+
+    let mut saved_paths = std::collections::BTreeMap::new();
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::SetConfigItem {
+            key_path,
+            value_json,
+        } = command
+        {
+            saved_paths.insert(key_path, value_json);
+        }
+    }
+    assert_eq!(
+        saved_paths.get("/reasoning_effort").map(String::as_str),
+        Some("\"high\"")
+    );
+    assert_eq!(
+        saved_paths
+            .get(&format!(
+                "/providers/{}/reasoning_effort",
+                PROVIDER_ID_DEEPSEEK
+            ))
+            .map(String::as_str),
+        Some("\"high\"")
+    );
 }
 
 #[test]

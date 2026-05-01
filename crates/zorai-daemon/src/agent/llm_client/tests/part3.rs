@@ -748,6 +748,98 @@ providers:
     }
 
     #[tokio::test]
+    async fn openrouter_embedding_model_fetch_requests_embeddings_catalog() {
+        let request_lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind openrouter embedding model fetch listener");
+        let addr = listener
+            .local_addr()
+            .expect("openrouter embedding model fetch listener addr");
+        let request_lines_for_server = std::sync::Arc::clone(&request_lines);
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("accept embedding model fetch request");
+            let mut buf = [0_u8; 4096];
+            let size = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                tokio::io::AsyncReadExt::read(&mut stream, &mut buf),
+            )
+            .await
+            .expect("read embedding model fetch request timed out")
+            .expect("read embedding model fetch request");
+            let request = String::from_utf8_lossy(&buf[..size]).to_string();
+            let request_line = request.lines().next().unwrap_or_default().to_string();
+            request_lines_for_server
+                .lock()
+                .expect("lock openrouter request lines")
+                .push(request_line);
+
+            let body = serde_json::json!({
+                "data": [
+                    {
+                        "id": "openai/text-embedding-3-small",
+                        "name": "Text Embedding 3 Small",
+                        "context_length": 8192,
+                        "architecture": {
+                            "input_modalities": ["text"],
+                            "output_modalities": ["embeddings"]
+                        }
+                    },
+                    {
+                        "id": "qwen/qwen3-embedding-0.6b",
+                        "name": "Qwen3 Embedding 0.6B",
+                        "context_length": 32768,
+                        "architecture": {
+                            "input_modalities": ["text"],
+                            "output_modalities": ["embeddings"]
+                        }
+                    }
+                ]
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write embedding model fetch response");
+        });
+
+        let models = fetch_models(
+            zorai_shared::providers::PROVIDER_ID_OPENROUTER,
+            &format!("http://{addr}"),
+            "",
+            Some("embedding"),
+        )
+        .await
+        .expect("fetch embedding models should succeed");
+
+        server
+            .await
+            .expect("openrouter embedding model fetch server task");
+
+        let request_line = request_lines
+            .lock()
+            .expect("lock request lines")
+            .first()
+            .cloned()
+            .expect("request line should be recorded");
+        assert!(
+            request_line.contains("/embeddings/models"),
+            "expected OpenRouter embedding model fetch to request embeddings catalog, got {request_line}"
+        );
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "openai/text-embedding-3-small");
+        assert_eq!(models[1].id, "qwen/qwen3-embedding-0.6b");
+    }
+
+    #[tokio::test]
     async fn chutes_model_fetch_retries_without_auth_after_invalid_token() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await

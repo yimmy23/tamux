@@ -89,15 +89,21 @@ pub const MULTIMODAL: &[Modality] = &[
 
 pub const XAI_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
+        id: "grok-4.3",
+        name: "Grok 4.3",
+        context_window: 1_000_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
         id: "grok-4",
         name: "Grok 4",
-        context_window: 262_144,
+        context_window: 256_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "grok-code-fast-1",
         name: "Grok Code Fast 1",
-        context_window: 173_000,
+        context_window: 256_000,
         modalities: TEXT_ONLY,
     },
 ];

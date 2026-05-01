@@ -1,19 +1,43 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { SubAgentsTab } from "@/components/settings-panel/SubAgentsTab";
 import { ModelSelector } from "@/components/settings-panel/shared";
+import {
+  audioModelOptions,
+  embeddingModelOptions,
+  filterAudioProviderOptions,
+  filterEmbeddingProviderOptions,
+  filterImageGenerationProviderOptions,
+  imageGenerationModelOptions,
+  normalizeAudioModelForProviderChange,
+  normalizeEmbeddingModelForProviderChange,
+  normalizeImageGenerationModelForProviderChange,
+  type ProviderOption,
+} from "@/components/settings-panel/agentTabHelpers";
 import { useAgentStore, type AgentSettings } from "@/lib/agentStore";
 import {
   getDefaultApiTransport,
+  getDefaultAuthSource,
+  getDefaultModelForProvider,
+  getProviderDefinition,
   getSupportedApiTransports,
   normalizeApiTransport,
 } from "@/lib/agentStore/providers";
-import type { AgentProviderId, ApiTransportMode, AuthSource } from "@/lib/agentStore/types";
+import type { AgentProviderConfig, AgentProviderId, ApiTransportMode, AuthSource } from "@/lib/agentStore/types";
 import { getBridge } from "@/lib/bridge";
+import { filterFetchedModelsForAudio, filterFetchedModelsForEmbeddings, filterFetchedModelsForImageGeneration } from "@/lib/providerModels";
 import { usePluginStore } from "@/lib/pluginStore";
 import { useSettingsStore } from "@/lib/settingsStore";
 import { BUILTIN_THEMES } from "@/lib/themes";
 import { ZORAI_APP_NAME } from "@/zorai/branding";
+import { embeddingSettingsPatchForModelSelection } from "./embeddingSettings";
 import type { ZoraiSettingsTabId } from "./settingsTabs";
+import {
+  formatProviderValidationError,
+  getProviderValidationButtonLabel,
+  markProviderValidationTesting,
+  providerValidationStatusFromResult,
+  type ProviderValidationStatusMap,
+} from "./providerValidationStatus";
 
 type ToggleSetting = {
   key: keyof AgentSettings;
@@ -23,7 +47,15 @@ type ToggleSetting = {
 
 const authSources: AuthSource[] = ["api_key", "chatgpt_subscription", "github_copilot"];
 const reasoningEfforts: AgentSettings["reasoning_effort"][] = ["none", "minimal", "low", "medium", "high", "xhigh"];
-const APP_VERSION = "0.7.1";
+export const conciergeReasoningEffortOptions: Array<{ value: AgentSettings["reasoning_effort"]; label: string }> = [
+  { value: "none", label: "No" },
+  { value: "minimal", label: "minimal" },
+  { value: "low", label: "low" },
+  { value: "medium", label: "medium" },
+  { value: "high", label: "high" },
+  { value: "xhigh", label: "xhigh" },
+];
+const APP_VERSION = "0.8.8";
 const APP_AUTHOR = "Mariusz Kurman";
 const APP_GITHUB = "mkurman/zorai";
 const APP_HOMEPAGE = "zorai.app";
@@ -37,6 +69,20 @@ const toolToggles: ToggleSetting[] = [
   { key: "enable_conversation_memory", label: "Conversation memory", description: "Keep durable context across agent sessions." },
   { key: "auto_retry", label: "Auto retry", description: "Retry recoverable provider and tool failures." },
 ];
+
+export function normalizeConciergeReasoningEffortForUi(value: string | null | undefined): AgentSettings["reasoning_effort"] {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === "off" || normalized === "none") {
+    return "none";
+  }
+  return conciergeReasoningEffortOptions.some((option) => option.value === normalized)
+    ? normalized as AgentSettings["reasoning_effort"]
+    : "none";
+}
+
+export function serializeConciergeReasoningEffortFromUi(value: AgentSettings["reasoning_effort"]): string | undefined {
+  return value === "none" ? undefined : value;
+}
 
 export function SettingsTabPanel({ activeTab }: { activeTab: ZoraiSettingsTabId }) {
   if (activeTab === "model") return <ModelPanel />;
@@ -168,41 +214,57 @@ function AuthPanel() {
   const logoutProvider = useAgentStore((state) => state.logoutProvider);
   const [loginTarget, setLoginTarget] = useState<string | null>(null);
   const [loginKey, setLoginKey] = useState("");
-  const [validationResult, setValidationResult] = useState<Record<string, string>>({});
+  const [validationResult, setValidationResult] = useState<ProviderValidationStatusMap>({});
 
   useEffect(() => {
     void refreshAuth();
   }, [refreshAuth]);
 
   const runTest = async (providerId: string, baseUrl: string, authSource: string) => {
-    const result = await validateProvider(providerId, baseUrl, "", authSource);
-    setValidationResult((items) => ({ ...items, [providerId]: result.valid ? "ok" : result.error ?? "failed" }));
+    setValidationResult((items) => markProviderValidationTesting(items, providerId));
+    try {
+      const result = await validateProvider(providerId, baseUrl, "", authSource);
+      setValidationResult((items) => ({
+        ...items,
+        [providerId]: providerValidationStatusFromResult(result),
+      }));
+    } catch (error) {
+      setValidationResult((items) => ({
+        ...items,
+        [providerId]: { state: "error", message: formatProviderValidationError(error) },
+      }));
+    }
   };
 
   return (
     <SettingsGrid extraClassName="zorai-settings-grid--full">
       <Panel section="Auth" title="Authentication" extraClassName="zorai-settings-auth">
         <button type="button" className="zorai-ghost-button" onClick={() => void refreshAuth()}>Refresh auth status</button>
-        {authStates.length === 0 ? <p className="zorai-empty-state">No provider auth status has been reported by the daemon yet.</p> : authStates.map((state) => (
-          <div key={`${state.provider_id}-${state.auth_source}`} className="zorai-setting-row">
-            <div><strong>{state.authenticated ? "●" : "○"} {state.provider_name}</strong><span>{state.model ? `${state.model} / ` : ""}{state.auth_source}</span>{validationResult[state.provider_id] ? <span>{validationResult[state.provider_id]}</span> : null}</div>
-            <div className="zorai-card-actions">
-              <button type="button" className="zorai-ghost-button" onClick={() => {
-                setLoginTarget(loginTarget === state.provider_id ? null : state.provider_id);
-                setLoginKey("");
-              }}>API Key</button>
-              {state.authenticated ? <button type="button" className="zorai-ghost-button" onClick={() => void logoutProvider(state.provider_id)}>Logout</button> : null}
-              <button type="button" className="zorai-ghost-button" onClick={() => void runTest(state.provider_id, state.base_url, state.auth_source)}>Test</button>
-            </div>
-            {loginTarget === state.provider_id ? (
-              <div className="zorai-setting-row">
-                <div><strong>API Key</strong><span>Stored by the daemon provider auth store.</span></div>
-                <input className="zorai-input" type="password" value={loginKey} onChange={(event) => setLoginKey(event.target.value)} />
-                <button type="button" className="zorai-primary-button" disabled={!loginKey.trim()} onClick={() => void loginProvider(state.provider_id, loginKey, state.base_url).then(() => { setLoginKey(""); setLoginTarget(null); })}>Save</button>
+        {authStates.length === 0 ? <p className="zorai-empty-state">No provider auth status has been reported by the daemon yet.</p> : authStates.map((state) => {
+          const providerValidation = validationResult[state.provider_id];
+          const isTestingProvider = providerValidation?.state === "testing";
+
+          return (
+            <div key={`${state.provider_id}-${state.auth_source}`} className="zorai-setting-row">
+              <div><strong>{state.authenticated ? "●" : "○"} {state.provider_name}</strong><span>{state.model ? `${state.model} / ` : ""}{state.auth_source}</span>{providerValidation ? <span>{providerValidation.message}</span> : null}</div>
+              <div className="zorai-card-actions">
+                <button type="button" className="zorai-ghost-button" onClick={() => {
+                  setLoginTarget(loginTarget === state.provider_id ? null : state.provider_id);
+                  setLoginKey("");
+                }}>API Key</button>
+                {state.authenticated ? <button type="button" className="zorai-ghost-button" onClick={() => void logoutProvider(state.provider_id)}>Logout</button> : null}
+                <button type="button" className="zorai-ghost-button" disabled={isTestingProvider} onClick={() => void runTest(state.provider_id, state.base_url, state.auth_source)}>{getProviderValidationButtonLabel(validationResult, state.provider_id)}</button>
               </div>
-            ) : null}
-          </div>
-        ))}
+              {loginTarget === state.provider_id ? (
+                <div className="zorai-setting-row">
+                  <div><strong>API Key</strong><span>Stored by the daemon provider auth store.</span></div>
+                  <input className="zorai-input" type="password" value={loginKey} onChange={(event) => setLoginKey(event.target.value)} />
+                  <button type="button" className="zorai-primary-button" disabled={!loginKey.trim()} onClick={() => void loginProvider(state.provider_id, loginKey, state.base_url).then(() => { setLoginKey(""); setLoginTarget(null); })}>Save</button>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </Panel>
     </SettingsGrid>
   );
@@ -320,8 +382,8 @@ function ConciergePanel() {
           ) : <span className="zorai-empty-state">(use Svarog)</span>}
         </SettingRow>
         <SettingRow label="Reasoning" description="Rarog reasoning effort.">
-          <select className="zorai-input" value={config.reasoning_effort ?? ""} onChange={(event) => patchConfig({ reasoning_effort: event.target.value || undefined })}>
-            {["", "none", "minimal", "low", "medium", "high", "xhigh"].map((value) => <option key={value || "inherit"} value={value}>{value || "(use Svarog)"}</option>)}
+          <select className="zorai-input" value={normalizeConciergeReasoningEffortForUi(config.reasoning_effort)} onChange={(event) => patchConfig({ reasoning_effort: serializeConciergeReasoningEffortFromUi(event.target.value as AgentSettings["reasoning_effort"]) })}>
+            {conciergeReasoningEffortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </SettingRow>
       </Panel>
@@ -380,19 +442,144 @@ function GatewayPanel() {
 function FeaturesPanel() {
   const agentSettings = useAgentStore((state) => state.agentSettings);
   const updateAgentSetting = useAgentStore((state) => state.updateAgentSetting);
+  const providerAuthStates = useAgentStore((state) => state.providerAuthStates);
+  const providerIds = useProviderIds(agentSettings);
+  const providerOptions = useProviderOptions(agentSettings);
+  const audioSttProviderOptions = filterAudioProviderOptions(providerOptions, "stt");
+  const audioTtsProviderOptions = filterAudioProviderOptions(providerOptions, "tts");
+  const imageGenerationProviderOptions = filterImageGenerationProviderOptions(providerOptions);
+  const embeddingProviderOptions = filterEmbeddingProviderOptions(providerOptions);
+  const audioSttProviderConfig = getProviderConfig(agentSettings, agentSettings.audio_stt_provider);
+  const audioTtsProviderConfig = getProviderConfig(agentSettings, agentSettings.audio_tts_provider);
+  const imageGenerationProviderConfig = getProviderConfig(agentSettings, agentSettings.image_generation_provider);
+  const embeddingProviderConfig = getProviderConfig(agentSettings, agentSettings.semantic_embedding_provider);
+  const providerHasDaemonAuth = (providerId: AgentProviderId) => providerAuthStates.some((state) => state.provider_id === providerId && state.authenticated);
 
   return (
     <SettingsGrid>
       <Panel section="Features" title="Audio and media">
         <SettingRow label="STT Enabled" description="Speech-to-text feature toggle."><Switch checked={agentSettings.audio_stt_enabled} onChange={(checked) => updateAgentSetting("audio_stt_enabled", checked)} /></SettingRow>
-        <SettingRow label="STT Provider" description="Speech-to-text provider."><input className="zorai-input" value={agentSettings.audio_stt_provider} onChange={(event) => updateAgentSetting("audio_stt_provider", event.target.value as never)} /></SettingRow>
-        <SettingRow label="STT Model" description="Speech-to-text model."><input className="zorai-input" value={agentSettings.audio_stt_model} onChange={(event) => updateAgentSetting("audio_stt_model", event.target.value)} /></SettingRow>
+        <SettingRow label="STT Provider" description="Speech-to-text provider.">
+          <ProviderSelect
+            value={agentSettings.audio_stt_provider}
+            options={audioSttProviderOptions}
+            fallbackOptions={providerIds}
+            onChange={(providerId) => {
+              updateAgentSetting("audio_stt_provider", providerId);
+              updateAgentSetting("audio_stt_model", normalizeAudioModelForProviderChange(providerId, "stt", agentSettings.audio_stt_model));
+            }}
+          />
+        </SettingRow>
+        <SettingRow label="STT Model" description="Speech-to-text model.">
+          <ModelSelector
+            providerId={agentSettings.audio_stt_provider}
+            value={agentSettings.audio_stt_model}
+            customName={audioSttProviderConfig.custom_model_name}
+            onChange={(value) => updateAgentSetting("audio_stt_model", value)}
+            base_url={audioSttProviderConfig.base_url}
+            api_key={audioSttProviderConfig.api_key}
+            auth_source={audioSttProviderConfig.auth_source}
+            allowProviderAuthFetch={providerHasDaemonAuth(agentSettings.audio_stt_provider)}
+            modelOptions={audioModelOptions(agentSettings.audio_stt_provider, "stt")}
+            remoteModelFilter={(model) => filterFetchedModelsForAudio([model], "stt").length > 0}
+            disabled={!agentSettings.audio_stt_enabled}
+          />
+        </SettingRow>
+        <SettingRow label="STT Language" description="Speech-to-text language override."><input className="zorai-input" value={agentSettings.audio_stt_language} placeholder="auto" disabled={!agentSettings.audio_stt_enabled} onChange={(event) => updateAgentSetting("audio_stt_language", event.target.value)} /></SettingRow>
         <SettingRow label="TTS Enabled" description="Text-to-speech feature toggle."><Switch checked={agentSettings.audio_tts_enabled} onChange={(checked) => updateAgentSetting("audio_tts_enabled", checked)} /></SettingRow>
-        <SettingRow label="TTS Provider" description="Text-to-speech provider."><input className="zorai-input" value={agentSettings.audio_tts_provider} onChange={(event) => updateAgentSetting("audio_tts_provider", event.target.value as never)} /></SettingRow>
-        <SettingRow label="TTS Model" description="Text-to-speech model."><input className="zorai-input" value={agentSettings.audio_tts_model} onChange={(event) => updateAgentSetting("audio_tts_model", event.target.value)} /></SettingRow>
-        <SettingRow label="TTS Voice" description="Text-to-speech voice."><input className="zorai-input" value={agentSettings.audio_tts_voice} onChange={(event) => updateAgentSetting("audio_tts_voice", event.target.value)} /></SettingRow>
-        <SettingRow label="Image Provider" description="Image generation provider."><input className="zorai-input" value={agentSettings.image_generation_provider} onChange={(event) => updateAgentSetting("image_generation_provider", event.target.value as never)} /></SettingRow>
-        <SettingRow label="Image Model" description="Image generation model."><input className="zorai-input" value={agentSettings.image_generation_model} onChange={(event) => updateAgentSetting("image_generation_model", event.target.value)} /></SettingRow>
+        <SettingRow label="TTS Provider" description="Text-to-speech provider.">
+          <ProviderSelect
+            value={agentSettings.audio_tts_provider}
+            options={audioTtsProviderOptions}
+            fallbackOptions={providerIds}
+            onChange={(providerId) => {
+              updateAgentSetting("audio_tts_provider", providerId);
+              updateAgentSetting("audio_tts_model", normalizeAudioModelForProviderChange(providerId, "tts", agentSettings.audio_tts_model));
+            }}
+          />
+        </SettingRow>
+        <SettingRow label="TTS Model" description="Text-to-speech model.">
+          <ModelSelector
+            providerId={agentSettings.audio_tts_provider}
+            value={agentSettings.audio_tts_model}
+            customName={audioTtsProviderConfig.custom_model_name}
+            onChange={(value) => updateAgentSetting("audio_tts_model", value)}
+            base_url={audioTtsProviderConfig.base_url}
+            api_key={audioTtsProviderConfig.api_key}
+            auth_source={audioTtsProviderConfig.auth_source}
+            allowProviderAuthFetch={providerHasDaemonAuth(agentSettings.audio_tts_provider)}
+            modelOptions={audioModelOptions(agentSettings.audio_tts_provider, "tts")}
+            remoteModelFilter={(model) => filterFetchedModelsForAudio([model], "tts").length > 0}
+            fetchOutputModalities={agentSettings.audio_tts_provider === "openrouter" ? "audio" : undefined}
+            disabled={!agentSettings.audio_tts_enabled}
+          />
+        </SettingRow>
+        <SettingRow label="TTS Voice" description="Text-to-speech voice."><input className="zorai-input" value={agentSettings.audio_tts_voice} disabled={!agentSettings.audio_tts_enabled} onChange={(event) => updateAgentSetting("audio_tts_voice", event.target.value)} /></SettingRow>
+        <SettingRow label="TTS Auto Speak" description="Speak assistant replies automatically."><Switch checked={agentSettings.audio_tts_auto_speak} onChange={(checked) => updateAgentSetting("audio_tts_auto_speak", checked)} /></SettingRow>
+        <SettingRow label="Image Provider" description="Image generation provider.">
+          <ProviderSelect
+            value={agentSettings.image_generation_provider}
+            options={imageGenerationProviderOptions}
+            fallbackOptions={providerIds}
+            onChange={(providerId) => {
+              updateAgentSetting("image_generation_provider", providerId);
+              updateAgentSetting("image_generation_model", normalizeImageGenerationModelForProviderChange(providerId, agentSettings.image_generation_model));
+            }}
+          />
+        </SettingRow>
+        <SettingRow label="Image Model" description="Image generation model.">
+          <ModelSelector
+            providerId={agentSettings.image_generation_provider}
+            value={agentSettings.image_generation_model}
+            customName={imageGenerationProviderConfig.custom_model_name}
+            onChange={(value) => updateAgentSetting("image_generation_model", value)}
+            base_url={imageGenerationProviderConfig.base_url}
+            api_key={imageGenerationProviderConfig.api_key}
+            auth_source={imageGenerationProviderConfig.auth_source}
+            allowProviderAuthFetch={providerHasDaemonAuth(agentSettings.image_generation_provider)}
+            modelOptions={imageGenerationModelOptions(agentSettings.image_generation_provider)}
+            remoteModelFilter={(model) => filterFetchedModelsForImageGeneration([model]).length > 0}
+          />
+        </SettingRow>
+      </Panel>
+      <Panel section="Features" title="Semantic embeddings">
+        <SettingRow label="Embeddings Enabled" description="Enable semantic embedding generation."><Switch checked={agentSettings.semantic_embedding_enabled} onChange={(checked) => updateAgentSetting("semantic_embedding_enabled", checked)} /></SettingRow>
+        <SettingRow label="Embedding Provider" description="Provider used for semantic embeddings.">
+          <ProviderSelect
+            value={agentSettings.semantic_embedding_provider}
+            options={embeddingProviderOptions}
+            fallbackOptions={providerIds}
+            onChange={(providerId) => {
+              updateAgentSetting("semantic_embedding_provider", providerId);
+              updateAgentSetting("semantic_embedding_model", normalizeEmbeddingModelForProviderChange(providerId, agentSettings.semantic_embedding_model));
+            }}
+          />
+        </SettingRow>
+        <SettingRow label="Embedding Model" description="Model used for semantic embeddings.">
+          <ModelSelector
+            providerId={agentSettings.semantic_embedding_provider}
+            value={agentSettings.semantic_embedding_model}
+            customName={embeddingProviderConfig.custom_model_name}
+            onChange={(value, _name, details) => {
+              const patch = embeddingSettingsPatchForModelSelection(value, details);
+              updateAgentSetting("semantic_embedding_model", patch.semantic_embedding_model);
+              if (patch.semantic_embedding_dimensions != null) {
+                updateAgentSetting("semantic_embedding_dimensions", patch.semantic_embedding_dimensions);
+              }
+            }}
+            base_url={embeddingProviderConfig.base_url}
+            api_key={embeddingProviderConfig.api_key}
+            auth_source={embeddingProviderConfig.auth_source}
+            allowProviderAuthFetch={providerHasDaemonAuth(agentSettings.semantic_embedding_provider)}
+            modelOptions={embeddingModelOptions(agentSettings.semantic_embedding_provider)}
+            remoteModelFilter={(model) => filterFetchedModelsForEmbeddings([model]).length > 0}
+            fetchOutputModalities="embedding"
+            disabled={!agentSettings.semantic_embedding_enabled}
+          />
+        </SettingRow>
+        <NumberRow label="Dimensions" description="Embedding vector dimensions." value={agentSettings.semantic_embedding_dimensions} onChange={(value) => updateAgentSetting("semantic_embedding_dimensions", value)} min={1} max={32768} />
+        <NumberRow label="Batch Size" description="Embedding request batch size." value={agentSettings.semantic_embedding_batch_size} onChange={(value) => updateAgentSetting("semantic_embedding_batch_size", value)} min={1} max={512} />
+        <NumberRow label="Concurrency" description="Concurrent embedding requests." value={agentSettings.semantic_embedding_max_concurrency} onChange={(value) => updateAgentSetting("semantic_embedding_max_concurrency", value)} min={1} max={16} />
       </Panel>
     </SettingsGrid>
   );
@@ -401,14 +588,36 @@ function FeaturesPanel() {
 function AdvancedPanel() {
   const agentSettings = useAgentStore((state) => state.agentSettings);
   const updateAgentSetting = useAgentStore((state) => state.updateAgentSetting);
+  const providerAuthStates = useAgentStore((state) => state.providerAuthStates);
   const compaction = agentSettings.compaction;
+  const providerIds = useProviderIds(agentSettings);
+  const providerOptions = useProviderOptions(agentSettings);
+  const welesProviderConfig = getProviderConfig(agentSettings, compaction.weles.provider);
   const customCompactionProvider = compaction.custom_model.provider;
+  const customCompactionProviderConfig = getProviderConfig(agentSettings, customCompactionProvider);
   const customCompactionTransports = getSupportedApiTransports(customCompactionProvider);
   const customCompactionTransport = normalizeApiTransport(customCompactionProvider, compaction.custom_model.api_transport);
   const updateLooseAgentSetting = (key: keyof AgentSettings, value: unknown) => updateAgentSetting(key, value as never);
   const updateCompaction = (patch: Partial<AgentSettings["compaction"]>) => updateAgentSetting("compaction", { ...compaction, ...patch });
   const updateCompactionWeles = (patch: Partial<AgentSettings["compaction"]["weles"]>) => updateCompaction({ weles: { ...compaction.weles, ...patch } });
   const updateCompactionCustom = (patch: Partial<AgentSettings["compaction"]["custom_model"]>) => updateCompaction({ custom_model: { ...compaction.custom_model, ...patch } });
+  const providerHasDaemonAuth = (providerId: AgentProviderId) => providerAuthStates.some((state) => state.provider_id === providerId && state.authenticated);
+  const applyCompactionWelesProvider = (providerId: AgentProviderId) => updateCompactionWeles({
+    provider: providerId,
+    model: getDefaultModelForProvider(providerId, getProviderConfig(agentSettings, providerId).auth_source) || compaction.weles.model,
+  });
+  const applyCompactionCustomProvider = (providerId: AgentProviderId) => {
+    const providerConfig = getProviderConfig(agentSettings, providerId);
+    updateCompactionCustom({
+      provider: providerId,
+      base_url: providerConfig.base_url,
+      model: getDefaultModelForProvider(providerId, providerConfig.auth_source) || providerConfig.model || compaction.custom_model.model,
+      api_key: providerConfig.api_key,
+      auth_source: providerConfig.auth_source,
+      api_transport: normalizeApiTransport(providerId, providerConfig.api_transport),
+      context_window_tokens: providerConfig.context_window_tokens ?? 128000,
+    });
+  };
 
   return (
     <SettingsGrid>
@@ -422,9 +631,9 @@ function AdvancedPanel() {
         <SettingRow label="Auto Compact Context" description="Compress older conversation context automatically."><Switch checked={agentSettings.auto_compact_context} onChange={(checked) => updateAgentSetting("auto_compact_context", checked)} /></SettingRow>
         <SettingRow label="Compaction Mode" description="Strategy used when active context needs compaction.">
           <select className="zorai-input" value={compaction.strategy} onChange={(event) => updateCompaction({ strategy: event.target.value as AgentSettings["compaction"]["strategy"] })}>
-            <option value="heuristic">heuristic</option>
-            <option value="weles">weles</option>
-            <option value="custom_model">custom model</option>
+            <option value="heuristic">Heuristic</option>
+            <option value="weles">WELES</option>
+            <option value="custom_model">LLM provider</option>
           </select>
         </SettingRow>
         <NumberRow label="Heuristic Max Msgs" description="Conversation messages kept before compaction." value={agentSettings.max_context_messages} onChange={(value) => updateAgentSetting("max_context_messages", value)} min={10} max={500} />
@@ -444,8 +653,21 @@ function AdvancedPanel() {
       <Panel section="Advanced" title="Compaction Strategy Settings">
         {compaction.strategy === "weles" ? (
           <>
-            <SettingRow label="WELES Provider" description="Provider used by WELES compaction."><input className="zorai-input" value={compaction.weles.provider} onChange={(event) => updateCompactionWeles({ provider: event.target.value as AgentProviderId })} /></SettingRow>
-            <SettingRow label="WELES Model" description="Model used by WELES compaction."><input className="zorai-input" value={compaction.weles.model} onChange={(event) => updateCompactionWeles({ model: event.target.value })} /></SettingRow>
+            <SettingRow label="WELES Provider" description="Provider used by WELES compaction.">
+              <ProviderSelect value={compaction.weles.provider} options={providerOptions} fallbackOptions={providerIds} onChange={applyCompactionWelesProvider} />
+            </SettingRow>
+            <SettingRow label="WELES Model" description="Model used by WELES compaction.">
+              <ModelSelector
+                providerId={compaction.weles.provider}
+                value={compaction.weles.model}
+                customName={welesProviderConfig.custom_model_name}
+                onChange={(value) => updateCompactionWeles({ model: value })}
+                base_url={welesProviderConfig.base_url}
+                api_key={welesProviderConfig.api_key}
+                auth_source={welesProviderConfig.auth_source}
+                allowProviderAuthFetch={providerHasDaemonAuth(compaction.weles.provider)}
+              />
+            </SettingRow>
             <SettingRow label="WELES Reasoning" description="Reasoning effort for WELES compaction.">
               <select className="zorai-input" value={compaction.weles.reasoning_effort} onChange={(event) => updateCompactionWeles({ reasoning_effort: event.target.value as AgentSettings["reasoning_effort"] })}>
                 {reasoningEfforts.map((value) => <option key={value} value={value}>{value}</option>)}
@@ -455,14 +677,30 @@ function AdvancedPanel() {
         ) : null}
         {compaction.strategy === "custom_model" ? (
           <>
-            <SettingRow label="Custom Provider" description="Provider used by custom-model compaction."><input className="zorai-input" value={customCompactionProvider} onChange={(event) => updateCompactionCustom({ provider: event.target.value as AgentProviderId, api_transport: getDefaultApiTransport(event.target.value as AgentProviderId) })} /></SettingRow>
+            <SettingRow label="Custom Provider" description="Provider used by LLM provider compaction.">
+              <ProviderSelect value={customCompactionProvider} options={providerOptions} fallbackOptions={providerIds} onChange={applyCompactionCustomProvider} />
+            </SettingRow>
             <SettingRow label="Custom Base URL" description="Endpoint used by custom-model compaction."><input className="zorai-input" value={compaction.custom_model.base_url} onChange={(event) => updateCompactionCustom({ base_url: event.target.value })} /></SettingRow>
             <SettingRow label="Custom Auth" description="Credential source for the custom compaction model.">
               <select className="zorai-input" value={compaction.custom_model.auth_source} onChange={(event) => updateCompactionCustom({ auth_source: event.target.value as AuthSource })}>
                 {authSources.map((source) => <option key={source} value={source}>{source}</option>)}
               </select>
             </SettingRow>
-            <SettingRow label="Custom Model" description="Model used by custom-model compaction."><input className="zorai-input" value={compaction.custom_model.model} onChange={(event) => updateCompactionCustom({ model: event.target.value })} /></SettingRow>
+            <SettingRow label="Custom Model" description="Model used by LLM provider compaction.">
+              <ModelSelector
+                providerId={customCompactionProvider}
+                value={compaction.custom_model.model}
+                customName={customCompactionProviderConfig.custom_model_name}
+                onChange={(value, _customName, details) => updateCompactionCustom({
+                  model: value,
+                  context_window_tokens: details?.predefinedModel?.contextWindow ?? details?.fetchedModel?.contextWindow ?? compaction.custom_model.context_window_tokens,
+                })}
+                base_url={compaction.custom_model.base_url}
+                api_key={compaction.custom_model.api_key}
+                auth_source={compaction.custom_model.auth_source}
+                allowProviderAuthFetch={providerHasDaemonAuth(customCompactionProvider)}
+              />
+            </SettingRow>
             <SecretRow label="Custom API Key" value={compaction.custom_model.api_key} onChange={(value) => updateCompactionCustom({ api_key: value })} />
             <SettingRow label="Assistant ID" description="Optional native assistant identifier."><input className="zorai-input" value={compaction.custom_model.assistant_id} onChange={(event) => updateCompactionCustom({ assistant_id: event.target.value })} /></SettingRow>
             <SettingRow label="Custom Transport" description="Transport for custom-model compaction.">
@@ -581,11 +819,64 @@ function AboutPanel() {
   );
 }
 
-function useProviderIds(agentSettings: AgentSettings) {
+function useProviderIds(agentSettings: AgentSettings): AgentProviderId[] {
   return useMemo(() => Object.keys(agentSettings).filter((key) => {
     const value = agentSettings[key];
     return value && typeof value === "object" && "model" in value && "base_url" in value;
-  }).sort(), [agentSettings]);
+  }).sort() as AgentProviderId[], [agentSettings]);
+}
+
+function useProviderOptions(agentSettings: AgentSettings): ProviderOption[] {
+  const providerIds = useProviderIds(agentSettings);
+  return useMemo(() => providerIds.map((providerId) => ({
+    id: providerId,
+    label: getProviderDefinition(providerId)?.name ?? providerId,
+  })), [providerIds]);
+}
+
+function getProviderConfig(agentSettings: AgentSettings, providerId: AgentProviderId): AgentProviderConfig {
+  const value = agentSettings[providerId] as Partial<AgentProviderConfig> | undefined;
+  return {
+    base_url: value?.base_url ?? getProviderDefinition(providerId)?.defaultBaseUrl ?? "",
+    model: value?.model ?? getDefaultModelForProvider(providerId),
+    custom_model_name: value?.custom_model_name ?? "",
+    api_key: value?.api_key ?? "",
+    assistant_id: value?.assistant_id ?? "",
+    api_transport: normalizeApiTransport(providerId, value?.api_transport ?? getDefaultApiTransport(providerId)),
+    auth_source: value?.auth_source ?? getDefaultAuthSource(providerId),
+    context_window_tokens: value?.context_window_tokens ?? null,
+  };
+}
+
+function ProviderSelect({
+  value,
+  options,
+  fallbackOptions,
+  onChange,
+}: {
+  value: AgentProviderId;
+  options: ProviderOption[];
+  fallbackOptions: AgentProviderId[];
+  onChange: (value: AgentProviderId) => void;
+}) {
+  const optionIds = new Set(options.map((option) => option.id));
+  const visibleOptions = optionIds.has(value)
+    ? options
+    : [{ id: value, label: getProviderDefinition(value)?.name ?? value }, ...options];
+
+  if (visibleOptions.length === 0) {
+    return (
+      <select className="zorai-input" value={value} onChange={(event) => onChange(event.target.value as AgentProviderId)}>
+        {fallbackOptions.map((providerId) => <option key={providerId} value={providerId}>{getProviderDefinition(providerId)?.name ?? providerId}</option>)}
+      </select>
+    );
+  }
+
+  return (
+    <select className="zorai-input" value={value} onChange={(event) => onChange(event.target.value as AgentProviderId)}>
+      {visibleOptions.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
+    </select>
+  );
 }
 
 function SettingsGrid({ children, extraClassName }: { children: ReactNode; extraClassName?: string }) {
