@@ -896,6 +896,9 @@ impl TuiModel {
                 auto_compaction_reload_window(details_ref),
             ) {
                 if thread_id == active_thread_id {
+                    self.chat.reduce(chat::ChatAction::InvalidateContextWindow {
+                        thread_id: thread_id.to_string(),
+                    });
                     self.request_thread_page(
                         thread_id.to_string(),
                         message_limit,

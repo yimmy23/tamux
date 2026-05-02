@@ -2278,6 +2278,7 @@ async fn adaptive_carryover_summary_visible_when_dream_hint_provenance_exists() 
 
     let snapshot = engine.status_diagnostics_snapshot().await;
     let carryover = &snapshot["adaptive_carryover"];
+    assert_eq!(carryover["inspection_tool"].as_str(), Some("show_dreams"));
     assert_eq!(carryover["persisted_event_count"].as_u64(), Some(1));
     assert_eq!(carryover["dream_hint_event_count"].as_u64(), Some(1));
     assert_eq!(carryover["forge_hint_event_count"].as_u64(), Some(0));
@@ -2289,6 +2290,11 @@ async fn adaptive_carryover_summary_visible_when_dream_hint_provenance_exists() 
         recent[0]["event_type"].as_str(),
         Some(crate::agent::provenance::PROVENANCE_EVENT_DREAM_HINTS_PERSISTED)
     );
+    assert_eq!(recent[0]["source_kind"].as_str(), Some("dream_state"));
+    assert!(recent[0]["sequence"].as_u64().is_some());
+    assert!(recent[0]["provenance_ref"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("provenance:")));
     assert_eq!(recent[0]["thread_id"].as_str(), None);
     assert_eq!(recent[0]["task_id"].as_str(), None);
     assert_eq!(recent[0]["goal_run_id"].as_str(), None);

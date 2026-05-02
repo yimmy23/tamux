@@ -558,7 +558,7 @@ fn default_debate_required_sections() -> Vec<String> {
 impl Default for DebateConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             default_max_rounds: default_debate_max_rounds(),
             min_evidence_refs: default_debate_min_evidence_refs(),
             role_rotation: default_true(),

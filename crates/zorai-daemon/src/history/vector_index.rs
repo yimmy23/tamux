@@ -112,26 +112,44 @@ impl VectorIndex {
     }
 
     pub(crate) async fn upsert(&self, document: VectorDocument) -> Result<()> {
-        let dim = document.embedding.len();
-        anyhow::ensure!(dim > 0, "vector document embedding cannot be empty");
-        anyhow::ensure!(
-            document.embedding.iter().all(|value| value.is_finite()),
-            "vector document embedding contains non-finite values"
-        );
+        self.upsert_many(vec![document]).await
+    }
+
+    pub(crate) async fn upsert_many(&self, documents: Vec<VectorDocument>) -> Result<()> {
+        if documents.is_empty() {
+            return Ok(());
+        }
+        let dim = documents[0].embedding.len();
+        for document in &documents {
+            anyhow::ensure!(
+                document.embedding.len() == dim,
+                "vector documents in a batch must share the same dimension"
+            );
+            anyhow::ensure!(dim > 0, "vector document embedding cannot be empty");
+            anyhow::ensure!(
+                document.embedding.iter().all(|value| value.is_finite()),
+                "vector document embedding contains non-finite values"
+            );
+        }
 
         let table = self.open_or_create_table(dim).await?;
         ensure_table_dimension(&table, dim).await?;
-        let source_key = source_key(
-            document.source_kind,
-            &document.source_id,
-            &document.chunk_id,
-        );
+        let source_keys = documents
+            .iter()
+            .map(|document| {
+                source_key(
+                    document.source_kind,
+                    &document.source_id,
+                    &document.chunk_id,
+                )
+            })
+            .collect::<Vec<_>>();
         table
-            .delete(&format!("source_key = {}", sql_quote(&source_key)))
+            .delete(&format!("source_key IN ({})", sql_list(&source_keys)))
             .await
             .context("failed to delete previous LanceDB vector chunk")?;
         table
-            .add(record_batch_for_document(document, source_key)?)
+            .add(record_batch_for_documents(documents, source_keys)?)
             .execute()
             .await
             .context("failed to add LanceDB vector document")?;
@@ -143,15 +161,30 @@ impl VectorIndex {
         source_kind: VectorSourceKind,
         source_id: &str,
     ) -> Result<()> {
+        self.delete_sources(vec![(source_kind, source_id.to_string())])
+            .await
+    }
+
+    pub(crate) async fn delete_sources(
+        &self,
+        sources: Vec<(VectorSourceKind, String)>,
+    ) -> Result<()> {
+        if sources.is_empty() {
+            return Ok(());
+        }
         let Some(table) = self.open_existing_table().await? else {
             return Ok(());
         };
-        let prefix = format!("{}:{}:", source_kind.as_str(), source_id);
+        let predicate = sources
+            .iter()
+            .map(|(source_kind, source_id)| {
+                let prefix = format!("{}:{}:", source_kind.as_str(), source_id);
+                format!("source_key LIKE {}", sql_quote(&format!("{prefix}%")))
+            })
+            .collect::<Vec<_>>()
+            .join(" OR ");
         table
-            .delete(&format!(
-                "source_key LIKE {}",
-                sql_quote(&format!("{prefix}%"))
-            ))
+            .delete(&predicate)
             .await
             .context("failed to delete LanceDB vector source")?;
         Ok(())
@@ -263,31 +296,66 @@ fn vector_schema(dim: usize) -> Schema {
     ])
 }
 
-fn record_batch_for_document(document: VectorDocument, source_key: String) -> Result<RecordBatch> {
-    let dim = document.embedding.len();
-    let vector_values = document
-        .embedding
-        .into_iter()
-        .map(Some)
-        .collect::<Vec<Option<f32>>>();
+fn record_batch_for_documents(
+    documents: Vec<VectorDocument>,
+    source_keys: Vec<String>,
+) -> Result<RecordBatch> {
+    let Some(dim) = documents.first().map(|document| document.embedding.len()) else {
+        anyhow::bail!("vector document batch cannot be empty");
+    };
+    let row_count = documents.len();
+    let mut source_kinds = Vec::with_capacity(row_count);
+    let mut source_ids = Vec::with_capacity(row_count);
+    let mut chunk_ids = Vec::with_capacity(row_count);
+    let mut titles = Vec::with_capacity(row_count);
+    let mut bodies = Vec::with_capacity(row_count);
+    let mut workspace_ids = Vec::with_capacity(row_count);
+    let mut thread_ids = Vec::with_capacity(row_count);
+    let mut agent_ids = Vec::with_capacity(row_count);
+    let mut timestamps = Vec::with_capacity(row_count);
+    let mut embedding_models = Vec::with_capacity(row_count);
+    let mut metadata_json = Vec::with_capacity(row_count);
+    let mut vector_rows = Vec::with_capacity(row_count);
+
+    for document in documents {
+        source_kinds.push(document.source_kind.as_str());
+        source_ids.push(document.source_id);
+        chunk_ids.push(document.chunk_id);
+        titles.push(document.title);
+        bodies.push(document.body);
+        workspace_ids.push(document.workspace_id);
+        thread_ids.push(document.thread_id);
+        agent_ids.push(document.agent_id);
+        timestamps.push(Some(document.timestamp));
+        embedding_models.push(document.embedding_model);
+        metadata_json.push(document.metadata_json);
+        vector_rows.push(Some(
+            document
+                .embedding
+                .into_iter()
+                .map(Some)
+                .collect::<Vec<Option<f32>>>(),
+        ));
+    }
+
     RecordBatch::try_new(
         Arc::new(vector_schema(dim)),
         vec![
-            Arc::new(StringArray::from(vec![source_key])),
-            Arc::new(StringArray::from(vec![document.source_kind.as_str()])),
-            Arc::new(StringArray::from(vec![document.source_id])),
-            Arc::new(StringArray::from(vec![document.chunk_id])),
-            Arc::new(StringArray::from(vec![document.title])),
-            Arc::new(StringArray::from(vec![document.body])),
-            Arc::new(StringArray::from(vec![document.workspace_id])),
-            Arc::new(StringArray::from(vec![document.thread_id])),
-            Arc::new(StringArray::from(vec![document.agent_id])),
-            Arc::new(Int64Array::from(vec![Some(document.timestamp)])),
-            Arc::new(StringArray::from(vec![document.embedding_model])),
-            Arc::new(StringArray::from(vec![document.metadata_json])),
+            Arc::new(StringArray::from(source_keys)),
+            Arc::new(StringArray::from(source_kinds)),
+            Arc::new(StringArray::from(source_ids)),
+            Arc::new(StringArray::from(chunk_ids)),
+            Arc::new(StringArray::from(titles)),
+            Arc::new(StringArray::from(bodies)),
+            Arc::new(StringArray::from(workspace_ids)),
+            Arc::new(StringArray::from(thread_ids)),
+            Arc::new(StringArray::from(agent_ids)),
+            Arc::new(Int64Array::from(timestamps)),
+            Arc::new(StringArray::from(embedding_models)),
+            Arc::new(StringArray::from(metadata_json)),
             Arc::new(
                 FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
-                    vec![Some(vector_values)],
+                    vector_rows,
                     dim as i32,
                 ),
             ),
@@ -397,4 +465,12 @@ fn source_key(source_kind: VectorSourceKind, source_id: &str, chunk_id: &str) ->
 
 fn sql_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
+}
+
+fn sql_list(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value| sql_quote(value))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

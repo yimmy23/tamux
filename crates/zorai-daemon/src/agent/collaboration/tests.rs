@@ -1982,6 +1982,71 @@ async fn record_collaboration_outcome_creates_session_for_solo_subagent() {
 }
 
 #[tokio::test]
+async fn record_collaboration_outcome_bootstraps_missing_parent_session() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Coordinate the child work".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let mut child = engine
+        .enqueue_task(
+            "Implementation child".to_string(),
+            "Implement the chosen path".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-child".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    child.status = TaskStatus::Completed;
+    child.result = Some("Implemented the chosen path".to_string());
+
+    engine.record_collaboration_outcome(&child, "success").await;
+
+    let report = engine
+        .collaboration_sessions_json(Some(&parent.id))
+        .await
+        .expect("parent collaboration session should be readable");
+
+    assert_eq!(report["parent_task_id"], parent.id);
+    assert!(report["agents"].as_array().is_some_and(|agents| {
+        agents
+            .iter()
+            .any(|agent| agent["task_id"] == child.id && agent["status"] == "completed")
+    }));
+    assert!(report["contributions"]
+        .as_array()
+        .is_some_and(|contributions| {
+            contributions
+                .iter()
+                .any(|contribution| contribution["task_id"] == child.id)
+        }));
+}
+
+#[tokio::test]
 async fn record_collaboration_outcome_records_trace_and_audit_for_parent_session() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

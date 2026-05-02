@@ -419,7 +419,7 @@ providers:
     #[test]
     fn debate_config_defaults() {
         let cfg = DebateConfig::default();
-        assert!(!cfg.enabled);
+        assert!(cfg.enabled);
         assert_eq!(cfg.default_max_rounds, 3);
         assert_eq!(cfg.min_evidence_refs, 1);
         assert!(cfg.role_rotation);

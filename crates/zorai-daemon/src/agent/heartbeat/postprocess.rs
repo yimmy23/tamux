@@ -198,20 +198,16 @@ impl AgentEngine {
             .await;
         if let Some(ref result) = consolidation_result {
             if let Some(summary) = super::helpers::format_consolidation_forge_summary(result) {
-                let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
-                    thread_id: String::new(),
-                    kind: "forge".to_string(),
-                    message: "Consolidation strategy learning updated".to_string(),
-                    details: Some(summary),
-                });
+                tracing::debug!(
+                    details = %summary,
+                    "consolidation carryover summary available via show_dreams; skipping workflow notice"
+                );
             }
             if let Some(summary) = super::helpers::format_consolidation_dream_summary(result) {
-                let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
-                    thread_id: String::new(),
-                    kind: "dream".to_string(),
-                    message: "Dream state updated".to_string(),
-                    details: Some(summary),
-                });
+                tracing::debug!(
+                    details = %summary,
+                    "dream-state carryover summary available via show_dreams; skipping workflow notice"
+                );
             }
             tracing::info!(
                 traces = result.traces_reviewed,

@@ -412,6 +412,7 @@ async fn maybe_run_consolidation_if_idle_records_forge_dream_hint_provenance() {
         .provenance_report(32)
         .expect("provenance report after idle consolidation");
     let carryover = crate::agent::provenance::adaptive_carryover_provenance_summary(&report, 8);
+    assert_eq!(carryover["inspection_tool"].as_str(), Some("show_dreams"));
     assert!(carryover["persisted_event_count"]
         .as_u64()
         .is_some_and(|value| value >= 1));
@@ -424,6 +425,11 @@ async fn maybe_run_consolidation_if_idle_records_forge_dream_hint_provenance() {
     assert!(recent.iter().any(|entry| {
         entry["event_type"].as_str()
             == Some(crate::agent::provenance::PROVENANCE_EVENT_FORGE_DREAM_HINTS_PERSISTED)
+            && entry["source_kind"].as_str() == Some("forge")
+            && entry["sequence"].as_u64().is_some()
+            && entry["provenance_ref"]
+                .as_str()
+                .is_some_and(|value| value.starts_with("provenance:"))
     }));
 }
 
@@ -564,7 +570,9 @@ fn decay_handles_very_large_age_without_panic() {
 async fn dream_state_cycle_persists_cycles_evaluations_and_show_dreams_payload() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
-    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let mut config = AgentConfig::default();
+    config.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
     let task = engine
         .enqueue_task(
@@ -627,4 +635,23 @@ async fn dream_state_cycle_persists_cycles_evaluations_and_show_dreams_payload()
             .is_some_and(|items| !items.is_empty()),
         "show_dreams should surface persisted dream hints"
     );
+    let carryover = &payload["carryover"];
+    assert_eq!(carryover["inspection_tool"].as_str(), Some("show_dreams"));
+    assert!(carryover["hint_count"]
+        .as_u64()
+        .is_some_and(|value| value >= 1));
+    assert!(carryover["summary"]
+        .as_str()
+        .is_some_and(|value| value.contains("visible [dream] hint")));
+    let recent = carryover["recent_events"]
+        .as_array()
+        .expect("show_dreams should surface recent carryover provenance events");
+    assert!(recent.iter().any(|entry| {
+        entry["event_type"].as_str()
+            == Some(crate::agent::provenance::PROVENANCE_EVENT_DREAM_HINTS_PERSISTED)
+            && entry["source_kind"].as_str() == Some("dream_state")
+            && entry["provenance_ref"]
+                .as_str()
+                .is_some_and(|value| value.starts_with("provenance:"))
+    }));
 }

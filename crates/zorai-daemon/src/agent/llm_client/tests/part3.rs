@@ -749,14 +749,14 @@ providers:
 
     #[tokio::test]
     async fn openrouter_embedding_model_fetch_requests_embeddings_catalog() {
-        let request_lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let request_texts = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind openrouter embedding model fetch listener");
         let addr = listener
             .local_addr()
             .expect("openrouter embedding model fetch listener addr");
-        let request_lines_for_server = std::sync::Arc::clone(&request_lines);
+        let request_texts_for_server = std::sync::Arc::clone(&request_texts);
 
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener
@@ -772,11 +772,10 @@ providers:
             .expect("read embedding model fetch request timed out")
             .expect("read embedding model fetch request");
             let request = String::from_utf8_lossy(&buf[..size]).to_string();
-            let request_line = request.lines().next().unwrap_or_default().to_string();
-            request_lines_for_server
+            request_texts_for_server
                 .lock()
                 .expect("lock openrouter request lines")
-                .push(request_line);
+                .push(request);
 
             let body = serde_json::json!({
                 "data": [
@@ -824,15 +823,28 @@ providers:
             .await
             .expect("openrouter embedding model fetch server task");
 
-        let request_line = request_lines
+        let request_text = request_texts
             .lock()
-            .expect("lock request lines")
+            .expect("lock request texts")
             .first()
             .cloned()
-            .expect("request line should be recorded");
+            .expect("request text should be recorded");
+        let request_line = request_text.lines().next().unwrap_or_default();
         assert!(
             request_line.contains("/embeddings/models"),
             "expected OpenRouter embedding model fetch to request embeddings catalog, got {request_line}"
+        );
+        assert!(
+            request_text.contains("http-referer: https://zorai.app\r\n"),
+            "expected OpenRouter embedding model fetch to include attribution referer header, got {request_text}"
+        );
+        assert!(
+            request_text.contains("x-openrouter-title: zorai\r\n"),
+            "expected OpenRouter embedding model fetch to include attribution title header, got {request_text}"
+        );
+        assert!(
+            request_text.contains("x-openrouter-categories: cli-agent\r\n"),
+            "expected OpenRouter embedding model fetch to include attribution categories header, got {request_text}"
         );
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].id, "openai/text-embedding-3-small");

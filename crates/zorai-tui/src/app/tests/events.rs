@@ -1619,6 +1619,55 @@ fn auto_compaction_workflow_notice_requests_active_compaction_window() {
 }
 
 #[test]
+fn auto_compaction_workflow_notice_invalidates_header_context_usage() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-compaction".to_string(),
+        title: "Compaction".to_string(),
+        total_message_count: 121,
+        loaded_message_start: 0,
+        loaded_message_end: 121,
+        active_context_window_start: Some(0),
+        active_context_window_end: Some(121),
+        active_context_window_tokens: Some(239_700_000),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::User,
+            content: "before compaction".to_string(),
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-compaction".to_string(),
+    ));
+    while daemon_rx.try_recv().is_ok() {}
+
+    assert_eq!(
+        model.current_header_usage_summary().current_tokens,
+        239_700_000
+    );
+
+    model.handle_client_event(ClientEvent::WorkflowNotice {
+        thread_id: Some("thread-compaction".to_string()),
+        kind: "auto-compaction".to_string(),
+        message: "Auto compaction applied using heuristic.".to_string(),
+        details: Some("{\"split_at\":20,\"total_message_count\":121}".to_string()),
+    });
+
+    assert_eq!(
+        model.current_header_usage_summary().current_tokens,
+        0,
+        "compaction notice should clear stale daemon context tokens while the post-compaction detail reload is pending"
+    );
+    assert!(matches!(
+        next_thread_request(&mut daemon_rx),
+        Some((thread_id, Some(101), Some(0))) if thread_id == "thread-compaction"
+    ));
+}
+
+#[test]
 fn status_diagnostics_warning_mentions_sync_state() {
     let mut model = make_model();
     model.handle_client_event(ClientEvent::StatusDiagnostics {

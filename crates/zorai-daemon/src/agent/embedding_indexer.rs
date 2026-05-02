@@ -3,10 +3,18 @@ use zorai_protocol::HistorySearchHit;
 
 const EMBEDDING_IDLE_SLEEP_SECS: u64 = 30;
 const EMBEDDING_DISABLED_SLEEP_SECS: u64 = 60;
-const EMBEDDING_ACTIVE_SLEEP_MILLIS: u64 = 500;
+const EMBEDDING_ACTIVE_SLEEP_MILLIS: u64 = 1_500;
 #[cfg(feature = "lancedb-vector")]
 const EMBEDDING_REQUEST_TIMEOUT_SECS: u64 = 90;
-const MAX_EMBEDDING_BATCH_SIZE: usize = 256;
+const MAX_EMBEDDING_BATCH_SIZE: usize = 16;
+#[cfg(feature = "lancedb-vector")]
+const MAX_EMBEDDING_DELETIONS_PER_TICK: usize = 16;
+#[cfg(feature = "lancedb-vector")]
+const OPENROUTER_ATTRIBUTION_URL: &str = "https://zorai.app";
+#[cfg(feature = "lancedb-vector")]
+const OPENROUTER_ATTRIBUTION_TITLE: &str = "zorai";
+#[cfg(feature = "lancedb-vector")]
+const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent";
 
 #[cfg(feature = "lancedb-vector")]
 #[derive(Debug, serde::Deserialize)]
@@ -81,6 +89,20 @@ fn semantic_score_from_distance(distance: f64) -> f64 {
 }
 
 #[cfg(feature = "lancedb-vector")]
+fn apply_openrouter_embedding_attribution_headers(
+    req: reqwest::RequestBuilder,
+    provider_id: &str,
+) -> reqwest::RequestBuilder {
+    if provider_id != zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+        return req;
+    }
+
+    req.header("HTTP-Referer", OPENROUTER_ATTRIBUTION_URL)
+        .header("X-OpenRouter-Title", OPENROUTER_ATTRIBUTION_TITLE)
+        .header("X-OpenRouter-Categories", OPENROUTER_ATTRIBUTION_CATEGORIES)
+}
+
+#[cfg(feature = "lancedb-vector")]
 fn vector_hits_to_history_hits(
     hits: Vec<crate::history::vector_index::VectorSearchHit>,
 ) -> Vec<HistorySearchHit> {
@@ -148,8 +170,8 @@ async fn request_embeddings(
         body["dimensions"] = serde_json::json!(config.semantic.embedding.dimensions);
     }
 
-    let response = auth_method
-        .apply(http_client.post(endpoint), api_key)
+    let request = auth_method.apply(http_client.post(endpoint), api_key);
+    let response = apply_openrouter_embedding_attribution_headers(request, &provider_id)
         .timeout(std::time::Duration::from_secs(
             EMBEDDING_REQUEST_TIMEOUT_SECS,
         ))
@@ -326,12 +348,15 @@ impl AgentEngine {
 
     #[cfg(feature = "lancedb-vector")]
     async fn process_embedding_deletions_once(&self) -> Result<usize> {
-        let deletions = self.history.claim_embedding_deletions(256).await?;
+        let deletions = self
+            .history
+            .claim_embedding_deletions(MAX_EMBEDDING_DELETIONS_PER_TICK)
+            .await?;
         if deletions.is_empty() {
             return Ok(0);
         }
         let index = crate::history::vector_index::VectorIndex::open(self.history.data_root());
-        let mut completed = 0usize;
+        let mut supported = Vec::new();
         for deletion in deletions {
             let Some(source_kind) =
                 crate::history::vector_index::VectorSourceKind::from_embedding_source_kind(
@@ -341,19 +366,32 @@ impl AgentEngine {
                 self.history.complete_embedding_deletion(&deletion).await?;
                 continue;
             };
-            match index.delete_source(source_kind, &deletion.source_id).await {
-                Ok(()) => {
-                    self.history.complete_embedding_deletion(&deletion).await?;
-                    completed += 1;
+            supported.push((deletion, source_kind));
+        }
+        if supported.is_empty() {
+            return Ok(0);
+        }
+        let sources = supported
+            .iter()
+            .map(|(deletion, source_kind)| (*source_kind, deletion.source_id.clone()))
+            .collect::<Vec<_>>();
+        match index.delete_sources(sources).await {
+            Ok(()) => {
+                for (deletion, _) in &supported {
+                    self.history.complete_embedding_deletion(deletion).await?;
                 }
-                Err(error) => {
+                Ok(supported.len())
+            }
+            Err(error) => {
+                let message = error.to_string();
+                for (deletion, _) in &supported {
                     self.history
-                        .fail_embedding_deletion(&deletion, &error.to_string())
+                        .fail_embedding_deletion(deletion, &message)
                         .await?;
                 }
+                Err(error)
             }
         }
-        Ok(completed)
     }
 
     #[cfg(not(feature = "lancedb-vector"))]
@@ -390,7 +428,8 @@ impl AgentEngine {
         };
 
         let index = crate::history::vector_index::VectorIndex::open(self.history.data_root());
-        let mut completed = 0usize;
+        let mut vector_jobs = Vec::new();
+        let mut documents = Vec::new();
         for (job, embedding) in jobs.into_iter().zip(embeddings) {
             let Some(source_kind) =
                 crate::history::vector_index::VectorSourceKind::from_embedding_source_kind(
@@ -402,39 +441,41 @@ impl AgentEngine {
                     .await?;
                 continue;
             };
-            let upsert_result = index
-                .upsert(crate::history::vector_index::VectorDocument {
-                    source_kind,
-                    source_id: job.source_id.clone(),
-                    chunk_id: job.chunk_id.clone(),
-                    title: job.title.clone(),
-                    body: job.body.clone(),
-                    workspace_id: job.workspace_id.clone(),
-                    thread_id: job.thread_id.clone(),
-                    agent_id: job.agent_id.clone(),
-                    timestamp: job.source_timestamp,
-                    embedding_model: embedding_model.clone(),
-                    embedding,
-                    metadata_json: Some(
-                        serde_json::json!({ "content_hash": job.content_hash }).to_string(),
-                    ),
-                })
-                .await;
-            match upsert_result {
-                Ok(()) => {
+            documents.push(crate::history::vector_index::VectorDocument {
+                source_kind,
+                source_id: job.source_id.clone(),
+                chunk_id: job.chunk_id.clone(),
+                title: job.title.clone(),
+                body: job.body.clone(),
+                workspace_id: job.workspace_id.clone(),
+                thread_id: job.thread_id.clone(),
+                agent_id: job.agent_id.clone(),
+                timestamp: job.source_timestamp,
+                embedding_model: embedding_model.clone(),
+                embedding,
+                metadata_json: Some(
+                    serde_json::json!({ "content_hash": job.content_hash }).to_string(),
+                ),
+            });
+            vector_jobs.push(job);
+        }
+        match index.upsert_many(documents).await {
+            Ok(()) => {
+                for job in &vector_jobs {
                     self.history
-                        .complete_embedding_job(&job, &embedding_model, dimensions)
-                        .await?;
-                    completed += 1;
-                }
-                Err(error) => {
-                    self.history
-                        .fail_embedding_job(&job, &error.to_string())
+                        .complete_embedding_job(job, &embedding_model, dimensions)
                         .await?;
                 }
+                Ok(vector_jobs.len())
+            }
+            Err(error) => {
+                let message = error.to_string();
+                for job in &vector_jobs {
+                    self.history.fail_embedding_job(job, &message).await?;
+                }
+                Err(error)
             }
         }
-        Ok(completed)
     }
 }
 
@@ -457,8 +498,87 @@ mod tests {
     #[test]
     fn embedding_batch_size_is_bounded() {
         assert_eq!(embedding_batch_size(0), 1);
-        assert_eq!(embedding_batch_size(64), 64);
+        assert_eq!(embedding_batch_size(8), 8);
+        assert_eq!(embedding_batch_size(64), MAX_EMBEDDING_BATCH_SIZE);
         assert_eq!(embedding_batch_size(10_000), MAX_EMBEDDING_BATCH_SIZE);
+    }
+
+    #[cfg(feature = "lancedb-vector")]
+    #[tokio::test]
+    async fn openrouter_embedding_requests_include_app_attribution_headers() {
+        let request_texts = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind embedding request listener");
+        let addr = listener.local_addr().expect("embedding listener addr");
+        let request_texts_for_server = std::sync::Arc::clone(&request_texts);
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept embedding request");
+            let mut buf = [0_u8; 4096];
+            let size = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                tokio::io::AsyncReadExt::read(&mut stream, &mut buf),
+            )
+            .await
+            .expect("read embedding request timed out")
+            .expect("read embedding request");
+            let request = String::from_utf8_lossy(&buf[..size]).to_string();
+            request_texts_for_server
+                .lock()
+                .expect("lock embedding request texts")
+                .push(request);
+
+            let body = r#"{"data":[{"index":0,"embedding":[0.1,0.2]}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .expect("write embedding response");
+        });
+
+        let mut config = AgentConfig::default();
+        config.provider = zorai_shared::providers::PROVIDER_ID_OPENROUTER.to_string();
+        config.base_url = format!("http://{addr}");
+        config.api_key = "openrouter-key".to_string();
+        config.semantic.embedding.provider =
+            zorai_shared::providers::PROVIDER_ID_OPENROUTER.to_string();
+        config.semantic.embedding.model = "openai/text-embedding-3-small".to_string();
+        config.semantic.embedding.dimensions = 2;
+
+        let embeddings =
+            request_embeddings(&reqwest::Client::new(), &config, &["hello".to_string()])
+                .await
+                .expect("embedding request should succeed");
+
+        server.await.expect("embedding server task");
+
+        let request_text = request_texts
+            .lock()
+            .expect("lock embedding request texts")
+            .first()
+            .cloned()
+            .expect("request text should be recorded");
+        assert!(
+            request_text.starts_with("POST /v1/embeddings "),
+            "expected OpenRouter embedding request to call embeddings endpoint, got {request_text}"
+        );
+        assert!(
+            request_text.contains("http-referer: https://zorai.app\r\n"),
+            "expected OpenRouter embedding request to include attribution referer header, got {request_text}"
+        );
+        assert!(
+            request_text.contains("x-openrouter-title: zorai\r\n"),
+            "expected OpenRouter embedding request to include attribution title header, got {request_text}"
+        );
+        assert!(
+            request_text.contains("x-openrouter-categories: cli-agent\r\n"),
+            "expected OpenRouter embedding request to include attribution categories header, got {request_text}"
+        );
+        assert_eq!(embeddings, vec![vec![0.1, 0.2]]);
     }
 
     #[cfg(feature = "lancedb-vector")]

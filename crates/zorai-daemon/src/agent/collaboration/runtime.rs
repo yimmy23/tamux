@@ -1070,20 +1070,25 @@ impl AgentEngine {
                 updated_at: now_millis(),
             });
 
-        if session
+        let inferred_role = infer_collaboration_role(subagent);
+        let subagent_status = format!("{:?}", subagent.status).to_lowercase();
+        if let Some(agent) = session
             .agents
-            .iter()
-            .any(|agent| agent.task_id == subagent.id)
+            .iter_mut()
+            .find(|agent| agent.task_id == subagent.id)
         {
-            return;
+            agent.title = subagent.title.clone();
+            agent.role = inferred_role;
+            agent.status = subagent_status;
+        } else {
+            session.agents.push(CollaborativeAgent {
+                task_id: subagent.id.clone(),
+                title: subagent.title.clone(),
+                role: inferred_role,
+                confidence: 0.5,
+                status: subagent_status,
+            });
         }
-        session.agents.push(CollaborativeAgent {
-            task_id: subagent.id.clone(),
-            title: subagent.title.clone(),
-            role: infer_collaboration_role(subagent),
-            confidence: 0.5,
-            status: format!("{:?}", subagent.status).to_lowercase(),
-        });
         session.updated_at = now_millis();
         let snapshot = session.clone();
         drop(collaboration);
@@ -1851,6 +1856,8 @@ impl AgentEngine {
         if task.source != "subagent" {
             return;
         }
+        self.register_subagent_collaboration(parent_task_id, task)
+            .await;
         let inferred_role = super::participants::infer_collaboration_role(task);
         if let Err(error) = self
             .record_consensus_bid_outcome(&inferred_role, outcome)

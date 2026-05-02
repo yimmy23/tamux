@@ -681,91 +681,152 @@ fn format_consolidation_dream_summary_surfaces_counterfactual_strategy_hints() {
 }
 
 #[tokio::test]
-async fn heartbeat_consolidation_emits_workflow_notice_for_forge_learning_summary() {
+async fn structured_heartbeat_keeps_consolidation_carryover_quiet_by_default() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
-    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let mut config = AgentConfig::default();
+    config.enabled = true;
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = "http://127.0.0.1:1/v1".to_string();
+    config.model = "svarog-model".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.consolidation.enabled = true;
+    config.consolidation.idle_threshold_secs = 0;
+    config.heartbeat_checks.stale_todos_enabled = false;
+    config.heartbeat_checks.stuck_goals_enabled = false;
+    config.heartbeat_checks.unreplied_messages_enabled = false;
+    config.heartbeat_checks.repo_changes_enabled = false;
+    config.heartbeat_checks.plugin_auth_enabled = false;
+    config.providers.insert(
+        "custom-weles".to_string(),
+        ProviderConfig {
+            base_url: spawn_recording_heartbeat_server(recorded_bodies.clone()).await,
+            model: "weles-model".to_string(),
+            api_key: "test-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: "medium".to_string(),
+            context_window_tokens: 0,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
+        },
+    );
+    config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
+    config.builtin_sub_agents.weles.model = Some("weles-model".to_string());
+    config.builtin_sub_agents.weles.reasoning_effort = Some("medium".to_string());
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
     let mut events = engine.subscribe();
 
-    let summary = super::helpers::format_consolidation_forge_summary(&ConsolidationResult {
-        forge_ran: true,
-        forge_traces_analyzed: 9,
-        forge_patterns_detected: 2,
-        forge_hints_generated: 2,
-        forge_hints_auto_applied: 1,
-        ..Default::default()
-    })
-    .expect("forge summary should be present");
-
-    let _ = engine.event_tx.send(AgentEvent::WorkflowNotice {
-        thread_id: String::new(),
-        kind: "forge".to_string(),
-        message: "Consolidation strategy learning updated".to_string(),
-        details: Some(summary.clone()),
-    });
-
-    let event = timeout(Duration::from_millis(250), events.recv())
+    let weles_scope = crate::agent::agent_identity::WELES_AGENT_ID;
+    crate::agent::ensure_memory_files_for_scope(engine.data_dir.as_path(), weles_scope)
         .await
-        .expect("forge notice should arrive")
-        .expect("forge notice should deserialize");
-    match event {
-        AgentEvent::WorkflowNotice {
-            kind,
-            message,
-            details,
-            ..
-        } => {
-            assert_eq!(kind, "forge");
-            assert_eq!(message, "Consolidation strategy learning updated");
-            assert_eq!(details.as_deref(), Some(summary.as_str()));
-        }
-        other => panic!("expected WorkflowNotice, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn heartbeat_consolidation_emits_workflow_notice_for_dream_summary() {
-    let root = tempdir().expect("tempdir should succeed");
-    let manager = SessionManager::new_test(root.path()).await;
-    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
-    let mut events = engine.subscribe();
-
-    let summary = super::helpers::format_consolidation_dream_summary(&ConsolidationResult {
-        distillation_ran: true,
-        distillation_threads_analyzed: 2,
-        distillation_auto_applied: 1,
-        forge_ran: true,
-        forge_patterns_detected: 2,
-        forge_hints_auto_applied: 1,
-        facts_refined: 1,
-        ..Default::default()
-    })
-    .expect("dream summary should be present");
-
-    let _ = engine.event_tx.send(AgentEvent::WorkflowNotice {
-        thread_id: String::new(),
-        kind: "dream".to_string(),
-        message: "Dream state updated".to_string(),
-        details: Some(summary.clone()),
-    });
-
-    let event = timeout(Duration::from_millis(250), events.recv())
+        .expect("seed memory files for weles scope");
+    crate::agent::ensure_memory_files_for_scope(
+        engine.data_dir.as_path(),
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+    )
+    .await
+    .expect("seed memory files for main scope");
+    let weles_memory_path =
+        crate::agent::task_prompt::memory_paths_for_scope(engine.data_dir.as_path(), weles_scope)
+            .memory_path;
+    let main_memory_path = crate::agent::task_prompt::memory_paths_for_scope(
+        engine.data_dir.as_path(),
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+    )
+    .memory_path;
+    tokio::fs::write(&weles_memory_path, "# Memory\n")
         .await
-        .expect("dream notice should arrive")
-        .expect("dream notice should deserialize");
-    match event {
-        AgentEvent::WorkflowNotice {
-            kind,
-            message,
-            details,
-            ..
-        } => {
-            assert_eq!(kind, "dream");
-            assert_eq!(message, "Dream state updated");
-            assert_eq!(details.as_deref(), Some(summary.as_str()));
-        }
-        other => panic!("expected WorkflowNotice, got {other:?}"),
+        .expect("shrink weles memory file for deterministic idle-learning test");
+    tokio::fs::write(&main_memory_path, "# Memory\n")
+        .await
+        .expect("shrink main memory file for deterministic idle-learning test");
+    let now = now_millis();
+    let metrics_json = serde_json::json!({
+        "total_duration_ms": 45_000,
+        "step_count": 2,
+        "success_rate": 0.5,
+        "operator_revisions": 1,
+        "exit_code": 1,
+    })
+    .to_string();
+
+    for idx in 0..3u64 {
+        let started_at = now.saturating_sub(1_000 + idx);
+        let completed_at = started_at + 100;
+        engine
+            .history
+            .insert_execution_trace(
+                &format!("heartbeat-dream-trace-{idx}"),
+                None,
+                None,
+                Some(&format!("task-{idx}")),
+                "coding",
+                "success",
+                Some(0.6),
+                "[\"bash_command\",\"read_file\"]",
+                &metrics_json,
+                45_000,
+                120,
+                weles_scope,
+                started_at,
+                completed_at,
+                completed_at,
+            )
+            .await
+            .expect("seed execution trace");
     }
+
+    engine
+        .run_structured_heartbeat_adaptive(0)
+        .await
+        .expect("structured heartbeat should succeed with quiet carryover");
+
+    let payload = engine
+        .show_dreams_payload(5)
+        .await
+        .expect("show_dreams should remain the inspection surface for carryover");
+    assert_eq!(
+        payload["carryover"]["inspection_tool"].as_str(),
+        Some("show_dreams")
+    );
+    assert!(payload["carryover"]["persisted_event_count"]
+        .as_u64()
+        .is_some_and(|value| value >= 1));
+
+    let mut workflow_notice_kinds = Vec::new();
+    loop {
+        match timeout(Duration::from_millis(50), events.recv()).await {
+            Ok(Ok(AgentEvent::WorkflowNotice { kind, .. })) => workflow_notice_kinds.push(kind),
+            Ok(Ok(_)) => {}
+            _ => break,
+        }
+    }
+
+    assert!(
+        !workflow_notice_kinds
+            .iter()
+            .any(|kind| kind == "dream" || kind == "forge"),
+        "carryover should stay quiet by default; saw workflow notices: {workflow_notice_kinds:?}"
+    );
 }
 
 // ── is_peak_activity_hour tests (BEAT-06/D-01) ──────────────────────

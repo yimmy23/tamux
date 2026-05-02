@@ -217,6 +217,8 @@ async fn adding_blank_message_does_not_enqueue_embedding_job() -> Result<()> {
         .claim_embedding_jobs("text-embedding-3-small", 1536, 10)
         .await?;
     assert!(jobs.is_empty());
+    let deletions = store.claim_embedding_deletions(10).await?;
+    assert!(deletions.is_empty());
     Ok(())
 }
 
@@ -267,7 +269,7 @@ async fn embedding_completion_is_scoped_to_model_and_dimensions() -> Result<()> 
 }
 
 #[tokio::test]
-async fn deleting_message_queues_vector_deletion() -> Result<()> {
+async fn deleting_unindexed_message_does_not_queue_vector_deletion() -> Result<()> {
     let (store, _root) = make_test_store().await?;
     store.create_thread(&sample_thread()).await?;
     store
@@ -278,9 +280,35 @@ async fn deleting_message_queues_vector_deletion() -> Result<()> {
     assert_eq!(deleted, 1);
 
     let deletions = store.claim_embedding_deletions(10).await?;
+    assert!(deletions.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn deleting_indexed_message_queues_vector_deletion() -> Result<()> {
+    let (store, _root) = make_test_store().await?;
+    store.create_thread(&sample_thread()).await?;
+    store
+        .add_message(&sample_message("msg-delete-indexed", "remove me"))
+        .await?;
+
+    let jobs = store
+        .claim_embedding_jobs("text-embedding-3-small", 1536, 10)
+        .await?;
+    assert_eq!(jobs.len(), 1);
+    store
+        .complete_embedding_job(&jobs[0], "text-embedding-3-small", 1536)
+        .await?;
+
+    let deleted = store
+        .delete_messages("thread-1", &["msg-delete-indexed"])
+        .await?;
+    assert_eq!(deleted, 1);
+
+    let deletions = store.claim_embedding_deletions(10).await?;
     assert_eq!(deletions.len(), 1);
     assert_eq!(deletions[0].source_kind, "agent_message");
-    assert_eq!(deletions[0].source_id, "msg-delete");
+    assert_eq!(deletions[0].source_id, "msg-delete-indexed");
     Ok(())
 }
 

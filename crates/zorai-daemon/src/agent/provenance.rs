@@ -85,6 +85,14 @@ pub(crate) fn is_adaptive_carryover_provenance_event(event_type: &str) -> bool {
     )
 }
 
+pub(crate) fn adaptive_carryover_source_kind(event_type: &str) -> &'static str {
+    match event_type {
+        PROVENANCE_EVENT_DREAM_HINTS_PERSISTED => "dream_state",
+        PROVENANCE_EVENT_FORGE_DREAM_HINTS_PERSISTED => "forge",
+        _ => "unknown",
+    }
+}
+
 pub(crate) fn adaptive_carryover_provenance_summary(
     report: &crate::history::ProvenanceReport,
     recent_limit: usize,
@@ -106,6 +114,9 @@ pub(crate) fn adaptive_carryover_provenance_summary(
         .take(recent_limit.max(1))
         .map(|entry| {
             serde_json::json!({
+                "sequence": entry.sequence,
+                "provenance_ref": format!("provenance:{}", entry.sequence),
+                "source_kind": adaptive_carryover_source_kind(&entry.event_type),
                 "event_type": entry.event_type,
                 "summary": entry.summary,
                 "timestamp_ms": entry.timestamp,
@@ -115,12 +126,14 @@ pub(crate) fn adaptive_carryover_provenance_summary(
                 "causal_trace_id": entry.causal_trace_id,
                 "hash_valid": entry.hash_valid,
                 "chain_valid": entry.chain_valid,
+                "signature_present": entry.signature_present,
                 "signature_valid": entry.signature_valid,
             })
         })
         .collect::<Vec<_>>();
 
     serde_json::json!({
+        "inspection_tool": "show_dreams",
         "persisted_event_count": dream_hint_persist_count + forge_hint_persist_count,
         "dream_hint_event_count": dream_hint_persist_count,
         "forge_hint_event_count": forge_hint_persist_count,

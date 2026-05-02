@@ -115,7 +115,7 @@ impl AgentEngine {
         let scope_id = current_agent_scope_id();
         ensure_memory_files_for_scope(&self.data_dir, &scope_id).await?;
         let memory_path = memory_paths_for_scope(&self.data_dir, &scope_id).memory_path;
-        let dream_hints = tokio::fs::read_to_string(memory_path)
+        let dream_hints = tokio::fs::read_to_string(&memory_path)
             .await
             .unwrap_or_default()
             .lines()
@@ -123,6 +123,57 @@ impl AgentEngine {
             .take(limit)
             .map(str::to_string)
             .collect::<Vec<_>>();
+        let recent_limit = limit.max(5);
+        let carryover = self
+            .history
+            .provenance_report(recent_limit.saturating_mul(4))
+            .ok()
+            .map(|report| {
+                crate::agent::provenance::adaptive_carryover_provenance_summary(
+                    &report,
+                    recent_limit,
+                )
+            })
+            .filter(|summary| {
+                !crate::agent::provenance::adaptive_carryover_is_effectively_empty(summary)
+                    || !dream_hints.is_empty()
+            })
+            .or_else(|| {
+                if dream_hints.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::json!({
+                        "inspection_tool": "show_dreams",
+                        "persisted_event_count": 0,
+                        "dream_hint_event_count": 0,
+                        "forge_hint_event_count": 0,
+                        "recent_event_count": 0,
+                        "recent_events": [],
+                    }))
+                }
+            })
+            .map(|mut summary| {
+                let persisted_event_count = summary
+                    .get("persisted_event_count")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or_default();
+                let recent_event_count = summary
+                    .get("recent_event_count")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or_default();
+                if let Some(object) = summary.as_object_mut() {
+                    object.insert("scope_id".to_string(), serde_json::json!(scope_id.clone()));
+                    object.insert("hint_count".to_string(), serde_json::json!(dream_hints.len()));
+                    object.insert(
+                        "summary".to_string(),
+                        serde_json::json!(format!(
+                            "{persisted_event_count} persisted carryover event(s), {} visible [dream] hint(s), {recent_event_count} recent provenance link(s)",
+                            dream_hints.len()
+                        )),
+                    );
+                }
+                summary
+            });
 
         Ok(serde_json::json!({
             "cycle_count": cycles.len(),
@@ -149,6 +200,7 @@ impl AgentEngine {
                 "threshold_met": evaluation.threshold_met,
                 "created_at_ms": evaluation.created_at_ms,
             })).collect::<Vec<_>>(),
+            "carryover": carryover,
             "hints": dream_hints,
         }))
     }

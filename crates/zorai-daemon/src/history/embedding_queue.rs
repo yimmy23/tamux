@@ -340,10 +340,13 @@ pub(super) fn queue_embedding_deletion_on_connection(
         "DELETE FROM embedding_jobs WHERE source_kind = ?1 AND source_id = ?2",
         params![source_kind, source_id],
     )?;
-    connection.execute(
+    let completed_rows = connection.execute(
         "DELETE FROM embedding_job_completions WHERE source_kind = ?1 AND source_id = ?2",
         params![source_kind, source_id],
     )?;
+    if completed_rows == 0 {
+        return Ok(());
+    }
     connection.execute(
         "INSERT INTO embedding_deletions (
             source_kind,

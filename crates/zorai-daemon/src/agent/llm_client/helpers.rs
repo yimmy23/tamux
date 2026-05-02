@@ -220,7 +220,7 @@ pub async fn fetch_models(
         if include_auth && !api_key.is_empty() {
             req = def.auth_method.apply(req, api_key);
         }
-        req
+        apply_openrouter_attribution_headers(req, provider_id)
     };
 
     let mut response = send_request(true).send().await?;
