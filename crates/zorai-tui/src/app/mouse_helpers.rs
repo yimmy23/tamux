@@ -39,6 +39,110 @@ impl TuiModel {
         self.file_preview_scrollbar_drag_grab_offset = None;
     }
 
+    pub(in super::super) fn copy_active_drag_selection_to_clipboard(&mut self) -> bool {
+        if self.copy_active_task_drag_selection_to_clipboard() {
+            return true;
+        }
+        if self.copy_active_work_context_drag_selection_to_clipboard() {
+            return true;
+        }
+        false
+    }
+
+    fn copy_active_task_drag_selection_to_clipboard(&mut self) -> bool {
+        let Some((anchor_point, current_point)) = self
+            .task_view_drag_anchor_point
+            .zip(self.task_view_drag_current_point)
+        else {
+            return false;
+        };
+        if anchor_point == current_point {
+            return false;
+        }
+
+        let layout = self.pane_layout();
+        let text = match &self.main_pane_view {
+            MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) => {
+                let task_area = self.task_content_area().unwrap_or(layout.chat);
+                widgets::goal_workspace::selected_text(
+                    task_area,
+                    &self.tasks,
+                    goal_run_id,
+                    &self.goal_workspace,
+                    anchor_point,
+                    current_point,
+                )
+            }
+            MainPaneView::Task(target) => {
+                let task_area = self.task_content_area().unwrap_or(layout.chat);
+                widgets::task_view::selected_text(
+                    task_area,
+                    &self.tasks,
+                    target,
+                    &self.theme,
+                    self.task_view_scroll,
+                    self.task_show_live_todos,
+                    self.task_show_timeline,
+                    self.task_show_files,
+                    anchor_point,
+                    current_point,
+                )
+            }
+            MainPaneView::FilePreview(target) => widgets::file_preview::selected_text(
+                layout.chat,
+                &self.tasks,
+                target,
+                &self.theme,
+                self.task_view_scroll,
+                anchor_point,
+                current_point,
+            ),
+            _ => None,
+        };
+
+        if let Some(text) = text {
+            conversion::copy_to_clipboard(&text);
+            self.status_line = "Copied selection to clipboard".to_string();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn copy_active_work_context_drag_selection_to_clipboard(&mut self) -> bool {
+        let Some((anchor_point, current_point)) = self
+            .work_context_drag_anchor_point
+            .zip(self.work_context_drag_current_point)
+        else {
+            return false;
+        };
+        if anchor_point == current_point
+            || !matches!(self.main_pane_view, MainPaneView::WorkContext)
+        {
+            return false;
+        }
+
+        let layout = self.pane_layout();
+        let text = widgets::work_context_view::selected_text(
+            layout.chat,
+            &self.tasks,
+            self.chat.active_thread_id(),
+            self.sidebar.active_tab(),
+            self.sidebar.selected_item(),
+            &self.theme,
+            self.task_view_scroll,
+            anchor_point,
+            current_point,
+        );
+        if let Some(text) = text {
+            conversion::copy_to_clipboard(&text);
+            self.status_line = "Copied selection to clipboard".to_string();
+            true
+        } else {
+            false
+        }
+    }
+
     pub(in super::super) fn clear_workspace_drag(&mut self) {
         self.workspace_drag_task = None;
         self.workspace_drag_status = None;

@@ -617,7 +617,13 @@ pub(crate) fn setup_probe_from_config_json(config_json: &str) -> SetupProbe {
         Ok(v) => v,
         Err(_) => return SetupProbe::NeedsSetup,
     };
-    if matches!(value.get("provider").and_then(|v| v.as_str()), Some(s) if !s.is_empty()) {
+
+    let has_provider =
+        matches!(value.get("provider").and_then(|v| v.as_str()), Some(s) if !s.trim().is_empty());
+    let has_model =
+        matches!(value.get("model").and_then(|v| v.as_str()), Some(s) if !s.trim().is_empty());
+
+    if has_provider && has_model {
         SetupProbe::Ready
     } else {
         SetupProbe::NeedsSetup

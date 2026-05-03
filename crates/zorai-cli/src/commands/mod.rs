@@ -21,6 +21,8 @@ pub(crate) async fn run_default() -> Result<()> {
 }
 
 pub(crate) async fn run(command: Commands) -> Result<()> {
+    core::run_startup_preflight(&command).await?;
+
     if matches!(
         &command,
         Commands::Guideline { .. }

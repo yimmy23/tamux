@@ -1,13 +1,9 @@
 import { useEffect, useState } from "react";
 import { getBridge } from "@/lib/bridge";
+import { buildInlineMonitorStats, type InlineMonitorStats } from "./inlineSystemMonitorStats";
 
 export function InlineSystemMonitor() {
-    const [stats, setStats] = useState<{
-        cpu: number;
-        memUsed: number;
-        memTotal: number;
-        vram: number | null;
-    } | null>(null);
+    const [stats, setStats] = useState<InlineMonitorStats | null>(null);
 
     useEffect(() => {
         let active = true;
@@ -19,14 +15,7 @@ export function InlineSystemMonitor() {
             try {
                 const snap = await getSnapshot({ processLimit: 0 });
                 if (!active) return;
-                setStats({
-                    cpu: snap.cpu?.usagePercent ?? 0,
-                    memUsed: snap.memory?.usedBytes ?? 0,
-                    memTotal: snap.memory?.totalBytes ?? 1,
-                    vram: snap.gpus?.[0]
-                        ? (snap.gpus[0].memoryUsedMB / snap.gpus[0].memoryTotalMB) * 100
-                        : null,
-                });
+                setStats(buildInlineMonitorStats(snap));
             } catch {
                 // silent
             }
@@ -42,26 +31,23 @@ export function InlineSystemMonitor() {
 
     if (!stats) return null;
 
-    const memPercent = (stats.memUsed / stats.memTotal) * 100;
-    const memGB = (stats.memUsed / (1024 * 1024 * 1024)).toFixed(1);
-    const memTotalGB = (stats.memTotal / (1024 * 1024 * 1024)).toFixed(0);
-
     return (
         <div
             style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "var(--space-3)",
+                gap: "var(--space-2)",
                 cursor: "default",
-                padding: "2px 8px",
+                padding: "2px 6px",
                 borderRadius: "var(--radius-sm)",
                 transition: "none",
+                whiteSpace: "nowrap",
             }}
             title="System health"
         >
             <MiniMeter label="CPU" value={stats.cpu} />
-            <MiniMeter label="RAM" value={memPercent} suffix={`${memGB}/${memTotalGB}G`} />
-            {stats.vram !== null ? <MiniMeter label="VRAM" value={stats.vram} /> : null}
+            <MiniMeter label="MEM" value={stats.memPercent} suffix={`${stats.memUsedGB}/${stats.memTotalGB}G`} />
+            {stats.gpu !== null ? <MiniMeter label="GPU" value={stats.gpu} /> : null}
         </div>
     );
 }

@@ -107,15 +107,19 @@ fn push_preview_content(
 ) {
     if is_markdown_path(path) {
         lines.extend(render_markdown_pub(content, width.max(1)));
+    } else if is_code_like_path(path) {
+        push_syntax_highlighted(lines, content, width, theme);
     } else {
         push_wrapped(lines, content, theme.fg_dim, width);
     }
 }
 
 struct SelectionSnapshot {
-    lines: Arc<Vec<Line<'static>>>,
+    header_lines: Arc<Vec<Line<'static>>>,
+    body_lines: Arc<Vec<Line<'static>>>,
     scroll: usize,
-    area: Rect,
+    header_area: Rect,
+    body_area: Rect,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -307,6 +311,7 @@ fn highlight_line_range(
     line.spans = spans;
 }
 
+#[cfg(test)]
 fn build_lines(
     area: Rect,
     tasks: &TaskState,

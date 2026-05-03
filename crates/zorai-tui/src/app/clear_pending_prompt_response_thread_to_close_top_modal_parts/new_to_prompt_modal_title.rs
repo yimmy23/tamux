@@ -3,6 +3,9 @@ impl TuiModel {
         daemon_events_rx: Receiver<ClientEvent>,
         daemon_cmd_tx: UnboundedSender<DaemonCommand>,
     ) -> Self {
+        let mut system_monitor_sampler = crate::system_monitor::SystemMonitorSampler::new();
+        let system_monitor = system_monitor_sampler.sample();
+
         Self {
             chat: chat::ChatState::new(),
             input: input::InputState::new(),
@@ -41,6 +44,9 @@ impl TuiModel {
             next_spawned_sidebar_task_refresh_tick: 0,
             auto_refresh_target: None,
             next_auto_refresh_tick: 0,
+            system_monitor,
+            system_monitor_sampler,
+            next_system_monitor_tick: 0,
             agent_activity: None,
             thread_agent_activity: std::collections::HashMap::new(),
             bootstrap_pending_activity_threads: std::collections::HashSet::new(),

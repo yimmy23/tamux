@@ -1388,6 +1388,7 @@ impl TuiModel {
             self.modal.top() == Some(modal::ModalKind::ApprovalCenter),
             self.notifications.unread_count(),
             self.modal.top() == Some(modal::ModalKind::Notifications),
+            self.system_monitor.as_ref(),
         );
 
         if let Some(sidebar_area) = layout.sidebar {

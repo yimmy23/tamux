@@ -176,8 +176,6 @@ export function StatusBar() {
 
         <div style={dividerStyle} />
 
-        <InlineSystemMonitor />
-
         <button
           type="button"
           onClick={toggleNotificationPanel}
@@ -216,6 +214,8 @@ export function StatusBar() {
         <span style={{ marginLeft: "var(--space-3)", fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
           {themeName}
         </span>
+
+        <InlineSystemMonitor />
       </div>
     </div>
   );

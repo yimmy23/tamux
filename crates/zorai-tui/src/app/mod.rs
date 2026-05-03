@@ -81,6 +81,9 @@ pub struct TuiModel {
     next_spawned_sidebar_task_refresh_tick: u64,
     auto_refresh_target: Option<AutoRefreshTarget>,
     next_auto_refresh_tick: u64,
+    system_monitor: Option<crate::system_monitor::SystemMonitorDisplay>,
+    system_monitor_sampler: crate::system_monitor::SystemMonitorSampler,
+    next_system_monitor_tick: u64,
 
     // Agent activity state (from daemon events, not local buffers)
     agent_activity: Option<String>,

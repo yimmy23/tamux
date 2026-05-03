@@ -3,6 +3,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
+use crate::system_monitor::SystemMonitorDisplay;
 use crate::theme::ThemeTokens;
 use crate::widgets::token_format::format_token_count;
 
@@ -56,6 +57,7 @@ pub fn render(
     approvals_open: bool,
     unread_notifications: usize,
     notifications_open: bool,
+    system_monitor: Option<&SystemMonitorDisplay>,
 ) {
     let block = Block::default()
         .borders(Borders::BOTTOM)
@@ -132,6 +134,15 @@ pub fn render(
         Paragraph::new(Line::from(top_spans)).alignment(Alignment::Center),
         top_line_area,
     );
+    if let Some(system_monitor) = system_monitor {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                build_system_monitor_label(system_monitor),
+                theme.fg_dim,
+            ))),
+            top_line_area,
+        );
+    }
     if let Some(bottom_line_area) = bottom_line_area {
         frame.render_widget(
             Paragraph::new(context_usage_line(usage, theme)).alignment(Alignment::Center),
@@ -185,6 +196,23 @@ fn build_total_usage_label(usage: &HeaderUsageDisplay) -> String {
         label.push_str(&format!("${total_cost_usd:.4}"));
     }
     label
+}
+
+fn build_system_monitor_label(system_monitor: &SystemMonitorDisplay) -> String {
+    let used_gib = bytes_to_gib(system_monitor.memory_used_bytes);
+    let total_gib = bytes_to_gib(system_monitor.memory_total_bytes);
+    let mut label = format!(
+        "CPU {:.0}%  MEM {:.1}/{:.0}G",
+        system_monitor.cpu_percent, used_gib, total_gib
+    );
+    if let Some(gpu_percent) = system_monitor.gpu_percent {
+        label.push_str(&format!("  GPU {:.0}%", gpu_percent));
+    }
+    label
+}
+
+fn bytes_to_gib(bytes: u64) -> f64 {
+    bytes as f64 / 1024.0 / 1024.0 / 1024.0
 }
 
 #[cfg(test)]
@@ -455,6 +483,30 @@ mod tests {
             }),
             ContextFillBand::Red
         );
+    }
+
+    #[test]
+    fn system_monitor_label_formats_cpu_memory_and_gpu_when_present() {
+        let label = build_system_monitor_label(&SystemMonitorDisplay {
+            cpu_percent: 12.4,
+            memory_used_bytes: 8 * 1024 * 1024 * 1024,
+            memory_total_bytes: 32 * 1024 * 1024 * 1024,
+            gpu_percent: Some(47.6),
+        });
+
+        assert_eq!(label, "CPU 12%  MEM 8.0/32G  GPU 48%");
+    }
+
+    #[test]
+    fn system_monitor_label_omits_gpu_when_absent() {
+        let label = build_system_monitor_label(&SystemMonitorDisplay {
+            cpu_percent: 4.0,
+            memory_used_bytes: 512 * 1024 * 1024,
+            memory_total_bytes: 2 * 1024 * 1024 * 1024,
+            gpu_percent: None,
+        });
+
+        assert_eq!(label, "CPU 4%  MEM 0.5/2G");
     }
 
     #[test]

@@ -5,8 +5,7 @@ use crate::cli::{
     Cli, Commands, GoalAction, InstallTarget, MigrateAction, SettingsAction, ThreadAction,
 };
 use crate::commands::common::{
-    find_sibling_binary, handle_post_setup_action, launch_gui, launch_tui, resolve_dm_target,
-    LaunchTarget,
+    handle_post_setup_action, launch_gui, launch_tui, resolve_dm_target, LaunchTarget,
 };
 use crate::output::audit::{
     format_timestamp, parse_duration_ago, print_audit_detail, print_audit_row,
@@ -54,6 +53,57 @@ fn default_startup_action(probe: setup_wizard::SetupProbe) -> DefaultStartupActi
         setup_wizard::SetupProbe::NeedsSetup => DefaultStartupAction::RunSetup,
         setup_wizard::SetupProbe::DaemonUnavailable => DefaultStartupAction::StartDaemonAndRetry,
     }
+}
+
+fn command_startup_action(
+    command: &Commands,
+    probe: setup_wizard::SetupProbe,
+) -> DefaultStartupAction {
+    match probe {
+        setup_wizard::SetupProbe::DaemonUnavailable => DefaultStartupAction::StartDaemonAndRetry,
+        setup_wizard::SetupProbe::NeedsSetup if !matches!(command, Commands::Setup) => {
+            DefaultStartupAction::RunSetup
+        }
+        setup_wizard::SetupProbe::NeedsSetup | setup_wizard::SetupProbe::Ready => {
+            DefaultStartupAction::ShowHelp
+        }
+    }
+}
+
+pub(super) async fn run_startup_preflight(command: &Commands) -> Result<()> {
+    let mut restarted_daemon = false;
+    loop {
+        match command_startup_action(command, setup_wizard::probe_setup_via_ipc().await) {
+            DefaultStartupAction::ShowHelp => break,
+            DefaultStartupAction::RunSetup => {
+                println!("Zorai setup is required before running this command.\n");
+                let action = setup_wizard::run_setup_wizard().await?;
+                match handle_post_setup_action(action) {
+                    Some(LaunchTarget::Tui) => {
+                        println!("\nLaunching TUI...");
+                        launch_tui();
+                    }
+                    Some(LaunchTarget::Gui) => {
+                        println!("\nLaunching desktop app...");
+                        launch_gui()?;
+                    }
+                    None => {
+                        println!("\nSetup complete. Continuing with the requested command.");
+                    }
+                }
+                break;
+            }
+            DefaultStartupAction::StartDaemonAndRetry => {
+                if restarted_daemon {
+                    bail!("daemon is still unreachable after startup retry");
+                }
+                setup_wizard::ensure_daemon_running().await?;
+                restarted_daemon = true;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn format_direct_message_output(
@@ -798,12 +848,11 @@ fn format_operation_status_output(
 }
 
 pub(crate) async fn run_default() -> Result<()> {
-    update::print_upgrade_notice_if_available(env!("CARGO_PKG_VERSION")).await;
-
     let mut restarted_daemon = false;
     loop {
         match default_startup_action(setup_wizard::probe_setup_via_ipc().await) {
             DefaultStartupAction::ShowHelp => {
+                update::print_upgrade_notice_if_available(env!("CARGO_PKG_VERSION")).await;
                 Cli::parse_from(["zorai", "--help"]);
                 break;
             }
@@ -841,14 +890,15 @@ pub(crate) async fn run_default() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        default_startup_action, format_direct_message_output, format_goal_control_output,
-        format_goal_delete_output, format_goal_detail_output, format_goal_dossier_output,
-        format_goal_list_output, format_goal_proof_output, format_goal_reports_output,
-        format_goal_retry_no_failed_step_output, format_operation_status_output,
-        format_prompt_output, format_status_output, format_thread_control_output,
-        format_thread_delete_output, format_thread_detail_output, format_thread_list_output,
-        latest_failed_goal_step, DefaultStartupAction,
+        command_startup_action, default_startup_action, format_direct_message_output,
+        format_goal_control_output, format_goal_delete_output, format_goal_detail_output,
+        format_goal_dossier_output, format_goal_list_output, format_goal_proof_output,
+        format_goal_reports_output, format_goal_retry_no_failed_step_output,
+        format_operation_status_output, format_prompt_output, format_status_output,
+        format_thread_control_output, format_thread_delete_output, format_thread_detail_output,
+        format_thread_list_output, latest_failed_goal_step, DefaultStartupAction,
     };
+    use crate::cli::Commands;
     use crate::client::{
         AgentGoalDeliveryUnitRecord, AgentGoalEvidenceRecord, AgentGoalProofCheckRecord,
         AgentGoalResumeDecisionRecord, AgentGoalRunDossierRecord, AgentGoalRunEventRecord,
@@ -913,6 +963,22 @@ mod tests {
         );
         assert_eq!(
             default_startup_action(SetupProbe::Ready),
+            DefaultStartupAction::ShowHelp
+        );
+    }
+
+    #[test]
+    fn command_startup_runs_setup_before_requested_command_when_config_requires_it() {
+        assert_eq!(
+            command_startup_action(&Commands::Status, SetupProbe::NeedsSetup),
+            DefaultStartupAction::RunSetup
+        );
+        assert_eq!(
+            command_startup_action(&Commands::Status, SetupProbe::DaemonUnavailable),
+            DefaultStartupAction::StartDaemonAndRetry
+        );
+        assert_eq!(
+            command_startup_action(&Commands::Setup, SetupProbe::NeedsSetup),
             DefaultStartupAction::ShowHelp
         );
     }
@@ -1830,21 +1896,8 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
             update::run_upgrade()?;
         }
         Commands::StartDaemon => {
-            println!("Starting daemon...");
-            let mut command = std::process::Command::new(find_sibling_binary("zorai-daemon"));
-            command
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
-
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                command.creation_flags(0x08000000);
-            }
-
-            command.spawn()?;
-            println!("Daemon started.");
+            setup_wizard::ensure_daemon_running().await?;
+            println!("Daemon is running.");
         }
         Commands::Install { target } => match target {
             InstallTarget::Plugin { package } => {

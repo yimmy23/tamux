@@ -6,6 +6,7 @@ mod client;
 mod projection;
 mod providers;
 mod state;
+mod system_monitor;
 mod terminal_graphics;
 #[cfg(test)]
 mod test_support;

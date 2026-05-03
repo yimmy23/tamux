@@ -413,6 +413,89 @@ fn file_preview_drag_selection_copies_preview_text() {
 }
 
 #[test]
+fn file_preview_drag_selection_copies_header_path() {
+    let mut model = build_model();
+    model.focus = FocusArea::Chat;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::FilePreview(ChatFilePreviewTarget {
+        path: "/tmp/demo.txt".to_string(),
+        repo_root: None,
+        repo_relative_path: None,
+    });
+
+    let chat_area = rendered_chat_area(&model);
+    let path_row = chat_area.y.saturating_add(2);
+    let start_col = chat_area.x.saturating_add(6);
+    let end_col = start_col.saturating_add("/tmp/demo.txt".len() as u16);
+
+    super::conversion::reset_last_copied_text();
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: start_col,
+        row: path_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: end_col,
+        row: path_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: end_col,
+        row: path_row,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(
+        super::conversion::last_copied_text().as_deref(),
+        Some("/tmp/demo.txt")
+    );
+    assert_eq!(model.status_line, "Copied selection to clipboard");
+}
+
+#[test]
+fn ctrl_c_copies_active_file_preview_path_selection() {
+    let mut model = build_model();
+    model.focus = FocusArea::Chat;
+    model.show_sidebar_override = Some(false);
+    model.main_pane_view = MainPaneView::FilePreview(ChatFilePreviewTarget {
+        path: "/tmp/demo.txt".to_string(),
+        repo_root: None,
+        repo_relative_path: None,
+    });
+
+    let chat_area = rendered_chat_area(&model);
+    let path_row = chat_area.y.saturating_add(2);
+    let start_col = chat_area.x.saturating_add(6);
+    let end_col = start_col.saturating_add("/tmp/demo.txt".len() as u16);
+
+    super::conversion::reset_last_copied_text();
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: start_col,
+        row: path_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: end_col,
+        row: path_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+    assert_eq!(
+        super::conversion::last_copied_text().as_deref(),
+        Some("/tmp/demo.txt")
+    );
+    assert_eq!(model.status_line, "Copied selection to clipboard");
+}
+
+#[test]
 fn esc_closes_work_context_even_from_input_focus() {
     let mut model = build_model();
     model.focus = FocusArea::Input;
@@ -477,4 +560,3 @@ fn status_modal_mouse_wheel_scrolls_body() {
 
     assert_eq!(model.status_modal_scroll, 3);
 }
-

@@ -347,6 +347,22 @@ fn wizard_ignores_async_command_capability_ack_messages() {
 }
 
 #[test]
+fn setup_probe_requires_configured_provider_and_model() {
+    assert_eq!(
+        setup_probe_from_config_json(r#"{"provider":"openai","model":""}"#),
+        SetupProbe::NeedsSetup
+    );
+    assert_eq!(
+        setup_probe_from_config_json(r#"{"provider":"","model":"gpt-5.4-mini"}"#),
+        SetupProbe::NeedsSetup
+    );
+    assert_eq!(
+        setup_probe_from_config_json(r#"{"provider":"openai","model":"gpt-5.4-mini"}"#),
+        SetupProbe::Ready
+    );
+}
+
+#[test]
 fn provider_validation_terminal_response_ignores_operation_acceptance() {
     let response = parse_provider_validation_terminal_response(DaemonMessage::OperationAccepted {
         operation_id: "op-provider-validation-1".to_string(),
@@ -414,9 +430,9 @@ fn config_set_response_completes_on_operation_acceptance() {
 }
 
 #[test]
-fn setup_probe_marks_ready_when_provider_is_persisted() {
+fn setup_probe_marks_ready_when_provider_and_model_are_persisted() {
     assert_eq!(
-        setup_probe_from_config_json(r#"{"provider":"openai"}"#),
+        setup_probe_from_config_json(r#"{"provider":"openai","model":"gpt-5.4-mini"}"#),
         SetupProbe::Ready
     );
 }

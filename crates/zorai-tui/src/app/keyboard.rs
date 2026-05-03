@@ -79,10 +79,12 @@ impl TuiModel {
                 self.clear_active_thread_activity();
                 self.show_input_notice("Stopped stream", InputNoticeKind::Success, 100, false);
             } else if self.focus == FocusArea::Chat {
-                if matches!(self.main_pane_view, MainPaneView::WorkContext) {
-                    self.copy_work_context_content();
-                } else if let Some(sel) = self.chat.selected_message() {
-                    self.copy_message(sel);
+                if !self.copy_active_drag_selection_to_clipboard() {
+                    if matches!(self.main_pane_view, MainPaneView::WorkContext) {
+                        self.copy_work_context_content();
+                    } else if let Some(sel) = self.chat.selected_message() {
+                        self.copy_message(sel);
+                    }
                 }
             }
             return false;

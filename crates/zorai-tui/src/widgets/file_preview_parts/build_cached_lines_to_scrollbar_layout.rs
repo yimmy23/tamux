@@ -110,16 +110,21 @@ fn selection_snapshot(
     scroll: usize,
 ) -> Option<SelectionSnapshot> {
     let snapshot = snapshot(area, tasks, target, theme, scroll)?;
-    if snapshot.body_lines.is_empty()
-        || snapshot.body_area.width == 0
-        || snapshot.body_area.height == 0
+    let header_height = FILE_PREVIEW_HEADER_LINES.min(area.height);
+    let header_area = Rect::new(area.x, area.y, area.width, header_height);
+    if header_area.height == 0
+        && (snapshot.body_lines.is_empty()
+            || snapshot.body_area.width == 0
+            || snapshot.body_area.height == 0)
     {
         return None;
     }
     Some(SelectionSnapshot {
-        lines: snapshot.body_lines,
+        header_lines: snapshot.header_lines,
+        body_lines: snapshot.body_lines,
         scroll: snapshot.scroll,
-        area: snapshot.body_area,
+        header_area,
+        body_area: snapshot.body_area,
     })
 }
 
@@ -127,23 +132,59 @@ fn selection_point_from_snapshot(
     snapshot: &SelectionSnapshot,
     mouse: Position,
 ) -> Option<crate::widgets::chat::SelectionPoint> {
-    let area = snapshot.area;
+    if snapshot.header_area.contains(mouse) {
+        let clamped_x = mouse.x.clamp(
+            snapshot.header_area.x,
+            snapshot
+                .header_area
+                .x
+                .saturating_add(snapshot.header_area.width)
+                .saturating_sub(1),
+        );
+        let visible_header_rows = snapshot.header_area.height as usize;
+        let row = (mouse.y.saturating_sub(snapshot.header_area.y) as usize)
+            .min(visible_header_rows.saturating_sub(1))
+            .min(snapshot.header_lines.len().saturating_sub(1));
+        let col = clamped_x.saturating_sub(snapshot.header_area.x) as usize;
+        let width = line_display_width(snapshot.header_lines.get(row)?);
+        return Some(crate::widgets::chat::SelectionPoint {
+            row,
+            col: col.min(width),
+        });
+    }
+
+    let area = snapshot.body_area;
+    if area.width == 0 || area.height == 0 || snapshot.body_lines.is_empty() {
+        return None;
+    }
     let clamped_x = mouse
         .x
         .clamp(area.x, area.x.saturating_add(area.width).saturating_sub(1));
     let clamped_y = mouse
         .y
         .clamp(area.y, area.y.saturating_add(area.height).saturating_sub(1));
-    let row = snapshot
+    let body_row = snapshot
         .scroll
         .saturating_add(clamped_y.saturating_sub(area.y) as usize)
-        .min(snapshot.lines.len().saturating_sub(1));
+        .min(snapshot.body_lines.len().saturating_sub(1));
+    let row = snapshot.header_lines.len().saturating_add(body_row);
     let col = clamped_x.saturating_sub(area.x) as usize;
-    let width = line_display_width(snapshot.lines.get(row)?);
+    let width = line_display_width(snapshot.body_lines.get(body_row)?);
     Some(crate::widgets::chat::SelectionPoint {
         row,
         col: col.min(width),
     })
+}
+
+fn selection_line<'a>(
+    snapshot: &'a SelectionSnapshot,
+    row: usize,
+) -> Option<&'a Line<'static>> {
+    if row < snapshot.header_lines.len() {
+        snapshot.header_lines.get(row)
+    } else {
+        snapshot.body_lines.get(row.saturating_sub(snapshot.header_lines.len()))
+    }
 }
 
 pub fn selection_point_from_mouse(
@@ -199,7 +240,7 @@ pub fn selected_text(
 
     let mut lines = Vec::new();
     for row in start_point.row..=end_point.row {
-        let line = snapshot.lines.get(row)?;
+        let line = selection_line(&snapshot, row)?;
         let plain = line_plain_text(line);
         let width = line_display_width(line);
         let from = if row == start_point.row {
@@ -385,11 +426,17 @@ pub fn render(
             .header_lines
             .iter()
             .take(header_height as usize)
-            .cloned()
+            .enumerate()
+            .map(|(row, line)| {
+                let mut line = line.clone();
+                apply_mouse_selection_highlight_to_line(row, &mut line, mouse_selection);
+                line
+            })
             .collect::<Vec<_>>();
         frame.render_widget(Paragraph::new(visible_header), header_area);
     }
 
+    let body_row_offset = snapshot.header_lines.len();
     let visible = snapshot
         .body_lines
         .iter()
@@ -398,7 +445,11 @@ pub fn render(
         .take(snapshot.body_area.height as usize)
         .map(|(row, line)| {
             let mut line = line.clone();
-            apply_mouse_selection_highlight_to_line(row, &mut line, mouse_selection);
+            apply_mouse_selection_highlight_to_line(
+                body_row_offset.saturating_add(row),
+                &mut line,
+                mouse_selection,
+            );
             line
         })
         .collect::<Vec<_>>();

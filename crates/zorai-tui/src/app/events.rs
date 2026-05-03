@@ -59,6 +59,7 @@ impl TuiModel {
         let _ = self.pump_daemon_events_budgeted(usize::MAX);
     }
 
+    #[cfg(test)]
     pub fn on_tick(&mut self) -> bool {
         self.on_tick_elapsed(1)
     }
@@ -69,8 +70,10 @@ impl TuiModel {
         let pending_stop_before = self.pending_stop;
         let voice_player_active_before = self.voice_player.is_some();
         let input_notice_active_before = self.input_notice.is_some();
+        let system_monitor_before = self.system_monitor;
 
         self.tick_counter = self.tick_counter.saturating_add(elapsed_ticks.max(1));
+        self.maybe_refresh_system_monitor();
         self.chat.clear_expired_copy_feedback(self.tick_counter);
         self.maybe_request_older_chat_history();
         self.maybe_request_older_goal_run_history();
@@ -124,6 +127,7 @@ impl TuiModel {
             || self.pending_stop != pending_stop_before
             || self.voice_player.is_some() != voice_player_active_before
             || self.input_notice.is_some() != input_notice_active_before
+            || self.system_monitor != system_monitor_before
     }
 
     pub(crate) fn wants_fast_tick(&self) -> bool {
@@ -190,6 +194,18 @@ impl TuiModel {
         self.next_spawned_sidebar_task_refresh_tick = self
             .tick_counter
             .saturating_add(SPAWNED_SIDEBAR_TASK_REFRESH_TICKS);
+    }
+
+    fn maybe_refresh_system_monitor(&mut self) {
+        if self.tick_counter < self.next_system_monitor_tick {
+            return;
+        }
+
+        let ticks_per_second = (1_000 / TUI_TICK_RATE_MS).max(1);
+        self.next_system_monitor_tick = self.tick_counter.saturating_add(ticks_per_second * 3);
+        if let Some(snapshot) = self.system_monitor_sampler.sample() {
+            self.system_monitor = Some(snapshot);
+        }
     }
 
     fn auto_refresh_interval_ticks(&self) -> Option<u64> {

@@ -230,3 +230,75 @@
         assert_eq!(removed.style, theme.accent_danger);
         assert_eq!(added.style, theme.accent_success);
     }
+
+    #[test]
+    fn selected_text_can_extract_header_path() {
+        let tasks = TaskState::default();
+        let target = ChatFilePreviewTarget {
+            path: "/repo/src/demo.rs".to_string(),
+            repo_root: None,
+            repo_relative_path: None,
+        };
+        let text = selected_text(
+            Rect::new(0, 0, 80, 20),
+            &tasks,
+            &target,
+            &ThemeTokens::default(),
+            0,
+            crate::widgets::chat::SelectionPoint { row: 2, col: 6 },
+            crate::widgets::chat::SelectionPoint { row: 2, col: 23 },
+        )
+        .expect("header path should be selectable");
+
+        assert_eq!(text, "/repo/src/demo.rs");
+    }
+
+    #[test]
+    fn rust_preview_applies_cached_syntax_styles_without_diff_renderer() {
+        let mut tasks = TaskState::default();
+        tasks.reduce(crate::state::task::TaskAction::FilePreviewReceived(
+            crate::state::task::FilePreview {
+                path: "/repo/src/demo.rs".to_string(),
+                content: [
+                    "fn main() {",
+                    "    let value = 42;",
+                    "    println!(\"{value}\");",
+                    "}",
+                ]
+                .join("\n"),
+                truncated: false,
+                is_text: true,
+            },
+        ));
+        let target = ChatFilePreviewTarget {
+            path: "/repo/src/demo.rs".to_string(),
+            repo_root: None,
+            repo_relative_path: None,
+        };
+        let theme = ThemeTokens::default();
+        let lines = build_lines(Rect::new(0, 0, 80, 20), &tasks, &target, &theme, 0);
+        let body_spans = lines
+            .iter()
+            .skip(FILE_PREVIEW_HEADER_LINES as usize)
+            .flat_map(|line| line.spans.iter())
+            .collect::<Vec<_>>();
+
+        assert!(
+            body_spans
+                .iter()
+                .any(|span| span.content.as_ref() == "fn" && span.style == theme.accent_primary),
+            "expected Rust keyword to use syntax color"
+        );
+        assert!(
+            body_spans
+                .iter()
+                .any(|span| span.content.as_ref() == "42" && span.style == theme.accent_secondary),
+            "expected number literal to use syntax color"
+        );
+        assert!(
+            body_spans.iter().any(|span| {
+                span.content.as_ref() == "\"{value}\"" && span.style == theme.accent_success
+            }),
+            "expected string literal to use syntax color"
+        );
+    }
